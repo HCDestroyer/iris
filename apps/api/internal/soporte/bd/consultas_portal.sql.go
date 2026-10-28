@@ -32,6 +32,55 @@ func (q *Queries) ClienteDeArgos(ctx context.Context, arg ClienteDeArgosParams) 
 	return i, err
 }
 
+const conteoTicketsPortal = `-- name: ConteoTicketsPortal :one
+
+SELECT count(*) FILTER (WHERE estado IN ('nuevo', 'abierto', 'en_espera'))::bigint AS abiertos,
+       count(*) FILTER (WHERE created_at > now() - interval '1 hour')::bigint AS ultima_hora
+FROM soporte.tickets
+WHERE cliente_id = $1::bigint AND empresa_id = $2::bigint AND origen = 'portal'
+`
+
+type ConteoTicketsPortalParams struct {
+	ClienteID int64
+	EmpresaID int64
+}
+
+type ConteoTicketsPortalRow struct {
+	Abiertos   int64
+	UltimaHora int64
+}
+
+// Topes del portal (anti spam): conteos en la base por cliente y empresa.
+// Tickets del portal del cliente abiertos (nuevo, abierto, en espera) y creados en la última hora.
+func (q *Queries) ConteoTicketsPortal(ctx context.Context, arg ConteoTicketsPortalParams) (ConteoTicketsPortalRow, error) {
+	row := q.db.QueryRow(ctx, conteoTicketsPortal, arg.ClienteID, arg.EmpresaID)
+	var i ConteoTicketsPortalRow
+	err := row.Scan(&i.Abiertos, &i.UltimaHora)
+	return i, err
+}
+
+const datosTicketPortal = `-- name: DatosTicketPortal :one
+SELECT c.nombre AS categoria_nombre,
+       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto
+FROM soporte.tickets t
+LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
+LEFT JOIN soporte.tickets p ON p.id = t.ticket_padre_id
+WHERE t.id = $1
+`
+
+type DatosTicketPortalRow struct {
+	CategoriaNombre *string
+	PadreAbierto    bool
+}
+
+// Nombre de la categoría y si el incidente maestro (padre) sigue abierto.
+func (q *Queries) DatosTicketPortal(ctx context.Context, id int64) (DatosTicketPortalRow, error) {
+	row := q.db.QueryRow(ctx, datosTicketPortal, id)
+	var i DatosTicketPortalRow
+	err := row.Scan(&i.CategoriaNombre, &i.PadreAbierto)
+	return i, err
+}
+
 const listarCategoriasPortal = `-- name: ListarCategoriasPortal :many
 SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
 WHERE visible_portal AND activa AND (empresa_id IS NULL OR empresa_id = $1::bigint)
@@ -119,9 +168,11 @@ func (q *Queries) ListarMensajesPublicos(ctx context.Context, arg ListarMensajes
 
 const listarTicketsCliente = `-- name: ListarTicketsCliente :many
 
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, c.nombre AS categoria_nombre
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, c.nombre AS categoria_nombre,
+       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto
 FROM soporte.tickets t
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
+LEFT JOIN soporte.tickets p ON p.id = t.ticket_padre_id
 WHERE t.cliente_id = $1::bigint AND t.empresa_id = $2::bigint
   AND ($3::bigint IS NULL OR t.id < $3)
   AND (cardinality($4::text[]) = 0 OR t.estado = ANY($4::text[]))
@@ -140,6 +191,7 @@ type ListarTicketsClienteParams struct {
 type ListarTicketsClienteRow struct {
 	SoporteTicket   SoporteTicket
 	CategoriaNombre *string
+	PadreAbierto    bool
 }
 
 // Portal del cliente (actor cliente: cliente y empresa de Argos de la sesión) ------------
@@ -207,6 +259,7 @@ func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsCli
 			&i.SoporteTicket.PropuestaEn,
 			&i.SoporteTicket.PropuestaMotivo,
 			&i.CategoriaNombre,
+			&i.PadreAbierto,
 		); err != nil {
 			return nil, err
 		}
@@ -218,15 +271,23 @@ func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsCli
 	return items, nil
 }
 
-const nombreCategoria = `-- name: NombreCategoria :one
-SELECT nombre FROM soporte.categorias WHERE id = $1
+const mensajesPortalUltimoMinuto = `-- name: MensajesPortalUltimoMinuto :one
+SELECT count(*)::bigint FROM soporte.ticket_mensajes m
+JOIN soporte.tickets t ON t.id = m.ticket_id
+WHERE t.cliente_id = $1::bigint AND t.empresa_id = $2::bigint
+  AND m.autor_tipo = 'cliente' AND m.canal = 'portal' AND m.created_at > now() - interval '1 minute'
 `
 
-func (q *Queries) NombreCategoria(ctx context.Context, id int64) (string, error) {
-	row := q.db.QueryRow(ctx, nombreCategoria, id)
-	var nombre string
-	err := row.Scan(&nombre)
-	return nombre, err
+type MensajesPortalUltimoMinutoParams struct {
+	ClienteID int64
+	EmpresaID int64
+}
+
+func (q *Queries) MensajesPortalUltimoMinuto(ctx context.Context, arg MensajesPortalUltimoMinutoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, mensajesPortalUltimoMinuto, arg.ClienteID, arg.EmpresaID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const servicioDeCliente = `-- name: ServicioDeCliente :one

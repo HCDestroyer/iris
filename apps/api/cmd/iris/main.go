@@ -177,7 +177,11 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Encolar: integracion.Encolar(cola)})
+	lportal, err := soporte.LimitesPortalDesdeEntorno()
+	if err != nil {
+		return err
+	}
+	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola)})
 	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,

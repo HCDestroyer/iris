@@ -89,8 +89,9 @@ si el ticket es de origen `correo` y el mensaje es público de un agente (o un a
 de un incidente maestro resuelto), encola el envío por el SMTP del buzón, siempre al contacto del
 ticket.
 
-`ticket.respondido` también sale, uno por hijo, al resolver un incidente maestro (`tickets.resolver`
-sobre un ticket con `maestro`): el mensaje público de Iris que avisa al cliente.
+`ticket.respondido` también sale, uno por hijo, cuando se resuelve un incidente maestro
+(`tickets.resolver` sobre un ticket con `maestro`) o Horus lo reabre: el mensaje público de Iris que
+avisa al cliente, emitido por el job `soporte.avisar_hijos` (en tandas, una vez por hijo y aviso).
 
 ## Tickets desde Horus (I2)
 
@@ -103,6 +104,8 @@ horus`); reabrir o cerrar un maestro, `ticket.estado_cambiado`.
 | `soporte.horus_descartado` | `evento` (el `horus.*`), `entrante_id`, `empresa_id` (la del evento o null), `motivo` (`sin_empresa` \| `empresa_no_registrada` \| `error`), `detalle` | Un evento de Horus que debía crear o tocar un ticket no se aplicó: sin empresa (o con una no registrada) habiendo empresas registradas, o una regla de negocio lo impidió (`error`, con el código y el detalle; p. ej. la categoría de la regla de hallazgos está inactiva). Alerta interna para el NOC; no se reintenta. Una vez por `entrante_id`. |
 
 Consume `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado`, `horus.hallazgo_abierto` y
-`horus.hallazgo_resuelto` (idempotente por `entrante_id`, tabla `soporte.horus_eventos`); reglas en
+`horus.hallazgo_resuelto` (idempotente por `entrante_id`, tabla `soporte.horus_eventos`; un evento
+con `ocurrido_en` igual o anterior al último conocido de su router, servicio o hallazgo se ignora
+como `obsoleto`); reglas en
 `apps/api/internal/soporte/README.md` («Tickets desde Horus»).
 

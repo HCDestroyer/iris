@@ -36,6 +36,8 @@ func init() {
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
+	// Portal: topes anti spam del portal del cliente (IRIS_PORTAL_*; LimitesPortalDesdeEntorno).
+	Portal LimitesPortal
 	// Cifrador (IRIS_CLAVE_CIFRADO) cifra las contraseñas de los buzones. Sin él no se pueden
 	// crear ni activar buzones (422 cifrado_no_configurado).
 	Cifrador *nucleo.Cifrador
@@ -116,6 +118,7 @@ type Modulo struct {
 	HallazgoAbierto  *auditoria.Caso[horus.HallazgoAbierto, ResultadoHorus]
 	HallazgoResuelto *auditoria.Caso[horus.HallazgoResuelto, ResultadoHorus]
 	DescartarHorus   *auditoria.Caso[EntradaDescartarHorus, ResultadoHorus]
+	AvisarTanda      *auditoria.Caso[ArgsAvisarHijos, int]
 
 	// Portal del cliente (actor cliente): portal.go.
 	ListarTicketsPortal     *auditoria.Caso[EntradaListarTicketsPortal, nucleo.Pagina[TicketPortal]]
@@ -168,6 +171,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.HallazgoAbierto = m.nuevoHallazgoAbierto()
 	m.HallazgoResuelto = m.nuevoHallazgoResuelto()
 	m.DescartarHorus = m.nuevoDescartarHorus()
+	m.AvisarTanda = m.nuevoAvisarTanda()
 	m.ListarTicketsPortal = m.nuevoListarTicketsPortal()
 	m.VerTicketPortal = m.nuevoVerTicketPortal()
 	m.ListarMensajesPortal = m.nuevoListarMensajesPortal()

@@ -347,7 +347,8 @@ func marcarRespuesta(f *soportebd.SoporteTicket, ahora time.Time) {
 
 // reactivarPorCliente aplica la regla de estado de un mensaje del cliente (correo o portal) y
 // guarda el ticket: en_espera → abierto (reanuda; corre el SLA de resolución) y resuelto →
-// abierto (reabre; el tiempo resuelto cuenta como pausa); nuevo y abierto no cambian. No cuenta
+// abierto (reabre; el tiempo resuelto cuenta como pausa); nuevo y abierto no cambian (no se
+// guarda: la versión no sube). No cuenta
 // como primera respuesta. Devuelve el motivo del cambio de estado (nil si no cambió); quien
 // llama agrega el mensaje y registra el cambio con cambioDeEstado.
 func (m *Modulo) reactivarPorCliente(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes soportebd.SoporteTicket, canal string) (soportebd.SoporteTicket, *string, error) {
@@ -365,6 +366,9 @@ func (m *Modulo) reactivarPorCliente(ctx context.Context, t *auditoria.Tx, q *so
 	case EstadoResuelto:
 		acumularPausa(&despues, cal, antes.ResueltoEn, ahora)
 		despues.Estado, despues.ResueltoEn, motivo = EstadoAbierto, nil, ptr("El cliente respondió por "+canal+" a un ticket resuelto")
+	}
+	if despues.Estado == antes.Estado {
+		return antes, nil, nil // nuevo o abierto: el ticket no cambia (ni su versión)
 	}
 	f, err := guardar(ctx, t, q, antes, despues, cal)
 	return f, motivo, err

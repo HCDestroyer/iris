@@ -319,6 +319,15 @@ type NucleoUsuariosRole struct {
 	UpdatedAt   time.Time
 }
 
+type SoporteAvisosHijo struct {
+	MaestroID int64
+	Aviso     string
+	HijoID    int64
+	MensajeID int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type SoporteBuzon struct {
 	ID                    int64
 	EmpresaID             *int64
@@ -440,6 +449,16 @@ type SoporteFeriado struct {
 	Desde        pgtype.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type SoporteHorusEstado struct {
+	Clave      string
+	EmpresaID  *int64
+	Estado     string
+	OcurridoEn time.Time
+	EntranteID int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type SoporteHorusEvento struct {

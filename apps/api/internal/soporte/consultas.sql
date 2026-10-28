@@ -162,7 +162,8 @@ VALUES (@ticket_id, @empresa_id, @tipo, @de, @a, @motivo, @datos, @actor_tipo, @
 
 -- name: ListarEventosTicket :many
 SELECT * FROM soporte.ticket_eventos
-WHERE ticket_id = @ticket_id AND id > @despues_de
+-- aviso_incidente todavía no está en el enum del contrato (lo agrega el panel cuando lo muestre).
+WHERE ticket_id = @ticket_id AND id > @despues_de AND tipo <> 'aviso_incidente'
 ORDER BY id
 LIMIT @limite;
 

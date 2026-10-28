@@ -61,3 +61,34 @@ func ConfigCorreoDesdeEntorno() (ConfigCorreo, error) {
 	}
 	return c, nil
 }
+
+// LimitesPortalDesdeEntorno lee los topes anti spam del portal: IRIS_PORTAL_TICKETS_ABIERTOS (10),
+// IRIS_PORTAL_TICKETS_POR_HORA (20) e IRIS_PORTAL_MENSAJES_POR_MINUTO (10). Vacía = el valor por
+// defecto.
+func LimitesPortalDesdeEntorno() (LimitesPortal, error) {
+	var l LimitesPortal
+	var errs []string
+	for _, v := range []struct {
+		nombre string
+		dst    *int
+	}{
+		{"IRIS_PORTAL_TICKETS_ABIERTOS", &l.TicketsAbiertos},
+		{"IRIS_PORTAL_TICKETS_POR_HORA", &l.TicketsPorHora},
+		{"IRIS_PORTAL_MENSAJES_POR_MINUTO", &l.MensajesPorMinuto},
+	} {
+		crudo := strings.TrimSpace(os.Getenv(v.nombre))
+		if crudo == "" {
+			continue
+		}
+		n, err := strconv.Atoi(crudo)
+		if err != nil || n < 1 {
+			errs = append(errs, v.nombre+" inválido: "+crudo)
+			continue
+		}
+		*v.dst = n
+	}
+	if len(errs) > 0 {
+		return l, fmt.Errorf("configuración del portal: %s", strings.Join(errs, "; "))
+	}
+	return l, nil
+}

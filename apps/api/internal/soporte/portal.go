@@ -3,6 +3,8 @@ package soporte
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +33,7 @@ type TicketPortal struct {
 	Categoria            *string    `json:"categoria" nullable:"true" doc:"Nombre de la categoría"`
 	ServicioID           *int64     `json:"servicioId" nullable:"true" doc:"Servicio en Argos"`
 	Origen               string     `json:"origen" enum:"panel,portal,correo,telegram,horus,argos,api"`
-	AfectadoPorIncidente bool       `json:"afectadoPorIncidente" doc:"Vinculado a una falla general de la red (incidente maestro)"`
+	AfectadoPorIncidente bool       `json:"afectadoPorIncidente" doc:"Vinculado a una falla general de la red (incidente maestro) que sigue abierta"`
 	PuedeConfirmar       bool       `json:"puedeConfirmar" doc:"Resuelto: el cliente puede confirmar la solución (lo cierra) o responder (lo reabre)"`
 	ResueltoEn           *time.Time `json:"resueltoEn" nullable:"true"`
 	CerradoEn            *time.Time `json:"cerradoEn" nullable:"true"`
@@ -40,28 +42,22 @@ type TicketPortal struct {
 	ActualizadoEn        time.Time  `json:"actualizadoEn"`
 }
 
-func aTicketPortal(f soportebd.SoporteTicket, categoria *string) TicketPortal {
+func aTicketPortal(f soportebd.SoporteTicket, categoria *string, padreAbierto bool) TicketPortal {
 	return TicketPortal{
 		ID: f.ID, Numero: f.Numero, Asunto: f.Asunto, Estado: f.Estado, CategoriaID: f.CategoriaID, Categoria: categoria,
-		ServicioID: f.ServicioID, Origen: f.Origen, AfectadoPorIncidente: f.TicketPadreID != nil,
+		ServicioID: f.ServicioID, Origen: f.Origen, AfectadoPorIncidente: padreAbierto,
 		PuedeConfirmar: f.Estado == EstadoResuelto, ResueltoEn: f.ResueltoEn, CerradoEn: f.CerradoEn,
 		Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 	}
 }
 
-// ticketPortal agrega el nombre de la categoría.
+// ticketPortal agrega el nombre de la categoría y si el incidente maestro sigue abierto.
 func ticketPortal(ctx context.Context, q *soportebd.Queries, f soportebd.SoporteTicket) (TicketPortal, error) {
-	var nombre *string
-	if f.CategoriaID != nil {
-		n, err := q.NombreCategoria(ctx, *f.CategoriaID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return TicketPortal{}, err
-		}
-		if err == nil {
-			nombre = &n
-		}
+	d, err := q.DatosTicketPortal(ctx, f.ID)
+	if err != nil {
+		return TicketPortal{}, err
 	}
-	return aTicketPortal(f, nombre), nil
+	return aTicketPortal(f, d.CategoriaNombre, d.PadreAbierto), nil
 }
 
 // MensajePortal es un mensaje público de la conversación, como lo ve el cliente.
@@ -174,7 +170,7 @@ func (m *Modulo) nuevoListarTicketsPortal() *auditoria.Caso[EntradaListarTickets
 			}
 			return nucleo.Paginar(filas, in.Limite(),
 				func(f soportebd.ListarTicketsClienteRow) TicketPortal {
-					return aTicketPortal(f.SoporteTicket, f.CategoriaNombre)
+					return aTicketPortal(f.SoporteTicket, f.CategoriaNombre, f.PadreAbierto)
 				},
 				func(f soportebd.ListarTicketsClienteRow) []any { return []any{f.SoporteTicket.ID} }), nil
 		},
@@ -245,6 +241,9 @@ func (m *Modulo) nuevoCrearTicketPortal() *auditoria.Caso[EntradaCrearTicketPort
 				if err != nil {
 					return TicketPortal{}, err
 				}
+			}
+			if err := m.topeTickets(ctx, q, a, in.ClaveIdempotencia); err != nil {
+				return TicketPortal{}, err
 			}
 			entrada := EntradaCrearTicket{
 				ClienteID: &a.ClienteID, CategoriaID: in.CategoriaID, Prioridad: "media", Origen: "portal",
@@ -325,6 +324,9 @@ func (m *Modulo) nuevoResponderTicketPortal() *auditoria.Caso[EntradaResponderTi
 			if err != nil {
 				return TicketPortalConMensaje{}, err
 			}
+			if err := m.topeMensajes(ctx, q, contexto.ActorDe(ctx)); err != nil {
+				return TicketPortalConMensaje{}, err
+			}
 			if err := exigirEstado(antes, "responder", EstadoNuevo, EstadoAbierto, EstadoEnEspera, EstadoResuelto); err != nil {
 				return TicketPortalConMensaje{}, err
 			}
@@ -394,4 +396,76 @@ func nuevoListarCategoriasPortal() *auditoria.Caso[struct{}, nucleo.Pagina[Categ
 			return nucleo.PaginaDe(salida), nil
 		},
 	})
+}
+
+// Topes anti spam del portal (Config.Portal). Se cuentan en la base, por cliente y empresa de la
+// sesión, con un advisory lock por cliente para que dos peticiones simultáneas no pasen las dos.
+
+// LimitesPortal son los topes del portal. Cero = el valor por defecto.
+type LimitesPortal struct {
+	// TicketsAbiertos: tickets del portal del cliente en nuevo, abierto o en espera (10).
+	TicketsAbiertos int
+	// TicketsPorHora: tickets creados desde el portal en la última hora (20).
+	TicketsPorHora int
+	// MensajesPorMinuto: mensajes del cliente por el portal en el último minuto, en todos sus
+	// tickets (10).
+	MensajesPorMinuto int
+}
+
+func (l LimitesPortal) valores() (abiertos, porHora, porMinuto int64) {
+	v := func(n, def int) int64 {
+		if n <= 0 {
+			return int64(def)
+		}
+		return int64(n)
+	}
+	return v(l.TicketsAbiertos, 10), v(l.TicketsPorHora, 20), v(l.MensajesPorMinuto, 10)
+}
+
+func demasiados(codigo, detalle string) *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusTooManyRequests, codigo, "Demasiadas solicitudes", detalle)
+}
+
+// topeTickets: 429 demasiados_tickets si el cliente ya tiene el máximo de tickets del portal
+// abiertos o creó el máximo en la última hora. Una creación repetida con la misma
+// Idempotency-Key no cuenta.
+func (m *Modulo) topeTickets(ctx context.Context, q *soportebd.Queries, a contexto.Actor, clave string) error {
+	if idem := conIdempotencia(ctx, clave); idem != nil {
+		if _, err := q.TicketPorIdempotencia(ctx, idem); err == nil {
+			return nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", a.EmpresaID, a.ClienteID)); err != nil {
+		return err
+	}
+	c, err := q.ConteoTicketsPortal(ctx, soportebd.ConteoTicketsPortalParams{ClienteID: a.ClienteID, EmpresaID: a.EmpresaID})
+	if err != nil {
+		return err
+	}
+	abiertos, porHora, _ := m.cfg.Portal.valores()
+	switch {
+	case c.Abiertos >= abiertos:
+		return demasiados("demasiados_tickets", fmt.Sprintf("Ya tienes %d tickets abiertos; escribe en uno de ellos o espera a que los atendamos", c.Abiertos))
+	case c.UltimaHora >= porHora:
+		return demasiados("demasiados_tickets", "Abriste demasiados tickets en la última hora; intenta más tarde")
+	}
+	return nil
+}
+
+// topeMensajes: 429 demasiados_mensajes si el cliente escribió el máximo de mensajes por el
+// portal en el último minuto.
+func (m *Modulo) topeMensajes(ctx context.Context, q *soportebd.Queries, a contexto.Actor) error {
+	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", a.EmpresaID, a.ClienteID)); err != nil {
+		return err
+	}
+	n, err := q.MensajesPortalUltimoMinuto(ctx, soportebd.MensajesPortalUltimoMinutoParams{ClienteID: a.ClienteID, EmpresaID: a.EmpresaID})
+	if err != nil {
+		return err
+	}
+	if _, _, porMinuto := m.cfg.Portal.valores(); n >= porMinuto {
+		return demasiados("demasiados_mensajes", "Enviaste demasiados mensajes en el último minuto; espera un momento")
+	}
+	return nil
 }

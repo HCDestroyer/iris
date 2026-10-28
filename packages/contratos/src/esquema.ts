@@ -632,7 +632,7 @@ export interface paths {
         put?: never;
         /**
          * Abrir un ticket
-         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`.
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`. Topes por cliente (429 `demasiados_tickets`): tickets del portal abiertos (10) y creados en la última hora (20).
          */
         post: operations["crearTicketPortal"];
         delete?: never;
@@ -732,7 +732,7 @@ export interface paths {
         put?: never;
         /**
          * Escribir en mi ticket
-         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió).
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió). Tope por cliente (429 `demasiados_mensajes`): 10 mensajes por minuto en todos sus tickets.
          */
         post: operations["responderTicketPortal"];
         delete?: never;
@@ -2449,7 +2449,7 @@ export interface components {
         TicketPortal: {
             /** Format: date-time */
             actualizadoEn: string;
-            /** @description Vinculado a una falla general de la red (incidente maestro) */
+            /** @description Vinculado a una falla general de la red (incidente maestro) que sigue abierta */
             afectadoPorIncidente: boolean;
             asunto: string;
             /** @description Nombre de la categoría */
@@ -5040,6 +5040,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -5410,6 +5419,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

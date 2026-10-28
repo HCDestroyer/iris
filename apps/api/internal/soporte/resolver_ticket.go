@@ -53,35 +53,12 @@ func (m *Modulo) nuevoResolverTicket() *auditoria.Caso[EntradaResolverTicket, Ti
 				return Ticket{}, err
 			}
 			if f.Maestro != nil {
-				if err := notificarHijos(ctx, t, q, f, solucion); err != nil {
+				// El aviso a los hijos va en un job (tandas), no en esta transacción.
+				if err := m.encolarAviso(ctx, t, f, AvisoResuelto, solucion); err != nil {
 					return Ticket{}, err
 				}
 			}
 			return aTicket(f, ahora), nil
 		},
 	})
-}
-
-// notificarHijos avisa a cada hijo no cerrado de un incidente maestro que se resolvió: mensaje
-// público de Iris y ticket.respondido (así sale por el portal o, si el hijo vino por correo, por
-// correo al contacto). No cambia el estado de los hijos ni cuenta como su primera respuesta: un
-// agente los resuelve (el cliente puede seguir con problemas propios).
-func notificarHijos(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, maestro soportebd.SoporteTicket, solucion string) error {
-	hijos, err := q.HijosNoCerrados(ctx, maestro.ID)
-	if err != nil {
-		return err
-	}
-	for _, h := range hijos {
-		cuerpo := "El incidente de red que afectaba tu servicio se resolvió: " + solucion +
-			"\n\nSi todavía tienes problemas, responde a este mensaje."
-		msj, err := mensajeSistema(ctx, q, h, true, cuerpo)
-		if err != nil {
-			return err
-		}
-		if err := t.Emitir("ticket.respondido", map[string]any{"ticket_id": h.ID, "mensaje_id": msj.ID}); err != nil {
-			return err
-		}
-	}
-	t.Anotar(map[string]any{"hijos_notificados": len(hijos)})
-	return nil
 }

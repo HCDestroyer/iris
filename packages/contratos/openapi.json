@@ -3410,7 +3410,7 @@
             "type": "string"
           },
           "afectadoPorIncidente": {
-            "description": "Vinculado a una falla general de la red (incidente maestro)",
+            "description": "Vinculado a una falla general de la red (incidente maestro) que sigue abierta",
             "type": "boolean"
           },
           "asunto": {
@@ -7267,7 +7267,7 @@
         ]
       },
       "post": {
-        "description": "Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`.",
+        "description": "Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`. Topes por cliente (429 `demasiados_tickets`): tickets del portal abiertos (10) y creados en la última hora (20).",
         "operationId": "crearTicketPortal",
         "parameters": [
           {
@@ -7331,6 +7331,16 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {
@@ -7778,7 +7788,7 @@
     },
     "/api/v1/portal/tickets/{id}/responder": {
       "post": {
-        "description": "Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió).",
+        "description": "Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió). Tope por cliente (429 `demasiados_mensajes`): 10 mensajes por minuto en todos sus tickets.",
         "operationId": "responderTicketPortal",
         "parameters": [
           {
@@ -7872,6 +7882,16 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {

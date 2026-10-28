@@ -51,6 +51,7 @@ const VentanaReapertura = 24 * time.Hour
 // Resultados de un evento de Horus (soporte.horus_eventos.resultado).
 const (
 	HorusRepetido         = "repetido"
+	HorusObsoleto         = "obsoleto"
 	HorusMaestroCreado    = "maestro_creado"
 	HorusMaestroReabierto = "maestro_reabierto"
 	HorusMaestroExistente = "maestro_existente"
@@ -99,7 +100,7 @@ type EntradaDescartarHorus struct {
 // no: pueden ser muchos).
 func auditarHorus(r ResultadoHorus) bool {
 	switch r.Resultado {
-	case HorusRepetido, HorusSinRegla, HorusSinTicket, HorusSinMaestro:
+	case HorusRepetido, HorusObsoleto, HorusSinRegla, HorusSinTicket, HorusSinMaestro:
 		return false
 	}
 	return true
@@ -162,6 +163,29 @@ func detalleSinEmpresa(motivo string, empresa *int64) string {
 		return fmt.Sprintf("La empresa %d no está registrada en Iris", *empresa)
 	}
 	return "El evento no trae empresa y hay empresas registradas: no se sabe de quién es"
+}
+
+// enOrden aplica el orden de los eventos de Horus (que reintenta y puede desordenar): guarda el
+// último estado y ocurrido_en por clave (soporte.horus_estados) y devuelve false si el evento
+// tiene un ocurrido_en igual o anterior al guardado (obsoleto: no hace nada). Quien llama tiene
+// el advisory lock de la clave.
+func enOrden(ctx context.Context, q *soportebd.Queries, clave string, empresa *int64, estado string, ocurrido time.Time, entrante int64) (bool, error) {
+	ocurrido = ocurrido.UTC().Truncate(time.Microsecond)
+	previo, err := q.EstadoHorus(ctx, clave)
+	if err == nil && !ocurrido.After(previo.OcurridoEn) {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	return true, q.GuardarEstadoHorus(ctx, soportebd.GuardarEstadoHorusParams{
+		Clave: clave, EmpresaID: empresa, Estado: estado, OcurridoEn: ocurrido, EntranteID: entrante,
+	})
+}
+
+func obsoleto(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, entrante int64) (ResultadoHorus, error) {
+	t.Anotar(map[string]any{"entrante_id": entrante, "resultado": HorusObsoleto})
+	return cerrarHorus(ctx, q, entrante, ResultadoHorus{Resultado: HorusObsoleto}, ptr("ocurrido_en igual o anterior al último evento conocido"))
 }
 
 // proponer deja la propuesta (resolver o cerrar) en el ticket con una nota interna y emite
@@ -241,8 +265,17 @@ func (m *Modulo) nuevoIncidenteHorus() *auditoria.Caso[EntradaIncidenteHorus, Re
 			if in.Tipo == "infra" {
 				ref = *in.InfraID
 			}
-			if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.incidente:%s:%d:%s", in.Tipo, deref(empresa), ref)); err != nil {
+			clave := fmt.Sprintf("%s:%d:%s", in.Tipo, deref(empresa), ref)
+			if err := q.BloquearIncidente(ctx, "soporte.incidente:"+clave); err != nil {
 				return ResultadoHorus{}, err
+			}
+			// Un caído más viejo que el último «arriba» (o un arriba más viejo que la caída que
+			// abrió el maestro) es obsoleto: no abre ni propone nada.
+			if ok, err := enOrden(ctx, q, clave, empresa, in.Estado, in.OcurridoEn, in.EntranteID); err != nil || !ok {
+				if err != nil {
+					return ResultadoHorus{}, err
+				}
+				return obsoleto(ctx, t, q, in.EntranteID)
 			}
 			ultimo, err := q.UltimoMaestro(ctx, soportebd.UltimoMaestroParams{Maestro: in.Tipo, RouterID: in.RouterID, InfraID: in.InfraID, EmpresaID: empresa})
 			hay := err == nil
@@ -303,7 +336,8 @@ func (m *Modulo) incidenteCaido(ctx context.Context, t *auditoria.Tx, q *soporte
 				}
 			}
 			return ResultadoHorus{Resultado: HorusMaestroExistente, TicketID: &ultimo.ID}, nil
-		case ultimo.Estado == EstadoResuelto && ultimo.ResueltoEn != nil && ahora.Sub(*ultimo.ResueltoEn) <= VentanaReapertura:
+		case ultimo.Estado == EstadoResuelto && ultimo.ResueltoEn != nil && in.OcurridoEn.Sub(*ultimo.ResueltoEn) <= VentanaReapertura:
+			// La ventana se mide con la hora de la caída según Horus, no con la de proceso.
 			cal, err := cargarCalendario(ctx, q, ultimo.CalendarioID)
 			if err != nil {
 				return ResultadoHorus{}, err
@@ -319,6 +353,9 @@ func (m *Modulo) incidenteCaido(ctx context.Context, t *auditoria.Tx, q *soporte
 				return ResultadoHorus{}, err
 			}
 			if err := cambioDeEstado(ctx, t, q, ultimo, f, ptr("Horus: volvió a caer")); err != nil {
+				return ResultadoHorus{}, err
+			}
+			if err := m.encolarAviso(ctx, t, f, AvisoReabierto, ""); err != nil {
 				return ResultadoHorus{}, err
 			}
 			return ResultadoHorus{Resultado: HorusMaestroReabierto, TicketID: &f.ID}, nil
@@ -420,8 +457,17 @@ func (m *Modulo) nuevoHallazgoAbierto() *auditoria.Caso[horus.HallazgoAbierto, R
 				return descartar(ctx, t, q, in.EntranteID, horus.EventoHallazgoAbierto, in.EmpresaID, motivo, detalleSinEmpresa(motivo, in.EmpresaID))
 			}
 			t.FijarEmpresa(deref(empresa))
-			if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.hallazgo:%d:%s", deref(empresa), in.HallazgoID)); err != nil {
+			clave := fmt.Sprintf("hallazgo:%d:%s", deref(empresa), in.HallazgoID)
+			if err := q.BloquearIncidente(ctx, "soporte."+clave); err != nil {
 				return ResultadoHorus{}, err
+			}
+			// Si Horus ya avisó que el hallazgo se resolvió después de esta apertura (llegó antes
+			// el resuelto), no se abre ticket: obsoleto.
+			if ok, err := enOrden(ctx, q, clave, empresa, "abierto", in.OcurridoEn, in.EntranteID); err != nil || !ok {
+				if err != nil {
+					return ResultadoHorus{}, err
+				}
+				return obsoleto(ctx, t, q, in.EntranteID)
 			}
 			existente, err := q.TicketDeHallazgo(ctx, soportebd.TicketDeHallazgoParams{HallazgoID: &in.HallazgoID, EmpresaID: empresa})
 			if err == nil && mismoID(existente.EmpresaID, empresa) {
@@ -505,6 +551,18 @@ func (m *Modulo) nuevoHallazgoResuelto() *auditoria.Caso[horus.HallazgoResuelto,
 			var empresa *int64
 			if hay {
 				empresa = in.EmpresaID
+			}
+			// Se guarda aunque todavía no haya ticket: si la apertura llega después (fuera de
+			// orden), queda obsoleta y no abre nada.
+			clave := fmt.Sprintf("hallazgo:%d:%s", deref(empresa), in.HallazgoID)
+			if err := q.BloquearIncidente(ctx, "soporte."+clave); err != nil {
+				return ResultadoHorus{}, err
+			}
+			if ok, err := enOrden(ctx, q, clave, empresa, "resuelto", in.OcurridoEn, in.EntranteID); err != nil || !ok {
+				if err != nil {
+					return ResultadoHorus{}, err
+				}
+				return obsoleto(ctx, t, q, in.EntranteID)
 			}
 			f, err := q.TicketDeHallazgo(ctx, soportebd.TicketDeHallazgoParams{HallazgoID: &in.HallazgoID, EmpresaID: empresa})
 			if errors.Is(err, pgx.ErrNoRows) {

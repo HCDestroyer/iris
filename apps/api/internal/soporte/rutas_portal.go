@@ -42,7 +42,8 @@ func (m *Modulo) registrarPortal(api huma.API) {
 
 	crear := operacionPortal("crearTicketPortal", http.MethodPost, "/api/v1/portal/tickets", "Abrir un ticket",
 		"Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`.",
-		http.StatusCreated)
+		http.StatusCreated, http.StatusTooManyRequests)
+	crear.Description += " Topes por cliente (429 `demasiados_tickets`): tickets del portal abiertos (10) y creados en la última hora (20)."
 	huma.Register(api, crear, func(ctx context.Context, in *conClave[EntradaCrearTicketPortal]) (*cuerpo[TicketPortal], error) {
 		e := in.Body
 		e.ClaveIdempotencia = in.IdempotencyKey
@@ -63,7 +64,8 @@ func (m *Modulo) registrarPortal(api huma.API) {
 
 	responderOp := operacionPortal("responderTicketPortal", http.MethodPost, "/api/v1/portal/tickets/{id}/responder", "Escribir en mi ticket",
 		"Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió).",
-		http.StatusOK, http.StatusNotFound, http.StatusConflict)
+		http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusTooManyRequests)
+	responderOp.Description += " Tope por cliente (429 `demasiados_mensajes`): 10 mensajes por minuto en todos sus tickets."
 	huma.Register(api, responderOp, func(ctx context.Context, in *conIDPortal[EntradaResponderTicketPortal]) (*cuerpo[TicketPortalConMensaje], error) {
 		e := in.Body
 		e.ID, e.ClaveIdempotencia = in.ID, in.IdempotencyKey

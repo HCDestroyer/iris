@@ -7,6 +7,7 @@ package soportebd
 
 import (
 	"context"
+	"time"
 )
 
 const bloquearIncidente = `-- name: BloquearIncidente :exec
@@ -75,6 +76,25 @@ func (q *Queries) CerrarEventoHorus(ctx context.Context, arg CerrarEventoHorusPa
 	return err
 }
 
+const estadoHorus = `-- name: EstadoHorus :one
+SELECT clave, empresa_id, estado, ocurrido_en, entrante_id, created_at, updated_at FROM soporte.horus_estados WHERE clave = $1 FOR UPDATE
+`
+
+func (q *Queries) EstadoHorus(ctx context.Context, clave string) (SoporteHorusEstado, error) {
+	row := q.db.QueryRow(ctx, estadoHorus, clave)
+	var i SoporteHorusEstado
+	err := row.Scan(
+		&i.Clave,
+		&i.EmpresaID,
+		&i.Estado,
+		&i.OcurridoEn,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const eventoHorus = `-- name: EventoHorus :one
 SELECT entrante_id, evento, empresa_id, resultado, ticket_id, detalle, created_at, updated_at FROM soporte.horus_eventos WHERE entrante_id = $1
 `
@@ -95,12 +115,51 @@ func (q *Queries) EventoHorus(ctx context.Context, entranteID int64) (SoporteHor
 	return i, err
 }
 
-const hijosNoCerrados = `-- name: HijosNoCerrados :many
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE ticket_padre_id = $1::bigint AND estado <> 'cerrado' ORDER BY id
+const guardarEstadoHorus = `-- name: GuardarEstadoHorus :exec
+INSERT INTO soporte.horus_estados (clave, empresa_id, estado, ocurrido_en, entrante_id)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (clave) DO UPDATE SET estado = EXCLUDED.estado, ocurrido_en = EXCLUDED.ocurrido_en,
+    entrante_id = EXCLUDED.entrante_id, updated_at = now()
 `
 
-func (q *Queries) HijosNoCerrados(ctx context.Context, ticketPadreID int64) ([]SoporteTicket, error) {
-	rows, err := q.db.Query(ctx, hijosNoCerrados, ticketPadreID)
+type GuardarEstadoHorusParams struct {
+	Clave      string
+	EmpresaID  *int64
+	Estado     string
+	OcurridoEn time.Time
+	EntranteID int64
+}
+
+func (q *Queries) GuardarEstadoHorus(ctx context.Context, arg GuardarEstadoHorusParams) error {
+	_, err := q.db.Exec(ctx, guardarEstadoHorus,
+		arg.Clave,
+		arg.EmpresaID,
+		arg.Estado,
+		arg.OcurridoEn,
+		arg.EntranteID,
+	)
+	return err
+}
+
+const hijosSinAviso = `-- name: HijosSinAviso :many
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo FROM soporte.tickets t
+WHERE t.ticket_padre_id = $1::bigint AND t.estado <> 'cerrado'
+  AND NOT EXISTS (SELECT 1 FROM soporte.avisos_hijos a
+                  WHERE a.maestro_id = $1::bigint AND a.aviso = $2 AND a.hijo_id = t.id)
+ORDER BY t.id
+LIMIT $3
+FOR UPDATE OF t
+`
+
+type HijosSinAvisoParams struct {
+	MaestroID int64
+	Aviso     string
+	Limite    int32
+}
+
+// Siguiente tanda de hijos no cerrados del maestro que todavía no recibieron este aviso.
+func (q *Queries) HijosSinAviso(ctx context.Context, arg HijosSinAvisoParams) ([]SoporteTicket, error) {
+	rows, err := q.db.Query(ctx, hijosSinAviso, arg.MaestroID, arg.Aviso, arg.Limite)
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +339,27 @@ func (q *Queries) ReclamarEventoHorus(ctx context.Context, arg ReclamarEventoHor
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const registrarAvisoHijo = `-- name: RegistrarAvisoHijo :exec
+INSERT INTO soporte.avisos_hijos (maestro_id, aviso, hijo_id, mensaje_id) VALUES ($1, $2, $3, $4)
+`
+
+type RegistrarAvisoHijoParams struct {
+	MaestroID int64
+	Aviso     string
+	HijoID    int64
+	MensajeID int64
+}
+
+func (q *Queries) RegistrarAvisoHijo(ctx context.Context, arg RegistrarAvisoHijoParams) error {
+	_, err := q.db.Exec(ctx, registrarAvisoHijo,
+		arg.MaestroID,
+		arg.Aviso,
+		arg.HijoID,
+		arg.MensajeID,
+	)
+	return err
 }
 
 const reglaDeHallazgo = `-- name: ReglaDeHallazgo :one

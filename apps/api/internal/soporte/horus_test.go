@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 
 	integracionpkg "github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -131,7 +132,7 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 	instantanea(t, 61, 6102, 610201, 6100)
 	instantanea(t, 61, 6103, 610301, 6199) // otro router, sin incidente
 	inicio := time.Now().UTC()
-	m, reloj := nuevoModulo(inicio)
+	m, reloj, jobs := nuevoModuloConCola(inicio)
 	emp := ptr(int64(61))
 
 	// Dos webhooks distintos de la misma caída, cada uno entregado dos veces y en paralelo.
@@ -166,7 +167,10 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 	r2, t2 := resultadoHorus(t, e2)
 	resultados := []string{r1, r2}
 	slices.Sort(resultados)
-	if resultados[0] != "maestro_creado" || resultados[1] != "maestro_existente" || *t1 != ma.ID || *t2 != ma.ID {
+	// El segundo webhook deja una nota o, si llegó después el más nuevo, queda obsoleto.
+	mismo := func(id *int64) bool { return id == nil || *id == ma.ID }
+	if resultados[0] != "maestro_creado" || (resultados[1] != "maestro_existente" && resultados[1] != "obsoleto") ||
+		!mismo(t1) || !mismo(t2) {
 		t.Fatalf("resultados: %s %v / %s %v", r1, t1, r2, t2)
 	}
 	if n := contar(eventosDe(t, ma.ID), "ticket.creado"); n != 1 {
@@ -223,10 +227,40 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 		t.Fatalf("ticket.resolucion_propuesta: %d", n)
 	}
 
-	// Un agente resuelve el maestro: la propuesta se descarta y cada hijo recibe un aviso público.
+	// Un agente resuelve el maestro: la propuesta se descarta y se encola el aviso a los hijos
+	// (job soporte.avisar_hijos); el job avisa a cada uno con un mensaje público.
 	res, err := m.ResolverTicket.Ejecutar(ctx, soporte.EntradaResolverTicket{ID: ma.ID, Version: tk.Version, Solucion: "Se cambió la fuente del router"})
 	if err != nil || res.Propuesta != nil {
 		t.Fatalf("resolver maestro: %+v %v", res, err)
+	}
+	if v, _ := m.VerTicket.Ejecutar(sis, soporte.EntradaVerTicket{ID: h1.ID}); v.Version != h1.Version {
+		t.Fatal("resolver no toca a los hijos en su transacción")
+	}
+	avisos := jobs.tomar()
+	if len(avisos) != 1 || avisos[0].Aviso != soporte.AvisoResuelto || avisos[0].MaestroID != ma.ID {
+		t.Fatalf("job de aviso: %+v", avisos)
+	}
+	for range 2 { // el job repetido no duplica
+		if n, err := m.AvisarHijos(sis, avisos[0]); err != nil {
+			t.Fatal(err)
+		} else if n != 0 && n != 3 {
+			t.Fatalf("hijos avisados: %d", n)
+		}
+	}
+	if v, _ := m.VerTicket.Ejecutar(sis, soporte.EntradaVerTicket{ID: h1.ID}); v.Version != h1.Version+1 {
+		t.Fatalf("el aviso toca al hijo (versión): %d", v.Version)
+	}
+	var hist int
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		"SELECT count(*) FROM soporte.ticket_eventos WHERE ticket_id = $1 AND tipo = 'aviso_incidente'", h1.ID).Scan(&hist); err != nil || hist != 1 {
+		t.Fatalf("historial del aviso: %d %v", hist, err)
+	}
+	// El maestro ya no está abierto: el cliente deja de ver «falla general».
+	if v, err := m.VerTicketPortal.Ejecutar(pruebas.ContextoCliente(pruebas.Pool(t), 6101, 61), soporte.EntradaVerTicketPortal{ID: porPortal.ID}); err != nil || v.AfectadoPorIncidente {
+		t.Fatalf("afectadoPorIncidente con el maestro resuelto: %+v %v", v, err)
+	}
+	if l, _ := m.ListarTicketsPortal.Ejecutar(pruebas.ContextoCliente(pruebas.Pool(t), 6101, 61), soporte.EntradaListarTicketsPortal{}); len(l.Data) == 0 || l.Data[0].AfectadoPorIncidente {
+		t.Fatalf("lista con el maestro resuelto: %+v", l.Data)
 	}
 	for _, h := range []soporte.Ticket{h1, h2} {
 		msjs, _ := m.ListarMensajes.Ejecutar(ctx, soporte.EntradaListarMensajes{ID: h.ID, SoloPublicos: true})
@@ -244,9 +278,10 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 		t.Fatal("el ticket no vinculado no recibe aviso")
 	}
 
-	// Vuelve a caer antes de 24 h: se reabre el mismo maestro.
+	// Vuelve a caer antes de 24 h (según Horus): se reabre el mismo maestro y se avisa a los hijos.
 	reloj.avanzar(2 * time.Hour)
 	e4, p4 := router(emp, 6100, horus.EstadoCaido)
+	p4.OcurridoEn = inicio.Add(2 * time.Hour)
 	aplicarHorus(t, m, eventoHorus(t, horus.EventoRouterEstadoCambiado, p4))
 	if r, id := resultadoHorus(t, e4); r != "maestro_reabierto" || *id != ma.ID {
 		t.Fatalf("reabrir: %s", r)
@@ -254,14 +289,27 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 	if x := ticketsDe(t, "t.id = $1", ma.ID); x[0].Estado != "abierto" {
 		t.Fatalf("estado tras reabrir: %+v", x)
 	}
+	avisos = jobs.tomar()
+	if len(avisos) != 1 || avisos[0].Aviso != soporte.AvisoReabierto {
+		t.Fatalf("aviso de reapertura: %+v", avisos)
+	}
+	if _, err := m.AvisarHijos(sis, avisos[0]); err != nil {
+		t.Fatal(err)
+	}
+	if msjs, _ := m.ListarMensajes.Ejecutar(sis, soporte.EntradaListarMensajes{ID: h1.ID, SoloPublicos: true}); len(msjs.Data) != 2 ||
+		!strings.Contains(msjs.Data[1].Cuerpo, "de nuevo la falla") {
+		t.Fatalf("aviso de nueva caída: %+v", msjs.Data)
+	}
 
 	// Se resuelve otra vez y cae pasadas 24 h: el viejo se cierra y se abre otro maestro.
 	tk, _ = m.VerTicket.Ejecutar(sis, soporte.EntradaVerTicket{ID: ma.ID})
 	if _, err := m.ResolverTicket.Ejecutar(ctx, soporte.EntradaResolverTicket{ID: ma.ID, Version: tk.Version, Solucion: "Listo de nuevo"}); err != nil {
 		t.Fatal(err)
 	}
+	jobs.tomar()
 	reloj.avanzar(soporte.VentanaReapertura + time.Hour)
 	e5, p5 := router(emp, 6100, horus.EstadoCaido)
+	p5.OcurridoEn = inicio.Add(3*time.Hour + soporte.VentanaReapertura)
 	aplicarHorus(t, m, eventoHorus(t, horus.EventoRouterEstadoCambiado, p5))
 	r5, id5 := resultadoHorus(t, e5)
 	if r5 != "maestro_creado" || *id5 == ma.ID {
@@ -281,6 +329,34 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 		VALUES (61, 'alta', 'horus', 'Duplicado', now(), 'router', 6100)`); err == nil || !strings.Contains(err.Error(), "tickets_maestro_router_uq") {
 		t.Fatalf("índice único de maestros: %v", err)
 	}
+}
+
+// colaJobs guarda los jobs que el módulo encolaría en River.
+type colaJobs struct {
+	mu   sync.Mutex
+	args []soporte.ArgsAvisarHijos
+}
+
+func (c *colaJobs) tomar() []soporte.ArgsAvisarHijos {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	a := c.args
+	c.args = nil
+	return a
+}
+
+func nuevoModuloConCola(inicio time.Time) (*soporte.Modulo, *reloj, *colaJobs) {
+	r := &reloj{t: inicio}
+	c := &colaJobs{}
+	m := soporte.Nuevo(soporte.Config{Reloj: r.ahora, Encolar: func(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
+		if a, ok := args.(soporte.ArgsAvisarHijos); ok {
+			c.mu.Lock()
+			c.args = append(c.args, a)
+			c.mu.Unlock()
+		}
+		return nil
+	}})
+	return m, r, c
 }
 
 func TestHorusServicioInfra(t *testing.T) {

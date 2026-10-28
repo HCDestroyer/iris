@@ -31,9 +31,6 @@ ORDER BY id DESC
 LIMIT 1
 FOR UPDATE;
 
--- name: HijosNoCerrados :many
-SELECT * FROM soporte.tickets WHERE ticket_padre_id = @ticket_padre_id::bigint AND estado <> 'cerrado' ORDER BY id;
-
 -- name: MaestrosParaVincular :many
 -- Maestros abiertos del router de los servicios del cliente según la instantánea de Argos: el
 -- servicio indicado o, sin servicio, todos los del cliente. Sin instantánea, ninguno.
@@ -71,3 +68,25 @@ SELECT * FROM soporte.categorias
 WHERE codigo = @codigo AND activa AND (empresa_id IS NULL OR empresa_id = sqlc.narg(empresa_id))
 ORDER BY empresa_id NULLS LAST
 LIMIT 1;
+
+-- name: EstadoHorus :one
+SELECT * FROM soporte.horus_estados WHERE clave = @clave FOR UPDATE;
+
+-- name: GuardarEstadoHorus :exec
+INSERT INTO soporte.horus_estados (clave, empresa_id, estado, ocurrido_en, entrante_id)
+VALUES (@clave, sqlc.narg(empresa_id), @estado, @ocurrido_en, @entrante_id)
+ON CONFLICT (clave) DO UPDATE SET estado = EXCLUDED.estado, ocurrido_en = EXCLUDED.ocurrido_en,
+    entrante_id = EXCLUDED.entrante_id, updated_at = now();
+
+-- name: HijosSinAviso :many
+-- Siguiente tanda de hijos no cerrados del maestro que todavía no recibieron este aviso.
+SELECT t.* FROM soporte.tickets t
+WHERE t.ticket_padre_id = @maestro_id::bigint AND t.estado <> 'cerrado'
+  AND NOT EXISTS (SELECT 1 FROM soporte.avisos_hijos a
+                  WHERE a.maestro_id = @maestro_id::bigint AND a.aviso = @aviso AND a.hijo_id = t.id)
+ORDER BY t.id
+LIMIT @limite
+FOR UPDATE OF t;
+
+-- name: RegistrarAvisoHijo :exec
+INSERT INTO soporte.avisos_hijos (maestro_id, aviso, hijo_id, mensaje_id) VALUES (@maestro_id, @aviso, @hijo_id, @mensaje_id);

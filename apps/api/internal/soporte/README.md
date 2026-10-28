@@ -121,11 +121,19 @@ el conector (I1): `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado
   un mismo router se serializan con un advisory lock por tipo, empresa y router; los índices únicos
   parciales `tickets_maestro_router_uq` / `_infra_uq` (un maestro **no cerrado** por router o
   servicio de infraestructura y empresa) lo garantizan en la base.
+- **Orden:** Horus reintenta y puede desordenar. `soporte.horus_estados` guarda el último estado y
+  `ocurrido_en` por clave (router o servicio de infraestructura + empresa; hallazgo + empresa). Un
+  evento con `ocurrido_en` igual o anterior al guardado queda `obsoleto` y no hace nada: un «caído»
+  más viejo que el último «arriba» no abre maestro, y un «arriba» más viejo que la caída que abrió
+  el maestro no propone resolver. Si `hallazgo_resuelto` llega antes que un `hallazgo_abierto` más
+  viejo, **no se abre ticket** (Horus ya lo dio por resuelto); una apertura posterior al resuelto
+  (Horus lo reabrió) sí abre.
 - **Caída (`caido`):** sin maestro → abre uno: categoría `incidente_red` (SLA `red_24_7`),
   prioridad alta, origen `horus`, asunto «Caída de router X (#id)», `maestro = router|infra`,
   `router_id` / `infra_id`, nota interna con la hora. Maestro abierto → nota (y se descarta una
-  propuesta de resolver pendiente). Maestro **resuelto hace ≤ 24 h** (`VentanaReapertura`) → se
-  reabre (`resuelto → abierto`). Resuelto hace más → se cierra («nueva caída») y se abre otro que lo
+  propuesta de resolver pendiente). Maestro **resuelto ≤ 24 h antes de la caída**
+  (`VentanaReapertura`, medida con `ocurrido_en` de Horus, no con la hora de proceso) → se reabre
+  (`resuelto → abierto`) y se avisa a los hijos de la nueva caída (nota pública, job de abajo). Resuelto hace más → se cierra («nueva caída») y se abre otro que lo
   menciona. Cerrado es final: se abre otro.
 - **Vuelve (`arriba`):** nota y **propuesta** de resolver (`tickets.propuesta = resolver`, emite
   `ticket.resolucion_propuesta`); nunca resuelve solo. La propuesta se ve en `Ticket.propuesta` y se
@@ -136,9 +144,14 @@ el conector (I1): `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado
   router con maestro abierto de la misma empresa, el ticket nace hijo (`ticket_padre_id`) con una
   nota interna «Vinculado automáticamente…». Si hay maestro de router y de infraestructura del
   mismo router, gana el de router. Sin instantánea, o con varios routers posibles, no se vincula.
-- **Al resolver el maestro** (`tickets.resolver`): cada hijo no cerrado recibe un mensaje público
-  de Iris con la solución y `ticket.respondido` (si el hijo vino por correo, sale por correo al
-  contacto: la salida acepta mensajes públicos de agente o de Iris). Los hijos no cambian de estado.
+- **Al resolver el maestro** (`tickets.resolver`) se encola en la misma transacción el job
+  `soporte.avisar_hijos` (River, único por maestro, aviso y versión; `avisos_hijos.go`), que avisa
+  en tandas de 200 (`TandaAvisos`, una transacción cada una) a cada hijo no cerrado: mensaje público
+  de Iris con la solución, `ticket.respondido` (si el hijo vino por correo, sale por correo al
+  contacto: la salida acepta mensajes públicos de agente o de Iris), `TocarTicket` (sube su
+  versión) y historial `aviso_incidente` (todavía fuera del listado `/eventos`: el enum del contrato
+  se amplía cuando el panel lo muestre). Idempotente por `soporte.avisos_hijos`. Los hijos no
+  cambian de estado. Lo mismo con «reabierto» cuando Horus reabre el maestro.
 - **Hallazgo abierto:** solo si la categoría tiene regla **activa** en `soporte.reglas_hallazgos`
   (`categoria_horus` → `categoria_id` y prioridad de Iris; la de la empresa gana a la global, aunque
   esté inactiva; la semilla trae `equipo_infectado` y `cpe_firmware_vulnerable` inactivas; se
@@ -172,6 +185,15 @@ historial ni datos de Horus) y solo los mensajes públicos (`MensajePortal`, aut
 | `POST /portal/tickets/{id}/responder` | `cuerpo`, `version?`. Mensaje del cliente: `en_espera → abierto`, `resuelto → abierto` (como el correo); cerrado → 422. Emite `ticket.mensaje_cliente`. `Idempotency-Key`. |
 | `POST /portal/tickets/{id}/confirmar-solucion` | `version`. `resuelto → cerrado`; si no, 422 `transicion_invalida`. |
 | `GET /portal/categorias` | Activas con `visible_portal` (globales y de su empresa). |
+
+**Topes anti spam** (conteos en la base por `cliente:<empresa>:<cliente>`, con advisory lock por
+cliente; configurables): tickets del portal abiertos (`IRIS_PORTAL_TICKETS_ABIERTOS`, 10) y
+creados en la última hora (`IRIS_PORTAL_TICKETS_POR_HORA`, 20) → 429 `demasiados_tickets` (una
+creación repetida con la misma `Idempotency-Key` no cuenta); mensajes del cliente por el portal en
+el último minuto, en todos sus tickets (`IRIS_PORTAL_MENSAJES_POR_MINUTO`, 10; la descripción del
+ticket cuenta) → 429 `demasiados_mensajes`. `afectadoPorIncidente` es true solo si el maestro
+(padre) sigue en nuevo, abierto o en espera. Un mensaje del cliente que no cambia el estado no
+sube la `version` (portal y correo).
 
 Lógica común con el panel en funciones internas: `crearTicket` (también la usa Horus),
 `reactivarPorCliente` (también el correo), `tomar`, `cerrar`. Las claves de idempotencia del
@@ -217,3 +239,6 @@ outbox → relay → suscriptor. `portal_test.go`: por HTTP con el middleware re
 idempotencia por cliente, categoría y servicio ajenos), mensajes sin notas internas, aislamiento
 entre clientes y empresas, sin acceso al panel ni del panel al portal, reanudar, reabrir,
 confirmar (409 y 422); y los casos `Cliente` frente a los `ConPermiso`.
+`revision_horus_test.go` (revisión de la PR): eventos de Horus fuera de orden (arriba antes que un
+caído viejo, arriba más viejo que el maestro, ventana por `ocurrido_en`, hallazgo resuelto antes que
+abierto), aviso a los hijos en tandas e idempotente, topes del portal y versión sin cambio.
