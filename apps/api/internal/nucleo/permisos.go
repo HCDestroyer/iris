@@ -26,6 +26,20 @@ const (
 	PermTokensVer          Permiso = "tokens.ver"
 	PermTokensCrear        Permiso = "tokens.crear"
 	PermTokensRevocar      Permiso = "tokens.revocar" //nolint:gosec // nombre de permiso, no una credencial
+
+	// Soporte (I2): una acción explícita por permiso, POST /tickets/{id}/<acción>.
+	PermTicketsVer           Permiso = "tickets.ver"
+	PermTicketsCrear         Permiso = "tickets.crear"
+	PermTicketsAsignar       Permiso = "tickets.asignar"
+	PermTicketsResponder     Permiso = "tickets.responder"
+	PermTicketsNotaInterna   Permiso = "tickets.nota_interna"
+	PermTicketsEscalar       Permiso = "tickets.escalar"
+	PermTicketsPonerEnEspera Permiso = "tickets.poner_en_espera"
+	PermTicketsReanudar      Permiso = "tickets.reanudar"
+	PermTicketsResolver      Permiso = "tickets.resolver"
+	PermTicketsReabrir       Permiso = "tickets.reabrir"
+	PermTicketsCerrar        Permiso = "tickets.cerrar"
+	PermTicketsFusionar      Permiso = "tickets.fusionar"
 )
 
 // DefPermiso es una entrada del catálogo.
@@ -38,6 +52,18 @@ type DefPermiso struct {
 var Catalogo = []DefPermiso{
 	{PermPermisosVer, "Ver el catálogo de permisos"},
 	{PermRolesVer, "Ver roles y sus permisos"},
+	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
+	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
+	{PermTicketsCrear, "Crear tickets de soporte"},
+	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
+	{PermTicketsFusionar, "Fusionar un ticket duplicado en otro"},
+	{PermTicketsNotaInterna, "Agregar notas internas a un ticket"},
+	{PermTicketsPonerEnEspera, "Poner tickets en espera (pausa el SLA de resolución)"},
+	{PermTicketsReabrir, "Reabrir tickets resueltos"},
+	{PermTicketsReanudar, "Reanudar tickets en espera"},
+	{PermTicketsResolver, "Resolver tickets con su solución"},
+	{PermTicketsResponder, "Responder al cliente en un ticket (mensaje público)"},
+	{PermTicketsVer, "Ver tickets, su conversación, historial, categorías y SLA"},
 	{PermTokensCrear, "Crear tokens de API (iris_pat_) para un usuario"},
 	{PermTokensRevocar, "Revocar tokens de API"},
 	{PermTokensVer, "Ver tokens de API (nunca el valor)"},
@@ -56,20 +82,27 @@ type DefRol struct {
 	Permisos    []Permiso
 }
 
+// permisosTickets son todos los de soporte (rol soporte y supervisor).
+var permisosTickets = []Permiso{
+	PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsResponder, PermTicketsNotaInterna,
+	PermTicketsEscalar, PermTicketsPonerEnEspera, PermTicketsReanudar, PermTicketsResolver,
+	PermTicketsReabrir, PermTicketsCerrar, PermTicketsFusionar,
+}
+
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
 // sincronizan en cada `iris migrar`: lo que no está aquí se les quita.
 var RolesBase = []DefRol{
 	{Codigo: "admin", Nombre: "Administrador", Descripcion: "Todos los permisos", Todos: true},
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
-		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer}},
+		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer}, permisosTickets...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
-		Permisos: []Permiso{PermUsuariosVer}},
+		Permisos: []Permiso{PermUsuariosVer, PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna}},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo"},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
-		Permisos: []Permiso{PermUsuariosVer}},
+		Permisos: append([]Permiso{PermUsuariosVer}, permisosTickets...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial"},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
-		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer}},
+		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTicketsVer}},
 }
 
 // PermisosDeRol devuelve los permisos efectivos de un rol base.

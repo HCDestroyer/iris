@@ -168,7 +168,7 @@ func TestSaludListoY404(t *testing.T) {
 
 func TestLoginCSRFYPermisoDenegado(t *testing.T) {
 	e := nuevoEntorno(t)
-	_, correo := e.usuario("soporte") // usuarios.ver, nada más
+	_, correo := e.usuario("soporte") // usuarios.ver y tickets.*; sin usuarios.crear
 	c := e.cliente()
 
 	r := c.pedir(http.MethodPost, "/api/v1/sesion", map[string]any{"correo": correo, "contrasena": "mala-contrasena-123"})
@@ -198,7 +198,8 @@ func TestLoginCSRFYPermisoDenegado(t *testing.T) {
 	}
 
 	yo := c.pedir(http.MethodGet, "/api/v1/yo", nil)
-	if yo.status != 200 || yo.cuerpo["actor"] != "usuario" || fmt.Sprint(yo.cuerpo["permisos"]) != "[usuarios.ver]" {
+	permisosYo := fmt.Sprint(yo.cuerpo["permisos"])
+	if yo.status != 200 || yo.cuerpo["actor"] != "usuario" || !strings.Contains(permisosYo, "usuarios.ver") || strings.Contains(permisosYo, "usuarios.crear") {
 		t.Fatalf("yo: %d %s", yo.status, yo.crudo)
 	}
 	if r := c.pedir(http.MethodGet, "/api/v1/usuarios?limit=1", nil); r.status != 200 {
