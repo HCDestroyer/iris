@@ -269,11 +269,16 @@ type Pagina[T any] struct {
 	NextCursor string
 }
 
-// BuscarClientes: GET /clientes?q=&limit=&cursor=.
-func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string) (Pagina[ClienteArgos], error) {
+// BuscarClientes: GET /clientes?q=&limit=&cursor=[&empresa_id=]. empresa_id (≠ 0) acota la
+// búsqueda en Argos (supuesto: Argos filtra por empresa_id; si lo ignora, Iris descarta igual
+// lo que no es de la empresa activa).
+func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64) (Pagina[ClienteArgos], error) {
 	v := url.Values{"q": {q}, "limit": {strconv.Itoa(limite)}}
 	if cursor != "" {
 		v.Set("cursor", cursor)
+	}
+	if empresaID != 0 {
+		v.Set("empresa_id", strconv.FormatInt(empresaID, 10))
 	}
 	return lista[ClienteArgos](ctx, c, "/clientes", v)
 }
@@ -299,16 +304,23 @@ func (c *Cliente) EstadoCuenta(ctx context.Context, clienteID int64) (EstadoCuen
 
 // ResolverIP pregunta a Argos de quién es una IP. Usa el endpoint del contrato (pedido A8,
 // POST /integraciones/iris/resolver { ip }); si Argos aún no lo tiene (404, 405 o 501), usa el
-// respaldo existente GET /ip/{ip}. Un 404 del respaldo es «IP sin cliente».
-func (c *Cliente) ResolverIP(ctx context.Context, ip string) (ResolucionArgos, error) {
+// respaldo existente GET /ip/{ip}. Un 404 del respaldo es «IP sin cliente». empresaID (≠ 0) va
+// en el cuerpo y en la consulta (supuesto): la misma IP privada puede existir en dos empresas.
+func (c *Cliente) ResolverIP(ctx context.Context, ip string, empresaID int64) (ResolucionArgos, error) {
 	var r ResolucionArgos
-	err := c.pedir(ctx, http.MethodPost, "/integraciones/iris/resolver", nil, map[string]string{"ip": ip}, true, &envoltura{destino: &r})
+	cuerpo := map[string]any{"ip": ip}
+	var consulta url.Values
+	if empresaID != 0 {
+		cuerpo["empresa_id"] = empresaID
+		consulta = url.Values{"empresa_id": {strconv.FormatInt(empresaID, 10)}}
+	}
+	err := c.pedir(ctx, http.MethodPost, "/integraciones/iris/resolver", nil, cuerpo, true, &envoltura{destino: &r})
 	var ea *ErrorArgos
 	if err == nil || !errors.As(err, &ea) || (ea.Status != http.StatusNotFound && ea.Status != http.StatusMethodNotAllowed && ea.Status != http.StatusNotImplemented) {
 		return r, err
 	}
 	r = ResolucionArgos{}
-	err = c.pedir(ctx, http.MethodGet, "/ip/"+url.PathEscape(ip), nil, nil, true, &envoltura{destino: &r})
+	err = c.pedir(ctx, http.MethodGet, "/ip/"+url.PathEscape(ip), consulta, nil, true, &envoltura{destino: &r})
 	return r, err
 }
 

@@ -747,6 +747,26 @@ func (q *Queries) MarcarEntranteProcesado(ctx context.Context, arg MarcarEntrant
 	return err
 }
 
+const registrarEmpresaArgos = `-- name: RegistrarEmpresaArgos :exec
+
+INSERT INTO nucleo.empresas (id, nombre, origen, sincronizado_en)
+VALUES ($1, $2, 'argos', now())
+ON CONFLICT (id) DO UPDATE SET sincronizado_en = now(), updated_at = now()
+`
+
+type RegistrarEmpresaArgosParams struct {
+	ID     int64
+	Nombre string
+}
+
+// Empresas ------------------------------------------------------------------
+// Empresa que cubre el token del conector (canje). Si ya existe solo se marca sincronizada: el
+// nombre lo pone el administrador (Argos no lo manda en el canje).
+func (q *Queries) RegistrarEmpresaArgos(ctx context.Context, arg RegistrarEmpresaArgosParams) error {
+	_, err := q.db.Exec(ctx, registrarEmpresaArgos, arg.ID, arg.Nombre)
+	return err
+}
+
 const servicioPorID = `-- name: ServicioPorID :one
 SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE id = $1
 `
@@ -778,11 +798,19 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE ip = $1 ORDER BY sincronizado_en DESC LIMIT 1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios
+WHERE ip = $1 AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+ORDER BY sincronizado_en DESC LIMIT 1
 `
 
-func (q *Queries) ServicioPorIP(ctx context.Context, ip string) (IntegracionArgosServicio, error) {
-	row := q.db.QueryRow(ctx, servicioPorIP, ip)
+type ServicioPorIPParams struct {
+	Ip        string
+	EmpresaID int64
+}
+
+// La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
+func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (IntegracionArgosServicio, error) {
+	row := q.db.QueryRow(ctx, servicioPorIP, arg.Ip, arg.EmpresaID)
 	var i IntegracionArgosServicio
 	err := row.Scan(
 		&i.ID,

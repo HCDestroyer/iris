@@ -103,6 +103,16 @@ func (m *Modulo) insertarConector(ctx context.Context, t *auditoria.Tx, id int64
 	if err != nil {
 		return f, err
 	}
+	// Las empresas que cubre el token quedan registradas (multiempresa): un administrador les
+	// pone nombre y las asigna a los usuarios.
+	for _, e := range empresas {
+		if e <= 0 {
+			continue
+		}
+		if err := q.RegistrarEmpresaArgos(ctx, argosbd.RegistrarEmpresaArgosParams{ID: e, Nombre: "Empresa " + itoa(e)}); err != nil {
+			return f, err
+		}
+	}
 	t.FijarEmpresa(0)
 	t.RegistrarCambios("conector", f.ID, nil, m.aConector(f))
 	return f, t.Emitir("conector.creado", map[string]any{"conector_id": f.ID, "sistema": f.Sistema, "origen": f.Origen})
@@ -137,7 +147,7 @@ type Conectar struct {
 func nuevoConectar(m *Modulo) *Conectar {
 	c := &Conectar{m: m}
 	c.reservar = auditoria.Nuevo(auditoria.Caso[EntradaConectar, int64]{
-		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar,
+		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		AuditarExito: soloLecturas[int64],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConectar) (int64, error) {
 			if err := m.exigirConfiguracion(); err != nil {
@@ -150,7 +160,7 @@ func nuevoConectar(m *Modulo) *Conectar {
 		},
 	})
 	c.guardar = auditoria.Nuevo(auditoria.Caso[entradaGuardarConector, Conector]{
-		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar,
+		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarConector) (Conector, error) {
 			t.FijarEntidad("conector", in.ConectorID)
 			if in.errArgos != nil {
@@ -201,7 +211,7 @@ type EnlaceGenerado struct {
 
 func nuevoGenerarEnlace(m *Modulo) *auditoria.Caso[struct{}, EnlaceGenerado] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, EnlaceGenerado]{
-		Accion: "integraciones.generar_enlace", Permiso: nucleo.PermIntegracionesConectar,
+		Accion: "integraciones.generar_enlace", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EnlaceGenerado, error) {
 			if err := m.exigirConfiguracion(); err != nil {
 				return EnlaceGenerado{}, err
@@ -308,7 +318,7 @@ type EntradaCambioConector struct {
 
 func nuevoActivarConector(m *Modulo) *auditoria.Caso[EntradaCambioConector, Conector] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCambioConector, Conector]{
-		Accion: "integraciones.activar", Permiso: nucleo.PermIntegracionesActivar,
+		Accion: "integraciones.activar", Permiso: nucleo.PermIntegracionesActivar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambioConector) (Conector, error) {
 			q := argosbd.New(t)
 			t.FijarEntidad("conector", in.ID)
@@ -357,7 +367,7 @@ func nuevoActivarConector(m *Modulo) *auditoria.Caso[EntradaCambioConector, Cone
 
 func nuevoDesactivarConector(m *Modulo) *auditoria.Caso[EntradaCambioConector, Conector] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCambioConector, Conector]{
-		Accion: "integraciones.desactivar", Permiso: nucleo.PermIntegracionesDesactivar,
+		Accion: "integraciones.desactivar", Permiso: nucleo.PermIntegracionesDesactivar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambioConector) (Conector, error) {
 			q := argosbd.New(t)
 			t.FijarEntidad("conector", in.ID)
@@ -386,7 +396,7 @@ func nuevoDesactivarConector(m *Modulo) *auditoria.Caso[EntradaCambioConector, C
 
 func nuevoListarConectores(m *Modulo) *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]] {
 	return auditoria.Nuevo(auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]{
-		Accion: "integraciones.ver", Permiso: nucleo.PermIntegracionesVer,
+		Accion: "integraciones.ver", Permiso: nucleo.PermIntegracionesVer, SinEmpresa: true,
 		AuditarExito: soloLecturas[nucleo.Pagina[Conector]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in nucleo.ParamsPagina) (nucleo.Pagina[Conector], error) {
 			var despues int64

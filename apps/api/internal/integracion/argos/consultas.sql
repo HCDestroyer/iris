@@ -137,7 +137,10 @@ SELECT * FROM integracion.argos_servicios WHERE id = @id;
 SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER BY id;
 
 -- name: ServicioPorIP :one
-SELECT * FROM integracion.argos_servicios WHERE ip = @ip ORDER BY sincronizado_en DESC LIMIT 1;
+-- La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
+SELECT * FROM integracion.argos_servicios
+WHERE ip = @ip AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+ORDER BY sincronizado_en DESC LIMIT 1;
 
 -- name: BorrarServicio :exec
 DELETE FROM integracion.argos_servicios WHERE id = @id;
@@ -168,3 +171,12 @@ WHERE integracion.argos_routers.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: BorrarRoutersAnteriores :execrows
 DELETE FROM integracion.argos_routers WHERE sincronizado_en < @antes;
+
+-- Empresas ------------------------------------------------------------------
+
+-- name: RegistrarEmpresaArgos :exec
+-- Empresa que cubre el token del conector (canje). Si ya existe solo se marca sincronizada: el
+-- nombre lo pone el administrador (Argos no lo manda en el canje).
+INSERT INTO nucleo.empresas (id, nombre, origen, sincronizado_en)
+VALUES (@id, @nombre, 'argos', now())
+ON CONFLICT (id) DO UPDATE SET sincronizado_en = now(), updated_at = now();

@@ -29,12 +29,36 @@ import (
 
 func requestID(ctx context.Context) string { return contexto.RequestIDDe(ctx) }
 
+// Multiempresa: toda lectura de clientes se filtra por la empresa activa (contexto.EmpresaDe,
+// que fija identidad.MiddlewareEmpresa con X-Iris-Empresa). Lo que Argos devuelva de otra
+// empresa, o sin empresa, se descarta (búsqueda) o es 404 (ficha, resolver IP), y nunca se pide
+// el estado de cuenta de un cliente ajeno.
+
+// empresaDeLectura devuelve la empresa por la que se filtra. Con un usuario detrás siempre es
+// ≠ 0: auditoria.Caso ya cortó «por elegir» (422) y «sin empresa» (403); queda el modo sin
+// conector con el conector activo (no hay empresas registradas), que aquí es 422
+// empresas_no_registradas porque sin empresa no hay cómo filtrar lo que devuelve Argos. Solo el
+// actor sistema lee sin filtro (0).
+func empresaDeLectura(ctx context.Context) (int64, error) {
+	e := contexto.EmpresaDe(ctx)
+	if e == 0 && contexto.ActorDe(ctx).EsUsuario() {
+		return 0, nucleo.ReglaNegocio("empresas_no_registradas",
+			"Iris no tiene empresas registradas para filtrar los datos de Argos: regístralas (POST /api/v1/empresas) y asígnalas a los usuarios")
+	}
+	return e, nil
+}
+
 // nuevoPrevio arma la fase 1 genérica: permiso + conector activo. No deja fila al terminar bien.
 func nuevoPrevio[In any](m *Modulo, accion string) *auditoria.Caso[In, conectorLeido] {
 	return auditoria.Nuevo(auditoria.Caso[In, conectorLeido]{
 		Accion: accion, Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[conectorLeido],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ In) (conectorLeido, error) {
-			return m.conectorActivo(ctx, argosbd.New(t))
+			c, err := m.conectorActivo(ctx, argosbd.New(t))
+			if err != nil {
+				return c, err
+			}
+			_, err = empresaDeLectura(ctx)
+			return c, err
 		},
 	})
 }
@@ -73,7 +97,7 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 			switch {
 			case in.errArgos == nil:
 				for _, c := range in.pagina.Data {
-					if empresa != 0 && c.EmpresaID != 0 && c.EmpresaID != empresa {
+					if empresa != 0 && c.EmpresaID != empresa { // también los que llegan sin empresa
 						continue
 					}
 					r.Data = append(r.Data, clienteArgosAResumen(c))
@@ -121,7 +145,7 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 		return ResultadoBusqueda{}, err
 	}
 	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
-	f.pagina, f.errArgos = b.m.clienteDe(c).BuscarClientes(ctx, in.Q, in.limite(), in.Cursor)
+	f.pagina, f.errArgos = b.m.clienteDe(c).BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, contexto.EmpresaDe(ctx))
 	return b.final.Ejecutar(ctx, f)
 }
 
@@ -172,6 +196,9 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			if err != nil {
 				return fichaPrevia{}, err
 			}
+			if _, err := empresaDeLectura(ctx); err != nil {
+				return fichaPrevia{}, err
+			}
 			p := fichaPrevia{conector: c, estadoCta: contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesEstadoCuenta))}
 			f, err := q.ClientePorID(ctx, in.ID)
 			if err == nil {
@@ -210,7 +237,9 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				return Ficha{}, err
 			}
 			if e := contexto.EmpresaDe(ctx); e != 0 && cliente.EmpresaID != e {
-				return Ficha{}, nucleo.NoEncontrado("El cliente no es de la empresa activa")
+				// Mismo 404 que un cliente inexistente: no revela clientes de otras empresas.
+				t.Anotar(map[string]any{"empresa_cliente": cliente.EmpresaID})
+				return Ficha{}, nucleo.NoEncontrado("El cliente no existe")
 			}
 			servicios, err := q.ServiciosDeCliente(ctx, in.ClienteID)
 			if err != nil {
@@ -249,6 +278,8 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	switch {
 	case f.noExiste || (f.errArgos != nil && p.cliente == nil):
 		// Sin ficha que mostrar: la respuesta será un error.
+	case deOtraEmpresa(ctx, f.leida, p.cliente):
+		// La respuesta será 404 (final): no se pide el estado de cuenta de un cliente ajeno.
 	case f.errArgos != nil && EsCaido(f.errArgos) && p.estadoCta:
 		// Argos no responde: no se insiste con el estado de cuenta.
 		motivo := "argos_no_disponible"
@@ -257,6 +288,21 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 		f.estado, f.errEstado = o.estadoCuenta(ctx, cli, p, in.ID)
 	}
 	return o.final.Ejecutar(ctx, f)
+}
+
+// deOtraEmpresa indica si el cliente (el recién leído o, si no, la instantánea) no es de la
+// empresa activa.
+func deOtraEmpresa(ctx context.Context, leida *fichaArgos, previa *argosbd.IntegracionArgosCliente) bool {
+	e := contexto.EmpresaDe(ctx)
+	switch {
+	case e == 0:
+		return false
+	case leida != nil:
+		return leida.cliente.EmpresaID != e
+	case previa != nil:
+		return previa.EmpresaID != e
+	}
+	return false
 }
 
 func (o *ObtenerFicha) estadoCuenta(ctx context.Context, cli *Cliente, p fichaPrevia, id int64) (*EstadoCuenta, *string) {
@@ -313,7 +359,7 @@ func nuevoResolverIP(m *Modulo) *ResolverIP {
 					return salida, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 				}
 			case EsCaido(in.errArgos):
-				s, err := argosbd.New(t).ServicioPorIP(ctx, in.IP)
+				s, err := argosbd.New(t).ServicioPorIP(ctx, argosbd.ServicioPorIPParams{Ip: in.IP, EmpresaID: contexto.EmpresaDe(ctx)})
 				if errors.Is(err, pgx.ErrNoRows) {
 					return salida, Problema(in.errArgos)
 				}
@@ -326,6 +372,11 @@ func nuevoResolverIP(m *Modulo) *ResolverIP {
 				return salida, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 			default:
 				return salida, Problema(in.errArgos)
+			}
+			if e := contexto.EmpresaDe(ctx); e != 0 && (salida.EmpresaID == nil || *salida.EmpresaID != e) {
+				// De otra empresa o sin empresa: igual que una IP sin cliente.
+				t.Anotar(map[string]any{"descartado": "otra_empresa"})
+				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 			}
 			if salida.EmpresaID != nil {
 				t.FijarEmpresa(*salida.EmpresaID)
@@ -352,7 +403,7 @@ func (r *ResolverIP) Ejecutar(ctx context.Context, in EntradaResolverIP) (IPResu
 		return IPResuelta{}, err
 	}
 	f := entradaIPFinal{IP: in.IP}
-	f.res, f.errArgos = r.m.clienteDe(c).ResolverIP(ctx, in.IP)
+	f.res, f.errArgos = r.m.clienteDe(c).ResolverIP(ctx, in.IP, contexto.EmpresaDe(ctx))
 	return r.final.Ejecutar(ctx, f)
 }
 

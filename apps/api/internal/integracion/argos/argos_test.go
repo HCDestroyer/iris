@@ -63,6 +63,9 @@ func nuevoEntorno(t *testing.T) *entorno {
 		"UPDATE integracion.conectores SET estado = 'apagado'",
 		"DELETE FROM integracion.argos_servicios", "DELETE FROM integracion.argos_clientes",
 		"DELETE FROM integracion.argos_zonas", "DELETE FROM integracion.argos_routers",
+		// Multiempresa: solo la empresa 1 (la que el Argos falso informa en el canje).
+		"DELETE FROM nucleo.usuarios_empresas WHERE empresa_id <> 1", "DELETE FROM nucleo.empresas WHERE id <> 1",
+		"INSERT INTO nucleo.empresas (id, nombre) VALUES (1, 'Empresa 1') ON CONFLICT (id) DO NOTHING",
 	} {
 		if _, err := pool.Exec(context.Background(), sql); err != nil {
 			t.Fatal(err)
@@ -89,18 +92,32 @@ func nuevoEntorno(t *testing.T) *entorno {
 	return &entorno{t: t, pool: pool, argos: fa, mod: mod, ident: ident, api: api, cfg: cfg}
 }
 
-// usuario crea un usuario con esos roles y devuelve un cliente HTTP con su sesión.
+// usuario crea un usuario con esos roles, asignado a la empresa 1, y devuelve un cliente HTTP
+// con su sesión.
 func (e *entorno) usuario(roles ...string) *clienteHTTP {
+	e.t.Helper()
+	return e.usuarioEn([]int64{1}, roles...)
+}
+
+// usuarioEn es usuario con las empresas dadas.
+func (e *entorno) usuarioEn(empresas []int64, roles ...string) *clienteHTTP {
 	e.t.Helper()
 	correo := pruebas.Correo("u")
 	asign := []identidad.AsignacionRol{}
 	for _, r := range roles {
 		asign = append(asign, identidad.AsignacionRol{Rol: r})
 	}
-	if _, err := e.ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+	ctx := pruebas.ContextoSistema(e.pool)
+	u, err := e.ident.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{
 		Nombre: "Usuario " + correo, Correo: correo, Contrasena: contrasena, Roles: asign,
-	}); err != nil {
+	})
+	if err != nil {
 		e.t.Fatal(err)
+	}
+	for _, emp := range empresas {
+		if _, err := e.ident.AsignarEmpresaUsuario.Ejecutar(ctx, identidad.EntradaEmpresaUsuario{UsuarioID: u.ID, EmpresaID: emp}); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	c := e.anonimo()
 	r := c.pedir(http.MethodPost, "/api/v1/sesion", map[string]any{"correo": correo, "contrasena": contrasena})
@@ -354,7 +371,12 @@ func TestCanjeDesdeArgos(t *testing.T) {
 		t.Fatalf("activar: %d %s", a.status, a.crudo)
 	}
 	e.argos.con(func() { e.argos.clientes[5] = map[string]any{"id": 5, "empresaId": 1, "nombre": "Ana Canje"} })
-	if b := admin.pedir(http.MethodGet, "/api/v1/clientes?q=ana", nil); b.status != 200 || !strings.Contains(string(b.crudo), "Ana Canje") {
+	// El canje registró las empresas que cubre el token: el admin (todas) ahora elige.
+	if n := e.contar(`SELECT count(*) FROM nucleo.empresas WHERE id = 2 AND origen = 'argos' AND sincronizado_en IS NOT NULL`); n != 1 {
+		t.Fatalf("empresas del canje: %d", n)
+	}
+	admin.pedir(http.MethodGet, "/api/v1/clientes?q=ana", nil).problema(t, 422, "empresa_requerida")
+	if b := admin.pedir(http.MethodGet, "/api/v1/clientes?q=ana", nil, "X-Iris-Empresa", "1"); b.status != 200 || !strings.Contains(string(b.crudo), "Ana Canje") {
 		t.Fatalf("buscar con el token canjeado: %d %s", b.status, b.crudo)
 	}
 }
