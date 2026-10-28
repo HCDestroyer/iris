@@ -4,6 +4,8 @@
 //	iris migrar             migraciones goose + River y sincroniza permisos y roles base
 //	iris admin crear --correo admin@isp.gt --nombre "Admin" [--contrasena-stdin]
 //	iris portal acceso --cliente <id> --empresa <id> [--nombre "Ana"]   URL de entrada al portal
+//	iris integracion crear --sistema argosisp|horus --empresa 1,2 [--correo …] [--nombre …]
+//	                        usuario de integración con su rol base y un token iris_pat_ nuevo
 package main
 
 import (
@@ -76,8 +78,13 @@ func correr(args []string) error {
 			return errors.New(usoPortal)
 		}
 		return accesoPortal(ctx, cfg, args[1:])
+	case "integracion":
+		if len(args) == 0 || args[0] != "crear" {
+			return errors.New(usoIntegracion)
+		}
+		return crearIntegracion(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -292,5 +299,59 @@ func accesoPortal(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	fmt.Printf("Acceso al portal (un solo uso, vence %s):\n%s\n", a.ExpiraEn.Format(time.RFC3339), a.URL)
+	return nil
+}
+
+const usoIntegracion = "uso: iris integracion crear --sistema argosisp|horus [--empresa 1,2] [--correo <correo>] [--nombre <nombre>]"
+
+// crearIntegracion crea (o reutiliza) el usuario de tipo integración de Argos u Horus con su rol
+// base (integracion_argos, integracion_horus) y sus empresas, y emite un token iris_pat_ nuevo
+// para entregar al otro sistema. Solo con acceso a la base (actor sistema), sin pasar por admin.
+func crearIntegracion(ctx context.Context, cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("integracion crear", flag.ContinueOnError)
+	sistema := fs.String("sistema", "", "argosisp u horus")
+	empresas := fs.String("empresa", "", "ids de empresas de Argos separados por coma (obligatorio si hay empresas registradas)")
+	correo := fs.String("correo", "", "correo del usuario (por defecto integracion.<sistema>@iris.local)")
+	nombre := fs.String("nombre", "", "nombre del usuario")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *sistema == "" {
+		return errors.New(usoIntegracion)
+	}
+	var ids []int64
+	for _, parte := range strings.Split(*empresas, ",") {
+		if parte = strings.TrimSpace(parte); parte == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(parte, 10, 64)
+		if err != nil || id <= 0 {
+			return fmt.Errorf("--empresa: %q no es un id", parte)
+		}
+		ids = append(ids, id)
+	}
+	pool, err := conectar(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
+		return err
+	}
+	id, err := modulo(cfg)
+	if err != nil {
+		return err
+	}
+	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	r, err := id.PrepararIntegracion(cctx, identidad.EntradaPrepararIntegracion{Sistema: *sistema, Empresas: ids, Correo: *correo, Nombre: *nombre})
+	if err != nil {
+		return err
+	}
+	estado := "existente"
+	if r.Creado {
+		estado = "creado"
+	}
+	fmt.Printf("Usuario de integración %s: id %d, %s, rol %s, empresas %v\n", estado, r.Usuario.ID, r.Usuario.Correo, identidad.RolesIntegracion[*sistema], r.Usuario.Empresas)
+	fmt.Printf("Token (no se vuelve a mostrar; entrégalo a %s): %s\n", *sistema, r.Token.Valor)
 	return nil
 }

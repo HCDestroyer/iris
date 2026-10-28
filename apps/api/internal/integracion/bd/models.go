@@ -198,14 +198,6 @@ type NucleoIntentosLogin struct {
 	UpdatedAt      time.Time
 }
 
-type NucleoIntentosPortal struct {
-	Ip             string
-	Fallos         int32
-	BloqueadoHasta *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
 type NucleoPermiso struct {
 	Codigo      string
 	Descripcion string

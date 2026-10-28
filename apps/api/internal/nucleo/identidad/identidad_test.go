@@ -67,7 +67,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	for _, r := range roles.Data {
 		porCodigo[r.Codigo] = r
 	}
-	for _, base := range []string{"admin", "supervisor", "despacho", "tecnico", "soporte", "ventas", "lectura"} {
+	for _, base := range []string{"admin", "supervisor", "despacho", "tecnico", "soporte", "ventas", "lectura", "integracion_argos", "integracion_horus"} {
 		r, ok := porCodigo[base]
 		if !ok || !r.Sistema {
 			t.Fatalf("falta el rol base %s", base)
@@ -78,6 +78,12 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	}
 	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermClientesVer, nucleo.PermPermisosVer, nucleo.PermRolesVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
+	}
+	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermPortalEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
+		t.Fatalf("integracion_argos: %v", porCodigo["integracion_argos"].Permisos)
+	}
+	if !slices.Equal(porCodigo["integracion_horus"].Permisos, []nucleo.Permiso{nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
+		t.Fatalf("integracion_horus: %v", porCodigo["integracion_horus"].Permisos)
 	}
 }
 

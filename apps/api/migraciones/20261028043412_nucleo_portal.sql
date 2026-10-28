@@ -39,16 +39,6 @@ CREATE TABLE nucleo.portal_sesiones (
 );
 CREATE INDEX portal_sesiones_cliente_idx ON nucleo.portal_sesiones (empresa_id, cliente_id);
 
--- Canjes fallidos por IP (límite como el del inicio de sesión).
-CREATE TABLE nucleo.intentos_portal (
-    ip              text        PRIMARY KEY,
-    fallos          integer     NOT NULL DEFAULT 0,
-    bloqueado_hasta timestamptz,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX intentos_portal_updated_idx ON nucleo.intentos_portal (updated_at);
-
 -- La auditoría acepta el actor cliente (actor_id = id del cliente en Argos).
 ALTER TABLE auditoria.acciones DROP CONSTRAINT acciones_actor_tipo_check;
 ALTER TABLE auditoria.acciones ADD CONSTRAINT acciones_actor_tipo_check
@@ -58,6 +48,5 @@ ALTER TABLE auditoria.acciones ADD CONSTRAINT acciones_actor_tipo_check
 ALTER TABLE auditoria.acciones DROP CONSTRAINT acciones_actor_tipo_check;
 ALTER TABLE auditoria.acciones ADD CONSTRAINT acciones_actor_tipo_check
     CHECK (actor_tipo IN ('usuario', 'token', 'integracion', 'sistema', 'anonimo'));
-DROP TABLE nucleo.intentos_portal;
 DROP TABLE nucleo.portal_sesiones;
 DROP TABLE nucleo.portal_accesos;

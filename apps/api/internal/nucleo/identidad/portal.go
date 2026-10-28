@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,8 +33,11 @@ import (
 //     cookie del portal solo se lee en /api/v1/portal/…, donde la del panel no cuenta
 //     (middleware.go).
 //
-// Los canjes fallidos cuentan por IP (como el inicio de sesión por correo): al llegar al máximo
-// la IP queda bloqueada (429 demasiados_intentos con Retry-After, aun con un ticket válido).
+// Sin límite por IP (detrás del proxy del panel todos los clientes comparten la IP, y el ticket
+// de 256 bits, 60 s y un solo uso no se puede adivinar): los canjes rechazados se cuentan y van
+// al log con muestreo, sin auditar. Como freno de abuso hay un tope global muy alto de canjes
+// fallidos por ventana (PortalTope por PortalVentanaTope, 1000/min): pasado, el resto de esa
+// ventana responde 429 demasiados_intentos con Retry-After, sin bloqueo prolongado.
 
 // Cookies del portal.
 const (
@@ -177,24 +181,19 @@ func nuevoEntrarPortal(m *Modulo) *auditoria.Caso[EntradaEntrarPortal, SesionPor
 	cfg := m.cfg
 	return auditoria.Nuevo(auditoria.Caso[EntradaEntrarPortal, SesionPortal]{
 		Accion: "portal.entrar", Acceso: auditoria.Publico,
-		// Los 401 (ticket inválido) y 429 (IP bloqueada) son de anónimos: no dejan fila (se
-		// podría inundar la tabla); se cuentan y van al log con muestreo. El conteo por IP
-		// (AlFallar) corre igual.
+		// Los 401 (ticket inválido) y 429 (tope global) son de anónimos: no dejan fila (se
+		// podría inundar la tabla); se cuentan y van al log con muestreo.
 		AuditarError: m.auditarRechazoPortal,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEntrarPortal) (SesionPortal, error) {
 			q := identidadbd.New(t)
 			t.Anotar(map[string]any{"ip": in.IP, "user_agent": in.UserAgent})
-			hasta, err := q.BloqueoPortal(ctx, in.IP)
-			switch {
-			case err == nil:
+			if hasta, excedido := m.topePortal.excedido(time.Now(), cfg.PortalTope); excedido {
 				return SesionPortal{}, nucleo.DemasiadosIntentos("demasiados_intentos",
-					"Demasiados intentos fallidos de entrar al portal; espera antes de volver a intentar", time.Until(hasta))
-			case !errors.Is(err, pgx.ErrNoRows):
-				return SesionPortal{}, err
+					"Demasiados intentos fallidos de entrar al portal; vuelve a intentar en un momento", time.Until(hasta))
 			}
 			acceso, err := q.TomarAccesoPortal(ctx, Hash256(in.Ticket))
 			if errors.Is(err, pgx.ErrNoRows) {
-				contarFalloPortal(t, cfg, in.IP)
+				m.topePortal.sumar(time.Now(), cfg.PortalVentanaTope)
 				return SesionPortal{}, ticketInvalido()
 			}
 			if err != nil {
@@ -233,23 +232,37 @@ func nuevoEntrarPortal(m *Modulo) *auditoria.Caso[EntradaEntrarPortal, SesionPor
 	})
 }
 
-// contarFalloPortal suma el fallo a la IP (en la transacción aparte del error, que sí se
-// confirma) y, al llegar a PortalMaxFallos dentro de PortalVentana, la bloquea PortalBloqueo.
-func contarFalloPortal(t *auditoria.Tx, cfg Config, ip string) {
-	t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-		q := identidadbd.New(tx)
-		ahora := time.Now()
-		fallos, err := q.RegistrarFalloPortal(ctx, identidadbd.RegistrarFalloPortalParams{Ip: ip, Desde: ahora.Add(-cfg.PortalVentana)})
-		if err != nil || fallos < cfg.PortalMaxFallos {
-			return err
+// topeVentana cuenta eventos en una ventana fija (en memoria, por proceso): el freno global
+// de canjes fallidos del portal.
+type topeVentana struct {
+	mu      sync.Mutex
+	fin     time.Time
+	cuenta  int64
+	avisado bool
+}
+
+// sumar cuenta un fallo; abre una ventana nueva si la anterior terminó.
+func (v *topeVentana) sumar(ahora time.Time, ventana time.Duration) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !ahora.Before(v.fin) {
+		v.fin, v.cuenta, v.avisado = ahora.Add(ventana), 0, false
+	}
+	v.cuenta++
+}
+
+// excedido indica si la ventana en curso ya pasó el tope y hasta cuándo dura.
+func (v *topeVentana) excedido(ahora time.Time, tope int64) (time.Time, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if ahora.Before(v.fin) && v.cuenta >= tope {
+		if !v.avisado {
+			v.avisado = true
+			slog.Warn("identidad: tope global de canjes fallidos del portal alcanzado", "tope", tope, "hasta", v.fin)
 		}
-		hasta := ahora.Add(cfg.PortalBloqueo)
-		if err := q.BloquearPortal(ctx, identidadbd.BloquearPortalParams{Ip: ip, Hasta: &hasta}); err != nil {
-			return err
-		}
-		slog.WarnContext(ctx, "identidad: canje del portal bloqueado por fallos", "ip", ip, "fallos", fallos, "hasta", hasta)
-		return nil
-	})
+		return v.fin, true
+	}
+	return time.Time{}, false
 }
 
 // auditarRechazoPortal: los 401 y 429 del canje no se auditan; se cuentan y se registran con

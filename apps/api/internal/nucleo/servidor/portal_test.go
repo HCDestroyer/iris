@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -53,7 +55,7 @@ func entornoPortal(t *testing.T, cfg identidad.Config) *entorno {
 	pool := pruebas.Pool(t)
 	limpiar := func() {
 		for _, sql := range []string{
-			"DELETE FROM nucleo.portal_sesiones", "DELETE FROM nucleo.portal_accesos", "DELETE FROM nucleo.intentos_portal",
+			"DELETE FROM nucleo.portal_sesiones", "DELETE FROM nucleo.portal_accesos",
 			"DELETE FROM integracion.argos_clientes WHERE id = 88",
 			"DELETE FROM nucleo.usuarios_empresas", "DELETE FROM nucleo.empresas",
 		} {
@@ -113,14 +115,14 @@ func entornoPortal(t *testing.T, cfg identidad.Config) *entorno {
 	return e
 }
 
-// argos crea el usuario de integración «Argos» (rol admin, empresa 1) y un cliente HTTP con un
-// token suyo limitado a los permisos dados (como se configura el conector del lado de Iris).
+// argos crea un usuario de integración «Argos» (rol integracion_argos, empresa 1) y un cliente
+// HTTP con un token suyo limitado a los permisos dados.
 func (e *entorno) argos(permisos ...nucleo.Permiso) *cliente {
 	e.t.Helper()
 	ctx := pruebas.ContextoSistema(pruebas.Pool(e.t))
 	u, err := e.mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{
 		Nombre: "Argos", Correo: pruebas.Correo("argos"), Tipo: "integracion",
-		Roles: []identidad.AsignacionRol{{Rol: "admin"}}, Empresas: []int64{1},
+		Roles: []identidad.AsignacionRol{{Rol: "integracion_argos"}}, Empresas: []int64{1},
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -338,8 +340,10 @@ func (c *cliente) entrarPortalCon(ticket string) (*cliente, respuesta) {
 	return c, r
 }
 
-func TestPortalLimiteDeIntentos(t *testing.T) {
-	e := entornoPortal(t, identidad.Config{CookieSegura: false, PortalMaxFallos: 3})
+// Sin límite por IP: muchos canjes inválidos (todos desde la misma IP, como detrás del proxy
+// del panel) no impiden un canje válido después; los rechazos no se auditan, se cuentan.
+func TestPortalCanjesInvalidosNoBloquean(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false})
 	argos := e.argos(nucleo.PermPortalEmitir)
 	contar := func() int {
 		var n int
@@ -350,6 +354,23 @@ func TestPortalLimiteDeIntentos(t *testing.T) {
 		return n
 	}
 	antes, rechazos := contar(), e.mod.RechazosPortalSinAuditar()
+	for i := range 60 {
+		_, r := e.entrarPortal(fmt.Sprintf("ticket-inventado-%02d-0123456789abcdef", i))
+		r.problema(t, 401, "ticket_invalido")
+	}
+	if contar() != antes || e.mod.RechazosPortalSinAuditar()-rechazos != 60 {
+		t.Fatalf("auditados %d, contados %d", contar()-antes, e.mod.RechazosPortalSinAuditar()-rechazos)
+	}
+	if _, r := e.entrarPortal(emitir(t, argos, 77, 1)); r.status != 200 {
+		t.Fatalf("canje válido tras 60 inválidos: %d %s", r.status, r.crudo)
+	}
+}
+
+// Freno global (muy alto en producción): pasado el tope de fallos en la ventana, 429 solo hasta
+// que termina la ventana; el ticket válido no se gasta y entra después.
+func TestPortalTopeGlobal(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false, PortalTope: 3, PortalVentanaTope: 300 * time.Millisecond})
+	argos := e.argos(nucleo.PermPortalEmitir)
 	for range 3 {
 		_, r := e.entrarPortal("ticket-inventado-0123456789abcdef")
 		r.problema(t, 401, "ticket_invalido")
@@ -360,16 +381,9 @@ func TestPortalLimiteDeIntentos(t *testing.T) {
 	if r.h.Get("Retry-After") == "" {
 		t.Fatal("falta Retry-After")
 	}
-	// Rechazos anónimos: sin fila de auditoría, contados.
-	if contar() != antes || e.mod.RechazosPortalSinAuditar()-rechazos != 4 {
-		t.Fatalf("auditados %d, contados %d", contar()-antes, e.mod.RechazosPortalSinAuditar()-rechazos)
-	}
-	// El ticket válido no se gastó: vencido el bloqueo, entra.
-	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE nucleo.intentos_portal SET bloqueado_hasta = now() - interval '1 second'`); err != nil {
-		t.Fatal(err)
-	}
+	time.Sleep(350 * time.Millisecond)
 	if _, r := e.entrarPortal(valido); r.status != 200 {
-		t.Fatalf("tras el bloqueo: %d %s", r.status, r.crudo)
+		t.Fatalf("tras la ventana: %d %s", r.status, r.crudo)
 	}
 }
 
@@ -387,5 +401,52 @@ func TestPortalEmitirDesdeConsola(t *testing.T) {
 	_, ticket, _ := strings.Cut(a.URL, "#")
 	if _, r := e.entrarPortal(ticket); r.status != 200 || r.cuerpo["cliente"].(map[string]any)["empresaId"] != float64(2) {
 		t.Fatalf("entrar con el acceso de consola: %d %s", r.status, r.crudo)
+	}
+}
+
+// iris integracion crear: usuario de integración con el rol base de su sistema, sus empresas y
+// un token, sin pasar por admin.
+func TestPrepararIntegracion(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false})
+	ctx := pruebas.ContextoSistema(pruebas.Pool(t))
+	conToken := func(valor string) *cliente {
+		c := e.cliente()
+		c.bearer = valor
+		return c
+	}
+	correo := pruebas.Correo("argos")
+	a, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "argosisp", Empresas: []int64{1}, Correo: correo})
+	if err != nil || !a.Creado || a.Usuario.Tipo != "integracion" || len(a.Usuario.Roles) != 1 || a.Usuario.Roles[0].Rol != "integracion_argos" ||
+		!strings.HasPrefix(a.Token.Valor, "iris_pat_") {
+		t.Fatalf("argos: %+v %v", a, err)
+	}
+	argos := conToken(a.Token.Valor)
+	emitir(t, argos, 77, 1)
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 2}).problema(t, 403, "empresa_no_permitida")
+	argos.pedir(http.MethodGet, "/api/v1/usuarios", nil).problema(t, 403, "prohibido")
+	if r := argos.pedir(http.MethodGet, "/api/v1/tickets", nil); r.status != 200 {
+		t.Fatalf("tickets.ver: %d %s", r.status, r.crudo)
+	}
+	// Otra vez con el mismo correo: reutiliza el usuario, suma la empresa y emite otro token.
+	b, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "argosisp", Empresas: []int64{1, 2}, Correo: correo})
+	if err != nil || b.Creado || b.Usuario.ID != a.Usuario.ID || len(b.Usuario.Empresas) != 2 || b.Token.Valor == a.Token.Valor {
+		t.Fatalf("reutilizar: %+v %v", b, err)
+	}
+	emitir(t, conToken(b.Token.Valor), 77, 2)
+
+	// Horus: tickets.ver y tickets.crear, sin portal.emitir.
+	h, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Empresas: []int64{1}, Correo: pruebas.Correo("horus")})
+	if err != nil || h.Usuario.Roles[0].Rol != "integracion_horus" {
+		t.Fatalf("horus: %+v %v", h, err)
+	}
+	conToken(h.Token.Valor).pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 1}).problema(t, 403, "prohibido")
+
+	// Un correo de persona no se convierte en integración; sistema desconocido, 422.
+	_, persona := e.usuario("lectura")
+	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Correo: persona}); !esProblema(err, "usuario_no_es_integracion") {
+		t.Fatalf("persona: %v", err)
+	}
+	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "otro"}); !esProblema(err, "validacion") {
+		t.Fatalf("sistema: %v", err)
 	}
 }

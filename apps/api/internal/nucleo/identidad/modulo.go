@@ -40,11 +40,12 @@ type Config struct {
 	DuracionSesionPortal time.Duration
 	// VigenciaAccesoPortal: vida del ticket de acceso (60 s, un solo uso).
 	VigenciaAccesoPortal time.Duration
-	// PortalMaxFallos: canjes fallidos de una IP (dentro de PortalVentana) que la bloquean
-	// durante PortalBloqueo. 20, 15 min y 15 min por defecto.
-	PortalMaxFallos int32
-	PortalVentana   time.Duration
-	PortalBloqueo   time.Duration
+	// PortalTope: canjes fallidos del portal (de todos, no por IP) por PortalVentanaTope que
+	// hacen responder 429 al resto de esa ventana: un freno de abuso global y muy alto (1000 por
+	// minuto), sin bloqueo prolongado. No hay límite por IP: detrás del proxy del panel todos
+	// comparten la IP, y el ticket (256 bits, 60 s, un solo uso) no se puede adivinar.
+	PortalTope        int64
+	PortalVentanaTope time.Duration
 }
 
 // Modulo reúne los casos de uso de identidad.
@@ -52,6 +53,8 @@ type Modulo struct {
 	cfg Config
 	// rechazosPortal cuenta los canjes del portal rechazados sin auditar (401, 429).
 	rechazosPortal atomic.Int64
+	// topePortal cuenta los canjes fallidos de la ventana en curso (freno global).
+	topePortal topeVentana
 
 	CrearUsuario      *auditoria.Caso[EntradaCrearUsuario, Usuario]
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
@@ -111,14 +114,11 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.VigenciaAccesoPortal <= 0 {
 		cfg.VigenciaAccesoPortal = 60 * time.Second
 	}
-	if cfg.PortalMaxFallos <= 0 {
-		cfg.PortalMaxFallos = 20
+	if cfg.PortalTope <= 0 {
+		cfg.PortalTope = 1000
 	}
-	if cfg.PortalVentana <= 0 {
-		cfg.PortalVentana = 15 * time.Minute
-	}
-	if cfg.PortalBloqueo <= 0 {
-		cfg.PortalBloqueo = 15 * time.Minute
+	if cfg.PortalVentanaTope <= 0 {
+		cfg.PortalVentanaTope = time.Minute
 	}
 	m := &Modulo{cfg: cfg}
 	m.CrearUsuario = nuevoCrearUsuario()

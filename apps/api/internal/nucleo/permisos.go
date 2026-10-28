@@ -152,6 +152,15 @@ var RolesBase = []DefRol{
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer}},
+	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
+	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
+	//  - Argos (contratos/argosisp.md §1.2): tickets.ver, tickets.crear, portal.emitir (pedido
+	//    A9). ordenes.ver y sso.emitir se agregan aquí cuando existan esos permisos.
+	//  - Horus (contratos/horus.md §1.2): tickets.ver, tickets.crear. sso.emitir cuando exista.
+	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2)",
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermPortalEmitir}},
+	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
 
 // PermisosDeRol devuelve los permisos efectivos de un rol base.

@@ -159,21 +159,6 @@ func (q *Queries) BloquearLogin(ctx context.Context, arg BloquearLoginParams) er
 	return err
 }
 
-const bloquearPortal = `-- name: BloquearPortal :exec
-UPDATE nucleo.intentos_portal SET fallos = 0, bloqueado_hasta = $1, updated_at = now()
-WHERE ip = $2
-`
-
-type BloquearPortalParams struct {
-	Hasta *time.Time
-	Ip    string
-}
-
-func (q *Queries) BloquearPortal(ctx context.Context, arg BloquearPortalParams) error {
-	_, err := q.db.Exec(ctx, bloquearPortal, arg.Hasta, arg.Ip)
-	return err
-}
-
 const bloqueoLogin = `-- name: BloqueoLogin :one
 
 SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_login
@@ -183,18 +168,6 @@ WHERE correo = $1 AND bloqueado_hasta > now()
 // Límites de intentos -------------------------------------------------------
 func (q *Queries) BloqueoLogin(ctx context.Context, correo string) (time.Time, error) {
 	row := q.db.QueryRow(ctx, bloqueoLogin, correo)
-	var bloqueado_hasta time.Time
-	err := row.Scan(&bloqueado_hasta)
-	return bloqueado_hasta, err
-}
-
-const bloqueoPortal = `-- name: BloqueoPortal :one
-SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_portal
-WHERE ip = $1 AND bloqueado_hasta > now()
-`
-
-func (q *Queries) BloqueoPortal(ctx context.Context, ip string) (time.Time, error) {
-	row := q.db.QueryRow(ctx, bloqueoPortal, ip)
 	var bloqueado_hasta time.Time
 	err := row.Scan(&bloqueado_hasta)
 	return bloqueado_hasta, err
@@ -1176,28 +1149,6 @@ func (q *Queries) RegistrarFalloMFA(ctx context.Context, id int64) (int32, error
 	var mfa_fallos int32
 	err := row.Scan(&mfa_fallos)
 	return mfa_fallos, err
-}
-
-const registrarFalloPortal = `-- name: RegistrarFalloPortal :one
-INSERT INTO nucleo.intentos_portal (ip, fallos) VALUES ($1, 1)
-ON CONFLICT (ip) DO UPDATE
-SET fallos = CASE WHEN nucleo.intentos_portal.updated_at < $2::timestamptz THEN 1
-                  ELSE nucleo.intentos_portal.fallos + 1 END,
-    updated_at = now()
-RETURNING fallos
-`
-
-type RegistrarFalloPortalParams struct {
-	Ip    string
-	Desde time.Time
-}
-
-// Cuenta un canje fallido de la IP; si el último fue antes de @desde, la cuenta empieza de nuevo.
-func (q *Queries) RegistrarFalloPortal(ctx context.Context, arg RegistrarFalloPortalParams) (int32, error) {
-	row := q.db.QueryRow(ctx, registrarFalloPortal, arg.Ip, arg.Desde)
-	var fallos int32
-	err := row.Scan(&fallos)
-	return fallos, err
 }
 
 const registrarPasoTOTP = `-- name: RegistrarPasoTOTP :execrows
