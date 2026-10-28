@@ -11,6 +11,8 @@ Iris es el sistema de operación de campo y atención de un ISP. Forma parte de 
 - **Agenda y rutas:** calendario por técnico y zona, ruta del día y ubicación en vivo.
 - **Seguimiento comercial:** prospecto → factibilidad → cotización → contrato → alta en Argos.
 
+Iris tiene **usuarios propios** (decisión del PM): desde Argos y Horus se entra con autologin por ticket y vinculación de usuarios, nunca con cuentas compartidas.
+
 Iris **no** es dueño de clientes, servicios, facturación ni inventario. Esos datos viven en ArgosISP y se usan por contrato (`.claude/integration/contratos/argosisp.md`). Las alertas de red llegan de Horus (`contratos/horus.md`). Iris funciona completo sin los otros dos: si un conector está apagado, se trabaja con datos locales.
 
 El plan está en `.claude/PLAN.md`, el modelo de datos en `.claude/modelo-datos.md` y cada frente en `.claude/agents/<agente>.md`. Lee los cuatro antes de escribir código.
