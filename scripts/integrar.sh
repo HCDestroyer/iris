@@ -27,7 +27,8 @@ esac
 export PGHOST="${PGHOST:-localhost}" PGPORT="${PGPORT:-5432}" PGUSER="${PGUSER:-iris}" PGPASSWORD="${PGPASSWORD:-iris}"
 export IRIS_DB_URL="postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$IRIS_DB?sslmode=disable"
 
-git -C "$raiz" fetch -q origin
+# Refspecs explícitos: un clon de una sola rama no trae origin/<rama> con un fetch a secas.
+git -C "$raiz" fetch -q origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/$rama:refs/remotes/origin/$rama"
 git -C "$raiz" rev-parse -q --verify "origin/$rama" >/dev/null || { echo "No existe origin/$rama" >&2; exit 1; }
 dir="$(mktemp -d "${TMPDIR:-/tmp}/integrar-XXXXXX")"
 git -C "$raiz" worktree add -q --detach "$dir" "origin/$rama"
