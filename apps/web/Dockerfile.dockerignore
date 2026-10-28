@@ -1,0 +1,8 @@
+# Contexto: la raíz del repo (BuildKit usa este archivo junto al Dockerfile).
+**/node_modules
+**/.next
+**/test-results
+**/playwright-report
+.git
+apps/api
+infra

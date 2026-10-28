@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@iris/ui/estilos.css";
+
+/* Clases de Tailwind usadas en los componentes de @iris/ui (fuente TS, fuera de esta app). */
+@source "../../../packages/ui/src";
