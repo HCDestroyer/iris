@@ -207,3 +207,52 @@ SELECT mfa_fallos FROM nucleo.sesiones WHERE id = @id;
 UPDATE nucleo.sesiones SET mfa_fallos = mfa_fallos + 1, updated_at = now()
 WHERE id = @id AND mfa_pendiente AND revocada_en IS NULL
 RETURNING mfa_fallos;
+
+-- Empresas y empresa activa ---------------------------------------------------
+
+-- name: EmpresasAccesibles :many
+-- Ids de las empresas en que el usuario puede operar: todas con @todas (empresas.todas), si no
+-- las de su membresía.
+SELECT e.id FROM nucleo.empresas e
+WHERE @todas::boolean
+   OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.empresa_id = e.id AND ue.usuario_id = @usuario_id)
+ORDER BY e.id;
+
+-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas);
+
+-- name: EmpresasPorIDs :many
+SELECT * FROM nucleo.empresas WHERE id = ANY(@ids::bigint[]) ORDER BY nombre, id;
+
+-- name: EmpresaPorID :one
+SELECT * FROM nucleo.empresas WHERE id = @id;
+
+-- name: EmpresaPorIDParaActualizar :one
+SELECT * FROM nucleo.empresas WHERE id = @id FOR UPDATE;
+
+-- name: ListarEmpresas :many
+SELECT * FROM nucleo.empresas WHERE id > @despues_de ORDER BY id LIMIT @limite;
+
+-- name: CrearEmpresa :one
+INSERT INTO nucleo.empresas (id, nombre, nit, origen) VALUES (@id, @nombre, @nit, 'manual')
+RETURNING *;
+
+-- name: EditarEmpresa :one
+UPDATE nucleo.empresas
+SET nombre = @nombre, nit = @nit, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: EmpresasDeUsuarios :many
+SELECT ue.usuario_id, ue.empresa_id
+FROM nucleo.usuarios_empresas ue
+WHERE ue.usuario_id = ANY(@usuarios::bigint[])
+ORDER BY ue.usuario_id, ue.empresa_id;
+
+-- name: AsignarEmpresa :execrows
+INSERT INTO nucleo.usuarios_empresas (usuario_id, empresa_id, asignado_por)
+VALUES (@usuario_id, @empresa_id, @asignado_por)
+ON CONFLICT (usuario_id, empresa_id) DO NOTHING;
+
+-- name: QuitarEmpresa :execrows
+DELETE FROM nucleo.usuarios_empresas WHERE usuario_id = @usuario_id AND empresa_id = @empresa_id;

@@ -12,6 +12,7 @@ func nuevoListarRoles() *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]
 	return auditoria.Nuevo(auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]{
 		Accion:       "roles.ver",
 		Permiso:      nucleo.PermRolesVer,
+		SinEmpresa:   true, // administración: no es operativa
 		AuditarExito: soloLecturas[nucleo.Pagina[Rol]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in nucleo.ParamsPagina) (nucleo.Pagina[Rol], error) {
 			var despues int64

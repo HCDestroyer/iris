@@ -29,8 +29,9 @@ type TokenCreado struct {
 
 func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearToken, TokenCreado]{
-		Accion:  "tokens.crear",
-		Permiso: nucleo.PermTokensCrear,
+		Accion:     "tokens.crear",
+		Permiso:    nucleo.PermTokensCrear,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearToken) (TokenCreado, error) {
 			actor := contexto.ActorDe(ctx)
 			dueno := in.UsuarioID

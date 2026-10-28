@@ -162,6 +162,17 @@ type IntegracionOutbox struct {
 	FallidoEn      *time.Time
 }
 
+type NucleoEmpresa struct {
+	ID             int64
+	Nombre         string
+	Nit            string
+	Origen         string
+	SincronizadoEn *time.Time
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type NucleoIdempotencium struct {
 	Actor        string
 	Clave        string
@@ -255,6 +266,14 @@ type NucleoUsuario struct {
 	Version        int32
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type NucleoUsuariosEmpresa struct {
+	UsuarioID   int64
+	EmpresaID   int64
+	AsignadoPor *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type NucleoUsuariosRole struct {

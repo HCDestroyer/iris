@@ -23,8 +23,9 @@ type EntradaCrearUsuario struct {
 
 func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearUsuario, Usuario]{
-		Accion:  "usuarios.crear",
-		Permiso: nucleo.PermUsuariosCrear,
+		Accion:     "usuarios.crear",
+		Permiso:    nucleo.PermUsuariosCrear,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearUsuario) (Usuario, error) {
 			q := identidadbd.New(t)
 			nombre, correo, err := normalizarNombreCorreo(in.Nombre, in.Correo)
@@ -59,7 +60,7 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 			if err := t.Emitir("usuario.creado", map[string]any{"usuario_id": u.ID, "tipo": u.Tipo}); err != nil {
 				return Usuario{}, err
 			}
-			return aUsuario(u, asignadas), nil
+			return aUsuario(u, asignadas, nil), nil
 		},
 	})
 }

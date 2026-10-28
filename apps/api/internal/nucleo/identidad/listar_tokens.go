@@ -18,6 +18,7 @@ func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[Toke
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]{
 		Accion:       "tokens.ver",
 		Permiso:      nucleo.PermTokensVer,
+		SinEmpresa:   true, // administración: no es operativa
 		AuditarExito: soloLecturas[nucleo.Pagina[TokenAPI]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarTokens) (nucleo.Pagina[TokenAPI], error) {
 			var despues int64

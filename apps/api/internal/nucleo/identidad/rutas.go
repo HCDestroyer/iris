@@ -131,7 +131,9 @@ func (m *Modulo) Registrar(api huma.API) {
 			return &salidaCookies{SetCookie: m.cookiesBorradas()}, nil
 		})
 
-	huma.Register(api, operacion("obtenerYo", http.MethodGet, "/api/v1/yo", "Usuario autenticado, permisos y alcance", "", http.StatusOK),
+	yo := operacion("obtenerYo", http.MethodGet, "/api/v1/yo", "Usuario autenticado, permisos, alcance y empresas", "", http.StatusOK)
+	yo.Description = "Incluye `empresas` (para el selector), `empresaActiva` y `modoEmpresa`. La empresa activa se elige con la cabecera `X-Iris-Empresa: <id>` en cada petición; con una sola empresa disponible es esa por defecto."
+	huma.Register(api, yo,
 		func(ctx context.Context, _ *vacio) (*cuerpo[Yo], error) {
 			return responder(m.ObtenerYo.Ejecutar(ctx, struct{}{}))
 		})
@@ -173,6 +175,41 @@ func (m *Modulo) Registrar(api huma.API) {
 			e.ID = in.ID
 			return responder(m.DesactivarUsuario.Ejecutar(ctx, e))
 		})
+
+	// Empresas y membresía --------------------------------------------------------------
+	huma.Register(api, operacion("listarEmpresas", http.MethodGet, "/api/v1/empresas", "Listar las empresas registradas", nucleo.PermEmpresasVer, http.StatusOK),
+		func(ctx context.Context, in *nucleo.ParamsPagina) (*cuerpo[nucleo.Pagina[Empresa]], error) {
+			return responder(m.ListarEmpresas.Ejecutar(ctx, *in))
+		})
+
+	crearEmpresa := operacion("crearEmpresa", http.MethodPost, "/api/v1/empresas", "Registrar una empresa de Argos", nucleo.PermEmpresasCrear, http.StatusCreated, http.StatusConflict)
+	crearEmpresa.Description += " Para cuando el conector no la trajo (el canje con Argos registra las empresas que cubre su token). 409 si el id ya existe."
+	huma.Register(api, crearEmpresa, func(ctx context.Context, in *conClave[EntradaCrearEmpresa]) (*cuerpo[Empresa], error) {
+		return responder(m.CrearEmpresa.Ejecutar(ctx, in.Body))
+	})
+
+	huma.Register(api, operacion("editarEmpresa", http.MethodPost, "/api/v1/empresas/{id}/editar", "Editar nombre y NIT de una empresa", nucleo.PermEmpresasEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
+		func(ctx context.Context, in *conID[EntradaEditarEmpresa]) (*cuerpo[Empresa], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.EditarEmpresa.Ejecutar(ctx, e))
+		})
+
+	asignar := operacion("asignarEmpresaUsuario", http.MethodPost, "/api/v1/usuarios/{id}/asignar-empresa", "Asignar una empresa a un usuario", nucleo.PermUsuariosAsignarEmpresa, http.StatusOK, http.StatusNotFound)
+	asignar.Description += " Solo empresas en que operas tú (403). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas."
+	huma.Register(api, asignar, func(ctx context.Context, in *conID[EntradaEmpresaUsuario]) (*cuerpo[Usuario], error) {
+		e := in.Body
+		e.UsuarioID = in.ID
+		return responder(m.AsignarEmpresaUsuario.Ejecutar(ctx, e))
+	})
+
+	quitar := operacion("quitarEmpresaUsuario", http.MethodPost, "/api/v1/usuarios/{id}/quitar-empresa", "Quitar una empresa a un usuario", nucleo.PermUsuariosQuitarEmpresa, http.StatusOK, http.StatusNotFound)
+	quitar.Description += " Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance (403). 422 `empresa_no_asignada`."
+	huma.Register(api, quitar, func(ctx context.Context, in *conID[EntradaEmpresaUsuario]) (*cuerpo[Usuario], error) {
+		e := in.Body
+		e.UsuarioID = in.ID
+		return responder(m.QuitarEmpresaUsuario.Ejecutar(ctx, e))
+	})
 
 	// Roles y permisos ------------------------------------------------------------------
 	huma.Register(api, operacion("listarRoles", http.MethodGet, "/api/v1/roles", "Listar roles con sus permisos", nucleo.PermRolesVer, http.StatusOK),

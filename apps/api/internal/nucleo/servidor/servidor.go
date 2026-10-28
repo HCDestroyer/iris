@@ -52,7 +52,7 @@ func Nuevo(d Deps) (http.Handler, huma.API) {
 			})
 		})
 	}
-	r.Use(identidad.Middleware(d.Log))
+	r.Use(identidad.Middleware(d.Log), identidad.MiddlewareEmpresa(d.Log))
 	idem := d.Idempotencia
 	if idem.Log == nil {
 		idem.Log = d.Log
@@ -88,7 +88,10 @@ func configuracion(version string) huma.Config {
 	cfg.Info.Description = "API de Iris: operación de campo y atención del ISP (familia Horus). " +
 		"Errores RFC 9457 (application/problem+json), listas con cursor (`{ data, nextCursor }`) e " +
 		"`Idempotency-Key` en las operaciones que cambian estado. Con sesión de panel, toda petición " +
-		"que cambia estado lleva `X-CSRF-Token` (valor de la cookie `iris_csrf`)."
+		"que cambia estado lleva `X-CSRF-Token` (valor de la cookie `iris_csrf`). Multiempresa: la empresa " +
+		"activa se elige con `X-Iris-Empresa: <id de Argos>` (403 `empresa_no_permitida` si no es tuya); con " +
+		"varias empresas y sin cabecera, lo operativo responde 422 `empresa_requerida`; sin ninguna asignada, " +
+		"403 `sin_empresa` (ver `GET /api/v1/yo`)."
 	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"sesion": {Type: "apiKey", In: "cookie", Name: identidad.CookieSesion,
 			Description: "Sesión del panel. Las peticiones que cambian estado llevan además X-CSRF-Token."},

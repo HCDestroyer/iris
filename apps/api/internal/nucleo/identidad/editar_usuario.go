@@ -22,8 +22,9 @@ type EntradaEditarUsuario struct {
 
 func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaEditarUsuario, Usuario]{
-		Accion:  "usuarios.editar",
-		Permiso: nucleo.PermUsuariosEditar,
+		Accion:     "usuarios.editar",
+		Permiso:    nucleo.PermUsuariosEditar,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEditarUsuario) (Usuario, error) {
 			q := identidadbd.New(t)
 			t.FijarEntidad("usuario", in.ID)
@@ -110,7 +111,11 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 					return Usuario{}, err
 				}
 			}
-			return aUsuario(despues, roles), nil
+			empresas, err := empresasDe(ctx, q, in.ID)
+			if err != nil {
+				return Usuario{}, err
+			}
+			return aUsuario(despues, roles, empresas[in.ID]), nil
 		},
 	})
 }

@@ -51,6 +51,12 @@ type Modulo struct {
 	ListarRoles    *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]
 	ListarPermisos *auditoria.Caso[struct{}, nucleo.Pagina[PermisoInfo]]
 
+	ListarEmpresas        *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Empresa]]
+	CrearEmpresa          *auditoria.Caso[EntradaCrearEmpresa, Empresa]
+	EditarEmpresa         *auditoria.Caso[EntradaEditarEmpresa, Empresa]
+	AsignarEmpresaUsuario *auditoria.Caso[EntradaEmpresaUsuario, Usuario]
+	QuitarEmpresaUsuario  *auditoria.Caso[EntradaEmpresaUsuario, Usuario]
+
 	CrearToken   *auditoria.Caso[EntradaCrearToken, TokenCreado]
 	RevocarToken *auditoria.Caso[EntradaRevocarToken, TokenAPI]
 	ListarTokens *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]
@@ -89,6 +95,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.ActivarMFA = nuevoActivarMFA(cfg)
 	m.ListarRoles = nuevoListarRoles()
 	m.ListarPermisos = nuevoListarPermisos()
+	m.ListarEmpresas = nuevoListarEmpresas()
+	m.CrearEmpresa = nuevoCrearEmpresa()
+	m.EditarEmpresa = nuevoEditarEmpresa()
+	m.AsignarEmpresaUsuario = nuevoCambiarEmpresaUsuario(true)
+	m.QuitarEmpresaUsuario = nuevoCambiarEmpresaUsuario(false)
 	m.CrearToken = nuevoCrearToken()
 	m.RevocarToken = nuevoRevocarToken()
 	m.ListarTokens = nuevoListarTokens()

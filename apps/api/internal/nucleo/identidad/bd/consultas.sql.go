@@ -102,6 +102,26 @@ func (q *Queries) AgregarPermisosARol(ctx context.Context, arg AgregarPermisosAR
 	return err
 }
 
+const asignarEmpresa = `-- name: AsignarEmpresa :execrows
+INSERT INTO nucleo.usuarios_empresas (usuario_id, empresa_id, asignado_por)
+VALUES ($1, $2, $3)
+ON CONFLICT (usuario_id, empresa_id) DO NOTHING
+`
+
+type AsignarEmpresaParams struct {
+	UsuarioID   int64
+	EmpresaID   int64
+	AsignadoPor *int64
+}
+
+func (q *Queries) AsignarEmpresa(ctx context.Context, arg AsignarEmpresaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, asignarEmpresa, arg.UsuarioID, arg.EmpresaID, arg.AsignadoPor)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const asignarRol = `-- name: AsignarRol :exec
 INSERT INTO nucleo.usuarios_roles (usuario_id, rol_id, zona_id, cuadrilla_id)
 VALUES ($1, $2, $3, $4)
@@ -175,6 +195,33 @@ func (q *Queries) CompletarMFASesion(ctx context.Context, id int64) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const crearEmpresa = `-- name: CrearEmpresa :one
+INSERT INTO nucleo.empresas (id, nombre, nit, origen) VALUES ($1, $2, $3, 'manual')
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type CrearEmpresaParams struct {
+	ID     int64
+	Nombre string
+	Nit    string
+}
+
+func (q *Queries) CrearEmpresa(ctx context.Context, arg CrearEmpresaParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, crearEmpresa, arg.ID, arg.Nombre, arg.Nit)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const crearSesion = `-- name: CrearSesion :one
@@ -344,6 +391,182 @@ func (q *Queries) DesactivarUsuario(ctx context.Context, arg DesactivarUsuarioPa
 	return i, err
 }
 
+const editarEmpresa = `-- name: EditarEmpresa :one
+UPDATE nucleo.empresas
+SET nombre = $1, nit = $2, version = version + 1, updated_at = now()
+WHERE id = $3 AND version = $4
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type EditarEmpresaParams struct {
+	Nombre  string
+	Nit     string
+	ID      int64
+	Version int32
+}
+
+func (q *Queries) EditarEmpresa(ctx context.Context, arg EditarEmpresaParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, editarEmpresa,
+		arg.Nombre,
+		arg.Nit,
+		arg.ID,
+		arg.Version,
+	)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const empresaPorID = `-- name: EmpresaPorID :one
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = $1
+`
+
+func (q *Queries) EmpresaPorID(ctx context.Context, id int64) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, empresaPorID, id)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const empresaPorIDParaActualizar = `-- name: EmpresaPorIDParaActualizar :one
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) EmpresaPorIDParaActualizar(ctx context.Context, id int64) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, empresaPorIDParaActualizar, id)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const empresasAccesibles = `-- name: EmpresasAccesibles :many
+
+SELECT e.id FROM nucleo.empresas e
+WHERE $1::boolean
+   OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.empresa_id = e.id AND ue.usuario_id = $2)
+ORDER BY e.id
+`
+
+type EmpresasAccesiblesParams struct {
+	Todas     bool
+	UsuarioID int64
+}
+
+// Empresas y empresa activa ---------------------------------------------------
+// Ids de las empresas en que el usuario puede operar: todas con @todas (empresas.todas), si no
+// las de su membresía.
+func (q *Queries) EmpresasAccesibles(ctx context.Context, arg EmpresasAccesiblesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, empresasAccesibles, arg.Todas, arg.UsuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const empresasDeUsuarios = `-- name: EmpresasDeUsuarios :many
+SELECT ue.usuario_id, ue.empresa_id
+FROM nucleo.usuarios_empresas ue
+WHERE ue.usuario_id = ANY($1::bigint[])
+ORDER BY ue.usuario_id, ue.empresa_id
+`
+
+type EmpresasDeUsuariosRow struct {
+	UsuarioID int64
+	EmpresaID int64
+}
+
+func (q *Queries) EmpresasDeUsuarios(ctx context.Context, usuarios []int64) ([]EmpresasDeUsuariosRow, error) {
+	rows, err := q.db.Query(ctx, empresasDeUsuarios, usuarios)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EmpresasDeUsuariosRow
+	for rows.Next() {
+		var i EmpresasDeUsuariosRow
+		if err := rows.Scan(&i.UsuarioID, &i.EmpresaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const empresasPorIDs = `-- name: EmpresasPorIDs :many
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = ANY($1::bigint[]) ORDER BY nombre, id
+`
+
+func (q *Queries) EmpresasPorIDs(ctx context.Context, ids []int64) ([]NucleoEmpresa, error) {
+	rows, err := q.db.Query(ctx, empresasPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NucleoEmpresa
+	for rows.Next() {
+		var i NucleoEmpresa
+		if err := rows.Scan(
+			&i.ID,
+			&i.Nombre,
+			&i.Nit,
+			&i.Origen,
+			&i.SincronizadoEn,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fallosMFASesion = `-- name: FallosMFASesion :one
 SELECT mfa_fallos FROM nucleo.sesiones WHERE id = $1
 `
@@ -408,6 +631,17 @@ func (q *Queries) GuardarSecretoTOTP(ctx context.Context, arg GuardarSecretoTOTP
 	return err
 }
 
+const hayEmpresas = `-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas)
+`
+
+func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, hayEmpresas)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const limpiarIntentosLogin = `-- name: LimpiarIntentosLogin :exec
 DELETE FROM nucleo.intentos_login WHERE correo = $1
 `
@@ -415,6 +649,44 @@ DELETE FROM nucleo.intentos_login WHERE correo = $1
 func (q *Queries) LimpiarIntentosLogin(ctx context.Context, correo string) error {
 	_, err := q.db.Exec(ctx, limpiarIntentosLogin, correo)
 	return err
+}
+
+const listarEmpresas = `-- name: ListarEmpresas :many
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id > $1 ORDER BY id LIMIT $2
+`
+
+type ListarEmpresasParams struct {
+	DespuesDe int64
+	Limite    int32
+}
+
+func (q *Queries) ListarEmpresas(ctx context.Context, arg ListarEmpresasParams) ([]NucleoEmpresa, error) {
+	rows, err := q.db.Query(ctx, listarEmpresas, arg.DespuesDe, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NucleoEmpresa
+	for rows.Next() {
+		var i NucleoEmpresa
+		if err := rows.Scan(
+			&i.ID,
+			&i.Nombre,
+			&i.Nit,
+			&i.Origen,
+			&i.SincronizadoEn,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listarPermisos = `-- name: ListarPermisos :many
@@ -648,6 +920,23 @@ func (q *Queries) PermisosDeUsuario(ctx context.Context, usuarioID int64) ([]Per
 		return nil, err
 	}
 	return items, nil
+}
+
+const quitarEmpresa = `-- name: QuitarEmpresa :execrows
+DELETE FROM nucleo.usuarios_empresas WHERE usuario_id = $1 AND empresa_id = $2
+`
+
+type QuitarEmpresaParams struct {
+	UsuarioID int64
+	EmpresaID int64
+}
+
+func (q *Queries) QuitarEmpresa(ctx context.Context, arg QuitarEmpresaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarEmpresa, arg.UsuarioID, arg.EmpresaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const quitarPermisosDeRol = `-- name: QuitarPermisosDeRol :exec

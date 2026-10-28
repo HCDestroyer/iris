@@ -16,6 +16,11 @@ type Yo struct {
 	Actor    string           `json:"actor" enum:"usuario,token,integracion" doc:"Cómo entró: sesión del panel, token o integración"`
 	TokenID  *int64           `json:"tokenId,omitempty" doc:"Token con que entró, si aplica"`
 	Permisos []nucleo.Permiso `json:"permisos" doc:"Permisos efectivos; el alcance de cada uno sale de los roles"`
+	// Empresa activa (cabecera X-Iris-Empresa): el panel arma el selector con empresas.
+	Empresas         []EmpresaResumen `json:"empresas" doc:"Empresas en que puede operar (todas las registradas si tiene empresas.todas)"`
+	EmpresaActiva    *EmpresaResumen  `json:"empresaActiva,omitempty" doc:"Empresa activa de esta petición (X-Iris-Empresa o la única disponible); ausente si no hay"`
+	ModoEmpresa      string           `json:"modoEmpresa" enum:"activa,por_elegir,sin_empresa,sin_conector" doc:"activa: hay empresa activa; por_elegir: tiene varias y falta X-Iris-Empresa (lo operativo responde 422 empresa_requerida); sin_empresa: no tiene ninguna asignada (lo operativo responde 403 sin_empresa); sin_conector: no hay empresas registradas y se trabaja con empresa_id null"`
+	TodasLasEmpresas bool             `json:"todasLasEmpresas" doc:"Tiene empresas.todas (rol global)"`
 }
 
 func nuevoObtenerYo() *auditoria.Caso[struct{}, Yo] {
@@ -43,7 +48,27 @@ func nuevoObtenerYo() *auditoria.Caso[struct{}, Yo] {
 			for _, p := range lista {
 				permisos = append(permisos, nucleo.Permiso(p))
 			}
-			yo := Yo{Usuario: aUsuario(u, roles[id]), Actor: string(actor.Tipo), Permisos: permisos}
+			asignadas, err := empresasDe(ctx, q, id)
+			if err != nil {
+				return Yo{}, err
+			}
+			yo := Yo{Usuario: aUsuario(u, roles[id], asignadas[id]), Actor: string(actor.Tipo), Permisos: permisos}
+			e := contexto.EmpresasDe(ctx)
+			if e.Estado == contexto.EmpresaNoResuelta {
+				// Sin middleware (consola, pruebas): se resuelve aquí sin cabecera.
+				if e, err = ResolverEmpresa(ctx, q, ""); err != nil {
+					return Yo{}, err
+				}
+			}
+			if yo.Empresas, err = empresasResumen(ctx, q, e.Disponibles); err != nil {
+				return Yo{}, err
+			}
+			yo.ModoEmpresa, yo.TodasLasEmpresas = string(e.Estado), e.Todas
+			for _, r := range yo.Empresas {
+				if r.ID == e.Activa {
+					yo.EmpresaActiva = &r
+				}
+			}
 			if actor.TokenID != 0 {
 				yo.TokenID = &actor.TokenID
 			}

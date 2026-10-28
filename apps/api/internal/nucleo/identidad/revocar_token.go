@@ -16,8 +16,9 @@ type EntradaRevocarToken struct {
 
 func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRevocarToken, TokenAPI]{
-		Accion:  "tokens.revocar",
-		Permiso: nucleo.PermTokensRevocar,
+		Accion:     "tokens.revocar",
+		Permiso:    nucleo.PermTokensRevocar,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRevocarToken) (TokenAPI, error) {
 			q := identidadbd.New(t)
 			t.FijarEntidad("token", in.ID)
