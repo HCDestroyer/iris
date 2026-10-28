@@ -260,7 +260,8 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, antes, de
 		AsignadaEn: despues.AsignadaEn, Estado: despues.Estado, ProgramadaInicio: despues.ProgramadaInicio,
 		ProgramadaFin: despues.ProgramadaFin, EnCaminoEn: despues.EnCaminoEn, EnSitioEn: despues.EnSitioEn,
 		FinalizadaEn: despues.FinalizadaEn, Resultado: despues.Resultado, MotivoFalla: despues.MotivoFalla,
-		Motivo: despues.Motivo, ID: antes.ID, Version: antes.Version,
+		Motivo: despues.Motivo, PausadaDesde: despues.PausadaDesde, PausadaEn: despues.PausadaEn,
+		PausadaSeg: despues.PausadaSeg, ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
 		return f, nucleo.VerificarVersion(err, "orden", antes.ID)
@@ -360,7 +361,7 @@ func actorUsuario(t *auditoria.Tx) *int64 {
 
 // cuandoEn es la hora del hecho: la del servidor (panel) o la del teléfono corregida con el
 // desfase (lote; corregir ya la acota a ahora − 7 días), nunca anterior a la hora en que la
-// orden entró en su estado actual (asignación, en camino, en sitio): un teléfono con el reloj
+// orden entró en su estado actual (asignación, en camino, en sitio, pausa): un teléfono con el reloj
 // atrasado no reescribe el orden de los hechos. La hora original queda en
 // operaciones_sync.ocurrido_en_telefono como evidencia.
 func (m *Modulo) cuandoEn(s *OpSync, f campobd.CampoOrden) time.Time {
@@ -369,7 +370,7 @@ func (m *Modulo) cuandoEn(s *OpSync, f campobd.CampoOrden) time.Time {
 		return ahora
 	}
 	c := s.OcurridoEn
-	for _, piso := range []*time.Time{f.AsignadaEn, f.EnCaminoEn, f.EnSitioEn} {
+	for _, piso := range []*time.Time{f.AsignadaEn, f.EnCaminoEn, f.EnSitioEn, f.PausadaEn} {
 		if piso != nil && c.Before(*piso) {
 			c = *piso
 		}

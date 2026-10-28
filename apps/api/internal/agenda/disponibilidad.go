@@ -321,7 +321,7 @@ type CitaAgenda struct {
 	OrdenID       int64      `json:"ordenId"`
 	Numero        string     `json:"numero"`
 	Tipo          string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento"`
-	Estado        string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada"`
+	Estado        string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada" doc:"Estado de la orden (pausada: sigue abierta y conserva la cita)"`
 	OrdenVersion  int32      `json:"ordenVersion" doc:"Versión de la orden (para reprogramar)"`
 	TecnicoID     int64      `json:"tecnicoId" doc:"Usuario técnico"`
 	Inicio        time.Time  `json:"inicio"`

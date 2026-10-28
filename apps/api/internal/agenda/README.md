@@ -30,7 +30,7 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
   reprogramar o cambiar el técnico de una orden programada. Valida, con un candado por técnico (y
   por cuadrilla): ficha activa (`tecnico_sin_agenda`), cita dentro de un turno y sin cruzar la
   medianoche (`fuera_de_turno`), sin ausencia (`tecnico_ausente`), sin cruzarse con otra cita viva
-  del técnico —programada, en camino o en sitio, de cualquier empresa— (`solape`), capacidad del
+  del técnico —programada, en camino, en sitio o pausada, de cualquier empresa— (`solape`), capacidad del
   día —cuentan las vivas y las cerradas— (`capacidad_excedida`) y ventana (`fuera_de_ventana`: el
   inicio cae dentro; hasta 24 h). Al reprogramar sin ventana nueva se conserva la anterior si el
   nuevo inicio cae en ella. Sin técnico, cancelada o reabierta: la cita se borra (`QuitarCita`).
@@ -58,7 +58,7 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
 
 - **Proponer** (`POST /rutas/proponer`, `rutas.proponer`; `ProponerRuta`): las citas del técnico ese
   día en la empresa activa (programadas, en curso y terminadas; hasta 100). Las ya en camino, en
-  sitio o terminadas van primero en el orden real (`fija`, con su hora real); el resto se ordena
+  sitio, pausadas o terminadas van primero en el orden real (`fija`, con su hora real); el resto se ordena
   para **llegar dentro de la ventana** acordada con el cliente (llegar antes = esperar; después =
   retraso, que pesa 100 veces el tiempo) con la menor hora de terminar y luego el menor viaje.
   Duración de cada parada = la del tipo de orden. Exacto (todas las permutaciones) hasta 8 paradas;

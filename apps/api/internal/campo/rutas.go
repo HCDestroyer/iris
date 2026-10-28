@@ -3,9 +3,12 @@ package campo
 import (
 	"context"
 	"net/http"
+	"reflect"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -58,6 +61,56 @@ type conID[T any] struct {
 }
 
 type vacio struct{}
+
+// conFormulario: POST /ordenes/{id}/formularios/{fid}/quitar.
+type conFormulario struct {
+	nucleo.ConIdempotencia
+	ID   int64  `path:"id" minimum:"1"`
+	FID  string `path:"fid" format:"uuid" doc:"Formulario de la orden (formularios[].id)"`
+	Body EntradaQuitarFormulario
+}
+
+// registrarPlantillas publica el catálogo administrable de plantillas de formulario.
+func (m *Modulo) registrarPlantillas(api huma.API) {
+	listar := operacion("listarPlantillas", http.MethodGet, "/api/v1/plantillas", "Plantillas de formulario (catálogo)", nucleo.PermPlantillasVer, http.StatusOK)
+	listar.Description += " Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`."
+	huma.Register(api, listar, func(ctx context.Context, in *EntradaListarPlantillas) (*cuerpo[nucleo.Pagina[PlantillaFormulario]], error) {
+		return responder(m.ListarPlantillas.Ejecutar(ctx, *in))
+	})
+	ver := operacion("verPlantilla", http.MethodGet, "/api/v1/plantillas/{id}", "Ver una plantilla (una versión) y su historial de versiones", nucleo.PermPlantillasVer, http.StatusOK, http.StatusNotFound)
+	huma.Register(api, ver, func(ctx context.Context, in *EntradaVerPlantilla) (*cuerpo[PlantillaFormularioDetalle], error) {
+		return responder(m.VerPlantilla.Ejecutar(ctx, *in))
+	})
+	crear := operacion("crearPlantilla", http.MethodPost, "/api/v1/plantillas", "Crear una plantilla de formulario", nucleo.PermPlantillasCrear, http.StatusCreated)
+	crear.Description += " Exige el permiso sin límite de zona. De la empresa activa o, con `comun`, de todas (con empresas registradas, solo con `empresas.todas`). 422 `codigo_duplicado`. Emite `plantilla.creada`."
+	huma.Register(api, crear, func(ctx context.Context, in *conClave[EntradaCrearPlantilla]) (*cuerpo[PlantillaFormulario], error) {
+		return responder(m.CrearPlantilla.Ejecutar(ctx, in.Body))
+	})
+	editar := operacion("editarPlantilla", http.MethodPost, "/api/v1/plantillas/{id}/editar", "Editar una plantilla de formulario", nucleo.PermPlantillasEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	editar.Description += " Reemplaza nombre, descripción, tipo, firma e ítems. Si la versión actual ya está en alguna orden, crea una versión nueva (las órdenes conservan la suya); si no, la reescribe. Las comunes, con empresas registradas, solo con `empresas.todas` (403). Emite `plantilla.actualizada`."
+	huma.Register(api, editar, func(ctx context.Context, in *conID[EntradaEditarPlantilla]) (*cuerpo[PlantillaFormulario], error) {
+		e := in.Body
+		e.ID = in.ID
+		return responder(m.EditarPlantilla.Ejecutar(ctx, e))
+	})
+	for _, a := range []struct {
+		id, ruta, resumen string
+		permiso           nucleo.Permiso
+		caso              *auditoria.Caso[EntradaVersionPlantilla, PlantillaFormulario]
+	}{
+		{"activarPlantilla", "activar", "Activar una plantilla de formulario", nucleo.PermPlantillasActivar, m.ActivarPlantilla},
+		{"desactivarPlantilla", "desactivar", "Desactivar una plantilla de formulario (no se ofrece más; los formularios ya agregados siguen)", nucleo.PermPlantillasDesactivar, m.DesactivarPlantilla},
+	} {
+		op := operacion(a.id, http.MethodPost, "/api/v1/plantillas/{id}/"+a.ruta, a.resumen, a.permiso, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+		op.Description += " 422 `sin_cambios`; desactivar la plantilla por defecto de un tipo de orden: 422 `plantilla_por_defecto`. Emite `plantilla.activada` o `plantilla.desactivada`."
+		caso := a.caso
+		huma.Register(api, op, func(ctx context.Context, in *conID[EntradaVersionPlantilla]) (*cuerpo[PlantillaFormulario], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(caso.Ejecutar(ctx, e))
+		})
+	}
+}
 
 // cuerpoPosiciones: el lote de posiciones no lleva Idempotency-Key (es idempotente por punto).
 type cuerpoPosiciones struct {
@@ -137,13 +190,13 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	registrarAccion(api, accion("asignarOrden", "asignar", "Asignar una orden a un técnico o cuadrilla",
-		"pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).",
+		"pendiente, programada o en_camino (pausada: 422 `orden_pausada`; reprográmala). Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).",
 		nucleo.PermOrdenesAsignar), m.AsignarOrden.Ejecutar, func(e *EntradaAsignarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("programarOrden", "programar", "Programar una orden (técnico y fecha)",
 		"pendiente → programada. La agenda valida la cita (ficha del técnico, turno, ausencia, solape, capacidad y ventana: 422 `tecnico_sin_agenda`, `fuera_de_turno`, `tecnico_ausente`, `solape`, `capacidad_excedida`, `fuera_de_ventana`) y emite `orden.programada` (y campo `orden.asignada` si cambia el técnico).",
 		nucleo.PermOrdenesProgramar), m.ProgramarOrden.Ejecutar, func(e *EntradaProgramarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("reprogramarOrden", "reprogramar", "Reprogramar una orden",
-		"programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.",
+		"programada, en_camino, pausada (cierra la pausa) o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.",
 		nucleo.PermOrdenesReprogramar), m.ReprogramarOrden.Ejecutar, func(e *EntradaProgramarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("iniciarCaminoOrden", "iniciar-camino", "Marcar la orden en camino",
 		"programada → en_camino, con GPS opcional. Emite `orden.estado_cambiada`.",
@@ -152,17 +205,46 @@ func (m *Modulo) Registrar(api huma.API) {
 		"programada o en_camino → en_sitio, con GPS opcional. Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesLlegar), m.Llegar.Ejecutar, func(e *EntradaPosicion, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("cerrarOrden", "cerrar", "Cerrar una orden",
-		"en_sitio → cerrada. Exige el checklist obligatorio, los equipos del tipo y la firma si la plantilla la pide (422 `cierre_incompleto`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).",
+		"en_sitio → cerrada (pausada: 422 `orden_pausada`). Exige los ítems obligatorios de todos los formularios (422 `cierre_incompleto` con `errors[].field = formularios.<id>.checklist.<código>`), los equipos del tipo y la firma si algún formulario la pide (`firma`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).",
 		nucleo.PermOrdenesCerrar), m.CerrarOrden.Ejecutar, func(e *EntradaCerrarOrden, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("fallarOrden", "fallar", "Marcar la orden como fallida",
-		"programada, en_camino o en_sitio → fallida, con su motivo. Se puede reprogramar. Emite `orden.estado_cambiada`.",
+		"programada, en_camino o en_sitio → fallida, con su motivo (pausada: 422 `orden_pausada`, hay que reanudar). Se puede reprogramar. Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesFallar), m.FallarOrden.Ejecutar, func(e *EntradaFallarOrden, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("cancelarOrden", "cancelar", "Cancelar una orden",
-		"Desde cualquier estado no final, con motivo. Emite `orden.estado_cambiada`.",
+		"Desde cualquier estado no final (también pausada: cierra la pausa), con motivo. Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesCancelar), m.CancelarOrden.Ejecutar, func(e *EntradaMotivo, id int64) { e.ID = id })
 	registrarAccion(api, accion("reabrirOrden", "reabrir", "Reabrir una orden fallida o cancelada",
 		"fallida o cancelada → pendiente, con motivo (una cerrada no se reabre). Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesReabrir), m.ReabrirOrden.Ejecutar, func(e *EntradaMotivo, id int64) { e.ID = id })
+
+	registrarAccion(api, accion("pausarOrden", "pausar", "Pausar una orden en curso",
+		"en_camino o en_sitio → pausada, con motivo (`esperando_material`, `cliente_ausente`, `clima`, `acceso`, `otro` con nota). Sigue abierta: conserva su cita y su lugar en la ruta y admite evidencias; no se cierra, falla, sale ni llega sin reanudar (422 `orden_pausada`); sí se cancela o reprograma. 409 `orden_ya_pausada`. Emite `orden.estado_cambiada` y `orden.pausada`.",
+		nucleo.PermOrdenesPausar), m.PausarOrden.Ejecutar, func(e *EntradaPausar, id int64) { e.ID, e.Sync = id, nil })
+	registrarAccion(api, accion("reanudarOrden", "reanudar", "Reanudar una orden pausada",
+		"pausada → el estado de antes de la pausa (en_camino o en_sitio). Suma la pausa a `tiempoPausadoSeg`. 409 `orden_no_pausada`. Emite `orden.estado_cambiada` y `orden.reanudada`.",
+		nucleo.PermOrdenesReanudar), m.ReanudarOrden.Ejecutar, func(e *EntradaReanudar, id int64) { e.ID, e.Sync = id, nil })
+	registrarAccion(api, accion("asignarFormularioOrden", "formularios", "Agregar un formulario a la orden",
+		"Una plantilla activa, común o de la empresa de la orden, en su versión actual (queda fija). Orden abierta (no cerrada, fallida ni cancelada). 422 `plantilla_inactiva`, `validacion` (plantillaId); 409 `formulario_duplicado` (la plantilla ya está en la orden). Emite `orden.formulario_agregado`.",
+		nucleo.PermOrdenesAsignarForm), m.AsignarFormulario.Ejecutar, func(e *EntradaAgregarFormulario, id int64) { e.ID = id })
+	quitar := accion("quitarFormularioOrden", "formularios/{fid}/quitar", "Quitar un formulario de la orden",
+		"Solo si no tiene respuestas (422 `formulario_con_respuestas`); 409 `formulario_ya_quitado`. Emite `orden.formulario_quitado`.",
+		nucleo.PermOrdenesAsignarForm)
+	huma.Register(api, quitar, func(ctx context.Context, in *conFormulario) (*cuerpo[Orden], error) {
+		fid, err := uuid.Parse(in.FID)
+		if err != nil {
+			return nil, campoInvalido("fid", "Debe ser un uuid", "uuid")
+		}
+		e := in.Body
+		e.ID, e.FormularioID = in.ID, fid
+		return responder(m.QuitarFormulario.Ejecutar(ctx, e))
+	})
+
+	m.registrarPlantillas(api)
+	// Datos de operaciones del lote que no son el cuerpo de una acción del panel: se publican
+	// como componentes para que packages/sync los tome del contrato.
+	for _, v := range []any{EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}} {
+		api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "")
+	}
 
 	registrarAccion(api, accion("marcarChecklistOrden", "checklist", "Marcar un ítem del checklist",
 		"Gana la marca más reciente (por hora del hecho); la otra queda en el historial (`aviso: checklist_no_vigente`).",

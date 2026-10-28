@@ -63,6 +63,7 @@ export const ESTADOS_ORDEN = [
     "programada",
     "en_camino",
     "en_sitio",
+    "pausada",
     "cerrada",
     "fallida",
     "cancelada",
@@ -80,6 +81,10 @@ export const TIPOS_OPERACION = [
     "adjunto.registrar",
     "orden.cerrar",
     "orden.fallar",
+    "orden.pausar",
+    "orden.reanudar",
+    "orden.agregar_formulario",
+    "orden.quitar_formulario",
 ] as const satisfies readonly TipoOperacion[];
 
 export const MOTIVOS_FALLA = [
@@ -112,6 +117,10 @@ export interface DatosPorTipo {
     "adjunto.registrar": SinVersion<Schema<"EntradaRegistrarAdjunto">>;
     "orden.cerrar": SinVersion<Schema<"EntradaCerrarOrden">>;
     "orden.fallar": SinVersion<Schema<"EntradaFallarOrden">>;
+    "orden.pausar": SinVersion<Schema<"EntradaPausar">>;
+    "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
+    "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
+    "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */
