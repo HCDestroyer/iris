@@ -93,7 +93,7 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 ### 8. Permisos (ACL)
 
 - Permiso = nombre de la acción (`tickets.crear`). Los roles agrupan permisos, con alcance opcional por zona o cuadrilla.
-- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`.
+- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`, y para los usuarios de tipo integración `integracion_argos` e `integracion_horus` (permisos del §1.2 de cada contrato).
 - Un token de API o de integración es un usuario con alcances acotados y pasa por el mismo ACL.
 
 ### 9. Auditoría
