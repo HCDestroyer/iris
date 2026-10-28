@@ -222,7 +222,7 @@ func (c *Cliente) Pedir(ctx context.Context, metodo, ruta string, consulta url.V
 	}
 	espera := c.espera
 	for i := 1; ; i++ {
-		err := c.una(ctx, metodo, ruta, consulta, cuerpo, destino)
+		err := c.una(ctx, metodo, ruta, consulta, cuerpo, destino, "")
 		if err == nil {
 			return nil
 		}
@@ -243,7 +243,18 @@ func (c *Cliente) Pedir(ctx context.Context, metodo, ruta string, consulta url.V
 	}
 }
 
-func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, destino any) error {
+// Escribir hace una llamada que cambia estado en el otro sistema con `Idempotency-Key: clave`
+// (contratos/argosisp.md §0) y un solo intento: los reintentos los hace la cola de pendientes
+// (internal/integracion/pendientes) con la espera del contrato. destino recibe el JSON
+// normalizado (nil = se descarta).
+func (c *Cliente) Escribir(ctx context.Context, metodo, ruta string, cuerpo any, clave string, destino any) error {
+	if clave == "" {
+		return errors.New("conector: una escritura necesita Idempotency-Key")
+	}
+	return c.una(ctx, metodo, ruta, nil, cuerpo, destino, clave)
+}
+
+func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, destino any, clave string) error {
 	ctx, cancelar := context.WithTimeout(ctx, c.timeout)
 	defer cancelar()
 	u := c.base + "/api/v1" + ruta
@@ -269,6 +280,9 @@ func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Val
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if clave != "" {
+		req.Header.Set("Idempotency-Key", clave)
 	}
 	if id := contexto.RequestIDDe(ctx); id != "" {
 		req.Header.Set("X-Request-Id", id)

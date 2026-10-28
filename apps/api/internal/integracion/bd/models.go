@@ -164,6 +164,63 @@ type IntegracionOutbox struct {
 	FallidoEn      *time.Time
 }
 
+type IntegracionPendiente struct {
+	ID               int64
+	EmpresaID        *int64
+	Sistema          string
+	Operacion        string
+	IdempotencyKey   string
+	Entidad          string
+	EntidadID        string
+	Metodo           string
+	Ruta             string
+	Payload          []byte
+	DependeDe        []int64
+	DatosIncompletos bool
+	Estado           string
+	Intentos         int32
+	ProximoIntento   time.Time
+	TomadoEn         *time.Time
+	UltimoError      *string
+	UltimoStatus     *int32
+	HechoEn          *time.Time
+	EventoID         pgtype.UUID
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type NucleoAdjunto struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	Entidad        string
+	EntidadID      string
+	Tipo           string
+	ClaveChecklist *string
+	Mime           string
+	Tamano         int64
+	Sha256         string
+	Recibido       int64
+	Estado         string
+	MotivoRechazo  *string
+	Lat            *float64
+	Lon            *float64
+	TomadoEn       *time.Time
+	SubidoPor      *int64
+	Almacenamiento string
+	Clave          string
+	CompletadoEn   *time.Time
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type NucleoAdjuntosParte struct {
+	AdjuntoID uuid.UUID
+	Desde     int64
+	Datos     []byte
+}
+
 type NucleoEmpresa struct {
 	ID             int64
 	Nombre         string

@@ -166,6 +166,9 @@ Una tarea está terminada solo si:
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |
 | `usuario.empresa_asignada` / `usuario.empresa_quitada` | identidad (núcleo) | usuario_id, empresa_id |
 | `empresa.datos_adoptados` | identidad (núcleo) | empresa_id, filas (por tabla) |
+| `adjunto.registrado` / `adjunto.completado` / `adjunto.rechazado` | adjuntos (núcleo) | adjunto_id, entidad, entidad_id, tipo, clave_checklist (o null); mime, tamano, sha256 (completado); motivo (rechazado) |
+| `integracion.pendiente_hecho` / `integracion.pendiente_fallido` / `integracion.pendiente_agotado` / `integracion.pendiente_reintentado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; intentos, status, detalle (fallido, agotado); de (reintentado) |
+| `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

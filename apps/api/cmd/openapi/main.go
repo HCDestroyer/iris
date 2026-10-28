@@ -19,6 +19,8 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
@@ -46,6 +48,8 @@ func escribir(salida string) error {
 			conectorArgos.Registrar,
 			horus.Nuevo(horus.Config{Argos: conectorArgos}).Registrar,
 			soporte.Nuevo(soporte.Config{}).Registrar,
+			adjuntos.Nuevo(adjuntos.Config{}).RegistrarRutas,
+			pendientes.Nuevo(pendientes.Config{}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()

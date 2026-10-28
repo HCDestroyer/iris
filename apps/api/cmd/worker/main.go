@@ -3,7 +3,8 @@
 // (webhooks entrantes y refresco periódico de zonas y routers), los del conector Horus
 // (webhooks entrantes → eventos internos horus.*), el cron de SLA de soporte (cada minuto) y el
 // correo de soporte (lectura de buzones IMAP cada minuto, proceso de correos y envío de
-// respuestas por SMTP) y los tickets que abre Horus (suscriptor de los eventos horus.*).
+// respuestas por SMTP), los tickets que abre Horus (suscriptor de los eventos horus.*) y la cola
+// de pendientes hacia Argos (suscriptor de orden.cerrada y su job, cada minuto).
 package main
 
 import (
@@ -22,6 +23,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
@@ -91,6 +93,13 @@ func correr() error {
 	// Tickets desde Horus: incidentes maestros por router o servicio de infraestructura y
 	// tickets por hallazgo (eventos internos horus.* del conector).
 	sop.SuscribirHorus(bus, pool)
+	// Acciones en Argos al cerrar una orden (contrato §3): suscriptor de orden.cerrada y cola de
+	// pendientes con reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	pend.Suscribir(bus)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
@@ -98,9 +107,10 @@ func correr() error {
 			conectorArgos.RegistrarWorkers(w, pool)
 			conectorHorus.RegistrarWorkers(w, pool)
 			registrarSoporte(w)
+			pend.RegistrarWorkers(w, pool)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
-			soporte.TrabajoPeriodicoBuzones(time.Minute)),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute)),
 	})
 	if err != nil {
 		return err
