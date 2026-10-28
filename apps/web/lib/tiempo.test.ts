@@ -19,4 +19,11 @@ describe("rutaSegura", () => {
         expect(rutaSegura("/entrar")).toBe("/");
         expect(rutaSegura(null)).toBe("/");
     });
+
+    it("rechaza caracteres de control y lo que resuelve a otro origen", () => {
+        for (const malo of ["/\t/evil.com", "/\n/evil.com", "//evil.com", "/\\evil.com", "/\r//evil.com", "/\u0000x", "/x\u007f"]) {
+            expect(rutaSegura(malo, "/", "https://iris.test")).toBe("/");
+        }
+        expect(rutaSegura("/campo?orden=3", "/", "https://iris.test")).toBe("/campo?orden=3");
+    });
 });
