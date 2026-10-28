@@ -155,6 +155,9 @@ Una tarea está terminada solo si:
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin, ventana_inicio/ventana_fin (o null), reprogramada, origen (programar, reprogramar, asignar), motivo (o null) |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
 | `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion, unidad_id, serie, mac, condicion, bodega_id), cargo (o null: producto_id?, monto?, descripcion) |
+| `orden.pausada` / `orden.reanudada` | campo | orden_id, pausa_id; motivo, nota (o null), desde (pausada); a, duracion_seg, tiempo_pausado_seg (reanudada) |
+| `orden.formulario_agregado` / `orden.formulario_quitado` | campo | orden_id, formulario_id, plantilla_id, origen; version_id, numero_version (agregado) |
+| `plantilla.creada` / `plantilla.actualizada` / `plantilla.activada` / `plantilla.desactivada` | campo | plantilla_id; codigo, empresa_id (creada); version_id, numero_version, version_nueva (actualizada) |
 | `zona.creada` / `zona.actualizada` | agenda | zona_id; origen, nombre (creada); campos[], activa (actualizada) |
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id; nombre, zonas[] (creada); campos[], activa (actualizada) |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
