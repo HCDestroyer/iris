@@ -31,10 +31,12 @@ playwright/.cache/
 *.local
 *.pem
 *.key
+!infra/imagenes/sin-ca.pem
 
-# Datos locales de infra (OSRM descargado fuera del volumen, respaldos)
+# Datos locales de infra (OSRM descargado fuera del volumen, respaldos, certificados de dev)
 infra/osrm/datos/
-infra/backups/salida/
+infra/respaldo/salida/
+infra/mailpit/certs/
 
 # Editores y sistema
 .DS_Store

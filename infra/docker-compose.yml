@@ -1,34 +1,53 @@
 # Iris · entorno de desarrollo y laboratorio.
 #
 #   cp .env.example .env
-#   make dev                         # postgres, redis, minio (+ bucket), mailpit y osrm
+#   make dev                         # postgres, redis, minio (+ bucket), mailpit (TLS) y osrm
 #   infra/osrm/preparar.sh           # una vez: descarga y preprocesa Guatemala para osrm
-#   make dev-app                     # además api, worker y web (perfil app; requiere apps/)
+#   make dev-app                     # además migrar, api, worker y web (perfil app)
 #
-# Sin make: docker compose -f infra/docker-compose.yml --env-file .env up -d
+# Sin make: infra/mailpit/certificados.sh y luego
+#   docker compose -f infra/docker-compose.yml --env-file .env [--profile app] up -d
 # El contexto de build de api/worker/web es la raíz del repo (..), con el Dockerfile de cada app.
+# Runbooks: docs/runbooks/desarrollo.md y docs/runbooks/lab.md.
 
 name: iris
+
+# api, worker y migrar leen todas las variables de la API de ../.env.example y, encima, de ../.env
+# (si existe). Aquí solo se fija lo que cambia dentro de la red del compose (nombres de servicio en
+# lugar de localhost) y lo que el compose monta (CA del correo de dev).
+x-api-env-file: &api-env-file
+  - path: ../.env.example
+    required: true
+  - path: ../.env
+    required: false
 
 x-api-env: &api-env
   TZ: UTC
   PORT: '8080'
-  IRIS_BASE_URL: ${IRIS_BASE_URL:-http://localhost:3000}
+  IRIS_PUERTO: '8080'
   IRIS_DB_URL: postgres://${IRIS_PG_USUARIO:-iris}:${IRIS_PG_CONTRASENA:-iris}@postgres:5432/${IRIS_PG_BASE:-iris}?sslmode=disable
   IRIS_REDIS_URL: redis://redis:6379/0
+  IRIS_ADJUNTOS_ALMACEN: s3
   IRIS_S3_ENDPOINT: http://minio:9000
-  IRIS_S3_REGION: ${IRIS_S3_REGION:-us-east-1}
-  IRIS_S3_BUCKET: ${IRIS_S3_BUCKET:-iris-adjuntos}
-  IRIS_S3_ACCESS_KEY: ${IRIS_S3_ACCESS_KEY:-iris}
-  IRIS_S3_SECRET_KEY: ${IRIS_S3_SECRET_KEY:-iris-dev-solo-local}
-  IRIS_S3_PATH_STYLE: 'true'
   IRIS_OSRM_URL: http://osrm:5000
   IRIS_SMTP_HOST: mailpit
   IRIS_SMTP_PORT: '1025'
-  IRIS_SMTP_USUARIO: ''
-  IRIS_SMTP_CONTRASENA: ''
-  IRIS_SMTP_TLS: 'false'
-  IRIS_SMTP_REMITENTE: ${IRIS_SMTP_REMITENTE:-Iris <no-responder@iris.example>}
+  IRIS_SMTP_TLS: starttls
+  # Mailpit exige STARTTLS con un certificado de la CA de dev (infra/mailpit/certificados.sh).
+  IRIS_CORREO_CA: /run/iris/correo-ca.pem
+  # Correo, Argos y Horus pueden llamar a la red del compose (protección SSRF). Si el .env trae su
+  # propia lista (p. ej. la red de Argos en lab), esa manda.
+  IRIS_CORREO_REDES_PERMITIDAS: ${IRIS_CORREO_REDES_PERMITIDAS:-${IRIS_RED_COMPOSE:-172.28.10.0/24}}
+
+x-api-volumes: &api-volumes
+  - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro
+
+x-api-build: &api-build
+  context: ..
+  dockerfile: apps/api/Dockerfile
+  args:
+    VERSION: ${IRIS_IMAGEN_TAG:-dev}
+  secrets: [ca_extra]
 
 x-api-depende: &api-depende
   postgres:
@@ -36,6 +55,10 @@ x-api-depende: &api-depende
   redis:
     condition: service_healthy
   minio-init:
+    condition: service_completed_successfully
+  mailpit:
+    condition: service_healthy
+  migrar:
     condition: service_completed_successfully
 
 services:
@@ -100,10 +123,22 @@ services:
       - ./minio/crear-bucket.sh:/crear-bucket.sh:ro
     restart: 'no'
 
-  # SMTP de prueba: todo correo saliente queda en la UI (http://localhost:8025).
+  # SMTP de prueba: todo correo saliente queda en la UI (http://localhost:8025). Con TLS: STARTTLS
+  # obligatorio en :1025 (Iris nunca manda correo en claro) con el certificado de
+  # infra/mailpit/certificados.sh (CA en certs/ca.pem → IRIS_CORREO_CA de api y worker).
   mailpit:
     image: axllent/mailpit:v1.31.3
     restart: unless-stopped
+    environment:
+      MP_SMTP_TLS_CERT: /certs/mailpit.pem
+      MP_SMTP_TLS_KEY: /certs/mailpit.key
+      MP_SMTP_REQUIRE_STARTTLS: 'true'
+      # Acepta cualquier usuario y contraseña en el SMTP (los buzones de Iris siempre mandan uno).
+      MP_SMTP_AUTH_ACCEPT_ANY: 'true'
+      TZ: UTC
+    volumes:
+      - ./mailpit/certs/mailpit.pem:/certs/mailpit.pem:ro
+      - ./mailpit/certs/mailpit.key:/certs/mailpit.key:ro
     ports:
       - 127.0.0.1:${IRIS_MAILPIT_SMTP_PUERTO:-1025}:1025
       - 127.0.0.1:${IRIS_MAILPIT_UI_PUERTO:-8025}:8025
@@ -132,30 +167,51 @@ services:
     ports:
       - 127.0.0.1:${IRIS_OSRM_PUERTO:-5000}:5000
 
-  # --- Perfil app: procesos de Iris construidos desde apps/ (I1 e I3) ------------------------
-  # Dockerfile de apps/api con dos etapas finales: `api` (cmd/iris) y `worker` (cmd/worker).
+  # --- Perfil app: procesos de Iris construidos desde apps/ -----------------------------------
+  # Migraciones (goose embebidas en el binario) y sincronización de permisos. Termina; api y worker
+  # esperan a que salga bien (service_completed_successfully).
+  migrar:
+    profiles: [app]
+    image: iris/api:${IRIS_IMAGEN_TAG:-dev}
+    build:
+      <<: *api-build
+      target: api
+    command: [migrar]
+    env_file: *api-env-file
+    environment: *api-env
+    volumes: *api-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
   api:
     profiles: [app]
     image: iris/api:${IRIS_IMAGEN_TAG:-dev}
     build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
+      <<: *api-build
       target: api
+    command: [servir]
     restart: unless-stopped
+    env_file: *api-env-file
     environment: *api-env
+    volumes: *api-volumes
     depends_on: *api-depende
     ports:
       - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
 
+  # cmd/worker (River): outbox, webhooks entrantes de Argos y Horus, correo, crons. Necesita
+  # IRIS_BASE_URL e IRIS_CLAVE_CIFRADO igual que la API (descifra tokens y contraseñas).
   worker:
     profiles: [app]
     image: iris/worker:${IRIS_IMAGEN_TAG:-dev}
     build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
+      <<: *api-build
       target: worker
     restart: unless-stopped
+    env_file: *api-env-file
     environment: *api-env
+    volumes: *api-volumes
     depends_on: *api-depende
 
   web:
@@ -164,18 +220,34 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
+      secrets: [ca_extra]
     restart: unless-stopped
     environment:
       TZ: UTC
       PORT: '3000'
+      # Standalone de Next: escuchar en todas las interfaces del contenedor.
       HOSTNAME: 0.0.0.0
       # Llamadas del servidor de Next a la API dentro de la red del compose.
       IRIS_API_URL: http://api:8080
       IRIS_BASE_URL: ${IRIS_BASE_URL:-http://localhost:3000}
     depends_on:
-      - api
+      api:
+        condition: service_started
     ports:
       - 127.0.0.1:${IRIS_WEB_PUERTO:-3000}:3000
+
+# Red con subred fija: IRIS_CORREO_REDES_PERMITIDAS la usa por defecto (Mailpit vive aquí).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${IRIS_RED_COMPOSE:-172.28.10.0/24}
+
+# CA extra solo para construir detrás de un proxy que intercepta TLS (por defecto un archivo vacío;
+# ver infra/imagenes/README.md). No queda en las imágenes.
+secrets:
+  ca_extra:
+    file: ${IRIS_BUILD_CA_EXTRA:-./imagenes/sin-ca.pem}
 
 volumes:
   pgdata:
