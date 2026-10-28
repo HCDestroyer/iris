@@ -12,7 +12,10 @@ base. La leen la **API y el worker** (los dos deben tener siempre la misma).
 Además, de `IRIS_CLAVE_CIFRADO` se **deriva** (HKDF, etiqueta `iris:idempotencia`) la clave HMAC
 con que la API guarda el hash de cada petición con `Idempotency-Key` (`nucleo.idempotencia`; el
 cuerpo puede llevar contraseñas y nunca se guarda como hash plano). No hay nada que re-cifrar:
-las filas viven 24 h. Ver «Idempotencia durante la rotación».
+las filas viven 24 h y el worker las borra al vencer (job `nucleo.idempotencia_purga`, cada hora y
+al arrancar). Las filas de antes del HMAC (SHA-256 plano, `hash_formato = 0`) desaparecen solas
+en un máximo de 24 h más el intervalo del job (1 h) desde la migración. Ver «Idempotencia durante
+la rotación».
 
 No dependen de la clave: contraseñas de usuarios (argon2id), sesiones, tokens `iris_pat_`, tickets
 del portal y códigos de conexión (hashes), ni el resto de los datos. La lista vive en

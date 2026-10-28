@@ -130,13 +130,16 @@ func correr() error {
 			registrarSoporte(w)
 			pend.RegistrarWorkers(w, pool)
 			adj.RegistrarWorkers(w, pool)
+			nucleo.RegistrarPurgaIdempotencia(w, pool)
 			cmp.RegistrarTrabajos(pool)(w)
 			cmp.Agenda().RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
-			agenda.TrabajoPeriodicoZonas(10*time.Minute)),
+			agenda.TrabajoPeriodicoZonas(10*time.Minute),
+			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).
+			nucleo.TrabajoPeriodicoPurgaIdempotencia(time.Hour)),
 	})
 	if err != nil {
 		return err
