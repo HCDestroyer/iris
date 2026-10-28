@@ -49,9 +49,14 @@ func TrabajoPeriodicoSLA(intervalo time.Duration) *river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true})
 }
 
-// RegistrarTrabajos agrega el worker del SLA (para integracion.OpcionesWorker.Registrar).
+// RegistrarTrabajos agrega los workers del SLA y del correo (para
+// integracion.OpcionesWorker.Registrar).
 func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 	return func(w *river.Workers) {
 		river.AddWorker(w, &TrabajadorSLA{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorProgramarBuzones{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorLeerBuzon{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorProcesarCorreos{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorEnviarCorreo{BD: bd, Modulo: m})
 	}
 }

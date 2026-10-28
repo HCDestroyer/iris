@@ -1,7 +1,8 @@
 // Comando worker: workers de River. El relay del outbox (integracion.outbox → suscriptores
 // internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO, los jobs del conector Argos
-// (webhooks entrantes y refresco periódico de zonas y routers) y el cron de SLA de soporte
-// (cada minuto).
+// (webhooks entrantes y refresco periódico de zonas y routers), el cron de SLA de soporte
+// (cada minuto) y el correo de soporte (lectura de buzones IMAP cada minuto, proceso de correos
+// y envío de respuestas por SMTP).
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/riverqueue/river"
@@ -69,16 +71,28 @@ func correr() error {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: los webhooks de Argos no se podrán procesar")
 	}
 	conectorArgos := argos.Nuevo(acfg)
-	sop := soporte.Nuevo(soporte.Config{})
+	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
+	if err != nil {
+		return err
+	}
+	// Encolar se resuelve al llamar: el cliente de River se arma después (lo necesita el módulo).
+	var cliente *river.Client[pgx.Tx]
+	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
 	registrarSoporte := sop.RegistrarTrabajos(pool)
+	// Salida por correo: respuestas de agentes en tickets de origen correo.
+	sop.SuscribirCorreo(bus, pool)
 
-	cliente, err := integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
+	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
 		Registrar: func(w *river.Workers) {
 			conectorArgos.RegistrarWorkers(w, pool)
 			registrarSoporte(w)
 		},
-		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute)),
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
+			soporte.TrabajoPeriodicoBuzones(time.Minute)),
 	})
 	if err != nil {
 		return err

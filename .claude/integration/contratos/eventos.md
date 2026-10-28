@@ -45,3 +45,21 @@ Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin c
 | `ticket.fusionado` | `ticket_id` (el duplicado), `destino_id`, `motivo` (o null) | `tickets.fusionar`. |
 | `ticket.sla_en_riesgo` | `ticket_id`, `sla` (`respuesta` \| `resolucion`), `vence_en` | Cron: el reloj pasó el 80 % de su objetivo. Una vez por ticket, reloj y `vence_en` (si el vencimiento se corre, el nuevo plazo vuelve a alertar); no se emite si ya venció. |
 | `ticket.sla_vencido` | `ticket_id`, `sla` (`respuesta` \| `resolucion`), `vence_en` | Cron: el reloj venció sin cumplirse. Una vez por ticket, reloj y `vence_en`. |
+
+## Correo de soporte (I2)
+
+Emite el módulo `soporte` (entrada por IMAP y salida por SMTP), con `empresa_id` = la del buzón
+(null sin conector). Un correo que abre un ticket o responde a uno emite además los eventos de
+ticket de siempre (`ticket.creado`, `ticket.estado_cambiado` al reanudar o reabrir).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `correo.recibido` | `correo_id`, `buzon_id`, `estado` (`procesado` \| `ignorado` \| `error`), `resultado` (`ticket_creado` \| `respuesta` \| null), `ticket_id` (o null), `mensaje_id` (o null), `motivo` (o null: `automatico: …`, `remitente_propio` o el código de la regla que impidió crear) | El worker procesó un correo leído del buzón (una vez por correo: deduplicado por `Message-ID` y buzón). |
+| `buzon.creado` | `buzon_id`, `correo` | `buzones.crear` (nace inactivo). Nunca lleva contraseñas. |
+| `buzon.actualizado` | `buzon_id` | `buzones.editar`. |
+| `buzon.activado` / `buzon.desactivado` | `buzon_id` | `buzones.activar` / `buzones.desactivar`. |
+
+Consume `ticket.respondido` (suscriptor `soporte.correo_saliente`, idempotente por `mensaje_id`):
+si el ticket es de origen `correo` y el mensaje es público de un agente, encola el envío por el
+SMTP del buzón.
+

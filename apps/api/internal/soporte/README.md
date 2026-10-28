@@ -45,15 +45,53 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
 - **Argos:** guarda `cliente_id`, `servicio_id` y `zona_id` (opcionales) y, sin conector, los
   datos de contacto capturados a mano. No llama a Argos.
 
+## Entrada por correo (IMAP) y respuesta por SMTP
+
+Paquete de protocolo en `correo/` (IMAP con go-imap v2, MIME con go-message, SMTP con
+`net/smtp`); la lógica, en `buzones.go` y `correo_*.go`.
+
+- **Buzones** (`soporte.buzones`, `/api/v1/buzones`): `GET` lista y detalle (`buzones.ver`), `POST`
+  crear (`buzones.crear`, nace inactivo), `POST /{id}/editar` (`buzones.editar`, con `version`),
+  `/activar` y `/desactivar` (`buzones.activar`/`desactivar`) y `/probar` (`buzones.editar`).
+  Empresa: la activa (null sin conector), como los tickets. Solo TLS (`tls` implícito o `starttls`
+  obligatorio; si el servidor no ofrece STARTTLS se corta antes del LOGIN) con el certificado
+  verificado. Contraseñas IMAP y SMTP cifradas con `IRIS_CLAVE_CIFRADO` (AES-GCM, atadas al
+  buzón); nunca salen en respuestas, logs, errores ni auditoría (`***`). Editar host, puerto,
+  TLS o usuario exige volver a escribir la contraseña. SSRF: IP interna escrita → 422
+  `destino_no_permitido`; al conectar, `argos.DestinoPermitido` sobre la IP resuelta, salvo
+  `IRIS_CORREO_REDES_PERMITIDAS`.
+- **Lectura** (`soporte.programar_buzones` cada minuto → `soporte.leer_buzon`, único por buzón):
+  UID mayores que el guardado con la misma UIDVALIDITY (la primera vez, o si cambió, solo los no
+  leídos). Cada correo se guarda en `correos_entrantes` (único por buzón y `Message-ID`) y avanza
+  `ultimo_uid` en la misma transacción; solo después se marca leído (o se mueve a la carpeta de
+  procesados). Más grande que `IRIS_CORREO_TAMANO_MAX`: solo cabeceras. Errores resumidos en
+  `buzones.ultimo_error`.
+- **Proceso** (`soporte.procesar_correos`, único por buzón, en orden): autorespuestas y rebotes
+  (`Auto-Submitted`, `Precedence`, `X-Autoreply`, MAILER-DAEMON/postmaster, `multipart/report`,
+  `Return-Path: <>`) y correos del propio buzón se ignoran. Respuesta si `In-Reply-To`/`References`
+  apuntan a una respuesta enviada o a un correo ya ligado (mismo buzón), o si el asunto trae
+  `[TK-…]` **y** el remitente es el contacto del ticket; el ticket debe ser de la empresa del
+  buzón. Se agrega como mensaje público del cliente (`autor_tipo = cliente`, canal `correo`, sin
+  la cita): `en_espera → abierto` (reanuda) y `resuelto → abierto` (reabre); si estaba fusionado,
+  va al destino; si está cerrado, abre otro que lo menciona. Si no, ticket nuevo (origen `correo`,
+  categoría y prioridad del buzón, remitente como contacto). HTML → texto (sin scripts ni
+  estilos), adjuntos solo como metadatos (se listan en el mensaje).
+- **Salida** (suscriptor de `ticket.respondido` → `soporte.enviar_correo`): mensaje público de un
+  agente en un ticket de origen correo → un `correos_salientes` por mensaje (idempotente), con
+  `Re: [TK-…] asunto`, `In-Reply-To`/`References` al último correo del cliente, `Auto-Submitted:
+  auto-replied` y `Message-ID` fijo (un reintento sale igual). Sin SMTP en el buzón, no sale.
+
 ## Eventos que emite
 
 `ticket.creado`, `ticket.asignado`, `ticket.estado_cambiado`, `ticket.respondido`,
-`ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`. Payloads en
-`.claude/integration/contratos/eventos.md`.
+`ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`,
+`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`.
+Payloads en `.claude/integration/contratos/eventos.md`.
 
 ## Eventos que consume
 
-Ninguno todavía (el webhook de Horus y la entrada por correo y portal van en otra PR).
+`ticket.respondido` (salida por correo; idempotente por mensaje). El webhook de Horus y el
+portal van en otra PR.
 
 ## Pruebas
 
@@ -61,4 +99,9 @@ Ninguno todavía (el webhook de Horus y la entrada por correo y portal van en ot
 semana, feriados y medio día), transiciones válidas e inválidas, permisos y alcance, auditoría y
 outbox, `version` → 409, idempotencia por HTTP, pausa del SLA y cron idempotente.
 `revision_test.go` cubre los hallazgos de la revisión de la PR #5 y `empresa_test.go` la empresa
-activa (aislamiento A/B por HTTP, modo sin conector, asignación y adopción).
+activa (aislamiento A/B por HTTP, modo sin conector, asignación y adopción). `correo_test.go`, con
+un IMAP en memoria (`imapmemserver`) y un SMTP falso con TLS de una CA de prueba
+(`correo_falso_test.go`): ticket nuevo, respuesta por número y por `In-Reply-To`, duplicado por
+`Message-ID`, autorespuesta y rebote, HTML, reanudación por UID, otra empresa, contraseña cifrada y
+nunca expuesta, TLS exigido (sin STARTTLS no hay LOGIN; CA desconocida), SSRF, envío idempotente y
+las rutas HTTP. `correo/mensaje_test.go`: HTML, cita, charsets y cabeceras sin inyección.
