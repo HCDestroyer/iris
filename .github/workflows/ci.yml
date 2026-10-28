@@ -102,12 +102,15 @@ jobs:
             echo "Sin configuración de sqlc en apps/api; se omite sqlc diff."
           fi
 
+  # Permisos del panel: menu.ts, RequierePermiso y puede() aceptan solo `Permiso` (el enum del
+  # OpenAPI, generado del catálogo de internal/nucleo/permisos.go). El job `contratos` asegura que el
+  # enum esté al día con la API y `pnpm typecheck` falla si el panel usa un permiso que no existe.
   web:
-    name: Web (lint, typecheck, pruebas y build)
+    name: Web (lint, typecheck, pruebas, build y Playwright)
     needs: detectar
     if: needs.detectar.outputs.web == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       TZ: UTC
       NEXT_TELEMETRY_DISABLED: '1'
@@ -136,6 +139,30 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # Solo Chromium (escritorio y teléfono 390 px se emulan en él; playwright.config.ts). Versión
+      # del navegador = la de @playwright/test fijada en apps/web.
+      - name: Instalar Chromium para Playwright
+        run: pnpm --filter @iris/web exec playwright install --with-deps chromium
+
+      # Reutiliza el build anterior (next start); la API se simula con page.route.
+      - name: Playwright (escritorio y teléfono, claro y oscuro)
+        run: pnpm --filter @iris/web e2e
+        env:
+          CI: '1'
+          IRIS_E2E_SIN_BUILD: '1'
+
+      - name: Subir reporte de Playwright
+        if: failure()
+        # actions/upload-artifact v7.0.2 fijada por SHA (acción nueva en el repo).
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
 
   # packages/contratos al día: tipos regenerados desde el openapi.json commiteado y, cuando existe
   # apps/api, el openapi.json regenerado desde la API (make openapi).
@@ -179,10 +206,69 @@ jobs:
             exit 1
           fi
 
+  # Ensayo de respaldo y restauración (infra/respaldo/ensayo.sh): migra una base, siembra datos con
+  # los comandos de la API, respalda cifrado con age, restaura en otra base y compara los conteos.
+  respaldo:
+    name: Respaldo y restauración (ensayo)
+    needs: detectar
+    if: needs.detectar.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: iris
+          POSTGRES_PASSWORD: iris
+          POSTGRES_DB: iris_respaldo
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U iris -d iris_respaldo"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      TZ: UTC
+      IRIS_DB_URL: postgres://iris:iris@localhost:5432/iris_respaldo?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      # age (cifrado de los respaldos) desde Ubuntu; el cliente de PostgreSQL 16 ya viene en la imagen.
+      - name: Instalar age
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age
+          age --version
+          pg_dump --version
+
+      - name: Migrar y sembrar
+        working-directory: apps/api
+        run: |
+          go build -o bin/ ./cmd/iris
+          bin/iris migrar
+          bin/iris admin crear --correo admin@iris.local --nombre Admin >/dev/null
+          bin/iris campo semilla --ordenes 5 >/dev/null
+
+      - name: Respaldar, restaurar y comparar
+        run: infra/respaldo/ensayo.sh "$IRIS_DB_URL" iris_respaldo_restaurada
+
   infra:
-    name: Infra (compose y scripts)
+    name: Infra (compose, scripts y Dockerfiles)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      # Imagen de hadolint fijada (la misma versión que se usa a mano: docker run hadolint/hadolint).
+      HADOLINT_IMAGEN: hadolint/hadolint:v2.14.0
     steps:
       - uses: actions/checkout@v5
 
@@ -191,5 +277,12 @@ jobs:
 
       - name: bash -n y shellcheck
         run: |
-          for s in scripts/*.sh infra/osrm/*.sh infra/minio/*.sh; do bash -n "$s"; done
-          shellcheck scripts/*.sh infra/osrm/*.sh infra/minio/*.sh
+          for s in scripts/*.sh infra/*/*.sh; do bash -n "$s"; done
+          shellcheck scripts/*.sh infra/*/*.sh
+
+      - name: hadolint
+        run: |
+          for f in apps/*/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i "$HADOLINT_IMAGEN" hadolint - <"$f"
+          done
