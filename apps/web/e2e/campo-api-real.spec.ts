@@ -85,3 +85,42 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
     const adjuntos = await page.evaluate(async () => (await fetch("/api/v1/adjuntos?entidad=orden&entidadId=1")).json());
     expect(adjuntos.data.map((a: { tipo: string; estado: string }) => `${a.tipo}:${a.estado}`).sort()).toEqual(["firma:completo", "foto:completo"]);
 });
+
+const [correoB = "", contrasenaB = ""] = (process.env.IRIS_E2E_TECNICO_B ?? "").split(":");
+
+test("dos técnicos en el mismo navegador contra la API real: la cola de A no sale con la sesión de B", async ({ browser, baseURL }, info) => {
+    test.skip(info.project.name !== "telefono-claro" || !correoB, "Necesita IRIS_E2E_TECNICO_B (segundo técnico de la semilla).");
+    test.setTimeout(180_000);
+    const context = await browser.newContext({ baseURL: baseURL ?? "", viewport: { width: 390, height: 844 }, locale: "es-GT", timezoneId: "America/Guatemala" });
+    const a = await context.newPage();
+    await a.goto("/campo");
+    await entrar(a, correo, contrasena);
+    await expect(a.getByRole("link", { name: /OT-000002/ })).toBeVisible();
+    // A sin señal (solo su pestaña): deja una nota en la cola.
+    await a.route("**/api/**", (r) => r.abort("internetdisconnected"));
+    await a.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await a.getByRole("link", { name: /OT-000002/ }).click();
+    await a.getByLabel("Nueva nota").fill("Nota de A sin señal");
+    await a.getByRole("button", { name: "Agregar nota" }).click();
+    await expect(a.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");
+
+    // B entra en otra pestaña del mismo navegador (la cookie de sesión pasa a ser la de B).
+    const b = await context.newPage();
+    await b.goto("/entrar?siguiente=%2Fcampo");
+    await entrar(b, correoB, contrasenaB);
+    await expect(b.getByRole("link", { name: /OT-000003/ })).toBeVisible();
+    await expect(b.getByRole("link", { name: /OT-000002/ })).toHaveCount(0);
+
+    // Vuelve la señal a la pestaña de A: verifica, ve a B y no envía nada.
+    await a.unroute("**/api/**");
+    await a.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(a.getByText("Entró otra persona en este navegador")).toBeVisible({ timeout: 30_000 });
+
+    // A vuelve a entrar: su nota sale con su sesión.
+    await a.goto("/entrar?siguiente=%2Fcampo");
+    await entrar(a, correo, contrasena);
+    await expect(a.getByRole("button", { name: /Todo enviado/ })).toBeVisible({ timeout: 30_000 });
+    const orden2 = await a.evaluate(async () => (await fetch("/api/v1/ordenes/2")).json());
+    expect(orden2.notas.map((n: { texto: string; autorNombre: string }) => n.texto)).toEqual(["Nota de A sin señal"]);
+    await context.close();
+});
