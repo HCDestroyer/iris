@@ -51,6 +51,28 @@ SET totp_activo = true, totp_ultimo_paso = @paso, version = version + 1, updated
 WHERE id = @id
 RETURNING *;
 
+-- name: ReiniciarMFA :one
+-- Reinicio por un administrador: borra el secreto (configurado o activo) y el paso usado, y
+-- reemplaza la contraseña por una temporal que hay que cambiar al entrar.
+UPDATE nucleo.usuarios
+SET totp_secreto = NULL, totp_activo = false, totp_ultimo_paso = 0,
+    contrasena_hash = @contrasena_hash, debe_cambiar_contrasena = true,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: CambiarContrasenaPropia :one
+-- El propio usuario cambia su contraseña (y deja de tener una temporal).
+UPDATE nucleo.usuarios
+SET contrasena_hash = @contrasena_hash, debe_cambiar_contrasena = false,
+    version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: RevocarOtrasSesionesDeUsuario :execrows
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE usuario_id = @usuario_id AND id <> @sesion_id AND revocada_en IS NULL;
+
 -- name: RegistrarPasoTOTP :execrows
 UPDATE nucleo.usuarios SET totp_ultimo_paso = @paso, updated_at = now()
 WHERE id = @id AND totp_ultimo_paso < @paso;
@@ -182,6 +204,11 @@ SELECT * FROM nucleo.tokens_api WHERE id = @id;
 -- name: TokenPorIDParaActualizar :one
 SELECT * FROM nucleo.tokens_api WHERE id = @id FOR UPDATE;
 
+-- name: RevocarTokensDeUsuario :many
+UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
+WHERE usuario_id = @usuario_id AND revocado_en IS NULL
+RETURNING id;
+
 -- name: RevocarToken :one
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
 WHERE id = @id
@@ -201,6 +228,11 @@ SET fallos = CASE WHEN nucleo.intentos_login.updated_at < @desde::timestamptz TH
                   ELSE nucleo.intentos_login.fallos + 1 END,
     updated_at = now()
 RETURNING fallos;
+
+-- name: FallosVigentes :one
+-- Fallos contados desde @desde (0 si no hay o si la cuenta ya venció).
+SELECT coalesce((SELECT fallos FROM nucleo.intentos_login
+                 WHERE correo = @correo AND updated_at >= @desde::timestamptz), 0)::integer AS fallos;
 
 -- name: BloquearLogin :exec
 UPDATE nucleo.intentos_login SET fallos = 0, bloqueado_hasta = @hasta, updated_at = now()

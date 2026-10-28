@@ -772,19 +772,20 @@ type NucleoTokensApi struct {
 }
 
 type NucleoUsuario struct {
-	ID             int64
-	Nombre         string
-	Correo         string
-	Tipo           string
-	ContrasenaHash *string
-	TotpSecreto    []byte
-	TotpActivo     bool
-	TotpUltimoPaso int64
-	Activo         bool
-	UsuarioArgosID *int64
-	Version        int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                    int64
+	Nombre                string
+	Correo                string
+	Tipo                  string
+	ContrasenaHash        *string
+	TotpSecreto           []byte
+	TotpActivo            bool
+	TotpUltimoPaso        int64
+	Activo                bool
+	UsuarioArgosID        *int64
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DebeCambiarContrasena bool
 }
 
 type NucleoUsuariosEmpresa struct {

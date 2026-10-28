@@ -1,10 +1,13 @@
 package nucleo_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -127,5 +130,73 @@ func TestRegistroDeTablasConEmpresa(t *testing.T) {
 	t.Cleanup(func() { nucleo.QuitarTablaConEmpresa("prueba.a"); nucleo.QuitarTablaConEmpresa("prueba.b") })
 	if got := nucleo.TablasConEmpresa(); len(got) != 2 || got[0] != "prueba.a" || got[1] != "prueba.b" {
 		t.Fatalf("registro: %v", got)
+	}
+}
+
+// Rotación: con la clave anterior configurada, se descifra con las dos (primero la nueva) y se
+// cifra siempre con la nueva; sin ella, lo de la anterior es ilegible.
+func TestCifradorConClaveAnterior(t *testing.T) {
+	clave := func() string {
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		return base64.StdEncoding.EncodeToString(b)
+	}
+	vieja, nueva := clave(), clave()
+	cViejo, _ := nucleo.NuevoCifrador(vieja)
+	cNuevo, _ := nucleo.NuevoCifrador(nueva)
+	transicion, err := nucleo.NuevoCifrador(nueva, vieja)
+	if err != nil || !transicion.TieneAnterior() || cNuevo.TieneAnterior() {
+		t.Fatalf("cifrador de transición: %v", err)
+	}
+	ad := []byte("usuario:1:totp")
+	deVieja, _ := cViejo.Cifrar([]byte("viejo"), ad)
+	deNueva, _ := cNuevo.Cifrar([]byte("nuevo"), ad)
+
+	if p, ant, err := transicion.DescifrarConOrigen(deVieja, ad); err != nil || !ant || string(p) != "viejo" {
+		t.Fatalf("con la anterior: %s %v %v", p, ant, err)
+	}
+	if p, ant, err := transicion.DescifrarConOrigen(deNueva, ad); err != nil || ant || string(p) != "nuevo" {
+		t.Fatalf("con la nueva: %s %v %v", p, ant, err)
+	}
+	if _, err := transicion.Descifrar(deVieja, []byte("usuario:2:totp")); !errors.Is(err, nucleo.ErrDescifrar) {
+		t.Fatalf("datos asociados de otra fila: %v", err)
+	}
+	if _, err := cNuevo.Descifrar(deVieja, ad); !errors.Is(err, nucleo.ErrDescifrar) {
+		t.Fatalf("sin la anterior no descifra: %v", err)
+	}
+	// Lo que cifra el de transición es de la nueva: lo lee el cifrador solo con la nueva.
+	c, _ := transicion.Cifrar([]byte("x"), ad)
+	if p, err := cNuevo.Descifrar(c, ad); err != nil || string(p) != "x" {
+		t.Fatalf("cifra con la nueva: %v", err)
+	}
+	if _, err := nucleo.NuevoCifrador(nueva, nueva); err == nil {
+		t.Fatal("anterior igual a la actual: error de configuración")
+	}
+	if _, err := nucleo.NuevoCifrador(nueva, "corta"); err == nil {
+		t.Fatal("anterior inválida")
+	}
+	if c, err := nucleo.NuevoCifrador(nueva, ""); err != nil || c.TieneAnterior() {
+		t.Fatal("anterior vacía se ignora")
+	}
+}
+
+// API y worker avisan al arrancar mientras IRIS_CLAVE_CIFRADO_ANTERIOR esté puesta.
+func TestAvisoClaveAnterior(t *testing.T) {
+	clave := func() string {
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		return base64.StdEncoding.EncodeToString(b)
+	}
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	nueva := clave()
+	solo, _ := nucleo.NuevoCifrador(nueva)
+	if nucleo.AvisarClaveAnterior(log, solo) || nucleo.AvisarClaveAnterior(log, nil) || buf.Len() != 0 {
+		t.Fatalf("sin anterior no avisa: %s", buf.String())
+	}
+	transicion, _ := nucleo.NuevoCifrador(nueva, clave())
+	if !nucleo.AvisarClaveAnterior(log, transicion) || !strings.Contains(buf.String(), `"level":"WARN"`) ||
+		!strings.Contains(buf.String(), "quítala") {
+		t.Fatalf("con anterior avisa: %s", buf.String())
 	}
 }

@@ -67,6 +67,13 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			if err != nil {
 				return TokenCreado{}, err
 			}
+			// Para otro usuario fuera de tu alcance de empresas: 404, como si no existiera (no se
+			// revela si es persona, integración o está inactivo).
+			if !actor.EsUsuario() || actor.ID != u.ID {
+				if err := exigirVisible(ctx, q, u.ID, "crear tokens de este usuario"); err != nil {
+					return TokenCreado{}, err
+				}
+			}
 			if !u.Activo {
 				return TokenCreado{}, nucleo.ReglaNegocio("usuario_inactivo", "El usuario está desactivado")
 			}
