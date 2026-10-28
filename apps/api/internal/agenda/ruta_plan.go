@@ -1,6 +1,7 @@
 package agenda
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -76,6 +77,25 @@ func (e planEntrada) huella() string {
 	slices.Sort(ids)
 	for _, id := range ids {
 		fmt.Fprintf(&b, "%d:%d;", id, indice[id])
+	}
+	return b.String()
+}
+
+// huellaPlan resume toda la entrada del plan (puntos, horas, ventanas, paradas fijas, salida,
+// orden manual): si es igual, el plan calculado fuera de la transacción sirve tal cual.
+func (e planEntrada) huellaPlan() string {
+	var b strings.Builder
+	b.WriteString(e.huella())
+	tm := func(t *time.Time) string {
+		if t == nil {
+			return "-"
+		}
+		return fmt.Sprint(t.UnixMicro())
+	}
+	fmt.Fprintf(&b, "|%s|%d|%s|%s|%v|", e.OrigenSalida, e.SaleEn.UnixMicro(), tm(e.Ahora), tm(e.FinTurno), e.Manual)
+	for _, p := range slices.Concat(e.Fijas, e.Libres) {
+		fmt.Fprintf(&b, "%d:%d:%s:%s:%d:%v:%s:%s;", p.OrdenID, p.Duracion, tm(p.VentanaIni), tm(p.VentanaFin),
+			p.CitaInicio.UnixMicro(), p.Fija, tm(p.LlegadaReal), tm(p.SalidaReal))
 	}
 	return b.String()
 }
@@ -174,7 +194,7 @@ func costoFinal(s estadoSim, base time.Time) float64 {
 }
 
 // planificar arma la ruta con la matriz de los puntos de e (e.puntos()).
-func planificar(e planEntrada, m Matriz) (plan, error) {
+func planificar(ctx context.Context, e planEntrada, m Matriz) (plan, error) {
 	_, indice, salida := e.puntos()
 	s := estadoSim{fila: salida, hora: e.SaleEn}
 	tramos := []tramo{}
@@ -182,7 +202,7 @@ func planificar(e planEntrada, m Matriz) (plan, error) {
 	if e.Ahora != nil && s.hora.Before(*e.Ahora) {
 		s.hora = *e.Ahora
 	}
-	libres, err := ordenarLibres(e, m, indice, s)
+	libres, err := ordenarLibres(ctx, e, m, indice, s)
 	if err != nil {
 		return plan{}, err
 	}
@@ -207,7 +227,7 @@ func planificar(e planEntrada, m Matriz) (plan, error) {
 }
 
 // ordenarLibres: el orden manual (validado) o el de menor costo.
-func ordenarLibres(e planEntrada, m Matriz, indice map[int64]int, s estadoSim) ([]paradaPlan, error) {
+func ordenarLibres(ctx context.Context, e planEntrada, m Matriz, indice map[int64]int, s estadoSim) ([]paradaPlan, error) {
 	if e.Manual != nil {
 		porID := map[int64]paradaPlan{}
 		for _, p := range e.Libres {
@@ -243,41 +263,64 @@ func ordenarLibres(e planEntrada, m Matriz, indice map[int64]int, s estadoSim) (
 			sinPunto = append(sinPunto, p)
 		}
 	}
-	return append(mejorOrden(conPunto, m, indice, s), sinPunto...), nil
+	orden, err := mejorOrden(ctx, conPunto, m, indice, s)
+	if err != nil {
+		return nil, err
+	}
+	return append(orden, sinPunto...), nil
 }
 
 // maxExacto: hasta este número de paradas se prueban todas las permutaciones (8! = 40 320).
 const maxExacto = 8
 
-// mejorOrden busca el orden de menor costo: exacto hasta maxExacto paradas; si no, varias
-// semillas (por fin de ventana, por cita y vecino más cercano) mejoradas con reubicación y 2-opt.
-func mejorOrden(ps []paradaPlan, m Matriz, indice map[int64]int, s estadoSim) []paradaPlan {
+// Límites de la búsqueda local (con 100 paradas, unos cientos de ms como mucho): presupuesto de
+// tiempo para todas las semillas, vueltas por semilla y, por encima de soloDosOpt paradas, solo
+// 2-opt (la reubicación es la parte cara). Agotado el presupuesto queda el mejor orden hallado.
+const (
+	presupuestoBusqueda = 250 * time.Millisecond
+	soloDosOpt          = 30
+)
+
+// mejorOrden busca el orden de menor costo: exacto hasta maxExacto paradas; si no, semillas (por
+// fin de ventana, por cita y vecino más cercano) mejoradas con búsqueda local acotada. Devuelve
+// ctx.Err() si la petición se canceló.
+func mejorOrden(ctx context.Context, ps []paradaPlan, m Matriz, indice map[int64]int, s estadoSim) ([]paradaPlan, error) {
 	if len(ps) <= 1 {
-		return ps
+		return ps, nil
 	}
 	costo := func(sec []paradaPlan) float64 {
 		fin, _ := simular(m, indice, s, sec, nil)
 		return costoFinal(fin, s.hora)
 	}
 	if len(ps) <= maxExacto {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		mejor, mejorCosto := slices.Clone(ps), costo(ps)
 		permutar(slices.Clone(ps), func(sec []paradaPlan) {
 			if c := costo(sec); c < mejorCosto-1e-9 {
 				mejor, mejorCosto = slices.Clone(sec), c
 			}
 		})
-		return mejor
+		return mejor, nil
 	}
-	semillas := [][]paradaPlan{porVentana(ps), slices.Clone(ps), vecinoMasCercano(ps, m, indice, s.fila)}
+	limite := time.Now().Add(presupuestoBusqueda)
+	semillas := [][]paradaPlan{porVentana(ps), vecinoMasCercano(ps, m, indice, s.fila)}
+	if len(ps) <= soloDosOpt {
+		semillas = append(semillas, slices.Clone(ps))
+	}
 	var mejor []paradaPlan
 	mejorCosto := math.Inf(1)
 	for _, sem := range semillas {
-		sec := mejorar(sem, costo)
+		sec, err := mejorar(ctx, sem, costo, limite)
+		if err != nil {
+			return nil, err
+		}
 		if c := costo(sec); c < mejorCosto-1e-9 {
 			mejor, mejorCosto = sec, c
 		}
 	}
-	return mejor
+	return mejor, nil
 }
 
 // permutar recorre todas las permutaciones (algoritmo de Heap).
@@ -340,33 +383,59 @@ func vecinoMasCercano(ps []paradaPlan, m Matriz, indice map[int64]int, desde int
 	return sec
 }
 
-// mejorar: búsqueda local (reubicar una parada y 2-opt) hasta que nada mejore.
-func mejorar(sec []paradaPlan, costo func([]paradaPlan) float64) []paradaPlan {
+// mejorar: búsqueda local (reubicar una parada, hasta soloDosOpt paradas, y 2-opt) hasta que
+// nada mejore, maxVueltas o el límite de tiempo. Revisa ctx en cada fila.
+func mejorar(ctx context.Context, sec []paradaPlan, costo func([]paradaPlan) float64, limite time.Time) ([]paradaPlan, error) {
 	actual := slices.Clone(sec)
+	n := len(actual)
 	c := costo(actual)
-	for vuelta := 0; vuelta < 100; vuelta++ {
+	prueba := make([]paradaPlan, n)
+	maxVueltas := 20
+	if n > soloDosOpt {
+		maxVueltas = 4
+	}
+	agotado := func() (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		return time.Now().After(limite), nil
+	}
+	for vuelta := 0; vuelta < maxVueltas; vuelta++ {
 		mejoro := false
-		n := len(actual)
-		for i := 0; i < n; i++ {
-			for j := 0; j < n; j++ {
-				if i == j {
-					continue
+		if n <= soloDosOpt {
+			for i := 0; i < n; i++ {
+				if fin, err := agotado(); fin {
+					return actual, err
 				}
-				prueba := slices.Clone(actual)
-				p := prueba[i]
-				prueba = slices.Delete(prueba, i, i+1)
-				prueba = slices.Insert(prueba, j, p)
-				if pc := costo(prueba); pc < c-1e-9 {
-					actual, c, mejoro = prueba, pc, true
+				for j := 0; j < n; j++ {
+					if i == j {
+						continue
+					}
+					copy(prueba, actual)
+					p := prueba[i]
+					if i < j {
+						copy(prueba[i:j], prueba[i+1:j+1])
+					} else {
+						copy(prueba[j+1:i+1], prueba[j:i])
+					}
+					prueba[j] = p
+					if pc := costo(prueba); pc < c-1e-9 {
+						copy(actual, prueba)
+						c, mejoro = pc, true
+					}
 				}
 			}
 		}
 		for i := 0; i < n-1; i++ {
+			if fin, err := agotado(); fin {
+				return actual, err
+			}
 			for j := i + 1; j < n; j++ {
-				prueba := slices.Clone(actual)
+				copy(prueba, actual)
 				slices.Reverse(prueba[i : j+1])
 				if pc := costo(prueba); pc < c-1e-9 {
-					actual, c, mejoro = prueba, pc, true
+					copy(actual, prueba)
+					c, mejoro = pc, true
 				}
 			}
 		}
@@ -374,5 +443,5 @@ func mejorar(sec []paradaPlan, costo func([]paradaPlan) float64) []paradaPlan {
 			break
 		}
 	}
-	return actual
+	return actual, nil
 }

@@ -56,14 +56,15 @@ type EntradaListarRutas struct {
 	IncluirReemplazadas bool   `query:"incluirReemplazadas" doc:"También las publicadas antes que la actual"`
 }
 
-// preRuta: lo leído de OSRM antes de la transacción.
+// preRuta: lo calculado antes de la transacción (OSRM y el plan). La transacción lo usa solo si
+// la entrada del plan no cambió (huella); si no, calcula en línea recta.
 type preRuta struct {
-	huella    string
-	matriz    Matriz
-	motor     string
-	motivo    *string
-	secuencia []Punto
-	trazo     [][2]float64
+	huella string
+	matriz Matriz
+	motor  string
+	motivo *string
+	plan   *plan
+	trazo  [][2]float64
 }
 
 func rutaNoEncontrada() *nucleo.Problema { return nucleo.NoEncontrado("La ruta no existe") }
@@ -200,10 +201,11 @@ func (m *Modulo) leerDatosRuta(ctx context.Context, q *agendabd.Queries, empresa
 
 // --- OSRM fuera de la transacción --------------------------------------------------------
 
-// prepararMatriz consulta OSRM (si está configurado) y arma el plan para pedir el trazo.
-func (m *Modulo) prepararMatriz(ctx context.Context, e planEntrada) *preRuta {
+// prepararRuta consulta OSRM (si está configurado), calcula el plan y pide su trazo. Todo fuera
+// de la transacción: dentro solo se reutiliza si la entrada no cambió.
+func (m *Modulo) prepararRuta(ctx context.Context, e planEntrada) *preRuta {
 	puntos, _, _ := e.puntos()
-	pre := &preRuta{huella: e.huella()}
+	pre := &preRuta{huella: e.huellaPlan()}
 	switch {
 	case m.cfg.Enrutador == nil:
 		pre.matriz, pre.motor, pre.motivo = MatrizEnLineaRecta(puntos), "haversine", ptr("sin_osrm")
@@ -217,36 +219,63 @@ func (m *Modulo) prepararMatriz(ctx context.Context, e planEntrada) *preRuta {
 		}
 		pre.matriz, pre.motor = mt, "osrm"
 	}
-	if pre.motor != "osrm" || len(puntos) < 2 {
-		return pre
+	p, err := planificar(ctx, e, pre.matriz)
+	if err != nil {
+		return pre // orden manual inválido o petición cancelada: la transacción lo vuelve a ver
 	}
-	p, err := planificar(e, pre.matriz)
-	if err != nil || len(p.Secuencia) < 2 {
-		return pre
-	}
-	if trazo, err := m.cfg.Enrutador.Trazo(ctx, p.Secuencia); err == nil && len(trazo) >= 2 {
-		pre.secuencia, pre.trazo = p.Secuencia, trazo
+	pre.plan = &p
+	if pre.motor == "osrm" && len(p.Secuencia) >= 2 {
+		if trazo, err := m.cfg.Enrutador.Trazo(ctx, p.Secuencia); err == nil && len(trazo) >= 2 {
+			pre.trazo = trazo
+		}
 	}
 	return pre
 }
 
-// ProponerRuta propone la ruta: lee las paradas y consulta OSRM fuera de la transacción y luego
-// corre el caso de uso rutas.proponer (que vuelve a leer todo y, si algo cambió, calcula en
-// línea recta).
+// ProponerRuta propone la ruta. Fuera de la transacción, y solo si el actor puede proponer la
+// ruta de ese técnico (alcance sobre él y sobre todas sus paradas), lee las paradas, consulta
+// OSRM y calcula el plan; luego corre el caso de uso rutas.proponer, que vuelve a leer y
+// verificar todo y reutiliza el plan si la entrada no cambió (si cambió, línea recta).
 func (m *Modulo) ProponerRuta(ctx context.Context, in EntradaProponerRuta) (RutaDetalle, error) {
 	in.ahora = m.ahora()
 	in.pre = nil
-	if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermRutasProponer)) {
-		if bd := nucleo.BDDe(ctx); bd != nil {
-			todas, empresa := filtroEmpresa(ctx)
-			if dia, err := m.fechaLocalEn("fecha", in.Fecha, in.ahora); err == nil && !todas && (empresa == nil || *empresa != 0) {
-				if d, err := m.leerDatosRuta(ctx, agendabd.New(bd), empresa, in.TecnicoID, dia, in.ahora, in.OrdenIDs); err == nil {
-					in.pre = m.prepararMatriz(ctx, d.entrada)
-				}
-			}
-		}
+	if pre, ok := m.prefase(ctx, in); ok {
+		in.pre = pre
 	}
 	return m.Proponer.Ejecutar(ctx, in)
+}
+
+// prefase: lo de ProponerRuta antes de la transacción. Cualquier duda (sin permiso, fuera de
+// alcance, error de lectura) la deja sin hacer: la transacción da el error que corresponde.
+func (m *Modulo) prefase(ctx context.Context, in EntradaProponerRuta) (*preRuta, bool) {
+	if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermRutasProponer)) {
+		return nil, false
+	}
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return nil, false
+	}
+	todas, empresa := filtroEmpresa(ctx)
+	dia, err := m.fechaLocalEn("fecha", in.Fecha, in.ahora)
+	if err != nil || todas || (empresa != nil && *empresa == 0) {
+		return nil, false
+	}
+	q := agendabd.New(bd)
+	ficha, err := m.tecnicoDeRuta(ctx, bd, q, in.TecnicoID, nucleo.PermRutasProponer)
+	if err != nil {
+		return nil, false
+	}
+	d, err := m.leerDatosRuta(ctx, q, empresa, in.TecnicoID, dia, in.ahora, in.OrdenIDs)
+	if err != nil || len(d.citas) == 0 {
+		return nil, false
+	}
+	a := alcanceDe(ctx, nucleo.PermRutasProponer)
+	for _, c := range d.citas {
+		if !paradaVisible(a, c.ZonaID, c.CuadrillaID, ficha.CuadrillaID) {
+			return nil, false
+		}
+	}
+	return m.prepararRuta(ctx, d.entrada), true
 }
 
 // fechaLocalEn: como fechaLocal, con la hora dada.
@@ -262,7 +291,7 @@ func (m *Modulo) fechaLocalEn(campo, fecha string, ahora time.Time) (time.Time, 
 // tecnicoDeRuta: la ficha del técnico (usuario) visible para rutas.ver en la empresa activa y
 // con el alcance del permiso de la acción sobre su cuadrilla. Falla cerrado: sin ficha, o con
 // una cuadrilla que el alcance no cubre, 404 (o 403 si se ve pero la acción no alcanza).
-func (m *Modulo) tecnicoDeRuta(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, tecnico int64, permiso nucleo.Permiso) (agendabd.AgendaTecnico, error) {
+func (m *Modulo) tecnicoDeRuta(ctx context.Context, db agendabd.DBTX, q *agendabd.Queries, tecnico int64, permiso nucleo.Permiso) (agendabd.AgendaTecnico, error) {
 	noEsta := nucleo.NoEncontrado("El técnico no existe o no tiene ficha de agenda")
 	f, err := q.TecnicoPorUsuario(ctx, tecnico)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -273,7 +302,7 @@ func (m *Modulo) tecnicoDeRuta(ctx context.Context, t *auditoria.Tx, q *agendabd
 	}
 	todas, empresa := filtroEmpresa(ctx)
 	if !todas {
-		en, err := identidad.UsuarioEnEmpresa(ctx, t, tecnico, deref(empresa))
+		en, err := identidad.UsuarioEnEmpresa(ctx, db, tecnico, deref(empresa))
 		if err != nil {
 			return f, err
 		}
@@ -383,20 +412,33 @@ func (m *Modulo) nuevoProponerRuta() *auditoria.Caso[EntradaProponerRuta, RutaDe
 					return RutaDetalle{}, fueraDeAlcance("La ruta del técnico tiene órdenes fuera de tu alcance: la propone quien las ve todas")
 				}
 			}
-			// La matriz leída antes de la transacción, si los puntos no cambiaron.
-			puntos, _, _ := d.entrada.puntos()
-			matriz, motor, motivo := MatrizEnLineaRecta(puntos), "haversine", ptr("sin_osrm")
+			// El plan calculado antes de la transacción, si la entrada no cambió; si no, en línea
+			// recta (la búsqueda está acotada en tiempo y revisa ctx).
+			var (
+				p      plan
+				motor  = "haversine"
+				motivo = ptr("sin_osrm")
+				trazo  [][2]float64
+			)
 			switch {
-			case in.pre != nil && in.pre.huella == d.entrada.huella():
-				matriz, motor, motivo = in.pre.matriz, in.pre.motor, in.pre.motivo
+			case in.pre != nil && in.pre.plan != nil && in.pre.huella == d.entrada.huellaPlan():
+				p, motor, motivo, trazo = *in.pre.plan, in.pre.motor, in.pre.motivo, in.pre.trazo
+			case in.pre != nil && in.pre.huella == d.entrada.huellaPlan():
+				motor, motivo = in.pre.motor, in.pre.motivo
 			case in.pre != nil:
 				motivo = ptr("datos_cambiaron")
 			case m.cfg.Enrutador != nil:
 				motivo = ptr("osrm_no_disponible")
 			}
-			p, err := planificar(d.entrada, matriz)
-			if err != nil {
-				return RutaDetalle{}, err
+			if p.Tramos == nil {
+				puntos, _, _ := d.entrada.puntos()
+				matriz := MatrizEnLineaRecta(puntos)
+				if motor == "osrm" {
+					matriz = in.pre.matriz
+				}
+				if p, err = planificar(ctx, d.entrada, matriz); err != nil {
+					return RutaDetalle{}, err
+				}
 			}
 			var geometria []byte
 			if len(p.Secuencia) >= 2 {
@@ -404,8 +446,8 @@ func (m *Modulo) nuevoProponerRuta() *auditoria.Caso[EntradaProponerRuta, RutaDe
 				for _, s := range p.Secuencia {
 					coords = append(coords, [2]float64{s.Lon, s.Lat})
 				}
-				if motor == "osrm" && in.pre != nil && slices.Equal(in.pre.secuencia, p.Secuencia) {
-					coords = in.pre.trazo
+				if motor == "osrm" && len(trazo) >= 2 {
+					coords = trazo
 				}
 				if geometria, err = json.Marshal(map[string]any{"type": "LineString", "coordinates": coords}); err != nil {
 					return RutaDetalle{}, err
@@ -687,7 +729,11 @@ func (m *Modulo) nuevoListarRutas() *auditoria.Caso[EntradaListarRutas, nucleo.P
 					MotivoDesactualizada: f.MotivoDesactualizada, PropuestaPor: f.PropuestaPor, PropuestaEn: f.PropuestaEn,
 					PublicadaPor: f.PublicadaPor, PublicadaEn: f.PublicadaEn, ReemplazadaEn: f.ReemplazadaEn,
 					ReemplazadaPorID: f.ReemplazadaPorID, Version: f.Version}
-				salida.Data = append(salida.Data, aRuta(r, f.TecnicoNombre, f.Paradas, f.FueraDeVentana))
+				ruta := aRuta(r, f.TecnicoNombre, f.Paradas, f.FueraDeVentana)
+				if err := m.ocultarPosicion(ctx, q, &ruta, f.TecnicoCuadrillaID); err != nil {
+					return salida, err
+				}
+				salida.Data = append(salida.Data, ruta)
 			}
 			return salida, nil
 		},
@@ -721,11 +767,12 @@ func (m *Modulo) detalleRuta(ctx context.Context, q *agendabd.Queries, r agendab
 		Real: RecorridoReal{Puntos: []PuntoReal{}, OrdenVisitado: []int64{}}}
 	var fuera int32
 	visitadas := []ParadaRuta{}
+	hayOcultas, anteriorOculta := false, false
 	for _, f := range filas {
 		p := ParadaRuta{Posicion: f.Posicion, OrdenID: f.OrdenID, Numero: f.Numero, Tipo: f.TipoCodigo, Estado: f.Estado,
 			Vigente: vigentes[f.OrdenID], Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, SinCoordenadas: f.Lat == nil,
 			DuracionMin: f.DuracionMin, VentanaInicio: f.VentanaInicio, VentanaFin: f.VentanaFin, CitaInicio: f.CitaInicio,
-			Fija: f.Fija, LlegadaEstimada: f.LlegadaEstimada, SalidaEstimada: f.SalidaEstimada, ViajeSeg: f.ViajeSeg,
+			Fija: f.Fija, LlegadaEstimada: &f.LlegadaEstimada, SalidaEstimada: &f.SalidaEstimada, ViajeSeg: f.ViajeSeg,
 			DistanciaM: f.DistanciaM, EsperaSeg: f.EsperaSeg, RetrasoSeg: f.RetrasoSeg, FueraDeVentana: f.RetrasoSeg > 0}
 		// Lo real solo mientras la orden siga en este técnico.
 		if f.OrdenTecnicoID != nil && *f.OrdenTecnicoID == r.TecnicoID {
@@ -735,18 +782,33 @@ func (m *Modulo) detalleRuta(ctx context.Context, q *agendabd.Queries, r agendab
 				p.DesvioSeg = &desvio
 			}
 		}
+		if !paradaVisible(a, f.ZonaID, f.CuadrillaID, ficha.CuadrillaID) {
+			// Solo la posición en la secuencia: ni la orden, ni el estado, ni las horas, ni el
+			// lugar, ni el viaje (que permitirían ubicarla); el viaje de la siguiente, tampoco.
+			p = ParadaRuta{Posicion: f.Posicion, Oculta: true}
+			hayOcultas = true
+		} else if anteriorOculta {
+			p.ViajeSeg, p.DistanciaM = 0, 0
+		}
+		anteriorOculta = p.Oculta
 		if p.FueraDeVentana {
 			fuera++
 		}
-		if !paradaVisible(a, f.ZonaID, f.CuadrillaID, ficha.CuadrillaID) {
-			p.OrdenID, p.Numero, p.Direccion, p.Lat, p.Lon, p.Oculta = 0, "", "", nil, nil, true
-		}
-		if p.LlegadaReal != nil && !p.Oculta {
+		if p.LlegadaReal != nil {
 			visitadas = append(visitadas, p)
 		}
 		d.Paradas = append(d.Paradas, p)
 	}
 	d.Ruta = aRuta(r, nombre, int32(len(filas)), fuera) //nolint:gosec // ≤ 100 paradas
+	if hayOcultas {
+		d.Geometria = nil // el trazo pasa por las paradas ocultas
+	}
+	if err := m.ocultarPosicion(ctx, q, &d.Ruta, ficha.CuadrillaID); err != nil {
+		return RutaDetalle{}, err
+	}
+	if d.SalidaLat == nil && r.OrigenSalida == "posicion" {
+		d.Geometria = nil // empieza en la posición del técnico
+	}
 	slices.SortStableFunc(visitadas, func(x, y ParadaRuta) int { return x.LlegadaReal.Compare(*y.LlegadaReal) })
 	for _, v := range visitadas {
 		d.Real.OrdenVisitado = append(d.Real.OrdenVisitado, v.OrdenID)
@@ -759,6 +821,29 @@ func segundosFirmados(d time.Duration) int32 {
 	return int32(max(min(s, math.MaxInt32), math.MinInt32)) //nolint:gosec // acotado arriba
 }
 
+// puedeVerPosiciones: el actor tiene campo.ver_posiciones con alcance sobre la cuadrilla del
+// técnico (la misma regla que GET /campo/posiciones/ultimas).
+func puedeVerPosiciones(ctx context.Context, q *agendabd.Queries, cuadrilla *int64) (bool, error) {
+	if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermCampoVerPosiciones)) {
+		return false, nil
+	}
+	return alcanceDe(ctx, nucleo.PermCampoVerPosiciones).cubreCuadrilla(ctx, q, cuadrilla)
+}
+
+// ocultarPosicion: si la ruta sale de la última posición del técnico, solo la ve quien puede ver
+// posiciones; a los demás, la salida sin coordenadas.
+func (m *Modulo) ocultarPosicion(ctx context.Context, q *agendabd.Queries, r *Ruta, cuadrilla *int64) error {
+	if r.OrigenSalida != "posicion" || r.SalidaLat == nil {
+		return nil
+	}
+	ok, err := puedeVerPosiciones(ctx, q, cuadrilla)
+	if err != nil || ok {
+		return err
+	}
+	r.SalidaLat, r.SalidaLon = nil, nil
+	return nil
+}
+
 // maxPuntosReales: el recorrido se muestrea a este número de puntos.
 const maxPuntosReales = 1000
 
@@ -769,11 +854,9 @@ func (m *Modulo) recorridoReal(ctx context.Context, q *agendabd.Queries, r agend
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	ok := false
-	if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermCampoVerPosiciones)) {
-		if ok, err = alcanceDe(ctx, nucleo.PermCampoVerPosiciones).cubreCuadrilla(ctx, q, ficha.CuadrillaID); err != nil {
-			return err
-		}
+	ok, err := puedeVerPosiciones(ctx, q, ficha.CuadrillaID)
+	if err != nil {
+		return err
 	}
 	if !ok {
 		real.Motivo = ptr("sin_permiso")

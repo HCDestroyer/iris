@@ -179,13 +179,21 @@ func TestProponerYPublicarRutaConOSRM(t *testing.T) {
 	if r.Geometria["type"] != "LineString" || len(coords) != 7 || o.tablas.Load() != 1 || o.trazos.Load() != 1 {
 		t.Fatalf("geometría: %v (tablas %d, trazos %d)", r.Geometria, o.tablas.Load(), o.trazos.Load())
 	}
+	// Fuera de alcance: 404 sin llegar a OSRM (el alcance se mira antes de la fase previa).
+	otra := deber(e.ag.CrearCuadrilla.Ejecutar(s.cs, agenda.EntradaCrearCuadrilla{Nombre: "Ajena OSRM " + pruebas.Unico()}))(t)
+	ajeno := conAlcance(t, s.desp, map[string][]contexto.Alcance{"rutas.ver": {{CuadrillaID: otra.ID}}, "rutas.proponer": {{CuadrillaID: otra.ID}}})
+	_, err := e.ag.ProponerRuta(ajeno, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: jueves})
+	problema(t, err, 404, "no_encontrado")
+	if o.tablas.Load() != 1 || o.trazos.Load() != 1 {
+		t.Fatalf("OSRM consultado fuera de alcance: tablas %d, trazos %d", o.tablas.Load(), o.trazos.Load())
+	}
 	p := ultimoEventoRuta(t, "ruta.propuesta", r.ID)
 	if p["motor"] != "osrm" || p["degradada"] != false || len(p["ordenes"].([]any)) != 3 || p["fecha"] != jueves {
 		t.Fatalf("ruta.propuesta: %+v", p)
 	}
 
 	// Manual: el orden pedido. Rehace el mismo borrador (versión).
-	_, err := e.ag.ProponerRuta(s.cd, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: jueves, Version: ptr(r.Version + 5)})
+	_, err = e.ag.ProponerRuta(s.cd, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: jueves, Version: ptr(r.Version + 5)})
 	problema(t, err, 409, "conflicto_version")
 	m := deber(e.ag.ProponerRuta(s.cd, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: jueves, Version: &r.Version,
 		OrdenIDs: []int64{s.oD.ID, s.oC.ID, s.oA.ID}}))(t)
@@ -412,16 +420,26 @@ func TestRutaAlcance(t *testing.T) {
 	r = deber(e.ag.ProponerRuta(s.cd, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: jueves}))(t)
 	ver := deber(e.ag.VerRuta.Ejecutar(porZona, agenda.EntradaVerRuta{ID: r.ID}))(t)
 	ocultas := 0
-	for _, p := range ver.Paradas {
+	for i, p := range ver.Paradas {
 		if p.Oculta {
 			ocultas++
-			if p.OrdenID != 0 || p.Numero != "" || p.Lat != nil || p.Direccion != "" {
-				t.Fatalf("parada oculta con datos: %+v", p)
+			if (p != agenda.ParadaRuta{Posicion: p.Posicion, Oculta: true}) {
+				t.Fatalf("parada oculta con datos (solo la posición): %+v", p)
+			}
+			if i+1 < len(ver.Paradas) && (ver.Paradas[i+1].ViajeSeg != 0 || ver.Paradas[i+1].DistanciaM != 0) {
+				t.Fatalf("el viaje desde la oculta la ubica: %+v", ver.Paradas[i+1])
 			}
 		}
 	}
 	if ocultas != 1 || len(ver.Paradas) != 4 {
 		t.Fatalf("ocultas: %d de %d", ocultas, len(ver.Paradas))
+	}
+	// El trazo pasa por la parada oculta: no sale. Quien la ve, sí lo recibe.
+	if ver.Geometria != nil {
+		t.Fatalf("geometría con una parada oculta: %v", ver.Geometria)
+	}
+	if todo := deber(e.ag.VerRuta.Ejecutar(s.cd, agenda.EntradaVerRuta{ID: r.ID}))(t); todo.Geometria == nil {
+		t.Fatal("con alcance global sí hay geometría")
 	}
 }
 
@@ -474,5 +492,38 @@ func TestRutaPorEmpresa(t *testing.T) {
 	}
 	if paq = deber(e.cmp.LeerPaquete.Ejecutar(enEmpresa(t, tec, 62, "tecnico"), campo.EntradaPaquete{Fecha: jueves}))(t); paq.Ruta != nil {
 		t.Fatalf("la 62 no tiene ruta publicada: %+v", paq.Ruta)
+	}
+}
+
+// Una ruta que sale de la última posición del técnico no la muestra a quien no puede ver
+// posiciones (rol lectura): ni la salida ni el trazo, en la lista ni en el detalle.
+func TestRutaPosicionDeSalidaSoloConPermiso(t *testing.T) {
+	s := nuevoEscenarioRuta(t, nil)
+	e := s.e
+	// Hoy (miércoles 09:00), con una cita a las 11:00 y una posición de hace 10 minutos.
+	o := deber(e.cmp.CrearOrden.Ejecutar(s.cd, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("Hoy"), ZonaID: &s.zona,
+		Lat: ptr(puntoC[0]), Lon: ptr(puntoC[1])}))(t)
+	deber(programar(e, s.cd, o, s.tec, gt(2, 11, 0)))(t)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO campo.posiciones_ultimas
+		(tecnico_id, empresa_id, lat, lon, registrada_en, recibida_en) VALUES ($1, NULL, 14.611111, -90.511111, $2, $2)`,
+		s.tec, gt(2, 8, 50)); err != nil {
+		t.Fatal(err)
+	}
+	r := deber(e.ag.ProponerRuta(s.cd, agenda.EntradaProponerRuta{TecnicoID: s.tec, Fecha: "2026-10-28"}))(t)
+	if r.OrigenSalida != "posicion" || r.SalidaLat == nil || *r.SalidaLat != 14.611111 || r.Geometria == nil {
+		t.Fatalf("despacho (con campo.ver_posiciones) ve la salida: %+v", r.Ruta)
+	}
+	lec := como(t, usuarioCon(t, rol("lectura")), "lectura")
+	v := deber(e.ag.VerRuta.Ejecutar(lec, agenda.EntradaVerRuta{ID: r.ID}))(t)
+	if v.OrigenSalida != "posicion" || v.SalidaLat != nil || v.SalidaLon != nil || v.Geometria != nil {
+		t.Fatalf("lectura no ve la posición: %+v %v", v.Ruta, v.Geometria)
+	}
+	for _, l := range deber(e.ag.ListarRutas.Ejecutar(lec, agenda.EntradaListarRutas{Fecha: "2026-10-28", TecnicoID: s.tec}))(t).Data {
+		if l.SalidaLat != nil || l.SalidaLon != nil {
+			t.Fatalf("lista para lectura: %+v", l)
+		}
+	}
+	if l := deber(e.ag.ListarRutas.Ejecutar(s.cd, agenda.EntradaListarRutas{Fecha: "2026-10-28", TecnicoID: s.tec}))(t); len(l.Data) != 1 || l.Data[0].SalidaLat == nil {
+		t.Fatalf("lista para despacho: %+v", l.Data)
 	}
 }

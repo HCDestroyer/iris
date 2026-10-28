@@ -20,7 +20,7 @@ type Ruta struct {
 	Degradada            bool       `json:"degradada" doc:"true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados"`
 	MotivoMotor          *string    `json:"motivoMotor" nullable:"true" enum:"sin_osrm,osrm_no_disponible,datos_cambiaron" doc:"Por qué se degradó (null con OSRM)"`
 	OrigenSalida         string     `json:"origenSalida" enum:"base,posicion,ultima_parada,primera_parada" doc:"De dónde sale: base de la ficha, última posición (hoy), la última parada ya hecha o, sin ninguna, la primera parada"`
-	SalidaLat            *float64   `json:"salidaLat" nullable:"true"`
+	SalidaLat            *float64   `json:"salidaLat" nullable:"true" doc:"null si la salida es la posición del técnico y no puedes ver posiciones (campo.ver_posiciones)"`
 	SalidaLon            *float64   `json:"salidaLon" nullable:"true"`
 	SaleEn               time.Time  `json:"saleEn" doc:"Hora de salida (inicio del turno o la primera cita)"`
 	TerminaEn            *time.Time `json:"terminaEn" nullable:"true" doc:"Salida estimada de la última parada"`
@@ -48,9 +48,9 @@ type ParadaRuta struct {
 	Posicion        int16      `json:"posicion" doc:"1 = primera"`
 	OrdenID         int64      `json:"ordenId" doc:"0 si la orden está fuera de tu alcance (oculta)"`
 	Numero          string     `json:"numero"`
-	Tipo            string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento"`
-	Estado          string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada" doc:"Estado actual de la orden"`
-	Oculta          bool       `json:"oculta" doc:"Fuera de tu alcance: sin número, dirección ni coordenadas"`
+	Tipo            string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento," doc:"Vacío si oculta"`
+	Estado          string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada," doc:"Estado actual de la orden; vacío si oculta"`
+	Oculta          bool       `json:"oculta" doc:"Fuera de tu alcance: solo la posición en la secuencia (sin orden, estado, horas, lugar ni viaje); el viaje de la parada siguiente sale en 0"`
 	Vigente         bool       `json:"vigente" doc:"La orden sigue en este técnico y día; false = se movió después de proponer"`
 	Direccion       string     `json:"direccion"`
 	Lat             *float64   `json:"lat" nullable:"true"`
@@ -61,8 +61,8 @@ type ParadaRuta struct {
 	VentanaFin      *time.Time `json:"ventanaFin" nullable:"true"`
 	CitaInicio      *time.Time `json:"citaInicio" nullable:"true" doc:"Inicio de la cita al proponer"`
 	Fija            bool       `json:"fija" doc:"Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real"`
-	LlegadaEstimada time.Time  `json:"llegadaEstimada"`
-	SalidaEstimada  time.Time  `json:"salidaEstimada"`
+	LlegadaEstimada *time.Time `json:"llegadaEstimada" nullable:"true" doc:"null si oculta"`
+	SalidaEstimada  *time.Time `json:"salidaEstimada" nullable:"true" doc:"null si oculta"`
 	ViajeSeg        int32      `json:"viajeSeg" doc:"Viaje desde la parada anterior (o la salida)"`
 	DistanciaM      int32      `json:"distanciaM"`
 	EsperaSeg       int32      `json:"esperaSeg"`
@@ -96,7 +96,7 @@ type RecorridoReal struct {
 // RutaDetalle: la ruta con sus paradas, el trazo y el recorrido real.
 type RutaDetalle struct {
 	Ruta
-	Geometria map[string]any `json:"geometria" nullable:"true" doc:"GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada"`
+	Geometria map[string]any `json:"geometria" nullable:"true" doc:"GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada. null si hay paradas ocultas o si sale de la posición del técnico y no puedes ver posiciones"`
 	Paradas   []ParadaRuta   `json:"paradas"`
 	Real      RecorridoReal  `json:"real"`
 }

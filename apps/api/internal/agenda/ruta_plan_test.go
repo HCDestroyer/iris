@@ -51,7 +51,7 @@ func TestPlanRespetaLaVentana(t *testing.T) {
 		Libres: []paradaPlan{parada(1, 14.61, 30), parada(2, 14.62, 30), parada(3, 14.63, 30)}}
 	e.Libres[2].VentanaIni, e.Libres[2].VentanaFin = en(0), en(45)
 	m := matrizMin(4, map[[2]int]float64{{0, 1}: 10, {0, 2}: 20, {0, 3}: 30, {1, 2}: 10, {1, 3}: 20, {2, 3}: 10})
-	p, err := planificar(e, m)
+	p, err := planificar(context.Background(), e, m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestPlanRespetaLaVentana(t *testing.T) {
 	}
 	// Sin la ventana, la más corta.
 	e.Libres[2].VentanaIni, e.Libres[2].VentanaFin = nil, nil
-	p, _ = planificar(e, m)
+	p, _ = planificar(context.Background(), e, m)
 	if got := ids(p); fmt.Sprint(got) != "[1 2 3]" {
 		t.Fatalf("sin ventana: %v", got)
 	}
@@ -72,7 +72,7 @@ func TestPlanRespetaLaVentana(t *testing.T) {
 	}
 	// Llegar antes de la ventana espera; llegar después es retraso.
 	e.Libres[0].VentanaIni, e.Libres[0].VentanaFin = en(60), en(90)
-	p, _ = planificar(e, m)
+	p, _ = planificar(context.Background(), e, m)
 	for _, tr := range p.Tramos {
 		if tr.Parada.OrdenID == 1 && (tr.Llegada.Before(*en(10)) || tr.Retraso != 0) {
 			t.Fatalf("ventana de la 1: %+v", tr)
@@ -80,7 +80,7 @@ func TestPlanRespetaLaVentana(t *testing.T) {
 	}
 	imposible := planEntrada{Salida: &base, SaleEn: ocho, Libres: []paradaPlan{parada(1, 14.61, 30)}}
 	imposible.Libres[0].VentanaIni, imposible.Libres[0].VentanaFin = en(-60), en(-30)
-	p, _ = planificar(imposible, matrizMin(2, map[[2]int]float64{{0, 1}: 10}))
+	p, _ = planificar(context.Background(), imposible, matrizMin(2, map[[2]int]float64{{0, 1}: 10}))
 	if p.Retraso != 40*60 || p.Tramos[0].Retraso != 2400 {
 		t.Fatalf("retraso: %+v", p.Tramos[0])
 	}
@@ -94,7 +94,7 @@ func TestPlanFijasManualYSinCoordenadas(t *testing.T) {
 	e := planEntrada{Salida: &base, SaleEn: ocho, Fijas: []paradaPlan{hecha},
 		Libres: []paradaPlan{sinPunto, parada(1, 14.61, 30), parada(2, 14.62, 30)}}
 	m := matrizMin(4, map[[2]int]float64{{0, 1}: 10, {0, 2}: 20, {0, 3}: 5, {1, 2}: 5, {1, 3}: 15, {2, 3}: 10})
-	p, err := planificar(e, m)
+	p, err := planificar(context.Background(), e, m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,20 +112,20 @@ func TestPlanFijasManualYSinCoordenadas(t *testing.T) {
 	// Hoy, la parte libre no empieza antes de ahora.
 	ahora := *en(180)
 	e.Ahora = &ahora
-	p, _ = planificar(e, m)
+	p, _ = planificar(context.Background(), e, m)
 	if !p.Tramos[1].Llegada.Equal(ahora.Add(5 * time.Minute)) {
 		t.Fatalf("desde ahora: %v", p.Tramos[1].Llegada)
 	}
 	// Manual: se respeta; la fija puede venir o no; faltar o sobrar una es 422.
 	e.Ahora = nil
 	e.Manual = []int64{9, 2, 7, 1}
-	p, err = planificar(e, m)
+	p, err = planificar(context.Background(), e, m)
 	if err != nil || fmt.Sprint(ids(p)) != "[9 2 7 1]" {
 		t.Fatalf("manual: %v %v", ids(p), err)
 	}
 	for _, mal := range [][]int64{{2, 1}, {2, 7, 1, 1}, {2, 7, 1, 55}} {
 		e.Manual = mal
-		if _, err := planificar(e, m); err == nil {
+		if _, err := planificar(context.Background(), e, m); err == nil {
 			t.Fatalf("manual inválido %v", mal)
 		}
 	}
@@ -141,7 +141,7 @@ func TestPlanConMuchasParadas(t *testing.T) {
 		e.Libres = append(e.Libres, parada(id, 14.6+float64(id)/100, 15))
 	}
 	ps, _, _ := e.puntos()
-	p, err := planificar(e, MatrizEnLineaRecta(ps))
+	p, err := planificar(context.Background(), e, MatrizEnLineaRecta(ps))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,5 +221,62 @@ func TestClienteOSRM(t *testing.T) {
 	t.Setenv("IRIS_OSRM_ESPERA", "nada")
 	if _, err := OSRMDesdeEntorno(); err == nil {
 		t.Fatal("espera inválida")
+	}
+}
+
+// 100 paradas (la mitad con ventana): la búsqueda está acotada en tiempo y se corta con ctx.
+func paradasDePrueba(n int) planEntrada {
+	base := Punto{Lat: 14.6, Lon: -90.5}
+	e := planEntrada{Salida: &base, SaleEn: ocho}
+	semilla := uint64(42)
+	azar := func() float64 {
+		semilla = semilla*6364136223846793005 + 1442695040888963407
+		return float64(semilla>>11) / float64(1<<53)
+	}
+	for i := range n {
+		p := paradaPlan{OrdenID: int64(i + 1), Punto: &Punto{Lat: 14.5 + azar()*0.2, Lon: -90.6 + azar()*0.2},
+			Duracion: 20 * time.Minute, CitaInicio: ocho}
+		if i%2 == 0 {
+			p.VentanaIni, p.VentanaFin = en(i*10), en(i*10+240)
+		}
+		e.Libres = append(e.Libres, p)
+	}
+	return e
+}
+
+func TestPlanCienParadasAcotado(t *testing.T) {
+	e := paradasDePrueba(100)
+	ps, _, _ := e.puntos()
+	m := MatrizEnLineaRecta(ps)
+	inicio := time.Now()
+	p, err := planificar(context.Background(), e, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(inicio); d > 2*time.Second {
+		t.Fatalf("100 paradas tardaron %v", d)
+	}
+	vistas := map[int64]bool{}
+	for _, tr := range p.Tramos {
+		vistas[tr.Parada.OrdenID] = true
+	}
+	if len(p.Tramos) != 100 || len(vistas) != 100 {
+		t.Fatalf("permutación incompleta: %d tramos, %d distintas", len(p.Tramos), len(vistas))
+	}
+	ctx, cancelar := context.WithCancel(context.Background())
+	cancelar()
+	if _, err := planificar(ctx, e, m); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ctx cancelado: %v", err)
+	}
+}
+
+func BenchmarkPlanCienParadas(b *testing.B) {
+	e := paradasDePrueba(100)
+	ps, _, _ := e.puntos()
+	m := MatrizEnLineaRecta(ps)
+	for b.Loop() {
+		if _, err := planificar(context.Background(), e, m); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
