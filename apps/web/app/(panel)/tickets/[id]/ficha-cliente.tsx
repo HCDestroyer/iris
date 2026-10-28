@@ -3,9 +3,11 @@
 import type { Schema } from "@iris/contratos";
 import { Aviso, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { History, Mail, MapPin, Phone, PlugZap, UserRound, Wifi } from "lucide-react";
+import { BotonVerEn } from "@/componentes/enlaces-externos";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
+import { enlaceArgosCliente, type EnlacesExternos, type EnlaceVer } from "@/lib/enlaces";
 import { formatearFecha } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
@@ -18,10 +20,17 @@ const ERRORES_CUENTA: Record<NonNullable<Schema<"Ficha">["estadoCuentaError"]>, 
 };
 
 /** Cliente del ticket: ficha de Argos si hay `clienteId`; si no, el contacto capturado. */
-export function FichaCliente({ ticket }: { ticket: Ticket }) {
+export function FichaCliente({ ticket, enlaces }: { ticket: Ticket; enlaces: EnlacesExternos | null }) {
     const { puede } = useSesion();
     if (ticket.clienteId !== null && puede(["clientes.ver"])) {
-        return <FichaArgos clienteId={ticket.clienteId} servicioId={ticket.servicioId} contacto={ticket.contacto} />;
+        return (
+            <FichaArgos
+                clienteId={ticket.clienteId}
+                servicioId={ticket.servicioId}
+                contacto={ticket.contacto}
+                verArgos={enlaceArgosCliente(enlaces, ticket.clienteId)}
+            />
+        );
     }
     return (
         <Tarjeta>
@@ -59,11 +68,22 @@ function Contacto({ contacto, vacio }: { contacto: Schema<"Contacto">; vacio: st
     );
 }
 
-function FichaArgos({ clienteId, servicioId, contacto }: { clienteId: number; servicioId: number | null; contacto: Schema<"Contacto"> }) {
+function FichaArgos({
+    clienteId,
+    servicioId,
+    contacto,
+    verArgos,
+}: {
+    clienteId: number;
+    servicioId: number | null;
+    contacto: Schema<"Contacto">;
+    verArgos: EnlaceVer | null;
+}) {
     const ficha = useLectura((signal) => resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId } }, signal })));
     const titulo = (
-        <TarjetaEncabezado>
+        <TarjetaEncabezado className="flex flex-row flex-wrap items-center justify-between gap-2">
             <TarjetaTitulo>Cliente</TarjetaTitulo>
+            {verArgos ? <BotonVerEn enlace={verArgos} /> : null}
         </TarjetaEncabezado>
     );
 

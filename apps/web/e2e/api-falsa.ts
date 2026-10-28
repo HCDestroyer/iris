@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
+import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
 
 /*
@@ -38,7 +39,11 @@ export const LECTOR = usuario({ id: 3, nombre: "Lucía Ramírez", correo: "lucia
 export const SOPORTE = usuario({ id: 6, nombre: "Sofía Morales", correo: "sofia@iris.test", roles: [{ rol: "soporte" }] });
 /** Rol lectura: ve tickets, pero no notas internas ni acciones. */
 export const CONSULTA = usuario({ id: 7, nombre: "Carlos Ruiz", correo: "carlos@iris.test", roles: [{ rol: "lectura" }] });
+/** Supervisor de zona: tiene `buzones.*`, pero con alcance de zona (las escrituras dan 403). */
+export const SUPERVISOR_ZONA = usuario({ id: 8, nombre: "Zoe Hernández", correo: "zoe@iris.test", roles: [{ rol: "supervisor", zonaId: 2 }] });
 export const BLOQUEADO = "bloqueado@iris.test";
+
+const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
 
 const PERMISOS_TICKETS: Permiso[] = [
     "tickets.asignar",
@@ -57,6 +62,7 @@ const PERMISOS_TICKETS: Permiso[] = [
 ];
 
 export const PERMISOS_ADMIN: Permiso[] = [
+    ...PERMISOS_BUZONES,
     "clientes.estado_cuenta",
     "clientes.ver",
     "empresas.adoptar",
@@ -79,8 +85,11 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
+    [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
 };
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA];
+/** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
+const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
@@ -108,6 +117,10 @@ export type OpcionesApi = {
     hayDatosSinEmpresa?: boolean;
     /** Conector con Argos apagado: `/clientes*` responde 503 `conector_apagado`. */
     conectorApagado?: boolean;
+    /** Respuesta de `GET /integraciones/enlaces` (por defecto, sin conectores activos). */
+    enlaces?: Schema<"EnlacesExternos">;
+    /** Buzones iniciales (por defecto, `buzonesIniciales`). */
+    buzones?: Schema<"Buzon">[];
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -121,11 +134,13 @@ export type ApiFalsa = {
     fallar: (ruta: "/api/v1/yo" | "/api/v1/usuarios", n: number) => void;
     /** Responde `problema` en las próximas `n` peticiones cuya ruta empiece con `prefijo`. */
     responderProblema: (prefijo: string, p: Problema, n: number) => void;
+    /** Otra persona cambió el buzón: sube su versión (la próxima acción con la vieja da 409). */
+    cambiarVersionBuzon: (buzonId: number) => void;
     /** Otra persona cambió el ticket: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersion: (ticketId: number) => void;
 };
 
-const OPERATIVAS = ["/api/v1/tickets", "/api/v1/categorias", "/api/v1/slas", "/api/v1/clientes"];
+const OPERATIVAS = ["/api/v1/tickets", "/api/v1/categorias", "/api/v1/slas", "/api/v1/clientes", "/api/v1/buzones"];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
     return route.fulfill({
@@ -158,6 +173,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let hayDatosSinEmpresa = opciones.hayDatosSinEmpresa ?? false;
     const esc = escenarioTickets(Date.now(), empresas.map((e) => e.id));
     let siguienteTicket = 1000;
+    let buzones: Schema<"Buzon">[] | undefined = opciones.buzones;
+    let siguienteBuzon = 100;
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -344,6 +361,93 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return route.fulfill({ json: { data: CATEGORIAS, nextCursor: null } satisfies Schema<"PaginaCategoria"> });
         }
 
+        if (metodo === "GET" && ruta === "/api/v1/integraciones/enlaces") {
+            if (!puede("clientes.ver")) return prohibido();
+            return route.fulfill({ json: opciones.enlaces ?? ({} satisfies Schema<"EnlacesExternos">) });
+        }
+
+        if (ruta.startsWith("/api/v1/buzones")) {
+            buzones ??= buzonesIniciales(empresaId);
+            const lista = buzones;
+            const m = /^\/api\/v1\/buzones(?:\/(\d+)(?:\/([a-z]+))?)?$/.exec(ruta);
+            if (!m) return noEncontrado();
+            const b = m[1] ? lista.find((x) => x.id === Number(m[1]) && x.empresaId === empresaId) : undefined;
+            const sub = m[2];
+            if (metodo === "GET") {
+                if (!puede("buzones.ver")) return prohibido();
+                if (!m[1]) return route.fulfill({ json: { data: lista.filter((x) => x.empresaId === empresaId), nextCursor: null } satisfies Schema<"PaginaBuzon"> });
+                return b ? route.fulfill({ json: b }) : noEncontrado();
+            }
+            const permiso: Permiso = !m[1] ? "buzones.crear" : sub === "probar" ? "buzones.editar" : (`buzones.${sub ?? ""}` as Permiso);
+            if (!puede(permiso)) return prohibido();
+            if (alcanceDeZona.has(actual.correo)) {
+                return problema(route, { type: "urn:iris:problema:prohibido", title: "Permiso insuficiente", status: 403, detail: `El permiso ${permiso} debe tener alcance global (sin zona ni cuadrilla)` });
+            }
+            if (!cabeceras["idempotency-key"]) {
+                return problema(route, { type: "urn:iris:problema:validacion", title: "Falta Idempotency-Key", status: 422 });
+            }
+            const contrasenaRequerida = (campo: string) =>
+                problema(route, {
+                    type: "urn:iris:problema:validacion",
+                    title: "Datos inválidos",
+                    status: 422,
+                    errors: [{ field: campo, message: "Escribe la contraseña (es nueva o cambió el servidor o el usuario)" }],
+                });
+            const ahoraIso = new Date().toISOString();
+            if (!m[1]) {
+                const e = cuerpo as Schema<"EntradaCrearBuzon">;
+                if (!e.imap.contrasena) return contrasenaRequerida("imap.contrasena");
+                const nuevo: Schema<"Buzon"> = {
+                    id: siguienteBuzon++,
+                    empresaId,
+                    nombre: e.nombre,
+                    correo: e.correo,
+                    imap: { host: e.imap.host, puerto: e.imap.puerto, tls: e.imap.tls, usuario: e.imap.usuario, carpeta: e.imap.carpeta ?? "INBOX", carpetaProcesados: e.imap.carpetaProcesados ?? null },
+                    ...(e.smtp ? { smtp: { host: e.smtp.host, puerto: e.smtp.puerto, tls: e.smtp.tls, usuario: e.smtp.usuario ?? null } } : {}),
+                    categoriaId: e.categoriaId ?? null,
+                    prioridad: e.prioridad ?? "media",
+                    authservId: e.authservId || null,
+                    activo: false,
+                    ultimaLecturaEn: null,
+                    ultimoError: null,
+                    version: 1,
+                    creadoEn: ahoraIso,
+                    actualizadoEn: ahoraIso,
+                };
+                lista.push(nuevo);
+                return route.fulfill({ status: 201, json: nuevo });
+            }
+            if (!b) return noEncontrado();
+            if (sub === "probar") {
+                return route.fulfill({ json: resultadoPrueba(b) });
+            }
+            const version = (cuerpo as { version?: number } | undefined)?.version;
+            if (version !== b.version) {
+                return problema(route, { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409, detail: "El buzón cambió desde que lo leíste" });
+            }
+            if (sub === "editar") {
+                const e = cuerpo as Schema<"EntradaEditarBuzon">;
+                const cambiaImap = e.imap.host !== b.imap.host || e.imap.puerto !== b.imap.puerto || e.imap.tls !== b.imap.tls || e.imap.usuario !== b.imap.usuario;
+                if (cambiaImap && !e.imap.contrasena) return contrasenaRequerida("imap.contrasena");
+                Object.assign(b, {
+                    nombre: e.nombre,
+                    correo: e.correo,
+                    imap: { host: e.imap.host, puerto: e.imap.puerto, tls: e.imap.tls, usuario: e.imap.usuario, carpeta: e.imap.carpeta ?? "INBOX", carpetaProcesados: e.imap.carpetaProcesados ?? null },
+                    smtp: e.smtp ? { host: e.smtp.host, puerto: e.smtp.puerto, tls: e.smtp.tls, usuario: e.smtp.usuario ?? null } : undefined,
+                    categoriaId: e.categoriaId ?? null,
+                    prioridad: e.prioridad ?? "media",
+                    authservId: e.authservId || null,
+                } satisfies Partial<Schema<"Buzon">>);
+            } else if (sub === "activar" || sub === "desactivar") {
+                b.activo = sub === "activar";
+            } else {
+                return noEncontrado();
+            }
+            b.version++;
+            b.actualizadoEn = ahoraIso;
+            return route.fulfill({ json: b });
+        }
+
         if (ruta.startsWith("/api/v1/clientes")) {
             if (!puede("clientes.ver")) return prohibido();
             if (opciones.conectorApagado) {
@@ -376,6 +480,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                     .filter((t) => !q.get("categoriaId") || t.categoriaId === Number(q.get("categoriaId")))
                     .filter((t) => !q.get("asignadoA") || t.asignadoA === Number(q.get("asignadoA")))
                     .filter((t) => q.get("sinAsignar") !== "true" || t.asignadoA === null)
+                    .filter((t) => !q.get("ticketPadreId") || t.ticketPadreId === Number(q.get("ticketPadreId")))
                     .filter((t) => !texto || t.numero.toLowerCase().includes(texto) || t.asunto.toLowerCase().includes(texto))
                     // El orden es cosa de la API (id desc); aquí ascendente para que los casos de SLA salgan en la primera página.
                     .sort((a, b) => a.id - b.id);
@@ -457,6 +562,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         peticiones,
         responderProblema: (prefijo, p, n) => {
             problemas.push({ prefijo, p, n });
+        },
+        cambiarVersionBuzon: (buzonId) => {
+            const b = buzones?.find((x) => x.id === buzonId);
+            if (b) b.version++;
         },
         cambiarVersion: (ticketId) => {
             const t = esc.tickets.find((x) => x.id === ticketId);
