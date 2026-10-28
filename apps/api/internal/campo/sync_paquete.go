@@ -2,6 +2,7 @@ package campo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -323,7 +324,7 @@ func (m *Modulo) completarInventario(ctx context.Context, ordenes []*OrdenCampo,
 		default:
 			eq, err := m.cfg.Inventario.EquiposEnComodato(ctx, deref(o.EmpresaID), *o.ServicioID)
 			if err != nil {
-				o.Comodato.Motivo = ptr(MotivoArgosNoDisponible)
+				o.Comodato.Motivo = motivoInventario(err)
 				continue
 			}
 			o.Comodato.Disponible, o.Comodato.Equipos = true, noNulo(eq)
@@ -343,7 +344,7 @@ func (m *Modulo) completarInventario(ctx context.Context, ordenes []*OrdenCampo,
 	for _, b := range bodegas {
 		lineas, err := m.cfg.Inventario.Existencias(ctx, empresaDe[b], b)
 		if err != nil {
-			existencias.Motivo, existencias.Bodegas = ptr(MotivoArgosNoDisponible), []ExistenciasBodega{}
+			existencias.Motivo, existencias.Bodegas = motivoInventario(err), []ExistenciasBodega{}
 			return
 		}
 		existencias.Bodegas = append(existencias.Bodegas, ExistenciasBodega{BodegaID: b, Lineas: noNulo(lineas)})
@@ -380,4 +381,12 @@ func (m *Modulo) Cambios(ctx context.Context, in EntradaCambios) (Cambios, error
 	}
 	m.completarInventario(ctx, refs, nil)
 	return c, nil
+}
+
+// motivoInventario: sin conector activo (apagado) o Argos no disponible.
+func motivoInventario(err error) *string {
+	if errors.Is(err, ErrSinConector) {
+		return ptr(MotivoSinConector)
+	}
+	return ptr(MotivoArgosNoDisponible)
 }

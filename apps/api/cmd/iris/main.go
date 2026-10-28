@@ -31,7 +31,9 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -190,6 +192,14 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola)})
 	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
+	almacen, err := almacenAdjuntos(cfg)
+	if err != nil {
+		return err
+	}
+	// La orden acepta adjuntos (campo decide quién ve y sube); el cierre cuenta los completos.
+	campo.RegistrarAdjuntos()
+	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
@@ -197,7 +207,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
 			sop.Registrar,
-			campo.Nuevo(campo.Config{}).Registrar,
+			adj.RegistrarRutas,
+			pend.Registrar,
+			campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos)}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})
@@ -224,6 +236,27 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer cancelar()
 	log.Info("apagando iris")
 	return srv.Shutdown(apagar)
+}
+
+// configAdjuntos arma la configuración del módulo de adjuntos desde el entorno.
+func configAdjuntos(cfg config.Config, almacen adjuntos.Almacen) adjuntos.Config {
+	return adjuntos.Config{
+		Almacen: almacen, TamanoMax: cfg.AdjuntosTamanoMax, MIMEPermitidos: cfg.AdjuntosMIME,
+		MaxEnCursoUsuario: cfg.AdjuntosMaxEnCursoUsuario, MaxBytesUsuario: cfg.AdjuntosMaxBytesUsuario,
+		MaxEnCursoEntidad: cfg.AdjuntosMaxEnCursoEntidad, Abandono: cfg.AdjuntosAbandono,
+	}
+}
+
+// almacenAdjuntos arma el almacenamiento de adjuntos: S3 compatible (IRIS_S3_*, MinIO en dev)
+// o un directorio local (IRIS_ADJUNTOS_DIR).
+func almacenAdjuntos(cfg config.Config) (adjuntos.Almacen, error) {
+	if cfg.AdjuntosAlmacen == "s3" {
+		return adjuntos.NuevoS3(adjuntos.ConfigS3{
+			Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, Bucket: cfg.S3Bucket, AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey, EstiloRuta: cfg.S3EstiloRuta,
+		})
+	}
+	return adjuntos.NuevoDisco(cfg.AdjuntosDir)
 }
 
 func migrar(ctx context.Context, cfg config.Config, log *slog.Logger) error {

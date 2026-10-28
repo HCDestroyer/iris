@@ -49,8 +49,8 @@ type Adjuntos interface {
 	AdjuntoDeOrden(ctx context.Context, adjuntoID uuid.UUID, ordenID int64) error
 }
 
-// SinAdjuntosObligatorios no exige subidas ni valida adjuntos (pendiente: la PR de adjuntos de
-// I1). El checklist de fotos y la firma se siguen exigiendo como datos de la orden.
+// SinAdjuntosObligatorios no exige subidas ni valida adjuntos. Solo para pruebas que lo pidan
+// explícitamente (el valor por defecto es AdjuntosNucleo).
 type SinAdjuntosObligatorios struct{}
 
 // Faltantes implementa Adjuntos.
@@ -143,7 +143,9 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.Reloj = time.Now
 	}
 	if cfg.Adjuntos == nil {
-		cfg.Adjuntos = SinAdjuntosObligatorios{}
+		// Producción: el módulo de adjuntos de I1. SinAdjuntosObligatorios solo si una prueba lo
+		// pide explícitamente.
+		cfg.Adjuntos = AdjuntosNucleo{}
 	}
 	if cfg.ZonaHoraria == nil {
 		loc, err := time.LoadLocation("America/Guatemala")

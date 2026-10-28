@@ -4,6 +4,74 @@
  */
 
 export interface paths {
+    "/api/v1/adjuntos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Adjuntos de una entidad
+         * @description Permiso: `adjuntos.ver`. Todos los estados (el panel muestra los completos; la app, lo que falta subir).
+         */
+        get: operations["listarAdjuntos"];
+        put?: never;
+        /**
+         * Registrar un adjunto y obtener su URL de subida
+         * @description Permiso: `adjuntos.subir`. Idempotente por `id` (UUID generado en el cliente): repetir con los mismos datos responde 200 con el adjunto (y su `recibido`, para retomar); con otros datos, 409 `adjunto_existente`. La entidad la valida su módulo (404 si no existe, es de otra empresa o no puedes usarla; 422 `entidad_no_adjuntable` si no acepta adjuntos). 422 `mime_no_permitido` (IRIS_ADJUNTOS_MIME), 413 `tamano_excedido` (IRIS_ADJUNTOS_TAMANO_MAX). Responde `urlSubida` (también en `Location`) para subir con tus 1.0 (HEAD/PATCH). Emite `adjunto.registrado`.
+         */
+        post: operations["registrarAdjunto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/adjuntos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Descargar un adjunto completo
+         * @description Permiso: `adjuntos.ver`. Lectura auditada. Solo con estado `completo` (409 `adjunto_incompleto`). Imágenes JPEG, PNG, WebP y GIF (firma verificada al completar) van `inline`; todo lo demás (SVG, PDF…) como `attachment`. Siempre con `X-Content-Type-Options: nosniff` y `Content-Security-Policy: default-src 'none'; sandbox`.
+         */
+        get: operations["descargarAdjunto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/adjuntos/{id}/subida": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /**
+         * Consultar cuánto se ha subido (tus HEAD)
+         * @description Permiso: `adjuntos.subir`. Responde `Upload-Offset` (bytes recibidos) y `Upload-Length`; el cliente sigue con PATCH desde ese offset.
+         */
+        head: operations["consultarSubidaAdjunto"];
+        /**
+         * Subir bytes desde Upload-Offset (tus PATCH)
+         * @description Permiso: `adjuntos.subir`. Con sesión, `X-CSRF-Token`. Cuerpo crudo `application/offset+octet-stream` (415 si no). Se guarda a medida que llega: si la conexión se corta, lo recibido cuenta (consulta con HEAD). Al completar el tamaño declarado se verifica el SHA-256 y que el contenido sea del MIME declarado: si no, 422 `sha256_distinto` / `mime_distinto` y el adjunto queda `rechazado`; más bytes que los declarados, 413 `tamano_excedido` (rechazado). Si el almacenamiento falla, 503 `almacen_no_disponible`: repite el PATCH con Upload-Offset = tamaño y sin cuerpo. Completo emite `adjunto.completado`.
+         */
+        patch: operations["subirParteAdjunto"];
+        trace?: never;
+    };
     "/api/v1/buzones": {
         parameters: {
             query?: never;
@@ -566,6 +634,46 @@ export interface paths {
          * @description Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=<hex>` sobre `"<X-Webhook-Timestamp>.<cuerpo>"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por el `id` del cuerpo (firmado, igual a `X-Webhook-Id`; un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Máximo 1 MiB. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.
          */
         post: operations["webhookHorus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/pendientes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cola de acciones pendientes hacia Argos
+         * @description Permiso: `integraciones.ver_pendientes`. De la empresa activa, más recientes primero. Filtros `entidad` + `entidadId` (p. ej. una orden: «cerrada con pendiente en Argos» si alguno no está `hecho`) y `estado`. `fallido_negocio` trae en `ultimoError` el detail de Argos; `agotado` agotó los reintentos (1 min, 5 min, 30 min, 2 h, 12 h); `bloqueado` espera a una dependencia fallida. `conflicto=true`: los que la orden volvió a cerrar con otros datos sin pisarlos (`payloadConflicto`; corregir a mano en Argos).
+         */
+        get: operations["listarPendientesIntegracion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/pendientes/{id}/reintentar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reintentar a mano una acción hacia Argos
+         * @description Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho, en curso o bloqueado: reintenta su dependencia) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.
+         */
+        post: operations["reintentarPendienteIntegracion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1802,6 +1910,54 @@ export interface components {
             /** @description <IRIS_BASE_URL>/soporte/entrar#<ticket>: válida 60 s y de un solo uso; se muestra una sola vez */
             url: string;
         };
+        Adjunto: {
+            /** @description Ítem del checklist que respalda (o null) */
+            claveChecklist: string | null;
+            /** Format: date-time */
+            completadoEn: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description Entidad dueña: orden, ticket… */
+            entidad: string;
+            entidadId: string;
+            /** @enum {string} */
+            estado: "pendiente" | "subiendo" | "completo" | "rechazado";
+            id: string;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            mime: string;
+            /** @description sha256_distinto, tamano_excedido o mime_distinto */
+            motivoRechazo: string | null;
+            /**
+             * Format: int64
+             * @description Bytes recibidos (Upload-Offset de tus)
+             */
+            recibido: number;
+            /** @description SHA-256 en hex (minúsculas) declarado en el alta */
+            sha256: string;
+            /** Format: int64 */
+            subidoPor: number | null;
+            /**
+             * Format: int64
+             * @description Bytes declarados en el alta
+             */
+            tamano: number;
+            /** @enum {string} */
+            tipo: "foto" | "firma" | "documento";
+            /**
+             * Format: date-time
+             * @description Hora de captura en el teléfono (UTC)
+             */
+            tomadoEn: string | null;
+            /** @description URL de descarga (solo sirve con estado completo) */
+            urlDescarga: string;
+            /** @description URL de subida tus (HEAD/PATCH), relativa al origen de la API */
+            urlSubida: string;
+            /** Format: int32 */
+            version: number;
+        };
         AdjuntoOrden: {
             descripcion: string;
             id: string;
@@ -2668,6 +2824,35 @@ export interface components {
              */
             version: number;
         };
+        EntradaRegistrar: {
+            /** @description Ítem del checklist que respalda */
+            claveChecklist?: string;
+            /** @description Entidad dueña registrada por su módulo: orden, ticket… */
+            entidad: string;
+            entidadId: string;
+            /** @description UUID (v7) generado en el cliente; el alta es idempotente por él */
+            id: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /** @description Tipo MIME; debe estar en IRIS_ADJUNTOS_MIME */
+            mime: string;
+            /** @description SHA-256 del archivo en hex */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description Bytes exactos del archivo (máximo IRIS_ADJUNTOS_TAMANO_MAX)
+             */
+            tamano: number;
+            /** @enum {string} */
+            tipo: "foto" | "firma" | "documento";
+            /**
+             * Format: date-time
+             * @description Hora de captura (EXIF o del teléfono con su desfase)
+             */
+            tomadoEn?: string;
+        };
         EntradaRegistrarAdjunto: {
             /** @description uuid del adjunto (POST /adjuntos, de I1); basta con que la subida esté creada */
             adjuntoId: string;
@@ -2684,6 +2869,10 @@ export interface components {
              * @description Versión leída (opcional); si cambió, 409
              */
             version?: number;
+        };
+        EntradaReintentarHTTPBody: {
+            /** Format: int32 */
+            version: number;
         };
         EntradaResolverTicket: {
             /** @description Qué se hizo; la ve el cliente */
@@ -3394,6 +3583,11 @@ export interface components {
              */
             zonaId: number | null;
         };
+        PaginaAdjunto: {
+            data: components["schemas"]["Adjunto"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaBuzon: {
             data: components["schemas"]["Buzon"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -3441,6 +3635,11 @@ export interface components {
         };
         PaginaOrden: {
             data: components["schemas"]["Orden"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaPendiente: {
+            data: components["schemas"]["Pendiente"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -3500,12 +3699,68 @@ export interface components {
              */
             servidorEn: string;
         };
+        Pendiente: {
+            /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
+            conflicto: string | null;
+            /** Format: date-time */
+            conflictoEn: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description La orden no traía un dato obligatorio: no se puede reintentar */
+            datosIncompletos: boolean;
+            /** @description Pendientes que deben estar hechos antes */
+            dependeDe: number[] | null;
+            /** @description orden (más adelante prospecto) */
+            entidad: string;
+            entidadId: string;
+            /**
+             * @description bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha
+             * @enum {string}
+             */
+            estado: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado";
+            /** Format: date-time */
+            hechoEn: string | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Idempotency-Key del contrato (iris:<operacion>:<id>) */
+            idempotencyKey: string;
+            /** Format: int32 */
+            intentos: number;
+            metodo: string;
+            /** @description activar_instalacion, asignar_comodato, consumo, devolucion, perdida, retiro, cargo */
+            operacion: string;
+            /** @description Cuerpo de la llamada */
+            payload: {
+                [key: string]: unknown;
+            };
+            payloadConflicto: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Format: date-time
+             * @description Solo en pendiente
+             */
+            proximoIntento: string | null;
+            /** @description Ruta en la API de Argos (bajo /api/v1) */
+            ruta: string;
+            /** @enum {string} */
+            sistema: "argosisp" | "horus";
+            /** @description Resumen del último error (con el detail de Argos en un 4xx de negocio) */
+            ultimoError: string | null;
+            /**
+             * Format: int32
+             * @description HTTP de Argos del último intento (null si no respondió)
+             */
+            ultimoStatus: number | null;
+            /** Format: int32 */
+            version: number;
+        };
         /**
          * Permiso
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.sincronizar" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.sincronizar" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -3968,6 +4223,466 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listarAdjuntos: {
+        parameters: {
+            query: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                entidad: string;
+                entidadId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaAdjunto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarAdjunto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRegistrar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Adjunto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    descargarAdjunto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id del adjunto */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Contenido del adjunto */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    consultarSubidaAdjunto: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Siempre 1.0.0 (412 `tus_version` si no) */
+                "Tus-Resumable": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estado de la subida */
+            200: {
+                headers: {
+                    /** @description Tamaño declarado */
+                    "Upload-Length"?: number;
+                    /** @description Bytes recibidos */
+                    "Upload-Offset"?: number;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sin credenciales */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Sin el permiso adjuntos.subir */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description No existe o no puedes usar su entidad */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `offset_distinto` (trae Upload-Offset) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `adjunto_rechazado`: regístralo con otro id */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `tus_version` */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    subirParteAdjunto: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Siempre 1.0.0 (412 `tus_version` si no) */
+                "Tus-Resumable": string;
+                /** @description Offset desde el que van estos bytes (debe ser el recibido) */
+                "Upload-Offset": number;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/offset+octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Parte guardada */
+            204: {
+                headers: {
+                    /** @description Bytes recibidos */
+                    "Upload-Offset"?: number;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sin credenciales */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Sin el permiso adjuntos.subir */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description No existe o no puedes usar su entidad */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `offset_distinto` (trae Upload-Offset) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `adjunto_rechazado`: regístralo con otro id */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `tus_version` */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `tamano_excedido` */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Content-Type distinto de application/offset+octet-stream */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `sha256_distinto` o `mime_distinto` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description `almacen_no_disponible` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarBuzones: {
         parameters: {
             query?: {
@@ -6108,6 +6823,156 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPendientesIntegracion: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description orden… */
+                entidad?: string;
+                entidadId?: string;
+                estado?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
+                /** @description Solo los que tienen un conflicto por cierre repetido */
+                conflicto?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaPendiente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reintentarPendienteIntegracion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReintentarHTTPBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pendiente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

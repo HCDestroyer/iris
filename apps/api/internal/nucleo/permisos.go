@@ -91,6 +91,14 @@ const (
 	PermIntegracionesVer        Permiso = "integraciones.ver"
 )
 
+// Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
+const (
+	PermAdjuntosSubir              Permiso = "adjuntos.subir"
+	PermAdjuntosVer                Permiso = "adjuntos.ver"
+	PermIntegracionesReintentar    Permiso = "integraciones.reintentar"
+	PermIntegracionesVerPendientes Permiso = "integraciones.ver_pendientes"
+)
+
 // Portal de soporte (/soporte).
 const (
 	PermPortalEmitir Permiso = "portal.emitir"
@@ -104,6 +112,8 @@ type DefPermiso struct {
 
 // Catalogo es la lista ordenada de todos los permisos.
 var Catalogo = []DefPermiso{
+	{PermAdjuntosSubir, "Registrar y subir adjuntos (fotos, firmas, documentos) de las órdenes y tickets que puedes trabajar"},
+	{PermAdjuntosVer, "Ver y descargar los adjuntos de las órdenes y tickets que puedes ver (lectura auditada)"},
 	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
 	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
@@ -120,7 +130,9 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
+	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
+	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
@@ -191,20 +203,21 @@ var RolesBase = []DefRol{
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
+			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
 			slices.Concat(permisosTickets, permisosOrdenes)...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer,
+			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas},
 			permisosOrdenes...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
-		Permisos: []Permiso{PermClientesVer,
+		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer, PermClientesEstadoCuenta}, permisosTickets...)},
+			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: []Permiso{PermClientesVer, PermClientesEstadoCuenta}},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",

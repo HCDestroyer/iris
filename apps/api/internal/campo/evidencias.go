@@ -147,6 +147,12 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 			if err != nil {
 				return f, "", err
 			}
+			// Una foto del checklist es un adjunto de esta orden (en el módulo de adjuntos).
+			if item.Tipo == ItemFoto {
+				if err := m.cfg.Adjuntos.AdjuntoDeOrden(ctx, uuid.MustParse(in.Valor.(string)), f.ID); err != nil {
+					return f, "", err
+				}
+			}
 			// Gana la marca más reciente por ocurrido_en (empate: la que llega después); la otra
 			// queda en el historial (contratos/sync.md §3).
 			previa, err := q.MarcaChecklist(ctx, campobd.MarcaChecklistParams{OrdenID: f.ID, ItemID: item.ID})
