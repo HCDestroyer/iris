@@ -149,6 +149,8 @@ Una tarea está terminada solo si:
 | `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[] |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |
+| `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
+| `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 
