@@ -43,6 +43,18 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   `Idempotency-Key`, 429 `demasiados_tickets`), detalle con conversación (tú / soporte / aviso
   automático), responder (429 `demasiados_mensajes`), «Confirmar que quedó resuelto» y 409 →
   «Recargar»; «Salir» (`DELETE /portal/sesion`).
+- **Comercial** (`/comercial`, `/comercial/[id]`, `lib/comercial`, `componentes/comercial`,
+  `prospectos.ver`): embudo por estado (una columna por estado con su cursor y conteo «20+» si hay
+  más), lista con cursor y mapa (MapLibre: prospectos con coordenadas por estado y cobertura de
+  `GET /comercial/cobertura` con los radios viable y con obra; con `disponible = false`, el motivo y
+  ningún círculo), filtros en la URL (estado, vendedor, zona, origen, texto); en el teléfono, lista
+  con filtro de estado. Alta rápida. Detalle: datos, pasos del embudo, factibilidad (evaluar; visita
+  técnica con `factibilidad.registrar_manual`, que anula una automática «no viable» con motivo),
+  cotización (planes de Argos por el router de la factibilidad, o a mano sin conector; totales de la
+  API; revisiones; PDF; aceptar), contrato (borrador, firma en `LienzoFirma` → SVG, PDF firmado),
+  ganar (qué falta, confirmar obra, router si hace falta) y alta (local u Argos con pendientes,
+  «Reintentar» y error visible), actividades con próxima acción e historial. Botones = `acciones`
+  de la API ∩ permisos de `GET /yo`; `version` + `Idempotency-Key`; 409 → «Recargar».
 - **Administración** (`/administracion`): índice por permisos y **buzones de correo**
   (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
   cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por

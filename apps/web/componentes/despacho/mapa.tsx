@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FRESCURAS, type Frescura } from "@/lib/despacho/posiciones";
 import { ESTADOS_ORDEN, type EstadoOrden } from "@/lib/ordenes/presentacion";
+import { CENTRO_GUATEMALA, encuadrar, FONDO_TONO, TESELAS_OSM, TEXTO_TONO, token, URL_WORKER } from "../mapa/base";
 
 /*
  * Mapa del despacho con MapLibre GL y teselas raster de OpenStreetMap (sin estilo remoto ni
@@ -18,9 +19,7 @@ import { ESTADOS_ORDEN, type EstadoOrden } from "@/lib/ordenes/presentacion";
  * mapa (sin WebGL), lo dice y el resto del despacho sigue funcionando con las listas.
  */
 
-export const TESELAS_OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const URL_WORKER = new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).href;
-const CENTRO_GUATEMALA: [number, number] = [-90.5133, 14.6349];
+export { TESELAS_OSM };
 
 export type PuntoOrden = { ordenId: number; numero: string; estado: EstadoOrden; lat: number; lon: number; detalle: string };
 export type PuntoTecnico = { tecnicoId: number; nombre: string; iniciales: string; lat: number; lon: number; frescura: Frescura; texto: string };
@@ -28,11 +27,6 @@ export type LineaRuta = { id: "real" | "propuesta"; coordenadas: [number, number
 /** Pedido de centrar el mapa en un punto (`n` cambia en cada pedido). */
 export type Enfoque = { lat: number; lon: number; n: number };
 
-/** Color de un token de la identidad Horus (MapLibre no lee variables CSS). */
-function token(nombre: string, porDefecto: string): string {
-    if (typeof document === "undefined") return porDefecto;
-    return getComputedStyle(document.documentElement).getPropertyValue(nombre).trim() || porDefecto;
-}
 
 function estilo(oscuro: boolean): StyleSpecification {
     return {
@@ -253,32 +247,8 @@ export function MapaDespacho({
     );
 }
 
-function encuadrar(m: MapaLibre, ml: typeof MapLibreGL, puntos: [number, number][]) {
-    if (puntos.length === 0) return;
-    if (puntos.length === 1 && puntos[0]) {
-        m.jumpTo({ center: puntos[0], zoom: 14 });
-        return;
-    }
-    const caja = new ml.LngLatBounds(puntos[0], puntos[0]);
-    for (const p of puntos) caja.extend(p);
-    m.fitBounds(caja, { padding: 48, maxZoom: 15, duration: 0 });
-}
 
-const FONDO_TONO = {
-    neutral: "bg-muted-foreground",
-    info: "bg-info",
-    success: "bg-success",
-    warning: "bg-warning",
-    error: "bg-error",
-} as const;
 
-const TEXTO_TONO = {
-    neutral: "text-muted-foreground",
-    info: "text-info",
-    success: "text-success",
-    warning: "text-warning",
-    error: "text-error",
-} as const;
 
 function MarcadorOrden({ punto }: { punto: PuntoOrden }) {
     const e = ESTADOS_ORDEN[punto.estado];
