@@ -13,19 +13,20 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { ArrowLeft, ChevronDown, GitMerge, Lock, MailWarning, MessageSquare, Network, RotateCw, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
+import { ArrowLeft, GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
 import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
-import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { ErrorApi } from "@/lib/api/errores";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { enlaceHorusTicket } from "@/lib/enlaces";
 import { useLectura, type Lectura } from "@/lib/lectura";
+import { usePaginado, type Paginado } from "@/lib/paginado";
+import { PieLista } from "@/componentes/pie-lista";
 import { useSesion } from "@/lib/sesion";
 import { ESTADOS, ORIGENES, PRIORIDADES, type EstadoTicket, type Prioridad } from "@/lib/tickets/presentacion";
 import { correoRetenido } from "@/lib/tickets/mensajes";
@@ -74,37 +75,6 @@ function NoEncontrado() {
             </Tarjeta>
         </>
     );
-}
-
-/** Lista con cursor en orden ascendente: «Cargar más» trae los siguientes. */
-function usePaginado<T>(leer: (cursor: string | undefined, signal?: AbortSignal) => Promise<{ data: T[] | null; nextCursor: string | null }>) {
-    const primera = useLectura((signal) => leer(undefined, signal));
-    const [extra, setExtra] = useState<{ items: T[]; cursor: string | null } | null>(null);
-    const [cargandoMas, setCargandoMas] = useState(false);
-    const [errorMas, setErrorMas] = useState<unknown>(null);
-    const siguiente = primera.estado === "listo" ? (extra ? extra.cursor : primera.datos.nextCursor) : null;
-
-    async function cargarMas() {
-        if (!siguiente) return;
-        setCargandoMas(true);
-        setErrorMas(null);
-        try {
-            const p = await leer(siguiente);
-            setExtra((prev) => ({ items: [...(prev?.items ?? []), ...(p.data ?? [])], cursor: p.nextCursor }));
-        } catch (e) {
-            setErrorMas(e);
-        } finally {
-            setCargandoMas(false);
-        }
-    }
-
-    async function refrescar() {
-        setExtra(null);
-        await primera.refrescar();
-    }
-
-    const items = primera.estado === "listo" ? [...(primera.datos.data ?? []), ...(extra?.items ?? [])] : [];
-    return { primera, items, siguiente, cargarMas, cargandoMas, errorMas, refrescar };
 }
 
 function Detalle({ id }: { id: number }) {
@@ -260,36 +230,6 @@ function Detalle({ id }: { id: number }) {
                 </aside>
             </div>
         </>
-    );
-}
-
-type Paginado<T> = ReturnType<typeof usePaginado<T>>;
-
-function PieLista<T>({ paginado, que }: { paginado: Paginado<T>; que: string }) {
-    if (paginado.errorMas) {
-        return (
-            <Aviso
-                tono="error"
-                titulo={`No se pudieron cargar más ${que}`}
-                accion={
-                    <Boton variante="secundario" tamano="sm" onClick={paginado.cargarMas}>
-                        <RotateCw />
-                        Reintentar
-                    </Boton>
-                }
-            >
-                {mensajeDeError(paginado.errorMas).detalle}
-            </Aviso>
-        );
-    }
-    if (!paginado.siguiente) {
-        return null;
-    }
-    return (
-        <Boton variante="contorno" tamano="sm" className="justify-self-center" onClick={paginado.cargarMas} disabled={paginado.cargandoMas}>
-            <ChevronDown />
-            {paginado.cargandoMas ? "Cargando…" : "Cargar más"}
-        </Boton>
     );
 }
 

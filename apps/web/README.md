@@ -1,7 +1,7 @@
 # @iris/web · panel
 
 Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identidad Horus de
-`@iris/ui`. Dueño: I3. `app/campo` es de I4 y `/soporte` (portal) llega en la tarea 7.
+`@iris/ui`. Dueño: I3. `app/campo` es de I4. `/soporte` es el portal de soporte del cliente final.
 
 ## Qué hace
 
@@ -25,6 +25,18 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   cliente en Argos o contacto a mano. «Contacto sin verificar» (correo sin DMARC/DKIM) y correos
   retenidos como nota interna; «Ver en Argos/Horus» (`GET /integraciones/enlaces`, `clientes.ver`)
   con `rel="noopener noreferrer"`; incidente maestro y sus tickets.
+- **Portal de soporte** (`/soporte`, `app/soporte`, `componentes/portal`, `lib/portal`): otro
+  actor, separado del panel (sin menú ni empresa). `/soporte/entrar#<ticket>` lee el ticket del
+  fragmento (nunca de la query), lo borra con `history.replaceState` y lo canjea con
+  `POST /portal/sesion` (401 → «El enlace venció o ya se usó», 429 → «espera N min», red →
+  «Reintentar»). Cliente propio (`lib/portal/cliente.ts`): `X-CSRF-Token` desde
+  `iris_portal_csrf`, nunca `X-Iris-Empresa`, y un 401 en `/portal/*` vuelve a la entrada.
+  `middleware.ts` no exige `iris_sesion` en `/soporte` y, sin `iris_portal`, manda a
+  `/soporte/entrar` («Entra desde el portal de tu proveedor»). Mis casos (estado en lenguaje del
+  cliente, «Hay una falla general en tu zona», cursor), reportar un problema (zod espejo,
+  `Idempotency-Key`, 429 `demasiados_tickets`), detalle con conversación (tú / soporte / aviso
+  automático), responder (429 `demasiados_mensajes`), «Confirmar que quedó resuelto» y 409 →
+  «Recargar»; «Salir» (`DELETE /portal/sesion`).
 - **Administración** (`/administracion`): índice por permisos y **buzones de correo**
   (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
   cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por
