@@ -1,15 +1,17 @@
 // @iris/sync: motor de sincronización sin conexión de la app de campo (`contratos/sync.md`).
 // Núcleo sin DOM; el adaptador de IndexedDB está en `@iris/sync/dexie` y los dobles de prueba
-// en `@iris/sync/pruebas`.
-export * from "./contrato-sync";
+// en `@iris/sync/pruebas`. Las formas del cable vienen de `@iris/contratos`.
+export * from "./contrato";
 export type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 export { AlmacenMemoria } from "./almacen-memoria";
-export { aplicarOperacion, descontarExistencias, fusionarMarca, AUTOR_LOCAL, TIPOS_EVIDENCIA } from "./aplicar";
-export { codigoProblema, ErrorSync, ErrorTransporte, type CodigoErrorLocal } from "./errores";
-export { crearSubidorTus, crearTransporteHttp, type OpcionesHttp } from "./http";
+export { aplicarOperacion, bodegaDeOrden, descontarExistencias, fusionarMarca, valorDe, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
+export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
+export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi } from "./http";
 export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
 export {
+    CODIGO_BLOQUEADA,
     CODIGOS_TERMINALES,
+    cubreFaltante,
     DIA_MS,
     faltantesDe,
     MotorSync,

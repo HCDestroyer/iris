@@ -27,7 +27,18 @@ oscuro con la clase `.dark` en `<html>` (variante `dark:`).
 `Dialogo*` (modal en vidrio fuerte; en el teléfono sube desde abajo, `DialogoPie`), `Tarjeta*`, `Aviso`
 (tono + icono + título + acción, p. ej. «Reintentar»), `InsigniaEstado` (icono + texto + color),
 `EstadoVacio`, `Esqueleto`, `Cargando`, `GrupoSegmentado` (radiogroup), `Casilla` (checkbox con etiqueta), `Hoja*` (panel lateral),
-`Tabla*`, `LogoIris`, `MarcaIris`, `cn`. Tonos: `neutral | info | success | warning | error`
+`Tabla*`, `LogoIris`, `MarcaIris`, `cn`.
+
+App de campo: `Camara` (botón que abre la cámara del teléfono con `<input type="file"
+capture>`, oculto pero enfocable), `LienzoFirma` (firma con el dedo por pointer events, tinta del
+tema en pantalla) con `trazosASvg` (≤ 200 000 caracteres, el tope de la API) y `trazosAPng`
+(negro sobre transparente), y `Escaner` (cámara trasera + `BarcodeDetector` nativo; si no
+existe, ZXing cargado bajo demanda; sin cámara o sin permiso explica y deja escribir a mano). Tonos: `neutral | info | success | warning | error`
 (nunca `primary` como estado). Íconos solo de Lucide.
 
 No emite ni consume eventos.
+
+## Dependencias (motivo)
+
+- `@zxing/browser` + `@zxing/library`: respaldo del escáner de serie/MAC donde no hay
+  `BarcodeDetector` (Safari en iPhone, Firefox). Import dinámico: solo se descarga al escanear.

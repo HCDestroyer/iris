@@ -1,7 +1,7 @@
 import type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 import { META_INICIAL, type AdjuntoLocal, type MetaSync, type OperacionLocal, type OrdenLocal } from "./modelo";
 
-function aplicar<T extends { id: string }>(tabla: Map<string, T>, cambios: CambiosTabla<T> | undefined): void {
+function aplicar<K extends string | number, T extends { id: K }>(tabla: Map<K, T>, cambios: CambiosTabla<T, K> | undefined): void {
     for (const id of cambios?.borrar ?? []) {
         tabla.delete(id);
     }
@@ -17,7 +17,7 @@ function aplicar<T extends { id: string }>(tabla: Map<string, T>, cambios: Cambi
  */
 export class AlmacenMemoria implements Almacen {
     readonly operaciones = new Map<string, OperacionLocal>();
-    readonly ordenes = new Map<string, OrdenLocal>();
+    readonly ordenes = new Map<number, OrdenLocal>();
     readonly adjuntos = new Map<string, AdjuntoLocal>();
     readonly bytes = new Map<string, { id: string; datos: Uint8Array }>();
     meta: MetaSync = structuredClone(META_INICIAL);

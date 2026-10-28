@@ -2,15 +2,15 @@
 // `AlmacenDexie` (IndexedDB, en `@iris/sync/dexie`). La app de Expo trae el suyo (SQLite).
 import type { AdjuntoLocal, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
 
-export interface CambiosTabla<T> {
+export interface CambiosTabla<T, K extends string | number = string> {
     poner?: T[];
-    borrar?: string[];
+    borrar?: K[];
 }
 
 /** Escritura atómica: o se guarda todo el lote o nada. */
 export interface LoteEscritura {
     operaciones?: CambiosTabla<OperacionLocal>;
-    ordenes?: CambiosTabla<OrdenLocal>;
+    ordenes?: CambiosTabla<OrdenLocal, number>;
     adjuntos?: CambiosTabla<AdjuntoLocal>;
     bytes?: CambiosTabla<{ id: string; datos: Uint8Array }>;
     meta?: Partial<MetaSync>;

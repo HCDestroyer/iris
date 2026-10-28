@@ -3,18 +3,18 @@
 // `Reloj`, todos inyectados. Pensado para React (`useSyncExternalStore(motor.suscribir,
 // motor.obtenerEstado)`) sin depender de React.
 import type { Almacen, LoteEscritura } from "./almacen";
-import { aplicarOperacion, descontarExistencias, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
+import { aplicarOperacion, bodegaDeOrden, descontarExistencias, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
 import type {
     DatosPorTipo,
-    Existencia,
+    Existencias,
     OperacionCable,
     OrdenCampo,
     Problema,
     ResultadoOperacion,
-    RutaPublicada,
+    RutaCampo,
     TipoAdjunto,
     TipoOperacion,
-} from "./contrato-sync";
+} from "./contrato";
 import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
 import type { AdjuntoLocal, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
@@ -26,6 +26,12 @@ export const DIA_MS = 24 * 60 * 60 * 1000;
 /** Rechazos que dicen algo de la orden entera: no bloquean la cola, la API juzga cada operación. */
 export const CODIGOS_TERMINALES: ReadonlySet<string> = new Set(["orden_cancelada", "orden_reasignada"]);
 
+/** Rechazo que solo repite uno anterior de la misma orden en el lote: vuelve a la cola, detrás. */
+export const CODIGO_BLOQUEADA = "bloqueada_por_rechazo";
+
+/** Tope de la API para `POST /sync/lote` (4 MiB) con margen para el sobre. */
+const BYTES_LOTE = 3.5 * 1024 * 1024;
+
 export interface OpcionesMotor {
     almacen: Almacen;
     transporte: Transporte;
@@ -35,8 +41,12 @@ export interface OpcionesMotor {
     /** Generador de UUID v7 (por defecto, el propio con el reloj del motor). */
     generarId?: () => string;
     espera?: Partial<OpcionesEspera>;
-    /** Operaciones por lote (100). */
+    /** Operaciones por lote (100; la API acepta hasta 200). */
     tamanoLote?: number;
+    /** Bytes de JSON por lote (3,5 MiB; la API acepta hasta 4 MiB). */
+    bytesLote?: number;
+    /** `plataforma` del lote (`pwa`, `android`, `ios`…). */
+    plataforma?: string;
     /** Bytes por PATCH de tus (256 KiB). */
     tamanoParte?: number;
     /** Caducidad de los datos sin sincronizar (7 días). */
@@ -44,9 +54,20 @@ export interface OpcionesMotor {
     /** Cada cuánto el bucle pide cambios con la app abierta (60 s). */
     intervaloMs?: number;
     sha256?: (datos: Uint8Array) => Promise<string>;
+    /**
+     * Comprueba, antes de cada llamada que envía o baja datos (lote, alta y tus de adjuntos,
+     * paquete y cambios), que la sesión abierta sigue siendo la del dueño de esta cola. Debe
+     * lanzar `ErrorTransporte` (`errorSesionAjena()` si es otra persona). Sin ella no se comprueba.
+     */
+    verificarIdentidad?: () => Promise<void>;
 }
 
-export type Conexion = "desconocida" | "en_linea" | "sin_conexion" | "sin_sesion";
+/**
+ * - `sin_sesion`: 401/403; hay que volver a entrar.
+ * - `sin_empresa`: la empresa activa ya no vale (403 `empresa_no_permitida`/`sin_empresa`, 422
+ *   `empresa_requerida`); hay que elegir otra.
+ */
+export type Conexion = "desconocida" | "en_linea" | "sin_conexion" | "sin_sesion" | "sin_empresa";
 
 export type Aviso = "material_excede_existencia";
 
@@ -69,9 +90,12 @@ export interface OrdenVista extends OrdenCampo {
 }
 
 export interface ResumenSubidas {
+    /** Por crear, subiendo o rechazadas (todo lo que no llegó). */
     pendientes: number;
     bytesPendientes: number;
     conError: number;
+    /** Rechazadas por la API: esperan «Descartar» o «Rehacer». */
+    rechazadas: number;
 }
 
 export interface EstadoSync {
@@ -79,6 +103,8 @@ export interface EstadoSync {
     sincronizando: boolean;
     /** Operaciones por enviar (incluye las retenidas detrás de un rechazo). */
     pendientes: number;
+    /** Las mismas, en el orden de la cola (para mostrarlas). */
+    cola: readonly OperacionLocal[];
     /** Rechazadas: el técnico decide `descartar` o `rehacer`. */
     rechazos: readonly OperacionLocal[];
     /** `orden.cerrar` que reintentará sola cuando terminen sus subidas. */
@@ -86,8 +112,9 @@ export interface EstadoSync {
     subidas: ResumenSubidas;
     adjuntos: readonly AdjuntoLocal[];
     ordenes: readonly OrdenVista[];
-    existencias: readonly Existencia[];
-    ruta: RutaPublicada | null;
+    /** Existencias de las bodegas del técnico menos lo usado en la cola (`null` sin paquete). */
+    existencias: Existencias | null;
+    ruta: RutaCampo | null;
     fecha: string | null;
     ultimaSincronizacion: number | null;
     /** Pasaron 7 días sin sincronizar: se borró lo del servidor y hay que bajar el paquete. */
@@ -104,12 +131,19 @@ export interface ResultadoRegistro {
 }
 
 export interface EntradaAdjunto {
-    ordenId: string;
+    ordenId: number;
     tipo: TipoAdjunto;
     datos: Uint8Array;
     mime: string;
+    /** Cuenta para el cierre (foto de un ítem obligatorio, firma si la plantilla la pide). */
     obligatorio?: boolean;
-    checklistItemId?: string;
+    /** Ítem foto del checklist: `itemId` para `adjunto.registrar`, `codigo` para el alta (`claveChecklist`). */
+    item?: { itemId: number; codigo: string };
+    lat?: number;
+    lon?: number;
+    /** Hora de captura sin corregir (EXIF o reloj del teléfono). */
+    tomadoEn?: string;
+    descripcion?: string;
 }
 
 type Oyente = (estado: EstadoSync) => void;
@@ -117,6 +151,34 @@ type Oyente = (estado: EstadoSync) => void;
 async function sha256Sistema(datos: Uint8Array): Promise<string> {
     const resumen = await globalThis.crypto.subtle.digest("SHA-256", datos as Uint8Array<ArrayBuffer>);
     return Array.from(new Uint8Array(resumen), (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+/** Adjunto local al que apunta una operación (alta pendiente o rechazada la retienen). */
+function adjuntoDeOp(op: OperacionLocal): string | null {
+    switch (op.tipo) {
+        case "adjunto.registrar":
+            return op.datos.adjuntoId;
+        case "firma.capturar":
+            return op.datos.adjuntoId ?? null;
+        case "checklist.marcar":
+            return typeof op.datos.valor === "string" ? op.datos.valor : null;
+        default:
+            return null;
+    }
+}
+
+/** La misma operación apuntando a otro adjunto (al rehacer un adjunto rechazado). */
+function cambiarAdjunto(op: OperacionLocal, de: string, a: string): OperacionLocal {
+    switch (op.tipo) {
+        case "adjunto.registrar":
+            return op.datos.adjuntoId === de ? { ...op, datos: { ...op.datos, adjuntoId: a } } : op;
+        case "firma.capturar":
+            return op.datos.adjuntoId === de ? { ...op, datos: { ...op.datos, adjuntoId: a } } : op;
+        case "checklist.marcar":
+            return op.datos.valor === de ? { ...op, datos: { ...op.datos, valor: a } } : op;
+        default:
+            return op;
+    }
 }
 
 function aCable(op: OperacionLocal): OperacionCable {
@@ -130,9 +192,24 @@ function aCable(op: OperacionLocal): OperacionCable {
     } as OperacionCable;
 }
 
-/** Lo que pide `faltan_adjuntos`: `errors[].field` (`adjuntos.<id|tipo|itemId>` o el valor solo). */
+/**
+ * Lo que pide `faltan_adjuntos`: `errors[].field` sin el prefijo `adjuntos.` (claves de I1:
+ * `firma`, `foto:<código del ítem>`; también se acepta el id del adjunto).
+ */
 export function faltantesDe(problema: Problema | null): string[] {
     return (problema?.errors ?? []).map((e) => e.field.replace(/^adjuntos\./, ""));
+}
+
+/** ¿Este adjunto local cubre la clave faltante `firma`, `foto:<código>` o su id? */
+export function cubreFaltante(adjunto: Pick<AdjuntoLocal, "id" | "tipo" | "claveChecklist">, faltante: string): boolean {
+    if (faltante === adjunto.id) {
+        return true;
+    }
+    const [tipo, clave] = faltante.split(":", 2);
+    if (tipo !== adjunto.tipo) {
+        return false;
+    }
+    return clave === undefined || clave === adjunto.claveChecklist;
 }
 
 export class MotorSync {
@@ -143,13 +220,16 @@ export class MotorSync {
     private readonly generarId: () => string;
     private readonly espera: OpcionesEspera;
     private readonly tamanoLote: number;
+    private readonly bytesLote: number;
+    private readonly plataforma: string;
     private readonly tamanoParte: number;
     private readonly caducidadMs: number;
     private readonly intervaloMs: number;
     private readonly sha256: (datos: Uint8Array) => Promise<string>;
+    private readonly verificarIdentidad: (() => Promise<void>) | null;
 
     private readonly ops = new Map<string, OperacionLocal>();
-    private readonly ordenes = new Map<string, OrdenLocal>();
+    private readonly ordenes = new Map<number, OrdenLocal>();
     private readonly adjuntos = new Map<string, AdjuntoLocal>();
     private meta: MetaSync;
     private readonly enVuelo = new Set<string>();
@@ -177,10 +257,13 @@ export class MotorSync {
         this.generarId = opciones.generarId ?? crearGeneradorUuid7(() => reloj.ahora());
         this.espera = { ...ESPERA_POR_DEFECTO, ...opciones.espera };
         this.tamanoLote = opciones.tamanoLote ?? 100;
+        this.bytesLote = opciones.bytesLote ?? BYTES_LOTE;
+        this.plataforma = opciones.plataforma ?? "pwa";
         this.tamanoParte = opciones.tamanoParte ?? 256 * 1024;
         this.caducidadMs = opciones.caducidadMs ?? 7 * DIA_MS;
         this.intervaloMs = opciones.intervaloMs ?? 60_000;
         this.sha256 = opciones.sha256 ?? sha256Sistema;
+        this.verificarIdentidad = opciones.verificarIdentidad ?? null;
         this.meta = meta;
         this.instantanea = this.calcularEstado();
     }
@@ -219,7 +302,7 @@ export class MotorSync {
     /** Instantánea inmutable: cambia de identidad solo cuando algo cambió. */
     obtenerEstado = (): EstadoSync => this.instantanea;
 
-    obtenerOrden(id: string): OrdenVista | null {
+    obtenerOrden(id: number): OrdenVista | null {
         return this.instantanea.ordenes.find((o) => o.id === id) ?? null;
     }
 
@@ -233,12 +316,13 @@ export class MotorSync {
      * Encola una acción: primero la guarda en el almacén (si falla, lanza y no queda nada),
      * luego la aplica a la vista y despierta el envío.
      */
-    async registrar<T extends TipoOperacion>(tipo: T, ordenId: string, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
+    async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
         const vista = this.validarAccion(tipo, ordenId);
         const avisos: Aviso[] = [];
         if (tipo === "material.usar") {
             const { productoId, cantidad } = datos as DatosPorTipo["material.usar"];
-            const disponible = this.instantanea.existencias.find((e) => e.productoId === productoId)?.cantidad ?? 0;
+            const bodega = bodegaDeOrden(this.instantanea.existencias, vista.bodegaId);
+            const disponible = bodega?.lineas?.find((e) => e.productoId === productoId)?.cantidad ?? 0;
             if (cantidad > disponible) {
                 avisos.push("material_excede_existencia");
             }
@@ -273,20 +357,26 @@ export class MotorSync {
             id,
             ordenId: entrada.ordenId,
             tipo: entrada.tipo,
-            checklistItemId: entrada.checklistItemId ?? null,
+            claveChecklist: entrada.item?.codigo ?? null,
             obligatorio: entrada.obligatorio ?? false,
             mime: entrada.mime,
             tamano: entrada.datos.byteLength,
             sha256: await this.sha256(entrada.datos),
+            lat: entrada.lat ?? null,
+            lon: entrada.lon ?? null,
+            tomadoEn: entrada.tomadoEn ?? null,
             estado: "por_crear",
-            urlSubida: null,
             offset: 0,
             intentos: 0,
             ultimoError: null,
+            problema: null,
         };
         const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: id, tipo: entrada.tipo };
-        if (entrada.checklistItemId !== undefined) {
-            datos.checklistItemId = entrada.checklistItemId;
+        if (entrada.item) {
+            datos.itemId = entrada.item.itemId;
+        }
+        if (entrada.descripcion) {
+            datos.descripcion = entrada.descripcion;
         }
         const secuencia = this.meta.secuencia + 1;
         const operacion: OperacionLocal = {
@@ -321,7 +411,7 @@ export class MotorSync {
     }
 
     /** Descarta todo lo que queda por enviar de una orden (p. ej. reasignada o cancelada). */
-    async descartarOrden(ordenId: string): Promise<number> {
+    async descartarOrden(ordenId: number): Promise<number> {
         const ops = [...this.ops.values()].filter((op) => op.ordenId === ordenId && !this.enVuelo.has(op.id));
         if (ops.length === 0) {
             return 0;
@@ -360,22 +450,106 @@ export class MotorSync {
         return nueva;
     }
 
+    /**
+     * Descarta un adjunto rechazado por la API: borra sus bytes y lo que queda por enviar que lo
+     * use (su `adjunto.registrar`, la marca del checklist o la firma que lo citan).
+     */
+    async descartarAdjunto(id: string): Promise<void> {
+        const adjunto = this.adjuntoRechazado(id);
+        const ops = [...this.ops.values()].filter((op) => adjuntoDeOp(op) === id && !this.enVuelo.has(op.id));
+        await this.guardar({
+            adjuntos: { borrar: [adjunto.id] },
+            bytes: { borrar: [adjunto.id] },
+            operaciones: { borrar: ops.map((o) => o.id) },
+        });
+        this.emitir();
+        this.despertar();
+    }
+
+    /**
+     * Rehace un adjunto rechazado con un id nuevo (la API pide otro id) y los mismos bytes. Lo que
+     * queda en la cola apuntando al viejo pasa al nuevo; si su `adjunto.registrar` ya se aplicó,
+     * se encola otro.
+     */
+    async rehacerAdjunto(id: string): Promise<AdjuntoLocal> {
+        const previo = this.adjuntoRechazado(id);
+        const bytes = await this.almacen.leerBytes(id);
+        if (bytes === null) {
+            throw new ErrorSync("adjunto_desconocido", "Los bytes del adjunto ya no están en el teléfono");
+        }
+        const nuevoId = this.generarId();
+        const nuevo: AdjuntoLocal = { ...previo, id: nuevoId, estado: "por_crear", offset: 0, intentos: 0, ultimoError: null, problema: null };
+        const reescritas = [...this.ops.values()]
+            .filter((op) => adjuntoDeOp(op) === id && !this.enVuelo.has(op.id))
+            .map((op) => cambiarAdjunto({ ...op, estado: "pendiente", error: null } as OperacionLocal, id, nuevoId));
+        const lote: LoteEscritura = {
+            adjuntos: { borrar: [id], poner: [nuevo] },
+            bytes: { borrar: [id], poner: [{ id: nuevoId, datos: bytes }] },
+            operaciones: { poner: reescritas },
+        };
+        if (!reescritas.some((op) => op.tipo === "adjunto.registrar")) {
+            const orden = this.ordenes.get(previo.ordenId);
+            const item = orden?.base.checklist?.find((i) => i.codigo === previo.claveChecklist);
+            const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: nuevoId, tipo: previo.tipo };
+            if (item) {
+                datos.itemId = item.itemId;
+            }
+            const secuencia = this.meta.secuencia + 1;
+            reescritas.push({
+                id: this.generarId(),
+                tipo: "adjunto.registrar",
+                ordenId: previo.ordenId,
+                versionBase: orden?.base.version ?? 0,
+                ocurridoEn: this.ocurridoAhora(),
+                datos,
+                secuencia,
+                estado: "pendiente",
+                error: null,
+                intentos: 0,
+            });
+            lote.meta = { secuencia };
+        }
+        await this.guardar(lote);
+        this.emitir();
+        this.despertar();
+        return nuevo;
+    }
+
+    /**
+     * Al cerrar sesión con cosas por enviar: borra del teléfono todo lo que vino del servidor
+     * (órdenes con datos del cliente, existencias, ruta, cursor) y conserva solo la cola y los
+     * adjuntos pendientes, que la app no muestra sin una sesión verificada del dueño.
+     */
+    async olvidarDatosDelServidor(): Promise<void> {
+        this.detener();
+        await this.serializar(() =>
+            this.guardar({
+                ordenes: { borrar: [...this.ordenes.keys()] },
+                adjuntos: { borrar: [...this.adjuntos.values()].filter((a) => a.estado === "subido").map((a) => a.id) },
+                meta: { cursor: null, fecha: null, existencias: null, ruta: null },
+            }),
+        );
+        this.emitir();
+    }
+
     // --- Red ----------------------------------------------------------------------------------
 
     /** Baja el paquete del día (`GET /campo/paquete`) y reemplaza lo del servidor. */
     cargarPaquete(fecha: string): Promise<void> {
         return this.serializar(async () => {
+            await this.verificar();
             const { datos: paquete } = await this.llamar(() => this.transporte.obtenerPaquete(fecha));
-            const enPaquete = new Set(paquete.ordenes.map((o) => o.id));
+            const ordenes = paquete.ordenes ?? [];
+            const enPaquete = new Set(ordenes.map((o) => o.id));
             const conOps = this.ordenesConOps();
             const borrar = [...this.ordenes.keys()].filter((id) => !enPaquete.has(id) && !conOps.has(id));
             await this.guardar({
-                ordenes: { poner: paquete.ordenes.map((base) => ({ id: base.id, base, reasignada: false })), borrar },
+                ordenes: { poner: ordenes.map((base) => ({ id: base.id, base, reasignada: false })), borrar },
                 meta: {
                     cursor: paquete.cursor,
                     fecha: paquete.fecha,
                     existencias: paquete.existencias,
-                    ruta: paquete.ruta,
+                    ruta: paquete.ruta ?? null,
                 },
             });
         });
@@ -459,7 +633,15 @@ export class MotorSync {
                     this.ultimoError = { mensaje: e instanceof Error ? e.message : String(e), status: null, problema: null };
                 }
                 if (e instanceof ErrorTransporte && e.esDeSesion) {
-                    // Sin sesión no sirve insistir: espera a `reintentarAhora` (o al intervalo).
+                    // Sin sesión, o con la de otra persona: el bucle se detiene con la cola intacta
+                    // hasta que el dueño vuelva a entrar (la app crea otro motor o llama `iniciar`).
+                    this.bucle = null;
+                    this.proximoIntento = null;
+                    this.emitir();
+                    break;
+                }
+                if (e instanceof ErrorTransporte && e.esDeEmpresa) {
+                    // Sin empresa válida no sirve insistir: espera a `reintentarAhora` (o al intervalo).
                     espera = this.intervaloMs;
                 } else {
                     espera = calcularEspera(intento, this.espera);
@@ -512,9 +694,22 @@ export class MotorSync {
         } catch (e) {
             if (e instanceof ErrorTransporte) {
                 this.ultimoError = { mensaje: e.message, status: e.status, problema: e.problema };
-                this.actualizarConexion(e.tipo === "red" ? "sin_conexion" : e.esDeSesion ? "sin_sesion" : "en_linea");
+                this.actualizarConexion(
+                    e.tipo === "red" ? "sin_conexion" : e.esDeEmpresa ? "sin_empresa" : e.esDeSesion ? "sin_sesion" : "en_linea",
+                );
             }
             throw e;
+        }
+    }
+
+    /** `verificarIdentidad` con el mismo manejo de errores que una llamada a la API. */
+    private async verificar(): Promise<void> {
+        const fn = this.verificarIdentidad;
+        if (fn) {
+            await this.llamar(async () => {
+                await fn();
+                return { datos: null, horaServidor: null };
+            });
         }
     }
 
@@ -536,40 +731,47 @@ export class MotorSync {
         const conOps = this.ordenesConOps();
         await this.guardar({
             ordenes: { borrar: [...this.ordenes.keys()].filter((id) => !conOps.has(id)) },
-            meta: { cursor: null, fecha: null, existencias: [], ruta: null },
+            meta: { cursor: null, fecha: null, existencias: null, ruta: null },
         });
     }
 
     // --- Internos: adjuntos -------------------------------------------------------------------
 
     /**
-     * Sube lo pendiente. Sin red o sin sesión corta la pasada; otro error de un archivo queda en
-     * ese adjunto (visible) y siguen los demás. Devuelve el primer error reintentable, para que el
-     * bucle espere antes de la próxima pasada.
+     * Sube lo pendiente. Sin red, sin sesión o sin empresa corta la pasada; otro error de un
+     * archivo queda en ese adjunto (visible) y siguen los demás. Devuelve el primer error
+     * reintentable, para que el bucle espere antes de la próxima pasada.
      */
     private async subirAdjuntos(): Promise<ErrorTransporte | null> {
         if (!this.subidor) {
             return null;
         }
         let reintentable: ErrorTransporte | null = null;
-        const porSubir = [...this.adjuntos.values()].filter((a) => a.estado !== "subido");
+        const porSubir = [...this.adjuntos.values()].filter((a) => a.estado === "por_crear" || a.estado === "subiendo");
         for (const adjunto of porSubir) {
             try {
                 await this.subirUno(this.subidor, adjunto);
             } catch (e) {
-                if (!(e instanceof ErrorTransporte) || e.tipo === "red" || e.esDeSesion) {
+                if (!(e instanceof ErrorTransporte) || e.tipo === "red" || e.esDeSesion || e.esDeEmpresa) {
                     throw e;
                 }
-                if (e.esReintentable) {
-                    reintentable ??= e;
-                }
                 const actual = this.adjuntos.get(adjunto.id);
-                if (actual) {
+                if (e.esReintentable) {
+                    // 429 `demasiadas_subidas`, 5xx (`almacen_no_disponible`…): temporal.
+                    reintentable ??= e;
+                    if (actual) {
+                        await this.guardar({ adjuntos: { poner: [{ ...actual, intentos: actual.intentos + 1, ultimoError: e.message }] } });
+                    }
+                } else if (actual) {
+                    // Definitivo (`mime_no_permitido`, `tamano_excedido`, `sha256_distinto`, 410
+                    // `adjunto_rechazado`, 404…): el técnico lo descarta o lo rehace con otro id.
                     await this.guardar({
-                        adjuntos: { poner: [{ ...actual, intentos: actual.intentos + 1, ultimoError: e.message }] },
+                        adjuntos: {
+                            poner: [{ ...actual, estado: "rechazado", intentos: actual.intentos + 1, ultimoError: e.message, problema: e.problema }],
+                        },
                     });
-                    this.emitir();
                 }
+                this.emitir();
             }
         }
         return reintentable;
@@ -579,65 +781,106 @@ export class MotorSync {
         let adjunto = inicial;
         const llamarSubida = <T>(fn: () => Promise<T>) =>
             this.llamar(async () => ({ datos: await fn(), horaServidor: null })).then((r) => r.datos);
-        if (adjunto.estado === "por_crear" || adjunto.urlSubida === null) {
-            const creado = await llamarSubida(() =>
-                subidor.crear({
-                    id: adjunto.id,
-                    ordenId: adjunto.ordenId,
-                    tipo: adjunto.tipo,
-                    tamano: adjunto.tamano,
-                    sha256: adjunto.sha256,
-                }),
-            );
-            adjunto = { ...adjunto, estado: "subiendo", urlSubida: creado.urlSubida, offset: 0 };
+        const actualizar = async (cambios: Partial<AdjuntoLocal>) => {
+            adjunto = { ...adjunto, ...cambios };
             await this.guardar({ adjuntos: { poner: [adjunto] } });
             this.emitir();
+        };
+        await this.verificar();
+        if (adjunto.estado === "por_crear") {
+            // El alta es idempotente por id: repetida devuelve lo recibido para retomar.
+            const creado = await llamarSubida(() => subidor.crear(this.entradaAlta(adjunto)));
+            await actualizar({ estado: "subiendo", offset: Math.min(creado.recibido, adjunto.tamano) });
+            if (creado.estado === "completo") {
+                await this.terminarSubida(adjunto);
+                return;
+            }
+            if (creado.estado === "rechazado") {
+                throw new ErrorTransporte("http", creado.motivoRechazo ?? "Adjunto rechazado", 410);
+            }
         } else {
             // Reanudación tras un corte: lo que cuenta es lo que el servidor confirma (HEAD).
-            const url = adjunto.urlSubida;
-            const offset = await llamarSubida(() => subidor.consultarOffset(url));
+            const offset = await llamarSubida(() => subidor.consultarOffset(adjunto.id));
             if (offset !== adjunto.offset) {
-                adjunto = { ...adjunto, offset };
-                await this.guardar({ adjuntos: { poner: [adjunto] } });
+                await actualizar({ offset: Math.min(offset, adjunto.tamano) });
             }
         }
-        const url = adjunto.urlSubida ?? "";
-        if (adjunto.offset < adjunto.tamano) {
-            const bytes = await this.almacen.leerBytes(adjunto.id);
-            if (bytes === null) {
-                throw new ErrorTransporte("http", "Los bytes del adjunto ya no están en el teléfono", 410);
-            }
-            while (adjunto.offset < adjunto.tamano) {
-                const desde = adjunto.offset;
-                const parte = bytes.subarray(desde, Math.min(adjunto.tamano, desde + this.tamanoParte));
-                const nuevo = await llamarSubida(() => subidor.enviarParte(url, desde, parte));
-                if (nuevo <= desde || nuevo > adjunto.tamano) {
-                    throw new ErrorTransporte("http", `Upload-Offset inesperado (${nuevo})`, 409);
+        const bytes = adjunto.offset < adjunto.tamano ? await this.almacen.leerBytes(adjunto.id) : null;
+        if (adjunto.offset < adjunto.tamano && bytes === null) {
+            throw new ErrorTransporte("http", "Los bytes del adjunto ya no están en el teléfono", 410);
+        }
+        for (let vueltas = 0; ; vueltas += 1) {
+            const desde = adjunto.offset;
+            // Con todo enviado, un PATCH vacío en `tamano` confirma el cierre (y repite el de un 503).
+            const parte = bytes ? bytes.subarray(desde, Math.min(adjunto.tamano, desde + this.tamanoParte)) : new Uint8Array(0);
+            let nuevo: number;
+            try {
+                nuevo = await llamarSubida(() => subidor.enviarParte(adjunto.id, desde, parte));
+            } catch (e) {
+                const offset = e instanceof ErrorTransporte && e.codigo === "offset_distinto" ? Number(e.cabeceras?.get("Upload-Offset")) : Number.NaN;
+                if (Number.isInteger(offset) && offset >= 0 && offset <= adjunto.tamano && vueltas < 50) {
+                    // El servidor tiene otra cantidad (p. ej. una parte llegó y la respuesta no): sigue desde ahí.
+                    await actualizar({ offset });
+                    continue;
                 }
-                adjunto = { ...adjunto, offset: nuevo, ultimoError: null };
-                await this.guardar({ adjuntos: { poner: [adjunto] } });
-                this.emitir();
+                throw e;
+            }
+            if (nuevo < desde || nuevo > adjunto.tamano || (nuevo === desde && desde < adjunto.tamano)) {
+                throw new ErrorTransporte("http", `Upload-Offset inesperado (${nuevo})`, 409);
+            }
+            await actualizar({ offset: nuevo, ultimoError: null });
+            if (nuevo >= adjunto.tamano) {
+                break;
             }
         }
-        adjunto = { ...adjunto, estado: "subido", ultimoError: null };
-        await this.guardar({ adjuntos: { poner: [adjunto] }, bytes: { borrar: [adjunto.id] } });
+        await this.terminarSubida(adjunto);
+    }
+
+    private async terminarSubida(adjunto: AdjuntoLocal): Promise<void> {
+        const listo: AdjuntoLocal = { ...adjunto, estado: "subido", offset: adjunto.tamano, ultimoError: null, problema: null };
+        await this.guardar({ adjuntos: { poner: [listo] }, bytes: { borrar: [adjunto.id] } });
         await this.liberarEsperas(adjunto.ordenId);
         this.emitir();
     }
 
-    /** ¿Queda por subir algún adjunto de la orden que coincida con lo que falta? */
-    private faltaSubir(ordenId: string, faltantes: readonly string[]): boolean {
+    /** Alta del adjunto (I1): entidad `orden`, `claveChecklist` = código del ítem foto. */
+    private entradaAlta(adjunto: AdjuntoLocal): Parameters<Subidor["crear"]>[0] {
+        const entrada: Parameters<Subidor["crear"]>[0] = {
+            id: adjunto.id,
+            entidad: "orden",
+            entidadId: String(adjunto.ordenId),
+            tipo: adjunto.tipo,
+            mime: adjunto.mime,
+            tamano: adjunto.tamano,
+            sha256: adjunto.sha256,
+        };
+        if (adjunto.claveChecklist !== null) {
+            entrada.claveChecklist = adjunto.claveChecklist;
+        }
+        if (adjunto.lat !== null && adjunto.lon !== null) {
+            entrada.lat = adjunto.lat;
+            entrada.lon = adjunto.lon;
+        }
+        const tomado = adjunto.tomadoEn === null ? Number.NaN : Date.parse(adjunto.tomadoEn);
+        if (!Number.isNaN(tomado)) {
+            // `tomadoEn` va corregido con el desfase medido (la API no lo corrige).
+            entrada.tomadoEn = new Date(tomado + this.meta.desfaseMs).toISOString();
+        }
+        return entrada;
+    }
+
+    /** ¿Queda por subir algún adjunto de la orden que cubra lo que falta? */
+    private faltaSubir(ordenId: number, faltantes: readonly string[]): boolean {
         return [...this.adjuntos.values()].some(
             (a) =>
                 a.ordenId === ordenId &&
-                a.estado !== "subido" &&
-                (faltantes.length === 0 ||
-                    faltantes.some((f) => f === a.id || f === a.tipo || (a.checklistItemId !== null && f === a.checklistItemId))),
+                (a.estado === "por_crear" || a.estado === "subiendo") &&
+                (faltantes.length === 0 || faltantes.some((f) => cubreFaltante(a, f))),
         );
     }
 
     /** `orden.cerrar` en espera vuelve a la cola (con id nuevo) cuando ya no falta nada que subir. */
-    private async liberarEsperas(ordenId: string): Promise<void> {
+    private async liberarEsperas(ordenId: number): Promise<void> {
         const listas = [...this.ops.values()].filter(
             (op) => op.ordenId === ordenId && op.estado === "esperando_adjuntos" && !this.faltaSubir(ordenId, faltantesDe(op.error)),
         );
@@ -656,6 +899,17 @@ export class MotorSync {
         return ids.length > 0 ? { adjuntos: { borrar: ids }, bytes: { borrar: ids } } : {};
     }
 
+    private adjuntoRechazado(id: string): AdjuntoLocal {
+        const adjunto = this.adjuntos.get(id);
+        if (!adjunto) {
+            throw new ErrorSync("adjunto_desconocido", "El adjunto ya no está en el teléfono");
+        }
+        if (adjunto.estado !== "rechazado") {
+            throw new ErrorSync("adjunto_no_rechazado", "Solo se descarta o rehace un adjunto rechazado");
+        }
+        return adjunto;
+    }
+
     // --- Internos: lote -------------------------------------------------------------------
 
     private ordenadas(): OperacionLocal[] {
@@ -664,9 +918,11 @@ export class MotorSync {
 
     /** Una operación que aún no puede salir retiene a las siguientes de su orden. */
     private retenida(op: OperacionLocal): boolean {
-        if (op.tipo === "adjunto.registrar") {
-            // La API no conoce el id hasta `POST /adjuntos`.
-            return this.adjuntos.get(op.datos.adjuntoId)?.estado === "por_crear";
+        const adjuntoId = adjuntoDeOp(op);
+        const adjunto = adjuntoId === null ? undefined : this.adjuntos.get(adjuntoId);
+        if (adjunto && (adjunto.estado === "por_crear" || adjunto.estado === "rechazado")) {
+            // La API no conoce el id hasta `POST /adjuntos` (registrar, foto del checklist, firma).
+            return true;
         }
         if (op.tipo === "orden.cerrar") {
             return [...this.adjuntos.values()].some((a) => a.ordenId === op.ordenId && a.obligatorio && a.estado !== "subido");
@@ -675,8 +931,8 @@ export class MotorSync {
     }
 
     /** Órdenes cuya cola está detenida por un rechazo (no terminal) o una espera de adjuntos. */
-    private ordenesBloqueadas(): Set<string> {
-        const bloqueadas = new Set<string>();
+    private ordenesBloqueadas(): Set<number> {
+        const bloqueadas = new Set<number>();
         for (const op of this.ops.values()) {
             if (op.estado === "esperando_adjuntos" || (op.estado === "rechazada" && !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? ""))) {
                 bloqueadas.add(op.ordenId);
@@ -687,7 +943,8 @@ export class MotorSync {
 
     private seleccionarLote(sinRespuesta: ReadonlySet<string>): OperacionLocal[] {
         const lote: OperacionLocal[] = [];
-        const detenidas = new Set<string>();
+        const detenidas = new Set<number>();
+        let bytes = 0;
         for (const op of this.ordenadas()) {
             if (op.estado !== "pendiente") {
                 // Lo posterior a un rechazo de la misma orden no sale hasta que el técnico decida.
@@ -703,6 +960,11 @@ export class MotorSync {
                 detenidas.add(op.ordenId);
                 continue;
             }
+            const tamano = JSON.stringify(op.datos).length + 300;
+            if (lote.length > 0 && bytes + tamano > this.bytesLote) {
+                break;
+            }
+            bytes += tamano;
             lote.push(op);
             if (lote.length >= this.tamanoLote) {
                 break;
@@ -722,11 +984,10 @@ export class MotorSync {
             }
             let avance: boolean;
             try {
-                const { datos } = await this.llamar(() =>
-                    this.transporte.enviarLote({ dispositivoId: this.dispositivoId, operaciones: lote.map(aCable) }),
-                );
-                avance = await this.procesarResultados(lote, datos.resultados);
-                const contestadas = new Set(datos.resultados.map((r) => r.id));
+                const datos = await this.enviarLote(lote);
+                const resultados = datos.resultados ?? [];
+                avance = await this.procesarResultados(lote, resultados);
+                const contestadas = new Set(resultados.map((r) => r.id));
                 for (const op of lote) {
                     if (!contestadas.has(op.id)) {
                         sinRespuesta.add(op.id);
@@ -744,6 +1005,24 @@ export class MotorSync {
                 return;
             }
         }
+    }
+
+    /**
+     * `POST /sync/lote` con `enviadoEn` del mismo reloj que `ocurridoEn` (la API mide el desfase y
+     * corrige cada hora). Un 409 `dispositivo_ajeno` (el dispositivo es de otro usuario en la API:
+     * la sesión abierta no es la del dueño de la cola) es error de sesión: no se regenera el
+     * dispositivo, la cola queda intacta y el bucle se detiene.
+     */
+    private async enviarLote(lote: readonly OperacionLocal[]) {
+        await this.verificar();
+        const peticion = {
+            dispositivoId: this.dispositivoId,
+            plataforma: this.plataforma,
+            enviadoEn: new Date(this.reloj.ahora()).toISOString(),
+            operaciones: lote.map(aCable),
+            ...(this.meta.cursor !== null ? { cursor: this.meta.cursor } : {}),
+        };
+        return (await this.llamar(() => this.transporte.enviarLote(peticion))).datos;
     }
 
     private async contarIntento(lote: readonly OperacionLocal[]): Promise<void> {
@@ -764,13 +1043,13 @@ export class MotorSync {
      */
     private async procesarResultados(lote: readonly OperacionLocal[], resultados: readonly ResultadoOperacion[]): Promise<boolean> {
         const porId = new Map(resultados.map((r) => [r.id, r]));
-        const ordenes = new Map<string, OrdenLocal>();
-        const leerOrden = (id: string) => ordenes.get(id) ?? this.ordenes.get(id);
+        const ordenes = new Map<number, OrdenLocal>();
+        const leerOrden = (id: number) => ordenes.get(id) ?? this.ordenes.get(id);
         const borrar: string[] = [];
         const poner: OperacionLocal[] = [];
         let existencias = this.meta.existencias;
         /** Primer rechazo (no terminal) de cada orden en este lote. */
-        const causas = new Set<string>();
+        const causas = new Set<number>();
         let avance = false;
 
         for (const op of lote) {
@@ -791,7 +1070,7 @@ export class MotorSync {
                     ordenes.set(orden.id, { ...orden, base });
                 }
                 if (op.tipo === "material.usar") {
-                    existencias = descontarExistencias(existencias, [op]);
+                    existencias = descontarExistencias(existencias, [op], (id) => leerOrden(id)?.base.bodegaId ?? null);
                 }
                 continue;
             }
@@ -811,7 +1090,7 @@ export class MotorSync {
                 ordenes.set(actual.id, actual);
             }
             borrar.push(op.id);
-            if (causas.has(op.ordenId) && !CODIGOS_TERMINALES.has(codigo)) {
+            if (codigo === CODIGO_BLOQUEADA || (causas.has(op.ordenId) && !CODIGOS_TERMINALES.has(codigo))) {
                 // Consecuencia del rechazo anterior de su orden: vuelve a la cola, detrás de él,
                 // con id nuevo (la API guarda el resultado por id).
                 poner.push(this.conIdNuevo(op));
@@ -839,13 +1118,16 @@ export class MotorSync {
 
     private async traerCambios(): Promise<void> {
         let cursor = this.meta.cursor;
+        if (cursor !== null) {
+            await this.verificar();
+        }
         for (let pagina = 0; cursor !== null && pagina < 50; pagina += 1) {
             const actual: string = cursor;
             const { datos } = await this.llamar(() => this.transporte.obtenerCambios(actual));
             const conOps = this.ordenesConOps();
-            const poner = new Map<string, OrdenLocal>();
-            const borrar = new Set<string>();
-            for (const cambio of datos.cambios) {
+            const poner = new Map<number, OrdenLocal>();
+            const borrar = new Set<number>();
+            for (const cambio of datos.cambios ?? []) {
                 const local = poner.get(cambio.ordenId) ?? this.ordenes.get(cambio.ordenId);
                 if (cambio.tipo === "reasignada") {
                     if (conOps.has(cambio.ordenId) && local) {
@@ -877,15 +1159,16 @@ export class MotorSync {
 
     // --- Internos: estado -----------------------------------------------------------------
 
-    private ordenesConOps(): Set<string> {
+    private ordenesConOps(): Set<number> {
         return new Set([...this.ops.values()].map((op) => op.ordenId));
     }
 
+    /** Hora del teléfono sin corregir: la API la corrige con el desfase de `enviadoEn` (I2). */
     private ocurridoAhora(): string {
-        return new Date(this.reloj.ahora() + this.meta.desfaseMs).toISOString();
+        return new Date(this.reloj.ahora()).toISOString();
     }
 
-    private validarAccion(tipo: TipoOperacion, ordenId: string): OrdenVista {
+    private validarAccion(tipo: TipoOperacion, ordenId: number): OrdenVista {
         const vista = this.obtenerOrden(ordenId);
         if (!vista) {
             throw new ErrorSync("orden_desconocida", "La orden no está en el teléfono");
@@ -959,7 +1242,7 @@ export class MotorSync {
         const bloqueadas = this.ordenesBloqueadas();
         const adjuntos = [...this.adjuntos.values()];
         const porSubir = adjuntos.filter((a) => a.estado !== "subido");
-        const posiciones = new Map((this.meta.ruta?.paradas ?? []).map((p) => [p.ordenId, p.posicion]));
+        const posiciones = new Map((this.meta.ruta?.ordenIds ?? []).map((id, i) => [id, i]));
         const ordenes: OrdenVista[] = [...this.ordenes.values()].map((orden) => {
             const suyas = ops.filter((op) => op.ordenId === orden.id);
             const base = suyas.filter((op) => op.estado === "pendiente").reduce(aplicarOperacion, orden.base);
@@ -974,21 +1257,26 @@ export class MotorSync {
             };
         });
         const clave = (o: OrdenVista) => posiciones.get(o.id) ?? Number.MAX_SAFE_INTEGER;
-        ordenes.sort((a, b) => clave(a) - clave(b) || (a.inicio ?? "").localeCompare(b.inicio ?? "") || a.numero.localeCompare(b.numero));
+        // Orden de ruta si hay ruta publicada; si no, por cita (inicio programado) y número.
+        const cita = (o: OrdenVista) => o.programadaInicio ?? "9999";
+        ordenes.sort((a, b) => clave(a) - clave(b) || cita(a).localeCompare(cita(b)) || a.numero.localeCompare(b.numero));
+        const bodegaDe = (id: number) => this.ordenes.get(id)?.base.bodegaId ?? null;
         return {
             conexion: this.conexion,
             sincronizando: this.sincronizando > 0,
             pendientes: pendientes.length,
+            cola: pendientes,
             rechazos: ops.filter((op) => op.estado === "rechazada"),
             esperandoAdjuntos: ops.filter((op) => op.estado === "esperando_adjuntos"),
             subidas: {
                 pendientes: porSubir.length,
                 bytesPendientes: porSubir.reduce((s, a) => s + (a.tamano - a.offset), 0),
                 conError: porSubir.filter((a) => a.ultimoError !== null).length,
+                rechazadas: adjuntos.filter((a) => a.estado === "rechazado").length,
             },
             adjuntos,
             ordenes,
-            existencias: descontarExistencias(this.meta.existencias, pendientes),
+            existencias: descontarExistencias(this.meta.existencias, pendientes, bodegaDe),
             ruta: this.meta.ruta,
             fecha: this.meta.fecha,
             ultimaSincronizacion: this.meta.ultimaSincronizacion,

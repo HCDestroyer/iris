@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Sin cookie de sesión no se sirve el panel: se manda al inicio de sesión con la ruta de vuelta.
 // La cookie es HttpOnly y aquí no se valida (eso lo hace la API en GET /yo; un 401 también lleva
-// al inicio de sesión). /campo (I4) tiene su propia entrada.
+// al inicio de sesión). /campo (I4) no pasa por aquí: su shell lo sirve el service worker sin
+// señal y la propia app pide /entrar?siguiente=/campo cuando GET /yo responde 401. Tampoco el
+// service worker (/sw.js): el navegador lo baja sin seguir redirecciones.
 //
 // El portal de soporte (/soporte) es otro actor: nunca exige `iris_sesion`. Sin la cookie del
 // portal (`iris_portal`) manda a /soporte/entrar, que pide entrar desde el portal del proveedor.
@@ -36,6 +38,6 @@ export function middleware(peticion: NextRequest) {
 
 export const config = {
     matcher: [
-        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
+        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|sw\\.js|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
     ],
 };

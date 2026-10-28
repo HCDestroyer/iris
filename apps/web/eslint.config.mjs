@@ -13,7 +13,7 @@ const elementosCrudos = ["button", "input", "select", "textarea"].map((nombre) =
 
 export default tseslint.config(
     {
-        ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**", "next-env.d.ts"],
+        ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**", "next-env.d.ts", "public/sw.js*", "public/swe-worker-*.js"],
     },
     js.configs.recommended,
     ...tseslint.configs.strict,

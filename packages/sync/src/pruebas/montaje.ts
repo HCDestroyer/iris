@@ -1,5 +1,5 @@
 import { AlmacenMemoria } from "../almacen-memoria";
-import type { PaqueteDia } from "../contrato-sync";
+import type { Paquete } from "../contrato";
 import { MotorSync, type OpcionesMotor } from "../motor";
 import { ordenDePrueba } from "./fabricas";
 import { RelojManual } from "./reloj-manual";
@@ -8,19 +8,20 @@ import { TransporteFalso } from "./transporte-falso";
 
 export const FECHA = "2026-10-28";
 
-export function paqueteDePrueba(fecha = FECHA): PaqueteDia {
+/** Producto de las existencias de prueba (cable UTP, en metros). */
+export const CABLE = 900;
+
+export function paqueteDePrueba(fecha = FECHA): Paquete {
     return {
         fecha,
-        ordenes: [ordenDePrueba("A"), ordenDePrueba("B")],
-        existencias: [{ productoId: "cable", nombre: "Cable UTP", unidad: "m", cantidad: 50 }],
-        ruta: {
-            id: "ruta-1",
-            fecha,
-            paradas: [
-                { ordenId: "B", posicion: 1 },
-                { ordenId: "A", posicion: 2 },
-            ],
+        servidorEn: "2026-10-28T15:00:00Z",
+        ordenes: [ordenDePrueba(1), ordenDePrueba(2)],
+        existencias: {
+            disponible: true,
+            motivo: null,
+            bodegas: [{ bodegaId: 7, lineas: [{ productoId: CABLE, descripcion: "Cable UTP", unidad: "m", cantidad: 50 }] }],
         },
+        ruta: { id: 1, ordenIds: [2, 1] },
         cursor: "c1",
     };
 }

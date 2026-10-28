@@ -47,3 +47,8 @@ infra/backups/salida/
 
 # Adjuntos en disco local (IRIS_ADJUNTOS_DIR por defecto)
 datos/adjuntos/
+
+# Service worker generado por Serwist en el build de apps/web
+apps/web/public/sw.js
+apps/web/public/sw.js.map
+apps/web/public/swe-worker-*.js
