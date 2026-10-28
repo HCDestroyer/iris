@@ -88,6 +88,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/empresas/{id}/adoptar-sin-empresa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar a una empresa los datos guardados sin empresa
+         * @description Permiso: `empresas.adoptar`. Solo admin global (además, `empresas.todas` sin límite; 403 si no). Al registrar la primera empresa, los datos operativos guardados en modo sin conector (`empresa_id` null) dejan de verse; esta acción los asigna, en una transacción, a la empresa `{id}` en cada tabla operativa registrada. Emite `empresa.datos_adoptados`. `GET /yo` avisa con `hayDatosSinEmpresa`.
+         */
+        post: operations["adoptarSinEmpresa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/empresas/{id}/editar": {
         parameters: {
             query?: never;
@@ -416,7 +436,7 @@ export interface paths {
         };
         /**
          * Listar usuarios
-         * @description Permiso: `usuarios.ver`.
+         * @description Permiso: `usuarios.ver`. Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo.
          */
         get: operations["listarUsuarios"];
         put?: never;
@@ -442,7 +462,7 @@ export interface paths {
         put?: never;
         /**
          * Asignar una empresa a un usuario
-         * @description Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú (403). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.
+         * @description Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.
          */
         post: operations["asignarEmpresaUsuario"];
         delete?: never;
@@ -462,7 +482,7 @@ export interface paths {
         put?: never;
         /**
          * Desactivar un usuario
-         * @description Permiso: `usuarios.desactivar`.
+         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["desactivarUsuario"];
         delete?: never;
@@ -482,7 +502,7 @@ export interface paths {
         put?: never;
         /**
          * Editar un usuario
-         * @description Permiso: `usuarios.editar`.
+         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["editarUsuario"];
         delete?: never;
@@ -502,7 +522,7 @@ export interface paths {
         put?: never;
         /**
          * Quitar una empresa a un usuario
-         * @description Permiso: `usuarios.quitar_empresa`. Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance (403). 422 `empresa_no_asignada`.
+         * @description Permiso: `usuarios.quitar_empresa`. Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance y cuyas empresas son todas tuyas (403). 422 `empresa_no_asignada`.
          */
         post: operations["quitarEmpresaUsuario"];
         delete?: never;
@@ -666,6 +686,16 @@ export interface components {
             /** @description Datos del evento; lleva empresa_id */
             payload: unknown;
         };
+        DatosAdoptados: {
+            /** Format: int64 */
+            empresaId: number;
+            /** @description Filas adoptadas por tabla (esquema.tabla), también las que quedaron en 0 */
+            filas: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            total: number;
+        };
         Empresa: {
             /** Format: date-time */
             actualizadoEn: string;
@@ -761,6 +791,8 @@ export interface components {
             contrasena?: string;
             /** Format: email */
             correo: string;
+            /** @description Empresas en que operará (solo empresas en que operas tú). Obligatoria (al menos una) si no tienes empresas.todas y hay empresas registradas: si no, nadie más que un admin global podría administrarlo */
+            empresas?: number[] | null;
             nombre: string;
             roles?: components["schemas"]["AsignacionRol"][] | null;
             /**
@@ -914,7 +946,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "clientes.estado_cuenta" | "clientes.ver" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "permisos.ver" | "roles.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "permisos.ver" | "roles.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -1054,6 +1086,8 @@ export interface components {
             empresaActiva?: components["schemas"]["EmpresaResumen"];
             /** @description Empresas en que puede operar (todas las registradas si tiene empresas.todas) */
             empresas: components["schemas"]["EmpresaResumen"][] | null;
+            /** @description Solo para admin global (empresas.adoptar): hay empresas registradas y quedan datos operativos con empresa_id null, que nadie ve; se asignan con POST /empresas/{id}/adoptar-sin-empresa. false para los demás */
+            hayDatosSinEmpresa: boolean;
             /**
              * @description activa: hay empresa activa; por_elegir: tiene varias y falta X-Iris-Empresa (lo operativo responde 422 empresa_requerida); sin_empresa: no tiene ninguna asignada (lo operativo responde 403 sin_empresa); sin_conector: no hay empresas registradas y se trabaja con empresa_id null
              * @enum {string}
@@ -1438,6 +1472,76 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    adoptarSinEmpresa: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatosAdoptados"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

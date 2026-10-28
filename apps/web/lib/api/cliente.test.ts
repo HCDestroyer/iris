@@ -32,6 +32,7 @@ const yo: Schema<"Yo"> = {
     empresas: [],
     modoEmpresa: "sin_conector",
     todasLasEmpresas: false,
+    hayDatosSinEmpresa: false,
     usuario: {
         id: 1,
         nombre: "Ana",

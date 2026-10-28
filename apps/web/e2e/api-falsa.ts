@@ -214,7 +214,7 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
             });
         }
         if (metodo === "GET" && ruta === "/api/v1/yo") {
-            const yo: Schema<"Yo"> = { actor: "usuario", usuario: actual, permisos, empresas: [], modoEmpresa: "sin_conector", todasLasEmpresas: false };
+            const yo: Schema<"Yo"> = { actor: "usuario", usuario: actual, permisos, empresas: [], modoEmpresa: "sin_conector", todasLasEmpresas: false, hayDatosSinEmpresa: false };
             return route.fulfill({ json: yo });
         }
         if (metodo === "GET" && ruta === "/api/v1/usuarios") {
