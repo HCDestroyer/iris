@@ -25,7 +25,7 @@ Usa la base de casos de uso, auditoría, outbox y conectores de I1. No escribe e
     - `posiciones` (ingesta en lote, sin auditoría por fila).
 4. **Comercial:**
     - Prospectos y actividades.
-    - Factibilidad (pedido A5 a Argos; mientras no exista, la distancia al router más cercano de la instantánea).
+    - Factibilidad por la distancia al router más cercano de la instantánea, detrás de una interfaz que la fase 6 (OZmap) reemplaza. El pedido A5 a Argos quedó reemplazado.
     - Cotización con PDF y contrato con firma.
     - `ganar` → pendientes de alta de cliente y servicio en Argos, y luego la orden de instalación.
 
