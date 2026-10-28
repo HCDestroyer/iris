@@ -75,6 +75,7 @@ type Orden struct {
 	Version          int32         `json:"version"`
 	CreadoEn         time.Time     `json:"creadoEn"`
 	ActualizadoEn    time.Time     `json:"actualizadoEn"`
+	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema" doc:"De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema"`
 	// Aviso: la acción se aplicó, pero con una advertencia (checklist_no_vigente,
 	// existencia_insuficiente). Solo en la respuesta de una acción.
 	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)"`
@@ -89,7 +90,7 @@ func aOrden(f campobd.CampoOrden, tipo string) Orden {
 		TecnicoID: f.TecnicoID, AsignadaEn: f.AsignadaEn, Estado: f.Estado, ProgramadaInicio: f.ProgramadaInicio,
 		ProgramadaFin: f.ProgramadaFin, EnCaminoEn: f.EnCaminoEn, EnSitioEn: f.EnSitioEn, FinalizadaEn: f.FinalizadaEn,
 		Resultado: f.Resultado, MotivoFalla: f.MotivoFalla, Motivo: f.Motivo, Version: f.Version,
-		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
+		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Origen: f.Origen,
 	}
 }
 
@@ -168,6 +169,16 @@ type OrdenDetalle struct {
 	Equipos       []EquipoOrden   `json:"equipos"`
 	Firma         *FirmaOrden     `json:"firma,omitempty" doc:"Ausente si no hay firma"`
 	Adjuntos      []AdjuntoOrden  `json:"adjuntos"`
+	Cita          *CitaOrden      `json:"cita,omitempty" doc:"Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"`
+}
+
+// CitaOrden es la cita de la agenda de una orden programada.
+type CitaOrden struct {
+	TecnicoID     int64      `json:"tecnicoId"`
+	Inicio        time.Time  `json:"inicio"`
+	Fin           time.Time  `json:"fin"`
+	VentanaInicio *time.Time `json:"ventanaInicio" nullable:"true" doc:"Ventana de llegada acordada con el cliente"`
+	VentanaFin    *time.Time `json:"ventanaFin" nullable:"true"`
 }
 
 // TipoOrden con sus plantillas.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -19,20 +20,24 @@ type EntradaAsignarOrden struct {
 	ID          int64  `json:"-"`
 	Version     int32  `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 	TecnicoID   *int64 `json:"tecnicoId,omitempty" minimum:"1" doc:"Usuario técnico; ausente = ninguno"`
-	CuadrillaID *int64 `json:"cuadrillaId,omitempty" minimum:"1" doc:"Cuadrilla; ausente = ninguna"`
-	BodegaID    *int64 `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos (hasta que agenda la tenga); ausente = se conserva"`
+	CuadrillaID *int64 `json:"cuadrillaId,omitempty" minimum:"1" doc:"Cuadrilla (catálogo de agenda: activa y de la empresa de la orden); ausente = ninguna"`
+	BodegaID    *int64 `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos; ausente = se conserva"`
 }
 
-// EntradaProgramarOrden es la entrada de ordenes.programar y ordenes.reprogramar. La agenda
-// (fase 3) agregará la cita con ventana; por ahora, técnico y fecha.
+// EntradaProgramarOrden es la entrada de ordenes.programar y ordenes.reprogramar: la cita
+// (técnico, inicio y fin) y la ventana de llegada acordada con el cliente. La agenda la valida
+// (turno, ausencia, solape y capacidad: 422 fuera_de_turno, tecnico_ausente, solape,
+// capacidad_excedida, fuera_de_ventana, tecnico_sin_agenda).
 type EntradaProgramarOrden struct {
-	ID        int64      `json:"-"`
-	Version   int32      `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
-	TecnicoID *int64     `json:"tecnicoId,omitempty" minimum:"1" doc:"Técnico; obligatorio si la orden no tiene. Otro distinto la reasigna"`
-	BodegaID  *int64     `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos; ausente = se conserva"`
-	Inicio    time.Time  `json:"inicio" doc:"Inicio de la visita (UTC)"`
-	Fin       *time.Time `json:"fin,omitempty" doc:"Fin estimado; por defecto, inicio + la duración del tipo"`
-	Motivo    *string    `json:"motivo,omitempty" maxLength:"500" doc:"Obligatorio al reprogramar"`
+	ID            int64      `json:"-"`
+	Version       int32      `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
+	TecnicoID     *int64     `json:"tecnicoId,omitempty" minimum:"1" doc:"Técnico (usuario); obligatorio si la orden no tiene. Otro distinto la reasigna"`
+	BodegaID      *int64     `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega del técnico en Argos; ausente = la de su ficha de agenda o se conserva"`
+	Inicio        time.Time  `json:"inicio" doc:"Inicio de la visita (UTC)"`
+	Fin           *time.Time `json:"fin,omitempty" doc:"Fin estimado; por defecto, inicio + la duración del tipo"`
+	VentanaInicio *time.Time `json:"ventanaInicio,omitempty" doc:"Ventana de llegada acordada con el cliente (va con ventanaFin); el inicio debe caer dentro. Al reprogramar sin ventana se conserva la anterior si el nuevo inicio cae en ella"`
+	VentanaFin    *time.Time `json:"ventanaFin,omitempty" doc:"Fin de la ventana (hasta 24 h después de su inicio)"`
+	Motivo        *string    `json:"motivo,omitempty" maxLength:"500" doc:"Obligatorio al reprogramar"`
 }
 
 func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden] {
@@ -55,6 +60,11 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 			}
 			despues := antes
 			despues.TecnicoID, despues.CuadrillaID, despues.BodegaID = in.TecnicoID, in.CuadrillaID, bodega
+			if in.CuadrillaID != nil && !mismoID(antes.CuadrillaID, in.CuadrillaID) {
+				if err := agenda.ValidarCuadrilla(ctx, t, "cuadrillaId", *in.CuadrillaID, antes.EmpresaID); err != nil {
+					return antes, "", err
+				}
+			}
 			if in.TecnicoID != nil {
 				if err := validarTecnico(ctx, t, q, *in.TecnicoID, despues); err != nil {
 					return antes, "", err
@@ -67,11 +77,23 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 				}
 				switch {
 				case in.TecnicoID == nil && antes.Estado != EstadoPendiente:
-					// Sin técnico no hay programación que sostener.
+					// Sin técnico no hay programación que sostener: se libera la cita.
 					despues.Estado, despues.EnCaminoEn = EstadoPendiente, nil
+					if err := agenda.QuitarCita(ctx, t, antes.ID); err != nil {
+						return antes, "", err
+					}
 				case antes.Estado == EstadoEnCamino:
 					// El nuevo técnico todavía no salió.
 					despues.Estado, despues.EnCaminoEn = EstadoProgramada, nil
+				}
+				// La misma cita pasa al nuevo técnico: la agenda valida su turno, ausencias,
+				// solapes y capacidad, y emite orden.programada.
+				if in.TecnicoID != nil && despues.Estado == EstadoProgramada && antes.ProgramadaInicio != nil && antes.ProgramadaFin != nil {
+					if _, err := m.cfg.Agenda.ReservarCita(ctx, t, agenda.Reserva{OrdenID: antes.ID, Numero: antes.Numero,
+						EmpresaID: antes.EmpresaID, TipoID: antes.TipoID, CuadrillaID: despues.CuadrillaID, TecnicoID: *in.TecnicoID,
+						Inicio: *antes.ProgramadaInicio, Fin: *antes.ProgramadaFin, Origen: "asignar"}); err != nil {
+						return antes, "", err
+					}
 				}
 			}
 			f, err := guardar(ctx, t, q, antes, despues)
@@ -149,6 +171,22 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 					return antes, "", err
 				}
 				despues.AsignadaEn = &ahora
+				if in.BodegaID == nil {
+					// La bodega de la ficha de agenda del nuevo técnico (si la tiene).
+					if b, err := q.BodegaDeTecnico(ctx, *tecnico); err == nil && b != nil {
+						despues.BodegaID = b
+					} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return antes, "", err
+					}
+				}
+			}
+			// La agenda valida la cita (ficha, turno, ausencia, solape, capacidad y ventana), la
+			// guarda y emite orden.programada (catálogo: lo emite agenda).
+			cita, err := m.cfg.Agenda.ReservarCita(ctx, t, agenda.Reserva{OrdenID: antes.ID, Numero: antes.Numero,
+				EmpresaID: antes.EmpresaID, TipoID: antes.TipoID, CuadrillaID: antes.CuadrillaID, TecnicoID: *tecnico,
+				Inicio: inicio, Fin: fin, VentanaInicio: in.VentanaInicio, VentanaFin: in.VentanaFin, Origen: verbo, Motivo: motivo})
+			if err != nil {
+				return antes, "", err
 			}
 			if antes.Estado == EstadoFallida {
 				if err := invalidarFirma(ctx, t, q, antes.ID, ahora); err != nil {
@@ -167,6 +205,7 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 			}
 			if err := historial(ctx, t, q, f.ID, "programada", nil, nil, motivo, map[string]any{
 				"tecnico_id": f.TecnicoID, "inicio": inicio, "fin": fin, "reprogramada": re,
+				"ventana_inicio": cita.VentanaInicio, "ventana_fin": cita.VentanaFin,
 				"inicio_anterior": antes.ProgramadaInicio, "tecnico_anterior": antes.TecnicoID,
 			}, ahora); err != nil {
 				return f, "", err
@@ -178,13 +217,6 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 				}); err != nil {
 					return f, "", err
 				}
-			}
-			// orden.programada es del catálogo de agenda; mientras no exista (fase 3) lo emite campo.
-			if err := t.Emitir("orden.programada", map[string]any{
-				"orden_id": f.ID, "tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID,
-				"inicio": inicio, "fin": fin, "reprogramada": re, "motivo": motivo,
-			}); err != nil {
-				return f, "", err
 			}
 			return f, "", cambioDeEstado(ctx, t, q, antes, f, motivo, nil, ahora)
 		})

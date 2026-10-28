@@ -70,7 +70,7 @@ type ExistenciasBodega struct {
 	Lineas   []Existencia `json:"lineas"`
 }
 
-// RutaCampo es la ruta publicada del día (agenda, fase 3).
+// RutaCampo es la ruta publicada del día (agenda: llega con la propuesta de ruta, siguiente PR).
 type RutaCampo struct {
 	ID       int64   `json:"id"`
 	OrdenIDs []int64 `json:"ordenIds" doc:"Órdenes en el orden de visita"`
@@ -91,7 +91,7 @@ type Paquete struct {
 	Cursor      string       `json:"cursor" doc:"Cursor para GET /campo/cambios (tomado antes de leer: puede repetir algo, nunca saltarlo)"`
 	Ordenes     []OrdenCampo `json:"ordenes" doc:"Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio"`
 	Existencias Existencias  `json:"existencias"`
-	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada (fase 3: hoy siempre ausente)"`
+	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas)"`
 }
 
 // EntradaPaquete es la entrada de GET /campo/paquete.

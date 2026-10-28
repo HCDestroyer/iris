@@ -83,6 +83,7 @@ const PERMISOS_ORDENES: Permiso[] = [
 export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_BUZONES,
     "adjuntos.ver",
+    "agenda.ver",
     "integraciones.reintentar",
     "integraciones.ver_pendientes",
     ...PERMISOS_ORDENES,
@@ -109,7 +110,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);

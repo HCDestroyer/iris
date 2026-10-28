@@ -14,8 +14,13 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - **Estados:** `pendiente → programada → en_camino → en_sitio → cerrada | fallida | cancelada`,
   con acciones explícitas `POST /api/v1/ordenes/{id}/<acción>` y permiso `ordenes.<acción>`:
   `asignar` (pendiente/programada/en_camino; sin técnico vuelve a pendiente, otro técnico en camino
-  la deja programada), `programar` (pendiente → programada, técnico + inicio; fin = inicio +
-  duración del tipo), `reprogramar` (programada/en_camino/fallida → programada, con motivo),
+  la deja programada; con técnico nuevo en una orden programada la agenda revalida la cita),
+  `programar` (pendiente → programada, técnico + inicio; fin = inicio + duración del tipo; ventana
+  opcional), `reprogramar` (programada/en_camino/fallida → programada, con motivo). Programar y
+  reprogramar **delegan en agenda** (`agenda.ReservarCita`: turno, ausencia, solape, capacidad y
+  ventana; 422 con el motivo) y es agenda quien emite `orden.programada`; la bodega por defecto
+  del técnico nuevo sale de su ficha de agenda. Cancelar, reabrir o quitar el técnico liberan la
+  cita.
   `iniciar-camino`, `llegar` (programada o en_camino → en_sitio), `cerrar` (en_sitio), `fallar`
   (programada/en_camino/en_sitio, con `motivoFalla`), `cancelar` (no final, con motivo), `reabrir`
   (fallida o cancelada → pendiente; una cerrada no se reabre: ya tuvo efectos en Argos).
@@ -43,6 +48,23 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - **Desde un ticket:** `POST /ordenes` con `ticketId` (exige ver el ticket): hereda empresa,
   cliente, servicio, zona, cuadrilla y contacto, y deja nota interna en el ticket; también al
   fallar, cancelar o cerrar la orden.
+- **Zona y cuadrilla:** del catálogo de agenda (llaves foráneas). La indicada debe existir, estar
+  activa y ser de la empresa (422 en `zonaId`/`cuadrillaId`); la de la instantánea de Argos se
+  copia al catálogo si falta.
+- **Origen** (`ordenes.origen`): `panel`, `api`, `sistema` o `argos` (retiro automático).
+- **Cargo único (visita cobrada):** `tipos_orden.cobrar` con `cargo_producto_id` y/o `cargo_monto`
+  (> 0) y `cargo_descripcion`; la plantilla manda si define `cobrar` (true con sus propios valores o
+  los del tipo; false = no se cobra). Se configura por SQL, p. ej.
+  `UPDATE campo.tipos_orden SET cobrar = true, cargo_monto = 150 WHERE codigo = 'visita'`. Al
+  cerrar, `orden.cerrada` lleva `cargo: { producto_id?, monto?, descripcion }` (o null) y la cola de
+  I1 lo manda a Argos (`POST /facturas/cargo-unico`) con cualquier resultado.
+- **Retiro automático:** suscriptor `campo.retiro` de `argos.servicio_retirado` (en `cmd/worker`):
+  lee el comodato del servicio en Argos fuera de la transacción; con equipos y sin otra orden de
+  retiro abierta del servicio (no cerrada ni cancelada; una fallida cuenta) crea una de retiro con
+  `origen = argos`, los equipos en la descripción y la dirección de la instantánea (si no hay, «Por
+  confirmar»). Idempotente: candado por servicio + `Idempotency-Key`
+  `argos.servicio_retirado:<entrante_id>`. Sin conector o de otra empresa: no crea (log); Argos
+  caído: error y el relay reintenta; regla de negocio (422): log, sin reintento.
 - **Instantánea de Argos:** con `clienteId`/`servicioId` en `integracion.argos_*`, valida la
   empresa (422 `empresa_no_coincide`) y que el servicio sea del cliente, y completa dirección,
   coordenadas, zona y contacto. Sin instantánea acepta los ids.
@@ -63,7 +85,8 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   (pendientes, programadas hasta ese día —también atrasadas—, en camino y en sitio) con
   checklist, notas, materiales, equipos, firma, adjuntos, instantánea de cliente y servicio y
   `comodato` (`disponible`, `motivo`: `sin_conector|argos_no_disponible|sin_servicio`);
-  `existencias` de sus bodegas (igual, `sin_bodega`); `ruta` ausente (fase 3); `cursor` tomado
+  `existencias` de sus bodegas (igual, `sin_bodega`); `cita` de la agenda (inicio, fin, ventana);
+  `ruta` ausente (llega con las rutas); `cursor` tomado
   antes de leer (puede repetir, nunca saltar). El inventario se lee de Argos fuera de la
   transacción (interfaz `Inventario`, nil sin conector).
 - `GET /campo/cambios?cursor=&limit=`: feed por técnico (`campo.orden_cambios`, escrito con un
@@ -88,6 +111,31 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   - Material por encima de la existencia de la bodega (según Argos): se acepta con
     `aviso: existencia_insuficiente` y `excede_existencia` en `orden.cerrada`.
 
+## Ubicación en vivo (`campo.posiciones`)
+
+- `POST /api/v1/campo/posiciones` (`campo.registrar_posiciones`, rol técnico): solo un actor
+  usuario con sesión de la app de campo (`X-Iris-Canal: campo`; un token o el panel → 403
+  `requiere_sesion_campo`). `{ dispositivoId?, enviadoEn?, puntos: [{ lat, lon, precision?,
+  velocidad?, rumbo?, registradaEn }] }` (1–500; rango validado, 422). `enviadoEn` corrige el
+  desfase del reloj. Puntos de más de 24 h (`vieja`), más de 2 min adelantados (`futura`) o a menos
+  del intervalo mínimo del anterior del lote (`frecuencia`) se descartan y se cuentan en `motivos`.
+  El intervalo mínimo se mide también contra lo ya guardado del técnico (candado por técnico): un
+  punto a menos del intervalo de uno guardado es `frecuencia`; con la misma hora, `duplicada`.
+  Límite de lotes por minuto por técnico → 429 `demasiadas_posiciones` con `Retry-After`; el
+  contador se escribe fuera de la transacción de la acción, así que un lote rechazado (422) también
+  gasta cupo. **Sin auditoría por fila** (ni el lote aceptado ni el 429) y sin eventos; los demás
+  rechazos se auditan con la entrada resumida (`{dispositivoId, enviadoEn, puntos: n}`, nunca las
+  coordenadas).
+- Tabla particionada por mes UTC (`campo.posiciones_YYYYMM`, creadas al vuelo y por el job);
+  `campo.posiciones_ultimas` (la última por técnico y empresa) y `campo.posiciones_limite`.
+- `GET /api/v1/campo/posiciones/ultimas?tecnicoId=&cuadrillaId=&zonaId=&maxAntiguedadMin=`
+  (`campo.ver_posiciones`: despacho, supervisor): de la empresa activa y según el alcance (cuadrilla
+  del técnico o zonas que atiende su cuadrilla).
+- Job `campo.mantener_posiciones` (worker, cada 6 h): crea las particiones del mes actual y los dos
+  siguientes y borra las que terminaron antes de ahora − retención (`IRIS_POSICIONES_RETENCION_DIAS`).
+- Variables: `IRIS_POSICIONES_MAX_POR_LOTE` (500), `IRIS_POSICIONES_LOTES_POR_MINUTO` (6),
+  `IRIS_POSICIONES_INTERVALO_MIN` (5s), `IRIS_POSICIONES_RETENCION_DIAS` (90).
+
 ## Enlaces con I1 (conectados)
 
 - **Adjuntos** (`enlaces.go`): `campo.RegistrarAdjuntos()` (en `cmd/iris` y `cmd/worker`) registra
@@ -109,12 +157,13 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 
 ## Eventos
 
-- **Emite** (detalle en `contratos/eventos.md`): `orden.creada`, `orden.asignada`,
-  `orden.programada` (del catálogo de agenda; lo emite campo hasta la fase 3),
-  `orden.estado_cambiada`, `orden.cerrada`. Empresa del sobre = la de la orden.
-- **Consume:** nada todavía (`argos.servicio_retirado` → orden de retiro: pendiente).
+- **Emite** (detalle en `contratos/eventos.md`): `orden.creada` (con `origen`), `orden.asignada`,
+  `orden.estado_cambiada`, `orden.cerrada` (con `cargo`). `orden.programada` lo emite agenda en la
+  misma transacción. Empresa del sobre = la de la orden.
+- **Consume:** `argos.servicio_retirado` (orden de retiro automática).
 
 ## Desarrollo
 
 `go run ./cmd/iris campo semilla [--correo tecnico@iris.local] [--empresa N] [--ordenes 3]`: crea
-(o reutiliza) un técnico y órdenes del día programadas para él, por los casos de uso.
+(o reutiliza) un técnico (con ficha de agenda y turnos de 07:00 a 19:00 si no la tenía) y órdenes
+del día programadas para él en los primeros huecos libres, por los casos de uso.

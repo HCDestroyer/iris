@@ -289,11 +289,15 @@ func TestEmpresaDeLaOrden(t *testing.T) {
 	c61 := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), d, 61, permisosDe("despacho")...)
 	c62 := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), d, 62, permisosDe("despacho")...)
 
-	o := crearOrden(t, e, c61, "visita")
+	// Con empresas registradas, la zona debe ser de la empresa (una sin empresa ya no sirve).
+	_, err := e.m.CrearOrden.Ejecutar(c61, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("x"), ZonaID: ptr(int64(3))})
+	problema(t, err, 422, "validacion")
+	zonaDe(t, 61003, 61)
+	o := deber(e.m.CrearOrden.Ejecutar(c61, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("Zona 10"), ZonaID: ptr(int64(61003))}))(t)
 	if o.EmpresaID == nil || *o.EmpresaID != 61 {
 		t.Fatalf("empresa: %+v", o.EmpresaID)
 	}
-	_, err := e.m.VerOrden.Ejecutar(c62, campo.EntradaVerOrden{ID: o.ID})
+	_, err = e.m.VerOrden.Ejecutar(c62, campo.EntradaVerOrden{ID: o.ID})
 	problema(t, err, 404, "no_encontrado")
 	_, err = e.m.CrearOrden.Ejecutar(c61, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("x"), EmpresaID: ptr(int64(62))})
 	problema(t, err, 422, "empresa_no_coincide")

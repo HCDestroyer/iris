@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -18,7 +19,7 @@ type EntradaAsignarTicket struct {
 	ID          int64  `json:"-"`
 	Version     int32  `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 	UsuarioID   *int64 `json:"usuarioId,omitempty" minimum:"1" doc:"Usuario responsable; ausente = ninguno"`
-	CuadrillaID *int64 `json:"cuadrillaId,omitempty" minimum:"1" doc:"Cuadrilla; ausente = ninguna"`
+	CuadrillaID *int64 `json:"cuadrillaId,omitempty" minimum:"1" doc:"Cuadrilla (catálogo de agenda: activa y de la empresa del ticket); ausente = ninguna"`
 }
 
 func mismoID(a, b *int64) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
@@ -42,6 +43,11 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 			}
 			despues := antes
 			despues.AsignadoA, despues.CuadrillaID = in.UsuarioID, in.CuadrillaID
+			if in.CuadrillaID != nil && !mismoID(antes.CuadrillaID, in.CuadrillaID) {
+				if err := agenda.ValidarCuadrilla(ctx, t, "cuadrillaId", *in.CuadrillaID, antes.EmpresaID); err != nil {
+					return Ticket{}, err
+				}
+			}
 			if in.UsuarioID != nil {
 				if err := validarAsignable(ctx, q, *in.UsuarioID, despues); err != nil {
 					return Ticket{}, err
@@ -88,8 +94,8 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 }
 
 // validarAsignable: el responsable es una persona activa que puede ver el ticket con su
-// alcance (global, la zona del ticket o la cuadrilla asignada). La cuadrilla no se valida
-// todavía: agenda.cuadrillas llega en la Fase 3 (I2), y entonces tendrá FK.
+// alcance (global, la zona del ticket o la cuadrilla asignada). La cuadrilla la valida antes
+// agenda.ValidarCuadrilla (existe, activa y de la empresa; llave foránea a agenda.cuadrillas).
 func validarAsignable(ctx context.Context, q *soportebd.Queries, usuarioID int64, f soportebd.SoporteTicket) error {
 	invalido := func(detalle string) error {
 		return nucleo.Validacion(nucleo.ErrorCampo{Field: "usuarioId", Message: detalle, Rule: "usuario"})
