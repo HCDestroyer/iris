@@ -7,7 +7,8 @@
 // de pendientes hacia Argos (suscriptor de orden.cerrada y su job, cada minuto) y la purga de
 // subidas de adjuntos abandonadas (cada hora), la orden de retiro automática (suscriptor de
 // argos.servicio_retirado), el mantenimiento de las particiones de posiciones (cada 6 h) y el
-// espejo de zonas de Argos en la agenda (cada 10 min).
+// espejo de zonas de Argos en la agenda (cada 10 min) y el alta en Argos de los prospectos
+// ganados (suscriptor de integracion.pendiente_hecho y barrido cada 5 min).
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -121,6 +123,14 @@ func correr() error {
 	}
 	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos})
 	cmp.SuscribirRetiros(bus, pool, log)
+	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
+	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
+	comercial.RegistrarAdjuntos()
+	com := comercial.Nuevo(comercial.Config{Altas: comercial.AltasDeArgos(conectorArgos), Campo: cmp,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	com.SuscribirAltas(bus, pool, log)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
@@ -132,11 +142,12 @@ func correr() error {
 			adj.RegistrarWorkers(w, pool)
 			cmp.RegistrarTrabajos(pool)(w)
 			cmp.Agenda().RegistrarTrabajos(pool)(w)
+			com.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
-			agenda.TrabajoPeriodicoZonas(10*time.Minute)),
+			agenda.TrabajoPeriodicoZonas(10*time.Minute), comercial.TrabajoPeriodicoAltas(5*time.Minute)),
 	})
 	if err != nil {
 		return err

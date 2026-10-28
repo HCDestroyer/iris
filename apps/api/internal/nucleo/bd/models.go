@@ -466,6 +466,163 @@ type CampoTiposOrden struct {
 	CargoDescripcion string
 }
 
+type ComercialActividade struct {
+	ID            int64
+	EmpresaID     *int64
+	ProspectoID   int64
+	Tipo          string
+	Descripcion   string
+	Resultado     *string
+	OcurridaEn    time.Time
+	ProximaAccion *string
+	ProximaFecha  *time.Time
+	AutorID       *int64
+	Idempotencia  *string
+	CreatedAt     time.Time
+}
+
+type ComercialContrato struct {
+	ID                int64
+	Numero            string
+	EmpresaID         *int64
+	ProspectoID       int64
+	CotizacionID      int64
+	Plantilla         string
+	Estado            string
+	Contenido         []byte
+	PdfAdjuntoID      pgtype.UUID
+	FirmanteNombre    *string
+	FirmanteDocumento *string
+	FirmaSvg          *string
+	FirmaLat          *float64
+	FirmaLon          *float64
+	FirmadoEn         *time.Time
+	FirmadoPor        *int64
+	PdfFirmadoID      pgtype.UUID
+	PdfFirmadoSha256  *string
+	MotivoAnulacion   *string
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type ComercialCotizacionLinea struct {
+	ID             int64
+	CotizacionID   int64
+	Posicion       int32
+	Tipo           string
+	PlanID         *int64
+	ProductoID     *int64
+	Descripcion    string
+	Cantidad       pgtype.Numeric
+	PrecioUnitario pgtype.Numeric
+	Recurrente     bool
+	Total          pgtype.Numeric
+}
+
+type ComercialCotizacione struct {
+	ID             int64
+	Numero         string
+	EmpresaID      *int64
+	ProspectoID    int64
+	Revision       int32
+	Estado         string
+	Moneda         string
+	TotalMensual   pgtype.Numeric
+	TotalUnico     pgtype.Numeric
+	VigenteHasta   time.Time
+	PlanID         *int64
+	Notas          string
+	Cliente        []byte
+	PdfAdjuntoID   pgtype.UUID
+	ReemplazadaPor *int64
+	AceptadaEn     *time.Time
+	AceptadaPor    *int64
+	CreadoPor      *int64
+	Idempotencia   *string
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type ComercialFactibilidade struct {
+	ID           int64
+	EmpresaID    *int64
+	ProspectoID  int64
+	Resultado    string
+	Motor        string
+	Motivo       *string
+	Lat          *float64
+	Lon          *float64
+	RouterID     *int64
+	RouterNombre *string
+	Caja         *string
+	DistanciaM   *float64
+	ViableM      *int32
+	ObraM        *int32
+	Notas        string
+	EvaluadaPor  *int64
+	CreatedAt    time.Time
+}
+
+type ComercialProspecto struct {
+	ID                int64
+	Numero            string
+	EmpresaID         *int64
+	Origen            string
+	OrigenDetalle     *string
+	Nombre            string
+	Documento         *string
+	Telefono          *string
+	Correo            *string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	ZonaID            *int64
+	PlanInteresID     *int64
+	PlanInteresNombre *string
+	VendedorID        *int64
+	Estado            string
+	Notas             string
+	MotivoPerdida     *string
+	PerdidoEn         *time.Time
+	GanadoEn          *time.Time
+	ObraConfirmada    bool
+	AltaModo          *string
+	AltaEstado        *string
+	ClienteArgosID    *int64
+	ServicioArgosID   *int64
+	OrdenID           *int64
+	CreadoPor         *int64
+	Idempotencia      *string
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type ComercialProspectoEvento struct {
+	ID          int64
+	ProspectoID int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	Datos       []byte
+	ActorTipo   string
+	ActorID     *int64
+	CreatedAt   time.Time
+}
+
+type ComercialUmbralesFactibilidad struct {
+	ID        int64
+	EmpresaID *int64
+	ViableM   int32
+	ObraM     int32
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type IntegracionArgosCliente struct {
 	ID             int64
 	EmpresaID      int64

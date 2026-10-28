@@ -96,6 +96,24 @@ const (
 	PermRutasVer      Permiso = "rutas.ver"
 	PermRutasProponer Permiso = "rutas.proponer"
 	PermRutasPublicar Permiso = "rutas.publicar"
+
+	// Seguimiento comercial (I2): prospecto → factibilidad → cotización → contrato → ganar. Una
+	// acción explícita por permiso (POST /prospectos/{id}/<acción>).
+	PermProspectosVer                Permiso = "prospectos.ver"
+	PermProspectosCrear              Permiso = "prospectos.crear"
+	PermProspectosEditar             Permiso = "prospectos.editar"
+	PermProspectosAsignar            Permiso = "prospectos.asignar"
+	PermProspectosContactar          Permiso = "prospectos.contactar"
+	PermProspectosRegistrarActividad Permiso = "prospectos.registrar_actividad"
+	PermProspectosPerder             Permiso = "prospectos.perder"
+	PermProspectosReabrir            Permiso = "prospectos.reabrir"
+	PermProspectosGanar              Permiso = "prospectos.ganar"
+	PermFactibilidadEvaluar          Permiso = "factibilidad.evaluar"
+	PermFactibilidadConfigurar       Permiso = "factibilidad.configurar"
+	PermCotizacionesCrear            Permiso = "cotizaciones.crear"
+	PermCotizacionesAceptar          Permiso = "cotizaciones.aceptar"
+	PermContratosCrear               Permiso = "contratos.crear"
+	PermContratosFirmar              Permiso = "contratos.firmar"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -171,11 +189,17 @@ var Catalogo = []DefPermiso{
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
+	{PermContratosCrear, "Generar el contrato de un prospecto con la cotización aceptada"},
+	{PermContratosFirmar, "Registrar la firma del cliente en un contrato (genera el PDF firmado)"},
+	{PermCotizacionesAceptar, "Marcar como aceptada por el cliente una cotización vigente"},
+	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
 	{PermEmpresasCrear, "Registrar a mano una empresa de Argos (id, nombre, NIT) cuando el conector no la trajo"},
 	{PermEmpresasEditar, "Editar el nombre y el NIT de una empresa registrada"},
 	{PermEmpresasTodas, "Operar en todas las empresas sin asignación (rol global); el resto solo en sus empresas asignadas"},
 	{PermEmpresasVer, "Ver las empresas registradas"},
+	{PermFactibilidadConfigurar, "Configurar los umbrales de distancia de la factibilidad de la empresa"},
+	{PermFactibilidadEvaluar, "Evaluar la factibilidad técnica de un prospecto (o registrar la de una visita)"},
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
@@ -197,6 +221,15 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesVerPropias, "Ver solo las órdenes de trabajo asignadas a uno mismo (técnico)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
+	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
+	{PermProspectosContactar, "Marcar un prospecto como contactado"},
+	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
+	{PermProspectosEditar, "Editar los datos de un prospecto"},
+	{PermProspectosGanar, "Ganar un prospecto: alta del cliente y el servicio en Argos y orden de instalación"},
+	{PermProspectosPerder, "Marcar un prospecto como perdido, con motivo"},
+	{PermProspectosReabrir, "Reabrir un prospecto perdido"},
+	{PermProspectosRegistrarActividad, "Registrar llamadas, visitas y notas de un prospecto"},
+	{PermProspectosVer, "Ver prospectos, su embudo, actividades, cotizaciones y contratos (según el alcance)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
 	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
@@ -261,6 +294,14 @@ var permisosAgenda = []Permiso{
 // permisosRutas son los de rutas del día (despacho, supervisor).
 var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar}
 
+// permisosComercial son todos los del seguimiento comercial (ventas, supervisor) salvo
+// factibilidad.configurar (umbrales de la empresa: supervisor y admin).
+var permisosComercial = []Permiso{
+	PermProspectosVer, PermProspectosCrear, PermProspectosEditar, PermProspectosAsignar, PermProspectosContactar,
+	PermProspectosRegistrarActividad, PermProspectosPerder, PermProspectosReabrir, PermProspectosGanar,
+	PermFactibilidadEvaluar, PermCotizacionesCrear, PermCotizacionesAceptar, PermContratosCrear, PermContratosFirmar,
+}
+
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
 // sincronizan en cada `iris migrar`: lo que no está aquí se les quita.
 var RolesBase = []DefRol{
@@ -270,7 +311,8 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
-			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas)...)},
+			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosComercial,
+				[]Permiso{PermFactibilidadConfigurar})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -286,10 +328,10 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
-		Permisos: []Permiso{PermClientesVer, PermClientesEstadoCuenta}},
+		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAgendaVer}, permisosComercial...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
-			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer}},
+			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir
