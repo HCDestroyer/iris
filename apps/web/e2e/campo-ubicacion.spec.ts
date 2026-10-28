@@ -175,7 +175,8 @@ test.describe("en el teléfono", () => {
         await page.getByRole("button", { name: "En camino" }).click();
         // El permiso del navegador ya estaba dado (p. ej. desde antes de actualizar): igual se explica.
         const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
-        await expect(explicacion).toContainText("Termina solo cuando ya no te quedan órdenes abiertas del día");
+        await expect(explicacion).toContainText("Si tienes turno en la agenda, empieza y termina solo a esas horas");
+        await expect(explicacion).toContainText("termina solo cuando ya no te quedan órdenes abiertas del día");
         await expect(explicacion).toContainText("Fuera de turno no se registra nada");
         expect(api.intentosPosiciones).toHaveLength(0);
         await explicacion.getByRole("button", { name: "Permitir ubicación" }).click();

@@ -51,10 +51,17 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
         const sinSenal = () => motor.establecerConexion(false);
         revisar();
         motor.iniciar();
+        // Con la app abierta al cambiar el día en Guatemala: el paquete (y el turno) del día nuevo.
+        const cadaMinuto = setInterval(() => {
+            if (motor.obtenerEstado().fecha !== hoyEnGuatemala()) {
+                revisar();
+            }
+        }, 60_000);
         window.addEventListener("online", revisar);
         window.addEventListener("offline", sinSenal);
         document.addEventListener("visibilitychange", alVer);
         return () => {
+            clearInterval(cadaMinuto);
             window.removeEventListener("online", revisar);
             window.removeEventListener("offline", sinSenal);
             document.removeEventListener("visibilitychange", alVer);

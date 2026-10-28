@@ -24,7 +24,7 @@ import {
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { Pantallas } from "./pantallas";
-import { FinDeTurnoPorOrdenes, ProveedorUbicacion } from "./ubicacion";
+import { ProveedorUbicacion, TurnoAutomatico } from "./ubicacion";
 
 type Arranque =
     | { fase: "cargando" }
@@ -326,7 +326,7 @@ function ConMotor({
     return (
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-                <FinDeTurnoPorOrdenes />
+                <TurnoAutomatico rastreador={rastreador} />
                 <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
             </ProveedorCampo>
         </ProveedorUbicacion>
