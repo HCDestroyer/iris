@@ -53,18 +53,29 @@ const (
 	// ordenes.ver_propias: solo las órdenes asignadas al actor (técnico); ordenes.registrar:
 	// checklist, notas, materiales, equipos, firma y adjuntos de la orden.
 	PermOrdenesAsignar       Permiso = "ordenes.asignar"
+	PermOrdenesAsignarForm   Permiso = "ordenes.asignar_formulario"
 	PermOrdenesCancelar      Permiso = "ordenes.cancelar"
 	PermOrdenesCerrar        Permiso = "ordenes.cerrar"
 	PermOrdenesCrear         Permiso = "ordenes.crear"
 	PermOrdenesFallar        Permiso = "ordenes.fallar"
 	PermOrdenesIniciarCamino Permiso = "ordenes.iniciar_camino"
 	PermOrdenesLlegar        Permiso = "ordenes.llegar"
+	PermOrdenesPausar        Permiso = "ordenes.pausar"
 	PermOrdenesProgramar     Permiso = "ordenes.programar"
 	PermOrdenesReabrir       Permiso = "ordenes.reabrir"
+	PermOrdenesReanudar      Permiso = "ordenes.reanudar"
 	PermOrdenesRegistrar     Permiso = "ordenes.registrar"
 	PermOrdenesReprogramar   Permiso = "ordenes.reprogramar"
 	PermOrdenesVer           Permiso = "ordenes.ver"
 	PermOrdenesVerPropias    Permiso = "ordenes.ver_propias"
+
+	// Plantillas de formularios (I2): catálogo administrable con versiones (ver lo usan despacho
+	// y el técnico; el resto, admin y supervisor).
+	PermPlantillasVer        Permiso = "plantillas.ver"
+	PermPlantillasCrear      Permiso = "plantillas.crear"
+	PermPlantillasEditar     Permiso = "plantillas.editar"
+	PermPlantillasActivar    Permiso = "plantillas.activar"
+	PermPlantillasDesactivar Permiso = "plantillas.desactivar"
 
 	// App de campo (I2): paquete del día, cambios y lote de sincronización (contratos/sync.md);
 	// posiciones en vivo (el técnico las envía; despacho ve la última de cada técnico).
@@ -183,19 +194,27 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
+	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
 	{PermOrdenesLlegar, "Marcar la llegada al sitio de una orden"},
+	{PermOrdenesPausar, "Pausar una orden en camino o en sitio, con su motivo"},
 	{PermOrdenesProgramar, "Programar órdenes pendientes (técnico y fecha)"},
 	{PermOrdenesReabrir, "Reabrir órdenes fallidas o canceladas"},
+	{PermOrdenesReanudar, "Reanudar una orden pausada"},
 	{PermOrdenesRegistrar, "Registrar el trabajo de una orden: checklist, notas, materiales, equipos, firma y adjuntos"},
 	{PermOrdenesReprogramar, "Reprogramar órdenes (nueva fecha o técnico)"},
 	{PermOrdenesVer, "Ver órdenes de trabajo (según el alcance) y su historial"},
 	{PermOrdenesVerPropias, "Ver solo las órdenes de trabajo asignadas a uno mismo (técnico)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
+	{PermPlantillasActivar, "Activar una plantilla de formulario"},
+	{PermPlantillasCrear, "Crear plantillas de formulario (checklist)"},
+	{PermPlantillasDesactivar, "Desactivar una plantilla de formulario (deja de ofrecerse; los formularios ya agregados siguen)"},
+	{PermPlantillasEditar, "Editar plantillas de formulario (con uso, crea una versión nueva)"},
+	{PermPlantillasVer, "Ver las plantillas de formulario y sus versiones"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
@@ -247,7 +266,11 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesVer, PermOrdenesVerPropias, PermOrdenesCrear, PermOrdenesAsignar, PermOrdenesProgramar,
 	PermOrdenesReprogramar, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
+	PermOrdenesAsignarForm, PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer,
 }
+
+// permisosPlantillas son los de administrar plantillas de formulario (supervisor).
+var permisosPlantillas = []Permiso{PermPlantillasCrear, PermPlantillasEditar, PermPlantillasActivar, PermPlantillasDesactivar}
 
 // permisosAgenda son todos los de agenda (supervisor).
 var permisosAgenda = []Permiso{
@@ -270,7 +293,7 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
-			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas)...)},
+			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas)...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -281,7 +304,8 @@ var RolesBase = []DefRol{
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
-			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones}},
+			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
+			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},

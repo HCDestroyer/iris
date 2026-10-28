@@ -168,15 +168,16 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				return Orden{}, err
 			}
 			plantilla := tipo.PlantillaID
+			var elegida *campobd.CampoPlantillasChecklist
 			if in.PlantillaID != nil {
 				p, err := q.PlantillaPorID(ctx, *in.PlantillaID)
-				if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!p.Activa || p.TipoCodigo != tipo.Codigo)) {
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!p.Activa || (p.TipoCodigo != nil && *p.TipoCodigo != tipo.Codigo))) {
 					return Orden{}, campoInvalido("plantillaId", "La plantilla no existe, está inactiva o es de otro tipo", "plantilla")
 				}
 				if err != nil {
 					return Orden{}, err
 				}
-				plantilla = &p.ID
+				plantilla, elegida = &p.ID, &p
 			}
 
 			datos := in
@@ -222,6 +223,10 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				return Orden{}, nucleo.ReglaNegocio("empresa_no_coincide", "El ticket es de otra empresa")
 			}
 			t.FijarEmpresa(deref(empresa))
+			// La plantilla elegida debe ser común o de la empresa de la orden.
+			if elegida != nil && !plantillaSirveA(*elegida, empresa) {
+				return Orden{}, campoInvalido("plantillaId", "La plantilla no existe, está inactiva o es de otro tipo", "plantilla")
+			}
 			if err := completarDesdeArgos(ctx, q, &datos, empresa); err != nil {
 				return Orden{}, err
 			}
@@ -284,6 +289,10 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			}
 			t.FijarEntidad("orden", f.ID)
 			t.RegistrarCambios("orden", f.ID, nil, f)
+			// Primer formulario: la plantilla de la orden (la del tipo o la elegida), versión actual.
+			if err := formularioDeTipo(ctx, t, q, f, m.ahora()); err != nil {
+				return Orden{}, err
+			}
 			if err := historial(ctx, t, q, f.ID, "creada", nil, &f.Estado, nil, map[string]any{"tipo": tipo.Codigo, "ticket_id": f.TicketID}, m.ahora()); err != nil {
 				return Orden{}, err
 			}

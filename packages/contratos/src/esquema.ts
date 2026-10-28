@@ -936,7 +936,7 @@ export interface paths {
         put?: never;
         /**
          * Asignar una orden a un técnico o cuadrilla
-         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).
+         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino (pausada: 422 `orden_pausada`; reprográmala). Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).
          */
         post: operations["asignarOrden"];
         delete?: never;
@@ -956,7 +956,7 @@ export interface paths {
         put?: never;
         /**
          * Cancelar una orden
-         * @description Permiso: `ordenes.cancelar`. Desde cualquier estado no final, con motivo. Emite `orden.estado_cambiada`.
+         * @description Permiso: `ordenes.cancelar`. Desde cualquier estado no final (también pausada: cierra la pausa), con motivo. Emite `orden.estado_cambiada`.
          */
         post: operations["cancelarOrden"];
         delete?: never;
@@ -976,7 +976,7 @@ export interface paths {
         put?: never;
         /**
          * Cerrar una orden
-         * @description Permiso: `ordenes.cerrar`. en_sitio → cerrada. Exige el checklist obligatorio, los equipos del tipo y la firma si la plantilla la pide (422 `cierre_incompleto`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).
+         * @description Permiso: `ordenes.cerrar`. en_sitio → cerrada (pausada: 422 `orden_pausada`). Exige los ítems obligatorios de todos los formularios (422 `cierre_incompleto` con `errors[].field = formularios.<id>.checklist.<código>`), los equipos del tipo y la firma si algún formulario la pide (`firma`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).
          */
         post: operations["cerrarOrden"];
         delete?: never;
@@ -1076,7 +1076,7 @@ export interface paths {
         put?: never;
         /**
          * Marcar la orden como fallida
-         * @description Permiso: `ordenes.fallar`. programada, en_camino o en_sitio → fallida, con su motivo. Se puede reprogramar. Emite `orden.estado_cambiada`.
+         * @description Permiso: `ordenes.fallar`. programada, en_camino o en_sitio → fallida, con su motivo (pausada: 422 `orden_pausada`, hay que reanudar). Se puede reprogramar. Emite `orden.estado_cambiada`.
          */
         post: operations["fallarOrden"];
         delete?: never;
@@ -1099,6 +1099,46 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Reemplaza la anterior. El SVG nunca sale por la API ni en la auditoría.
          */
         post: operations["capturarFirmaOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/formularios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agregar un formulario a la orden
+         * @description Permiso: `ordenes.asignar_formulario`. Una plantilla activa, común o de la empresa de la orden, en su versión actual (queda fija). Orden abierta (no cerrada, fallida ni cancelada). 422 `plantilla_inactiva`, `validacion` (plantillaId); 409 `formulario_duplicado` (la plantilla ya está en la orden). Emite `orden.formulario_agregado`.
+         */
+        post: operations["asignarFormularioOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/formularios/{fid}/quitar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar un formulario de la orden
+         * @description Permiso: `ordenes.asignar_formulario`. Solo si no tiene respuestas (422 `formulario_con_respuestas`); 409 `formulario_ya_quitado`. Emite `orden.formulario_quitado`.
+         */
+        post: operations["quitarFormularioOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1185,6 +1225,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/pausar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pausar una orden en curso
+         * @description Permiso: `ordenes.pausar`. en_camino o en_sitio → pausada, con motivo (`esperando_material`, `cliente_ausente`, `clima`, `acceso`, `otro` con nota). Sigue abierta: conserva su cita y su lugar en la ruta y admite evidencias; no se cierra, falla, sale ni llega sin reanudar (422 `orden_pausada`); sí se cancela o reprograma. 409 `orden_ya_pausada`. Emite `orden.estado_cambiada` y `orden.pausada`.
+         */
+        post: operations["pausarOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/programar": {
         parameters: {
             query?: never;
@@ -1225,6 +1285,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/reanudar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanudar una orden pausada
+         * @description Permiso: `ordenes.reanudar`. pausada → el estado de antes de la pausa (en_camino o en_sitio). Suma la pausa a `tiempoPausadoSeg`. 409 `orden_no_pausada`. Emite `orden.estado_cambiada` y `orden.reanudada`.
+         */
+        post: operations["reanudarOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/reprogramar": {
         parameters: {
             query?: never;
@@ -1236,7 +1316,7 @@ export interface paths {
         put?: never;
         /**
          * Reprogramar una orden
-         * @description Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.
+         * @description Permiso: `ordenes.reprogramar`. programada, en_camino, pausada (cierra la pausa) o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.
          */
         post: operations["reprogramarOrden"];
         delete?: never;
@@ -1259,6 +1339,110 @@ export interface paths {
         get: operations["listarPermisos"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas de formulario (catálogo)
+         * @description Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`.
+         */
+        get: operations["listarPlantillas"];
+        put?: never;
+        /**
+         * Crear una plantilla de formulario
+         * @description Permiso: `plantillas.crear`. Exige el permiso sin límite de zona. De la empresa activa o, con `comun`, de todas (con empresas registradas, solo con `empresas.todas`). 422 `codigo_duplicado`. Emite `plantilla.creada`.
+         */
+        post: operations["crearPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver una plantilla (una versión) y su historial de versiones
+         * @description Permiso: `plantillas.ver`.
+         */
+        get: operations["verPlantilla"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una plantilla de formulario
+         * @description Permiso: `plantillas.activar`. 422 `sin_cambios`; desactivar la plantilla por defecto de un tipo de orden: 422 `plantilla_por_defecto`. Emite `plantilla.activada` o `plantilla.desactivada`.
+         */
+        post: operations["activarPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una plantilla de formulario (no se ofrece más; los formularios ya agregados siguen)
+         * @description Permiso: `plantillas.desactivar`. 422 `sin_cambios`; desactivar la plantilla por defecto de un tipo de orden: 422 `plantilla_por_defecto`. Emite `plantilla.activada` o `plantilla.desactivada`.
+         */
+        post: operations["desactivarPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una plantilla de formulario
+         * @description Permiso: `plantillas.editar`. Reemplaza nombre, descripción, tipo, firma e ítems. Si la versión actual ya está en alguna orden, crea una versión nueva (las órdenes conservan la suya); si no, la reescribe. Las comunes, con empresas registradas, solo con `empresas.todas` (403). Emite `plantilla.actualizada`.
+         */
+        post: operations["editarPlantilla"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2688,6 +2872,8 @@ export interface components {
             cursor: string;
             /** @description Quedan cambios: pedir otra vez con el cursor */
             hayMas: boolean;
+            /** @description Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece) */
+            plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
         };
@@ -2744,8 +2930,11 @@ export interface components {
              * @description Llegada real al sitio (ausente o null si todavía no llega)
              */
             enSitioEn?: string | null;
-            /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            /**
+             * @description Estado de la orden (pausada: sigue abierta y conserva la cita)
+             * @enum {string}
+             */
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /** Format: date-time */
             fin: string;
             /** Format: date-time */
@@ -3011,6 +3200,30 @@ export interface components {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
         };
+        EntradaAgregarFormulario: {
+            /**
+             * Format: int64
+             * @description Plantilla activa, común o de la empresa de la orden (se agrega su versión actual)
+             */
+            plantillaId: number;
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaAgregarFormularioCampo: {
+            /**
+             * Format: int64
+             * @description Plantilla del catálogo del paquete
+             */
+            plantillaId: number;
+            /**
+             * Format: int64
+             * @description Versión que veía el teléfono (la del catálogo); ausente = la actual
+             */
+            versionId?: number;
+        };
         EntradaAgregarNota: {
             texto: string;
             /**
@@ -3248,6 +3461,20 @@ export interface components {
              */
             zonaId?: number;
         };
+        EntradaCrearPlantilla: {
+            codigo: string;
+            /** @description Común a todas las empresas (exige empresas.todas con empresas registradas); por defecto, de la empresa activa */
+            comun?: boolean;
+            descripcion?: string;
+            items: components["schemas"]["EntradaItemPlantilla"][] | null;
+            nombre: string;
+            requiereFirma?: boolean;
+            /**
+             * @description Tipo de orden; ausente = cualquiera
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+        };
         EntradaCrearTecnico: {
             /** Format: double */
             baseLat?: number;
@@ -3403,6 +3630,22 @@ export interface components {
         EntradaEditarEmpresa: {
             nit?: string;
             nombre: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaEditarPlantilla: {
+            descripcion?: string;
+            items: components["schemas"]["EntradaItemPlantilla"][] | null;
+            nombre: string;
+            requiereFirma?: boolean;
+            /**
+             * @description Ausente = cualquiera
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -3577,6 +3820,19 @@ export interface components {
             /** Format: email */
             correo: string;
         };
+        EntradaItemPlantilla: {
+            /** @description Único en la plantilla (las fotos se suben con claveChecklist = codigo) */
+            codigo: string;
+            etiqueta: string;
+            /** @description El cierre lo exige */
+            obligatorio?: boolean;
+            /** @description Solo seleccion (al menos una; sin repetir) */
+            opciones?: string[] | null;
+            /** @enum {string} */
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
+            /** @description numero y medicion (dBm, Mbps…) */
+            unidad?: string;
+        };
         EntradaLote: {
             /** @description Cursor de cambios que tiene el teléfono (se devuelve igual) */
             cursor?: string;
@@ -3591,14 +3847,16 @@ export interface components {
             plataforma?: string;
         };
         EntradaMarcarChecklist: {
-            /** @description Código del ítem (o itemId) */
+            /** @description Código del ítem (o itemId); si se repite en varios formularios, con formularioId */
             codigo?: string;
+            /** @description Formulario de la orden (opcional con itemId) */
+            formularioId?: string;
             /**
              * Format: int64
-             * @description Ítem de la plantilla de la orden (o codigo)
+             * @description Ítem de un formulario de la orden (identifica su formulario); o codigo
              */
             itemId?: number;
-            /** @description si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto */
+            /** @description si_no: boolean; texto: string; seleccion: una de sus opciones; numero y medicion: number; foto: uuid del adjunto */
             valor: unknown;
             /**
              * Format: int32
@@ -3621,6 +3879,17 @@ export interface components {
              * @description Versión leída (opcional); si se envía y cambió, 409
              */
             version?: number;
+        };
+        EntradaPausar: {
+            /** @enum {string} */
+            motivo: "esperando_material" | "cliente_ausente" | "clima" | "acceso" | "otro";
+            /** @description Obligatoria con motivo otro */
+            nota?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
         };
         EntradaPonerEnEspera: {
             /** @description Qué se espera (del cliente, de un proveedor…) */
@@ -3718,8 +3987,26 @@ export interface components {
              */
             version: number;
         };
+        EntradaQuitarFormulario: {
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaQuitarFormularioCampo: {
+            /** @description Un formulario que agregó el mismo técnico, sin respuestas */
+            formularioId: string;
+        };
         EntradaReabrirTicket: {
             motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaReanudar: {
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -3895,6 +4182,13 @@ export interface components {
              */
             version: number;
         };
+        EntradaVersionPlantilla: {
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EquipoComodato: {
             mac: string | null;
             modelo: string;
@@ -3945,7 +4239,7 @@ export interface components {
         };
         EstadoOrden: {
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /** Format: int32 */
             version: number;
         };
@@ -3966,7 +4260,7 @@ export interface components {
              * @description Hora de registro en el servidor
              */
             creadoEn: string;
-            /** @description GPS (lat, lon, precision), técnico, fechas, según el tipo */
+            /** @description GPS (lat, lon, precision), técnico, fechas, formulario (accion agregado|quitado, formulario_id, plantilla_id, nombre, origen) o pausa (pausa_id, motivo, nota), según el tipo */
             datos: {
                 [key: string]: unknown;
             };
@@ -3980,7 +4274,7 @@ export interface components {
              */
             ocurridoEn: string;
             /** @enum {string} */
-            tipo: "creada" | "estado" | "asignada" | "programada";
+            tipo: "creada" | "estado" | "asignada" | "programada" | "formulario";
         };
         EventoTicket: {
             a: string | null;
@@ -4050,6 +4344,31 @@ export interface components {
             /** Format: date-time */
             ocurridoEn: string;
         };
+        FormularioOrden: {
+            /** Format: date-time */
+            agregadoEn: string;
+            /** Format: int64 */
+            agregadoPor: number | null;
+            codigo: string;
+            /** @description Tiene alguna marca o adjunto: ya no se puede quitar */
+            conRespuestas: boolean;
+            /** @description Agregado por el técnico sin señal: el id de su operación del lote */
+            id: string;
+            /** @description Nombre de la plantilla en su versión */
+            nombre: string;
+            /** Format: int32 */
+            numeroVersion: number;
+            /**
+             * @description tipo: el de la orden al crearla; despacho: lo asignó despacho; tecnico: lo agregó el técnico en campo
+             * @enum {string}
+             */
+            origen: "tipo" | "despacho" | "tecnico";
+            /** Format: int64 */
+            plantillaId: number;
+            requiereFirma: boolean;
+            /** Format: int64 */
+            versionId: number;
+        };
         Franja: {
             /** Format: date-time */
             fin: string;
@@ -4094,6 +4413,8 @@ export interface components {
         ItemChecklist: {
             codigo: string;
             etiqueta: string;
+            /** @description Formulario de la orden al que pertenece (formularios[].id) */
+            formularioId?: string;
             /** Format: int64 */
             itemId: number;
             /** Format: int64 */
@@ -4104,13 +4425,15 @@ export interface components {
              * @description Hora de la marca vigente (gana la más reciente)
              */
             ocurridoEn: string | null;
+            /** @description Solo seleccion: las opciones válidas */
+            opciones?: string[] | null;
             /** Format: int32 */
             posicion: number;
             /** @enum {string} */
-            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion";
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             /** @description Para medicion y numero (dBm, Mbps…) */
             unidad: string;
-            /** @description si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto. null = sin marcar */
+            /** @description si_no: boolean; texto y seleccion: string (una de las opciones); numero y medicion: number; foto: uuid del adjunto. null = sin marcar */
             valor: Record<string, never> | null;
         };
         ItemPlantilla: {
@@ -4119,10 +4442,12 @@ export interface components {
             /** Format: int64 */
             id: number;
             obligatorio: boolean;
+            /** @description Solo seleccion */
+            opciones?: string[] | null;
             /** Format: int32 */
             posicion: number;
             /** @enum {string} */
-            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion";
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             unidad: string;
         };
         MFAConfigurado: {
@@ -4231,7 +4556,7 @@ export interface components {
             /** Format: int64 */
             ordenId: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -4244,10 +4569,10 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
@@ -4275,7 +4600,7 @@ export interface components {
             /** Format: date-time */
             enSitioEn: string | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4298,6 +4623,16 @@ export interface components {
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema";
+            /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -4329,6 +4664,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4348,15 +4688,16 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
              */
             bodegaId: number | null;
+            /** @description Ítems de todos los formularios (formularioId), en el orden de los formularios */
             checklist: components["schemas"]["ItemChecklist"][] | null;
             /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
             cita?: components["schemas"]["CitaOrden"];
@@ -4386,7 +4727,7 @@ export interface components {
             enSitioEn: string | null;
             equipos: components["schemas"]["EquipoOrden"][] | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4394,6 +4735,8 @@ export interface components {
             finalizadaEn: string | null;
             /** @description Ausente si no hay firma */
             firma?: components["schemas"]["FirmaOrden"];
+            /** @description Formularios vigentes, en el orden en que se agregaron */
+            formularios?: components["schemas"]["FormularioOrden"][] | null;
             /** Format: int64 */
             id: number;
             /** Format: double */
@@ -4414,6 +4757,18 @@ export interface components {
              */
             origen?: "panel" | "api" | "argos" | "sistema";
             /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
+            /** @description Pausas de la orden (la en curso, con fin null) */
+            pausas?: components["schemas"]["PausaOrden"][] | null;
+            /**
              * Format: int64
              * @description Plantilla de checklist
              */
@@ -4427,6 +4782,7 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
             resultado: "exitosa" | "parcial" | "fallida" | "cancelada" | null;
@@ -4447,6 +4803,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4466,15 +4827,16 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
              */
             bodegaId: number | null;
+            /** @description Ítems de todos los formularios (formularioId), en el orden de los formularios */
             checklist: components["schemas"]["ItemChecklist"][] | null;
             /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
             cita?: components["schemas"]["CitaOrden"];
@@ -4501,7 +4863,7 @@ export interface components {
             enSitioEn: string | null;
             equipos: components["schemas"]["EquipoOrden"][] | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4509,6 +4871,8 @@ export interface components {
             finalizadaEn: string | null;
             /** @description Ausente si no hay firma */
             firma?: components["schemas"]["FirmaOrden"];
+            /** @description Formularios vigentes, en el orden en que se agregaron */
+            formularios?: components["schemas"]["FormularioOrden"][] | null;
             /** Format: int64 */
             id: number;
             /** Format: double */
@@ -4529,6 +4893,18 @@ export interface components {
              */
             origen?: "panel" | "api" | "argos" | "sistema";
             /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
+            /** @description Pausas de la orden (la en curso, con fin null) */
+            pausas?: components["schemas"]["PausaOrden"][] | null;
+            /**
              * Format: int64
              * @description Plantilla de checklist
              */
@@ -4542,6 +4918,7 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
             resultado: "exitosa" | "parcial" | "fallida" | "cancelada" | null;
@@ -4560,6 +4937,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4642,6 +5024,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaPlantillaFormulario: {
+            data: components["schemas"]["PlantillaFormulario"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaRol: {
             data: components["schemas"]["Rol"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -4698,8 +5085,10 @@ export interface components {
             existencias: components["schemas"]["Existencias"];
             /** @description Día del paquete (YYYY-MM-DD, America/Guatemala) */
             fecha: string;
-            /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio */
+            /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino, en sitio y pausadas */
             ordenes: components["schemas"]["OrdenCampo"][] | null;
+            /** @description Catálogo de plantillas activas de la empresa (y las comunes), en su versión actual, para orden.agregar_formulario */
+            plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después */
             ruta?: components["schemas"]["RutaCampo"];
             /**
@@ -4755,7 +5144,7 @@ export interface components {
              * @description Estado actual de la orden; vacío si oculta
              * @enum {string}
              */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada" | "";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada" | "";
             /** @description Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real */
             fija: boolean;
             /**
@@ -4823,6 +5212,36 @@ export interface components {
             /** @description La orden sigue en este técnico y día; false = se movió después de proponer */
             vigente: boolean;
         };
+        PausaOrden: {
+            /**
+             * Format: int64
+             * @description Quien la reanudó, canceló o reprogramó
+             */
+            cerradaPor: number | null;
+            /** @enum {string|null} */
+            cierre: "reanudada" | "cancelada" | "reprogramada" | null;
+            /** @enum {string} */
+            desdeEstado: "en_camino" | "en_sitio";
+            /**
+             * Format: int64
+             * @description null = en curso
+             */
+            duracionSeg: number | null;
+            /**
+             * Format: date-time
+             * @description null = en curso
+             */
+            fin: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            inicio: string;
+            /** @enum {string} */
+            motivo: "esperando_material" | "cliente_ausente" | "clima" | "acceso" | "otro";
+            nota: string | null;
+            /** Format: int64 */
+            pausadaPor: number | null;
+        };
         Pendiente: {
             /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
             conflicto: string | null;
@@ -4884,7 +5303,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -4896,6 +5315,104 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PlantillaFormulario: {
+            /** @description Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen */
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Único por empresa (las comunes, entre las comunes) */
+            codigo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string;
+            /**
+             * Format: int64
+             * @description null = común a todas las empresas
+             */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            items: components["schemas"]["ItemPlantilla"][] | null;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Número de la versión de estos ítems (1, 2, …)
+             */
+            numeroVersion: number;
+            /** @description Es la plantilla por defecto de un tipo de orden (no se puede desactivar) */
+            porDefecto: boolean;
+            requiereFirma: boolean;
+            /**
+             * @description Tipo de orden para el que se ofrece; null = cualquiera
+             * @enum {string|null}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            /**
+             * Format: int32
+             * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Número de la versión actual (la que se agrega a las órdenes nuevas)
+             */
+            versionActual: number;
+            /**
+             * Format: int64
+             * @description Versión de la plantilla de estos ítems
+             */
+            versionId: number;
+        };
+        PlantillaFormularioDetalle: {
+            /** @description Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen */
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Único por empresa (las comunes, entre las comunes) */
+            codigo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string;
+            /**
+             * Format: int64
+             * @description null = común a todas las empresas
+             */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            items: components["schemas"]["ItemPlantilla"][] | null;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Número de la versión de estos ítems (1, 2, …)
+             */
+            numeroVersion: number;
+            /** @description Es la plantilla por defecto de un tipo de orden (no se puede desactivar) */
+            porDefecto: boolean;
+            requiereFirma: boolean;
+            /**
+             * @description Tipo de orden para el que se ofrece; null = cualquiera
+             * @enum {string|null}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            /**
+             * Format: int32
+             * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Número de la versión actual (la que se agrega a las órdenes nuevas)
+             */
+            versionActual: number;
+            /**
+             * Format: int64
+             * @description Versión de la plantilla de estos ítems
+             */
+            versionId: number;
+            /** @description De la más nueva a la más vieja */
+            versiones: components["schemas"]["VersionPlantilla"][] | null;
         };
         PosicionTecnico: {
             /**
@@ -5113,7 +5630,7 @@ export interface components {
         };
         ResultadoOperacion: {
             /** @enum {string} */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
             /** @description problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>) */
             error?: components["schemas"]["Problema"];
             /** @enum {string} */
@@ -5780,6 +6297,23 @@ export interface components {
             tipo: "persona" | "integracion";
             /** Format: int32 */
             version: number;
+        };
+        VersionPlantilla: {
+            /** Format: date-time */
+            creadaEn: string;
+            /** Format: int64 */
+            creadaPor: number | null;
+            /**
+             * Format: int64
+             * @description Formularios de órdenes que la usan (con uso, editar crea otra versión)
+             */
+            formularios: number;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** Format: int32 */
+            numero: number;
+            requiereFirma: boolean;
         };
         WebhookRecibido: {
             /** @description true: ese id de webhook ya se había recibido; no se vuelve a procesar */
@@ -9317,7 +9851,7 @@ export interface operations {
                 /** @description Tamaño de página */
                 limit?: number;
                 /** @description Uno o varios estados (estado=pendiente,programada) */
-                estado?: ("pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada")[] | null;
+                estado?: ("pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada")[] | null;
                 /** @description Uno o varios tipos */
                 tipo?: ("instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento")[] | null;
                 tecnicoId?: number;
@@ -10338,6 +10872,174 @@ export interface operations {
             };
         };
     };
+    asignarFormularioOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAgregarFormulario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarFormularioOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                /** @description Formulario de la orden (formularios[].id) */
+                fid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaQuitarFormulario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     iniciarCaminoOrden: {
         parameters: {
             query?: never;
@@ -10670,6 +11372,89 @@ export interface operations {
             };
         };
     };
+    pausarOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPausar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     programarOrden: {
         parameters: {
             query?: never;
@@ -10768,6 +11553,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaMotivo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reanudarOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReanudar"];
             };
         };
         responses: {
@@ -10948,6 +11816,451 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPlantillas: {
+        parameters: {
+            query?: {
+                /** @description Las de ese tipo y las de cualquier tipo */
+                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+                /** @description Busca en nombre y código */
+                q?: string;
+                /** @description Incluye las inactivas */
+                todas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaPlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearPlantilla"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verPlantilla: {
+        parameters: {
+            query?: {
+                /** @description Número de versión; 0 o ausente = la actual */
+                numeroVersion?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormularioDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

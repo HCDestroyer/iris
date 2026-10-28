@@ -117,6 +117,7 @@ sql:
           campo_orden_materiale: CampoOrdenMaterial
           campo_posicione: CampoPosicion
           campo_posiciones_ultima: CampoPosicionUltima
+          campo_plantilla_versione: CampoPlantillaVersion
   - <<: *base
     queries: internal/agenda/consultas.sql
     gen:

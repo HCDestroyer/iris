@@ -108,10 +108,12 @@ type Paquete struct {
 	Fecha       string       `json:"fecha" doc:"Día del paquete (YYYY-MM-DD, America/Guatemala)"`
 	ServidorEn  time.Time    `json:"servidorEn" doc:"Hora del servidor al armar el paquete"`
 	Cursor      string       `json:"cursor" doc:"Cursor para GET /campo/cambios (tomado antes de leer: puede repetir algo, nunca saltarlo)"`
-	Ordenes     []OrdenCampo `json:"ordenes" doc:"Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio"`
+	Ordenes     []OrdenCampo `json:"ordenes" doc:"Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino, en sitio y pausadas"`
 	Existencias Existencias  `json:"existencias"`
 	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después"`
 	Turno       *TurnoCampo  `json:"turno,omitempty" doc:"Turno del técnico ese día según su ficha de agenda, sin las ausencias; ausente = no trabaja ese día"`
+	// Plantillas: el catálogo que el técnico puede agregar a sus órdenes sin señal.
+	Plantillas []PlantillaFormulario `json:"plantillas" required:"false" doc:"Catálogo de plantillas activas de la empresa (y las comunes), en su versión actual, para orden.agregar_formulario"`
 }
 
 // TurnoCampo: el turno del día (UTC). Un turno partido trae varios tramos.
@@ -152,6 +154,8 @@ type Cambios struct {
 	Cursor  string        `json:"cursor" doc:"Siguiente cursor"`
 	HayMas  bool          `json:"hayMas" doc:"Quedan cambios: pedir otra vez con el cursor"`
 	Ruta    *RutaCampo    `json:"ruta,omitempty" doc:"Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día"`
+	// Plantillas: el catálogo como está ahora (reemplaza el del paquete).
+	Plantillas []PlantillaFormulario `json:"plantillas" required:"false" doc:"Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece)"`
 }
 
 func cursorDe(id int64) string { return nucleo.CodificarCursor(id) }
@@ -212,8 +216,12 @@ func (m *Modulo) nuevoLeerPaquete() *auditoria.Caso[EntradaPaquete, Paquete] {
 			if err != nil {
 				return Paquete{}, err
 			}
+			plantillas, err := catalogoFormularios(ctx, q)
+			if err != nil {
+				return Paquete{}, err
+			}
 			t.Anotar(map[string]any{"fecha": inicioDia.Format("2006-01-02"), "ordenes": ids})
-			return Paquete{Turno: turno,
+			return Paquete{Turno: turno, Plantillas: plantillas,
 				Fecha: inicioDia.Format("2006-01-02"), ServidorEn: ahora, Cursor: cursorDe(ultimo), Ordenes: ordenes,
 				Existencias: Existencias{Bodegas: []ExistenciasBodega{}}, Ruta: ruta,
 			}, nil
@@ -246,7 +254,11 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 			if err != nil {
 				return Cambios{}, err
 			}
-			salida := Cambios{Cambios: []CambioOrden{}, Cursor: cursorDe(desde)}
+			plantillas, err := catalogoFormularios(ctx, q)
+			if err != nil {
+				return Cambios{}, err
+			}
+			salida := Cambios{Cambios: []CambioOrden{}, Cursor: cursorDe(desde), Plantillas: plantillas}
 			if len(filas) > limite {
 				filas, salida.HayMas = filas[:limite], true
 			}

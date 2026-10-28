@@ -18,6 +18,7 @@ const (
 	EstadoProgramada = "programada"
 	EstadoEnCamino   = "en_camino"
 	EstadoEnSitio    = "en_sitio"
+	EstadoPausada    = "pausada"
 	EstadoCerrada    = "cerrada"
 	EstadoFallida    = "fallida"
 	EstadoCancelada  = "cancelada"
@@ -25,11 +26,12 @@ const (
 
 // Tipos de ítem del checklist.
 const (
-	ItemSiNo     = "si_no"
-	ItemTexto    = "texto"
-	ItemNumero   = "numero"
-	ItemFoto     = "foto"
-	ItemMedicion = "medicion"
+	ItemSiNo      = "si_no"
+	ItemTexto     = "texto"
+	ItemNumero    = "numero"
+	ItemFoto      = "foto"
+	ItemMedicion  = "medicion"
+	ItemSeleccion = "seleccion"
 )
 
 // MotivosFalla son los códigos de orden.fallar (el detalle va en texto aparte).
@@ -63,7 +65,7 @@ type Orden struct {
 	Descripcion      string        `json:"descripcion"`
 	TecnicoID        *int64        `json:"tecnicoId" nullable:"true" doc:"Usuario técnico asignado"`
 	AsignadaEn       *time.Time    `json:"asignadaEn" nullable:"true"`
-	Estado           string        `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada"`
+	Estado           string        `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada"`
 	ProgramadaInicio *time.Time    `json:"programadaInicio" nullable:"true"`
 	ProgramadaFin    *time.Time    `json:"programadaFin" nullable:"true"`
 	EnCaminoEn       *time.Time    `json:"enCaminoEn" nullable:"true"`
@@ -76,9 +78,12 @@ type Orden struct {
 	CreadoEn         time.Time     `json:"creadoEn"`
 	ActualizadoEn    time.Time     `json:"actualizadoEn"`
 	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema" doc:"De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema"`
+	PausadaDesde     *string       `json:"pausadaDesde,omitempty" enum:"en_camino,en_sitio" doc:"Solo pausada: el estado al que vuelve al reanudar"`
+	PausadaEn        *time.Time    `json:"pausadaEn,omitempty" doc:"Solo pausada: inicio de la pausa en curso"`
+	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`
 	// Aviso: la acción se aplicó, pero con una advertencia (checklist_no_vigente,
 	// existencia_insuficiente). Solo en la respuesta de una acción.
-	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)"`
+	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)"`
 }
 
 func aOrden(f campobd.CampoOrden, tipo string) Orden {
@@ -91,21 +96,55 @@ func aOrden(f campobd.CampoOrden, tipo string) Orden {
 		ProgramadaFin: f.ProgramadaFin, EnCaminoEn: f.EnCaminoEn, EnSitioEn: f.EnSitioEn, FinalizadaEn: f.FinalizadaEn,
 		Resultado: f.Resultado, MotivoFalla: f.MotivoFalla, Motivo: f.Motivo, Version: f.Version,
 		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Origen: f.Origen,
+		PausadaDesde: f.PausadaDesde, PausadaEn: f.PausadaEn, TiempoPausadoSeg: f.PausadaSeg,
 	}
 }
 
-// ItemChecklist es un ítem de la plantilla con la marca vigente (si la hay).
+// ItemChecklist es un ítem de un formulario de la orden con la marca vigente (si la hay).
 type ItemChecklist struct {
-	ItemID      int64      `json:"itemId"`
-	Codigo      string     `json:"codigo"`
-	Etiqueta    string     `json:"etiqueta"`
-	Tipo        string     `json:"tipo" enum:"si_no,texto,numero,foto,medicion"`
-	Obligatorio bool       `json:"obligatorio"`
-	Unidad      string     `json:"unidad" doc:"Para medicion y numero (dBm, Mbps…)"`
-	Posicion    int32      `json:"posicion"`
-	Valor       any        `json:"valor" nullable:"true" doc:"si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto. null = sin marcar"`
-	MarcadoPor  *int64     `json:"marcadoPor" nullable:"true"`
-	OcurridoEn  *time.Time `json:"ocurridoEn" nullable:"true" doc:"Hora de la marca vigente (gana la más reciente)"`
+	ItemID       int64      `json:"itemId"`
+	FormularioID uuid.UUID  `json:"formularioId" required:"false" doc:"Formulario de la orden al que pertenece (formularios[].id)"`
+	Codigo       string     `json:"codigo"`
+	Etiqueta     string     `json:"etiqueta"`
+	Tipo         string     `json:"tipo" enum:"si_no,texto,numero,foto,medicion,seleccion"`
+	Obligatorio  bool       `json:"obligatorio"`
+	Unidad       string     `json:"unidad" doc:"Para medicion y numero (dBm, Mbps…)"`
+	Opciones     []string   `json:"opciones,omitempty" doc:"Solo seleccion: las opciones válidas"`
+	Posicion     int32      `json:"posicion"`
+	Valor        any        `json:"valor" nullable:"true" doc:"si_no: boolean; texto y seleccion: string (una de las opciones); numero y medicion: number; foto: uuid del adjunto. null = sin marcar"`
+	MarcadoPor   *int64     `json:"marcadoPor" nullable:"true"`
+	OcurridoEn   *time.Time `json:"ocurridoEn" nullable:"true" doc:"Hora de la marca vigente (gana la más reciente)"`
+}
+
+// FormularioOrden es un formulario de la orden: una plantilla en la versión con que se agregó
+// (lo respondido nunca cambia aunque la plantilla se edite). Sus ítems vienen en checklist[]
+// con su formularioId.
+type FormularioOrden struct {
+	ID            uuid.UUID `json:"id" doc:"Agregado por el técnico sin señal: el id de su operación del lote"`
+	PlantillaID   int64     `json:"plantillaId"`
+	Codigo        string    `json:"codigo"`
+	Nombre        string    `json:"nombre" doc:"Nombre de la plantilla en su versión"`
+	VersionID     int64     `json:"versionId"`
+	NumeroVersion int32     `json:"numeroVersion"`
+	RequiereFirma bool      `json:"requiereFirma"`
+	Origen        string    `json:"origen" enum:"tipo,despacho,tecnico" doc:"tipo: el de la orden al crearla; despacho: lo asignó despacho; tecnico: lo agregó el técnico en campo"`
+	AgregadoPor   *int64    `json:"agregadoPor" nullable:"true"`
+	AgregadoEn    time.Time `json:"agregadoEn"`
+	ConRespuestas bool      `json:"conRespuestas" doc:"Tiene alguna marca o adjunto: ya no se puede quitar"`
+}
+
+// PausaOrden es una pausa de la orden (en curso si fin es null).
+type PausaOrden struct {
+	ID          int64      `json:"id"`
+	Motivo      string     `json:"motivo" enum:"esperando_material,cliente_ausente,clima,acceso,otro"`
+	Nota        *string    `json:"nota" nullable:"true"`
+	DesdeEstado string     `json:"desdeEstado" enum:"en_camino,en_sitio"`
+	Inicio      time.Time  `json:"inicio"`
+	Fin         *time.Time `json:"fin" nullable:"true" doc:"null = en curso"`
+	DuracionSeg *int64     `json:"duracionSeg" nullable:"true" doc:"null = en curso"`
+	Cierre      *string    `json:"cierre" nullable:"true" enum:"reanudada,cancelada,reprogramada"`
+	PausadaPor  *int64     `json:"pausadaPor" nullable:"true"`
+	CerradaPor  *int64     `json:"cerradaPor" nullable:"true" doc:"Quien la reanudó, canceló o reprogramó"`
 }
 
 // NotaOrden: nota de la orden (técnico o despacho).
@@ -162,14 +201,16 @@ type AdjuntoOrden struct {
 // OrdenDetalle es la orden con su trabajo registrado.
 type OrdenDetalle struct {
 	Orden
-	RequiereFirma bool            `json:"requiereFirma"`
-	Checklist     []ItemChecklist `json:"checklist"`
-	Notas         []NotaOrden     `json:"notas"`
-	Materiales    []MaterialOrden `json:"materiales"`
-	Equipos       []EquipoOrden   `json:"equipos"`
-	Firma         *FirmaOrden     `json:"firma,omitempty" doc:"Ausente si no hay firma"`
-	Adjuntos      []AdjuntoOrden  `json:"adjuntos"`
-	Cita          *CitaOrden      `json:"cita,omitempty" doc:"Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"`
+	RequiereFirma bool              `json:"requiereFirma" doc:"Algún formulario pide la firma del cliente"`
+	Formularios   []FormularioOrden `json:"formularios" required:"false" doc:"Formularios vigentes, en el orden en que se agregaron"`
+	Checklist     []ItemChecklist   `json:"checklist" doc:"Ítems de todos los formularios (formularioId), en el orden de los formularios"`
+	Pausas        []PausaOrden      `json:"pausas" required:"false" doc:"Pausas de la orden (la en curso, con fin null)"`
+	Notas         []NotaOrden       `json:"notas"`
+	Materiales    []MaterialOrden   `json:"materiales"`
+	Equipos       []EquipoOrden     `json:"equipos"`
+	Firma         *FirmaOrden       `json:"firma,omitempty" doc:"Ausente si no hay firma"`
+	Adjuntos      []AdjuntoOrden    `json:"adjuntos"`
+	Cita          *CitaOrden        `json:"cita,omitempty" doc:"Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"`
 }
 
 // CitaOrden es la cita de la agenda de una orden programada.
@@ -193,7 +234,7 @@ type TipoOrden struct {
 	Plantillas    []Plantilla `json:"plantillas"`
 }
 
-// Plantilla de checklist.
+// Plantilla de checklist (formulario) en su versión actual.
 type Plantilla struct {
 	ID            int64           `json:"id"`
 	Codigo        string          `json:"codigo"`
@@ -202,25 +243,41 @@ type Plantilla struct {
 	Items         []ItemPlantilla `json:"items"`
 }
 
-// ItemPlantilla es un ítem de una plantilla.
+// ItemPlantilla es un ítem de una versión de plantilla.
 type ItemPlantilla struct {
-	ID          int64  `json:"id"`
-	Codigo      string `json:"codigo"`
-	Etiqueta    string `json:"etiqueta"`
-	Tipo        string `json:"tipo" enum:"si_no,texto,numero,foto,medicion"`
-	Obligatorio bool   `json:"obligatorio"`
-	Unidad      string `json:"unidad"`
-	Posicion    int32  `json:"posicion"`
+	ID          int64    `json:"id"`
+	Codigo      string   `json:"codigo"`
+	Etiqueta    string   `json:"etiqueta"`
+	Tipo        string   `json:"tipo" enum:"si_no,texto,numero,foto,medicion,seleccion"`
+	Obligatorio bool     `json:"obligatorio"`
+	Unidad      string   `json:"unidad"`
+	Opciones    []string `json:"opciones,omitempty" doc:"Solo seleccion"`
+	Posicion    int32    `json:"posicion"`
+}
+
+// aItemPlantilla convierte una fila de ítem.
+func aItemPlantilla(it campobd.CampoPlantillaItem) ItemPlantilla {
+	return ItemPlantilla{ID: it.ID, Codigo: it.Codigo, Etiqueta: it.Etiqueta, Tipo: it.Tipo, Obligatorio: it.Obligatorio,
+		Unidad: it.Unidad, Opciones: opcionesDe(it.Opciones), Posicion: it.Posicion}
+}
+
+// opcionesDe lee las opciones (jsonb) de un ítem seleccion.
+func opcionesDe(crudo []byte) []string {
+	var o []string
+	if err := json.Unmarshal(crudo, &o); err != nil || len(o) == 0 {
+		return nil
+	}
+	return o
 }
 
 // EventoOrden es una entrada del historial.
 type EventoOrden struct {
 	ID          int64          `json:"id"`
-	Tipo        string         `json:"tipo" enum:"creada,estado,asignada,programada"`
+	Tipo        string         `json:"tipo" enum:"creada,estado,asignada,programada,formulario"`
 	De          *string        `json:"de" nullable:"true"`
 	A           *string        `json:"a" nullable:"true"`
 	Motivo      *string        `json:"motivo" nullable:"true"`
-	Datos       map[string]any `json:"datos" doc:"GPS (lat, lon, precision), técnico, fechas, según el tipo"`
+	Datos       map[string]any `json:"datos" doc:"GPS (lat, lon, precision), técnico, fechas, formulario (accion agregado|quitado, formulario_id, plantilla_id, nombre, origen) o pausa (pausa_id, motivo, nota), según el tipo"`
 	ActorTipo   string         `json:"actorTipo"`
 	ActorID     *int64         `json:"actorId" nullable:"true"`
 	ActorNombre string         `json:"actorNombre"`

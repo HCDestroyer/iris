@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,12 +60,13 @@ func TestCicloCompletoDeInstalacion(t *testing.T) {
 	for _, c := range problema(t, err, 422, "cierre_incompleto") {
 		campos = append(campos, c.Field)
 	}
-	for _, f := range []string{"checklist.potencia_rx", "checklist.foto_onu", "equipos.instalar", "firma"} {
-		if !slices.Contains(campos, f) {
+	// Los del checklist, formulario por formulario: formularios.<id>.checklist.<código>.
+	for _, f := range []string{".checklist.potencia_rx", ".checklist.foto_onu", "equipos.instalar", "firma"} {
+		if !slices.ContainsFunc(campos, func(c string) bool { return strings.HasSuffix(c, f) }) {
 			t.Fatalf("falta %s en %v", f, campos)
 		}
 	}
-	if slices.Contains(campos, "checklist.observaciones") {
+	if slices.ContainsFunc(campos, func(c string) bool { return strings.HasSuffix(c, ".checklist.observaciones") }) {
 		t.Fatal("observaciones no es obligatorio")
 	}
 

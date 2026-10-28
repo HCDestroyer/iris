@@ -266,13 +266,13 @@ RETURNING *;
 DELETE FROM agenda.citas WHERE orden_id = @orden_id RETURNING *;
 
 -- name: Solapes :many
--- Citas del técnico que ocupan su agenda (orden programada, en camino o en sitio) y se cruzan
--- con [inicio, fin).
+-- Citas del técnico que ocupan su agenda (orden programada, en camino, en sitio o pausada) y se
+-- cruzan con [inicio, fin).
 SELECT c.orden_id, o.numero, o.empresa_id, c.inicio, c.fin
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 WHERE c.tecnico_id = @tecnico_id AND c.orden_id <> @orden_id
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada')
   AND c.inicio < @fin AND c.fin > @inicio
 ORDER BY c.inicio;
 
@@ -283,7 +283,7 @@ SELECT c.orden_id, c.tecnico_id, c.tipo_id, c.inicio, c.fin, o.estado, o.numero,
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 WHERE c.tecnico_id = ANY(@tecnicos::bigint[]) AND c.orden_id <> @excluir_orden
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada', 'cerrada')
   AND c.inicio < @hasta AND c.fin > @desde
 ORDER BY c.tecnico_id, c.inicio;
 
@@ -332,7 +332,7 @@ WHERE c.tecnico_id = @tecnico_id AND o.tecnico_id = @tecnico_id
   AND c.inicio >= @desde AND c.inicio < @hasta
   AND c.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
   AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada', 'fallida')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada', 'cerrada', 'fallida')
 ORDER BY c.inicio, c.orden_id
 LIMIT 101;
 

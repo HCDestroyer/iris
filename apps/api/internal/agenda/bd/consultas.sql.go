@@ -538,7 +538,7 @@ WHERE c.tecnico_id = $1 AND o.tecnico_id = $1
   AND c.inicio >= $2 AND c.inicio < $3
   AND c.empresa_id IS NOT DISTINCT FROM $4::bigint
   AND o.empresa_id IS NOT DISTINCT FROM $4::bigint
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada', 'fallida')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada', 'cerrada', 'fallida')
 ORDER BY c.inicio, c.orden_id
 LIMIT 101
 `
@@ -1630,7 +1630,7 @@ SELECT c.orden_id, c.tecnico_id, c.tipo_id, c.inicio, c.fin, o.estado, o.numero,
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 WHERE c.tecnico_id = ANY($1::bigint[]) AND c.orden_id <> $2
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada', 'cerrada')
   AND c.inicio < $3 AND c.fin > $4
 ORDER BY c.tecnico_id, c.inicio
 `
@@ -2301,7 +2301,7 @@ SELECT c.orden_id, o.numero, o.empresa_id, c.inicio, c.fin
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 WHERE c.tecnico_id = $1 AND c.orden_id <> $2
-  AND o.estado IN ('programada', 'en_camino', 'en_sitio')
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'pausada')
   AND c.inicio < $3 AND c.fin > $4
 ORDER BY c.inicio
 `
@@ -2321,8 +2321,8 @@ type SolapesRow struct {
 	Fin       time.Time
 }
 
-// Citas del técnico que ocupan su agenda (orden programada, en camino o en sitio) y se cruzan
-// con [inicio, fin).
+// Citas del técnico que ocupan su agenda (orden programada, en camino, en sitio o pausada) y se
+// cruzan con [inicio, fin).
 func (q *Queries) Solapes(ctx context.Context, arg SolapesParams) ([]SolapesRow, error) {
 	rows, err := q.db.Query(ctx, solapes,
 		arg.TecnicoID,
