@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -257,5 +261,88 @@ func TestRechazosAnonimosNoInundanAuditoria(t *testing.T) {
 	e.entranteDe(e.enviar(id, secreto, "wh-ok-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"empresa_id": 1}, time.Now()))
 	if d := acciones() - antes; d != 1 {
 		t.Fatalf("el webhook aceptado debía auditarse: %d", d)
+	}
+}
+
+// Hallazgo 5 (MEDIO): SSRF. Las IP internas se bloquean al conectar, también detrás de un nombre
+// (resuelto por DNS), salvo IRIS_ARGOS_REDES_PERMITIDAS.
+func TestDestinoPermitido(t *testing.T) {
+	bloqueadas := []string{"127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1",
+		"0.0.0.0", "255.255.255.255", "224.0.0.1", "::", "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:169.254.169.254",
+		"64:ff9b::a9fe:a9fe", "2002:7f00:1::1"}
+	for _, s := range bloqueadas {
+		if argos.DestinoPermitido(netip.MustParseAddr(s), nil) {
+			t.Errorf("%s debía bloquearse", s)
+		}
+	}
+	for _, s := range []string{"8.8.8.8", "190.106.1.1", "2001:4860:4860::8888"} {
+		if !argos.DestinoPermitido(netip.MustParseAddr(s), nil) {
+			t.Errorf("%s debía permitirse", s)
+		}
+	}
+	lab := []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16")}
+	if !argos.DestinoPermitido(netip.MustParseAddr("10.20.1.5"), lab) || argos.DestinoPermitido(netip.MustParseAddr("10.21.1.5"), lab) {
+		t.Error("IRIS_ARGOS_REDES_PERMITIDAS mal aplicada")
+	}
+}
+
+func TestSSRFConectorYLecturas(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado() // con loopback permitido (el Argos falso)
+	estricto := e.cfg
+	estricto.RedesPermitidas = nil
+	m := argos.Nuevo(estricto)
+	ctx := pruebas.ContextoUsuario(e.pool, 0, nucleo.PermIntegracionesConectar)
+	puerto := e.argos.srv.URL[strings.LastIndex(e.argos.srv.URL, ":")+1:]
+	canjesAntes := 0
+	e.argos.con(func() { canjesAntes = len(e.argos.canjes) })
+
+	// IP interna escrita en el enlace: 422 al validar.
+	for _, enlace := range []string{"http://127.0.0.1:" + puerto, "http://169.254.169.254", "http://[::1]:" + puerto, "http://10.0.0.5"} {
+		if _, err := m.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: enlace + "/conectar#codigo-de-argos-0123456789"}); !esProblema(err, "validacion") {
+			t.Fatalf("%s: debía ser 422 validacion: %v", enlace, err)
+		}
+	}
+	// Un nombre que resuelve a loopback: se corta al conectar (después del DNS).
+	_, err := m.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: "http://localhost:" + puerto + "/conectar#codigo-de-argos-0123456789"})
+	if !esProblema(err, "destino_no_permitido") {
+		t.Fatalf("localhost debía bloquearse en el dial: %v", err)
+	}
+	e.argos.con(func() {
+		if len(e.argos.canjes) != canjesAntes {
+			t.Fatal("la petición llegó al destino interno")
+		}
+	})
+
+	// Canje desde «Argos» con una URL interna: 422.
+	admin := e.usuario("admin")
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conexion/enlaces", nil)
+	_, codigo, _ := strings.Cut(r.cuerpo["enlace"].(string), "#")
+	if _, err := m.CanjearConexion.Ejecutar(pruebas.ContextoSistema(e.pool), argos.EntradaCanjear{
+		Codigo: codigo, Sistema: "argosisp", URL: "http://169.254.169.254/latest", Token: tokenArgos,
+	}); !esProblema(err, "validacion") {
+		t.Fatalf("canje con URL interna: %v", err)
+	}
+
+	// Lecturas con un conector guardado en una red interna: se bloquean sin llegar al destino.
+	e.sembrarCliente(81, "Ana Interna")
+	antes := e.argos.llamadasA("/api/v1/clientes")
+	lctx := contexto.ConEmpresa(pruebas.ContextoUsuario(e.pool, 1, nucleo.PermClientesVer), 1)
+	if _, err := m.BuscarClientes.Ejecutar(lctx, argos.EntradaBuscarClientes{Q: "ana", Limit: 5}); !esProblema(err, "destino_no_permitido") {
+		t.Fatalf("lectura hacia red interna: %v", err)
+	}
+	if e.argos.llamadasA("/api/v1/clientes") != antes {
+		t.Fatal("la lectura llegó al destino interno")
+	}
+}
+
+// Hallazgo 5: al admin no le llega el detail crudo de lo que respondió la URL (resumen).
+func TestRechazoDeArgosResumido(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin := e.usuario("admin")
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.srv.URL + "/conectar#codigo-que-no-es-0123456789"})
+	r.problema(t, 502, "argos_rechazo")
+	if d, _ := r.cuerpo["detail"].(string); strings.Contains(d, "venció") || !strings.Contains(d, "HTTP 422") {
+		t.Fatalf("detail: %q", d)
 	}
 }

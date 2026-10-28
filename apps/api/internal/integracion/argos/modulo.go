@@ -19,6 +19,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -45,8 +46,9 @@ type Config struct {
 	Cifrador *nucleo.Cifrador
 	// BaseURL pública de Iris (IRIS_BASE_URL): URL del webhook y de los enlaces de conexión.
 	BaseURL string
-	// HTTP para llamar a Argos (nil = uno propio). Las pruebas pasan el del servidor falso.
-	HTTP *http.Client
+	// RedesPermitidas (IRIS_ARGOS_REDES_PERMITIDAS): redes internas a las que sí se puede
+	// conectar (Argos en la red local de dev o lab). Todo lo demás interno se bloquea (red.go).
+	RedesPermitidas []netip.Prefix
 	// Timeout de cada llamada a Argos (5 s).
 	Timeout time.Duration
 	// Reintentos de las lecturas idempotentes (3 intentos en total) y espera base (200 ms,
@@ -72,6 +74,8 @@ type Modulo struct {
 	cfg Config
 	// rechazos cuenta los 401 anónimos (webhook y canje) que no se auditan.
 	rechazos atomic.Int64
+	// http hacia Argos, siempre con la protección contra SSRF (red.go).
+	http *http.Client
 
 	Conectar             *Conectar
 	GenerarEnlace        *auditoria.Caso[struct{}, EnlaceGenerado]
@@ -107,13 +111,7 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.VigenciaEnlace <= 0 {
 		cfg.VigenciaEnlace = 15 * time.Minute
 	}
-	if cfg.HTTP == nil {
-		cfg.HTTP = &http.Client{
-			// Sin seguir redirecciones: el token no debe viajar a otro host.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
-	}
-	m := &Modulo{cfg: cfg}
+	m := &Modulo{cfg: cfg, http: nuevoHTTP(cfg.RedesPermitidas)}
 	m.Conectar = nuevoConectar(m)
 	m.GenerarEnlace = nuevoGenerarEnlace(m)
 	m.CanjearConexion = nuevoCanjearConexion(m)
@@ -135,7 +133,7 @@ func (m *Modulo) Config() Config { return m.cfg }
 // clienteDe arma el cliente HTTP de Argos de un conector (descifra el token).
 func (m *Modulo) clienteDe(c conectorLeido) *Cliente {
 	return NuevoCliente(c.BaseUrl, c.token, OpcionesCliente{
-		HTTP: m.cfg.HTTP, Timeout: m.cfg.Timeout, Intentos: m.cfg.Intentos, Espera: m.cfg.Espera,
+		HTTP: m.http, Timeout: m.cfg.Timeout, Intentos: m.cfg.Intentos, Espera: m.cfg.Espera,
 		UserAgent: "Iris/" + m.cfg.Version,
 	})
 }

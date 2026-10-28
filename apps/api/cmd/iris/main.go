@@ -103,7 +103,7 @@ func configArgos(cfg config.Config) (argos.Config, error) {
 	}
 	return argos.Config{
 		Cifrador: c, BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, VentanaWebhook: cfg.WebhookVentana,
-		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: cfg.Version,
+		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: cfg.Version, RedesPermitidas: cfg.ArgosRedesPermitidas,
 	}, nil
 }
 

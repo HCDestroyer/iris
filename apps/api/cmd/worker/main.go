@@ -55,7 +55,10 @@ func correr() error {
 	relay := &integracion.Relay{BD: pool, Bus: bus, Log: log}
 
 	// Conector Argos: procesa los webhooks entrantes y refresca zonas y routers.
-	acfg := argos.Config{BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version}
+	acfg := argos.Config{
+		BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version,
+		RedesPermitidas: cfg.ArgosRedesPermitidas,
+	}
 	if cfg.ClaveCifrado != "" {
 		if acfg.Cifrador, err = nucleo.NuevoCifrador(cfg.ClaveCifrado); err != nil {
 			return err

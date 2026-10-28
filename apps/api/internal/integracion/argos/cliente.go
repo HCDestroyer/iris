@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -93,7 +95,15 @@ func (e *ErrorArgos) Unwrap() error { return e.causa }
 // Caido indica que Argos no respondió o respondió con una falla temporal: se puede servir la
 // última instantánea marcada stale.
 func (e *ErrorArgos) Caido() bool {
+	if e.Bloqueado() {
+		return false
+	}
 	return e.Status == 0 || e.Status == http.StatusTooManyRequests || e.Status >= 500
+}
+
+// Bloqueado indica que no se llegó a conectar porque el destino es una red interna (red.go).
+func (e *ErrorArgos) Bloqueado() bool {
+	return e.Status == 0 && errors.Is(e.causa, ErrDestinoBloqueado)
 }
 
 // EsCaido indica si err es una falla temporal de Argos.
@@ -110,10 +120,13 @@ func EsNoEncontrado(err error) bool {
 
 // Problema traduce un error de Argos al problema que ve el cliente de Iris:
 //
+//   - destino en una red interna → 422 destino_no_permitido;
 //   - 404 → 404 no_encontrado;
 //   - 401/403 → 502 argos_sin_permiso (el token del conector es inválido o le falta un permiso);
 //   - red, timeout, 429 o 5xx → 503 argos_no_disponible;
-//   - otro 4xx → 502 argos_rechazo con el detail de Argos.
+//   - otro 4xx → 502 argos_rechazo con un resumen (status y tipo), nunca el detail crudo de
+//     Argos: lo que responda el destino no llega tal cual a quien escribió la URL (SSRF). El
+//     detail queda en el log.
 //
 // Cualquier otro error pasa tal cual.
 func Problema(err error) error {
@@ -122,6 +135,9 @@ func Problema(err error) error {
 		return err
 	}
 	switch {
+	case ea.Bloqueado():
+		return nucleo.ReglaNegocio("destino_no_permitido",
+			"La URL de Argos resuelve a una red interna; si es intencional, agrégala a IRIS_ARGOS_REDES_PERMITIDAS")
 	case ea.Status == http.StatusNotFound:
 		return nucleo.NoEncontrado("No existe en Argos")
 	case ea.Status == http.StatusUnauthorized || ea.Status == http.StatusForbidden:
@@ -131,19 +147,23 @@ func Problema(err error) error {
 		return nucleo.NuevoProblema(http.StatusServiceUnavailable, "argos_no_disponible", "Argos no disponible",
 			"ArgosISP no respondió; vuelve a intentar en unos minutos")
 	}
-	detalle := ea.Detalle
-	if detalle == "" {
-		detalle = ea.Titulo
+	slog.Warn("argos: rechazó la petición", "status", ea.Status, "tipo", ea.Tipo, "detalle", ea.Detalle)
+	detalle := "Argos respondió HTTP " + strconv.Itoa(ea.Status)
+	if tipoSeguro.MatchString(ea.Tipo) {
+		detalle += " (" + ea.Tipo + ")"
 	}
 	return nucleo.NuevoProblema(http.StatusBadGateway, "argos_rechazo", "Argos rechazó la petición", detalle)
 }
+
+// tipoSeguro: un type de problem+json corto y sin texto libre (urn:argos:codigo_invalido).
+var tipoSeguro = regexp.MustCompile(`^[A-Za-z0-9:._/-]{1,80}$`)
 
 func reintentable(err error) (bool, time.Duration) {
 	var ea *ErrorArgos
 	if !errors.As(err, &ea) {
 		return false, 0
 	}
-	if ea.Status == 0 || ea.Status == http.StatusTooManyRequests || ea.Status >= 500 {
+	if ea.Caido() {
 		return true, ea.reintentarEn
 	}
 	return false, 0

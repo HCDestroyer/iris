@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -49,6 +50,11 @@ func (m *Modulo) validarBase(crudo, campo string) (string, error) {
 	}
 	if u.User != nil || u.RawQuery != "" {
 		return "", invalido("No puede llevar usuario ni consulta")
+	}
+	// Una IP interna escrita tal cual se rechaza aquí; un nombre que resuelve a una se corta al
+	// conectar (red.go).
+	if ip, err := netip.ParseAddr(strings.Trim(u.Hostname(), "[]")); err == nil && !DestinoPermitido(ip, m.cfg.RedesPermitidas) {
+		return "", invalido("Apunta a una red interna; si es intencional, agrégala a IRIS_ARGOS_REDES_PERMITIDAS")
 	}
 	return u.Scheme + "://" + u.Host + strings.TrimRight(u.EscapedPath(), "/"), nil
 }
@@ -194,7 +200,7 @@ func (c *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (Conector, 
 		return Conector{}, err
 	}
 	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto}
-	cli := NuevoCliente(base, "", OpcionesCliente{HTTP: c.m.cfg.HTTP, Timeout: c.m.cfg.Timeout, UserAgent: "Iris/" + c.m.cfg.Version})
+	cli := NuevoCliente(base, "", OpcionesCliente{HTTP: c.m.http, Timeout: c.m.cfg.Timeout, UserAgent: "Iris/" + c.m.cfg.Version})
 	g.respuesta, g.errArgos = cli.Canjear(ctx, PeticionCanje{
 		Codigo: codigo, Sistema: "iris", URL: c.m.cfg.BaseURL, WebhookURL: c.m.urlWebhook(id), WebhookSecreto: secreto,
 	})

@@ -38,6 +38,11 @@ type Config struct {
 	// IRIS_PROXIES_CONFIABLES: redes (CIDR o IP, separadas por coma) de los proxies cuyo
 	// X-Forwarded-For se cree. Vacía = no se confía en ninguno (se usa la IP de la conexión).
 	ProxiesConfiables []netip.Prefix
+	// IRIS_ARGOS_REDES_PERMITIDAS: redes internas (CIDR o IP, separadas por coma) a las que el
+	// conector sí puede llamar. Vacía = Argos debe estar en una IP pública: loopback, privadas,
+	// enlace local, CGNAT y demás reservadas se bloquean al conectar (protección SSRF). Solo
+	// para desarrollo y laboratorio.
+	ArgosRedesPermitidas []netip.Prefix
 	// IRIS_ARGOS_TIMEOUT: tiempo máximo de cada llamada a Argos (5s).
 	ArgosTimeout time.Duration
 	// IRIS_WEBHOOK_VENTANA: desfase máximo aceptado en X-Webhook-Timestamp (5m).
@@ -110,6 +115,11 @@ func Cargar() (Config, error) {
 		errs = append(errs, "IRIS_PROXIES_CONFIABLES inválido: "+err.Error())
 	}
 	c.ProxiesConfiables = redes
+	permitidas, err := ParsearRedes(os.Getenv("IRIS_ARGOS_REDES_PERMITIDAS"))
+	if err != nil {
+		errs = append(errs, "IRIS_ARGOS_REDES_PERMITIDAS inválido: "+err.Error())
+	}
+	c.ArgosRedesPermitidas = permitidas
 	for nombre, destino := range map[string]*time.Duration{
 		"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo,
 		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,

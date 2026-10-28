@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -78,8 +79,10 @@ func nuevoEntorno(t *testing.T) *entorno {
 		t.Fatal(err)
 	}
 	cfg := argos.Config{
-		Cifrador: cif, BaseURL: "https://iris.prueba", HTTP: fa.srv.Client(), PermitirHTTP: true,
-		Espera: 5 * time.Millisecond, Encolar: integracion.Encolar(cola), Timeout: 2 * time.Second,
+		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true,
+		// El Argos falso escucha en loopback: en producción esa red está bloqueada (red.go).
+		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
+		Espera:          5 * time.Millisecond, Encolar: integracion.Encolar(cola), Timeout: 2 * time.Second,
 	}
 	mod := argos.Nuevo(cfg)
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
