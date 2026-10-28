@@ -1,0 +1,39 @@
+# Versiones de Iris con release-please:
+#
+# 1. Cada push a main actualiza (o abre) la PR "chore: publicar versión X.Y.Z" con la versión que
+#    sale de los Conventional Commits y el CHANGELOG.md en español (secciones en
+#    release-please-config.json). La primera es 0.1.0 (release-as en la config).
+# 2. Al mergear esa PR, release-please crea la etiqueta vX.Y.Z y la GitHub Release.
+#
+# La PR de release-please la abre GITHUB_TOKEN, así que el CI no corre solo en ella: ciérrala y
+# vuelve a abrirla (o corre CI con workflow_dispatch en su rama) antes de mergear (CLAUDE.md §12).
+# Las imágenes de producción (api y worker distroless, web standalone) se agregarán aquí como un
+# job que depende de release_created (tarea 4 de I5).
+name: Versión
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: version-main
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-24.04
+    outputs:
+      creada: ${{ steps.rp.outputs.release_created }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

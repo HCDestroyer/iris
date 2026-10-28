@@ -1,0 +1,183 @@
+# Iris · entorno de desarrollo y laboratorio.
+#
+#   cp .env.example .env
+#   make dev                         # postgres, redis, minio (+ bucket), mailpit y osrm
+#   infra/osrm/preparar.sh           # una vez: descarga y preprocesa Guatemala para osrm
+#   make dev-app                     # además api, worker y web (perfil app; requiere apps/)
+#
+# Sin make: docker compose -f infra/docker-compose.yml --env-file .env up -d
+# El contexto de build de api/worker/web es la raíz del repo (..), con el Dockerfile de cada app.
+
+name: iris
+
+x-api-env: &api-env
+  TZ: UTC
+  PORT: '8080'
+  IRIS_BASE_URL: ${IRIS_BASE_URL:-http://localhost:3000}
+  IRIS_DB_URL: postgres://${IRIS_PG_USUARIO:-iris}:${IRIS_PG_CONTRASENA:-iris}@postgres:5432/${IRIS_PG_BASE:-iris}?sslmode=disable
+  IRIS_REDIS_URL: redis://redis:6379/0
+  IRIS_S3_ENDPOINT: http://minio:9000
+  IRIS_S3_REGION: ${IRIS_S3_REGION:-us-east-1}
+  IRIS_S3_BUCKET: ${IRIS_S3_BUCKET:-iris-adjuntos}
+  IRIS_S3_ACCESS_KEY: ${IRIS_S3_ACCESS_KEY:-iris}
+  IRIS_S3_SECRET_KEY: ${IRIS_S3_SECRET_KEY:-iris-dev-solo-local}
+  IRIS_S3_PATH_STYLE: 'true'
+  IRIS_OSRM_URL: http://osrm:5000
+  IRIS_SMTP_HOST: mailpit
+  IRIS_SMTP_PORT: '1025'
+  IRIS_SMTP_USUARIO: ''
+  IRIS_SMTP_CONTRASENA: ''
+  IRIS_SMTP_TLS: 'false'
+  IRIS_SMTP_REMITENTE: ${IRIS_SMTP_REMITENTE:-Iris <no-responder@iris.example>}
+
+x-api-depende: &api-depende
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio-init:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${IRIS_PG_USUARIO:-iris}
+      POSTGRES_PASSWORD: ${IRIS_PG_CONTRASENA:-iris}
+      POSTGRES_DB: ${IRIS_PG_BASE:-iris}
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - 127.0.0.1:${IRIS_PG_PUERTO:-5432}:5432
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Solo caché (CLAUDE.md: invalidación por evento). Sin persistencia en disco.
+  redis:
+    image: redis:7.4.11-alpine
+    restart: unless-stopped
+    command: [redis-server, --save, '', --appendonly, 'no']
+    ports:
+      - 127.0.0.1:${IRIS_REDIS_PUERTO:-6379}:6379
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Adjuntos (fotos, firmas, documentos) en S3 compatible. Consola en :9001.
+  # MinIO dejó de publicar imágenes en Docker Hub (minio/minio ya no existe): por defecto se usa el
+  # fork comunitario pgsty/minio. IRIS_MINIO_IMAGEN/IRIS_MC_IMAGEN permiten usar un espejo propio.
+  minio:
+    image: ${IRIS_MINIO_IMAGEN:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
+    restart: unless-stopped
+    command: [server, /data, --console-address, ':9001']
+    environment:
+      MINIO_ROOT_USER: ${IRIS_S3_ACCESS_KEY:-iris}
+      MINIO_ROOT_PASSWORD: ${IRIS_S3_SECRET_KEY:-iris-dev-solo-local}
+    volumes:
+      - minio:/data
+    ports:
+      - 127.0.0.1:${IRIS_MINIO_PUERTO:-9000}:9000
+      - 127.0.0.1:${IRIS_MINIO_CONSOLA_PUERTO:-9001}:9001
+
+  # Crea el bucket de adjuntos al arrancar (idempotente) y termina. Espera a MinIO reintentando.
+  minio-init:
+    image: ${IRIS_MC_IMAGEN:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z}
+    depends_on:
+      - minio
+    environment:
+      IRIS_S3_ACCESS_KEY: ${IRIS_S3_ACCESS_KEY:-iris}
+      IRIS_S3_SECRET_KEY: ${IRIS_S3_SECRET_KEY:-iris-dev-solo-local}
+      IRIS_S3_BUCKET: ${IRIS_S3_BUCKET:-iris-adjuntos}
+    entrypoint: [/bin/sh, /crear-bucket.sh]
+    volumes:
+      - ./minio/crear-bucket.sh:/crear-bucket.sh:ro
+    restart: 'no'
+
+  # SMTP de prueba: todo correo saliente queda en la UI (http://localhost:8025).
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:${IRIS_MAILPIT_SMTP_PUERTO:-1025}:1025
+      - 127.0.0.1:${IRIS_MAILPIT_UI_PUERTO:-8025}:8025
+    healthcheck:
+      test: [CMD, /mailpit, readyz]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Rutas por calle (perfil car, MLD) sobre el extracto de Guatemala. Los datos los deja
+  # infra/osrm/preparar.sh en el volumen osrm; sin ellos el servicio termina con un aviso.
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    restart: on-failure:3
+    volumes:
+      - osrm:/data
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /data/iris.osrm.mldgr ]; then
+          echo "OSRM sin datos: corre infra/osrm/preparar.sh y vuelve a levantar osrm." >&2
+          exit 1
+        fi
+        exec osrm-routed --algorithm mld --max-table-size 1000 /data/iris.osrm
+    ports:
+      - 127.0.0.1:${IRIS_OSRM_PUERTO:-5000}:5000
+
+  # --- Perfil app: procesos de Iris construidos desde apps/ (I1 e I3) ------------------------
+  # Dockerfile de apps/api con dos etapas finales: `api` (cmd/iris) y `worker` (cmd/worker).
+  api:
+    profiles: [app]
+    image: iris/api:${IRIS_IMAGEN_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: api
+    restart: unless-stopped
+    environment: *api-env
+    depends_on: *api-depende
+    ports:
+      - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
+
+  worker:
+    profiles: [app]
+    image: iris/worker:${IRIS_IMAGEN_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: worker
+    restart: unless-stopped
+    environment: *api-env
+    depends_on: *api-depende
+
+  web:
+    profiles: [app]
+    image: iris/web:${IRIS_IMAGEN_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+      # Llamadas del servidor de Next a la API dentro de la red del compose.
+      IRIS_API_URL: http://api:8080
+      IRIS_BASE_URL: ${IRIS_BASE_URL:-http://localhost:3000}
+    depends_on:
+      - api
+    ports:
+      - 127.0.0.1:${IRIS_WEB_PUERTO:-3000}:3000
+
+volumes:
+  pgdata:
+  minio:
+  osrm:

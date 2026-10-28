@@ -1,8 +1,46 @@
+# Dependencias
 node_modules/
+.pnpm-store/
+
+# Next.js, Expo y builds de TS
 .next/
+out/
+dist/
+build/
+.expo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Go
 /apps/api/bin/
-.env
-*.local
+*.test
+*.out
+coverage.txt
+
+# Pruebas
 coverage/
 playwright-report/
 test-results/
+blob-report/
+playwright/.cache/
+
+# Entorno y secretos (solo se commitean los .env.example)
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+
+# Datos locales de infra (OSRM descargado fuera del volumen, respaldos)
+infra/osrm/datos/
+infra/backups/salida/
+
+# Editores y sistema
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.log
+.integrar-*.log
