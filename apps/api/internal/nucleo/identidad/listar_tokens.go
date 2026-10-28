@@ -5,6 +5,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
@@ -18,6 +19,7 @@ func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[Toke
 	return auditoria.Nuevo(auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]{
 		Accion:       "tokens.ver",
 		Permiso:      nucleo.PermTokensVer,
+		SinEmpresa:   true, // administración: no es operativa
 		AuditarExito: soloLecturas[nucleo.Pagina[TokenAPI]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarTokens) (nucleo.Pagina[TokenAPI], error) {
 			var despues int64
@@ -28,7 +30,15 @@ func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[Toke
 			if in.UsuarioID != 0 {
 				p.UsuarioID = &in.UsuarioID
 			}
-			filas, err := identidadbd.New(t).ListarTokens(ctx, p)
+			q := identidadbd.New(t)
+			// Sin empresas.todas global, solo los tokens propios y los de usuarios que comparten
+			// alguna empresa.
+			a, err := alcanceDelActor(ctx, q)
+			if err != nil {
+				return nucleo.Pagina[TokenAPI]{}, err
+			}
+			p.Todas, p.Empresas, p.Yo = a.todas, lista(a.propias), contexto.ActorDe(ctx).ID
+			filas, err := q.ListarTokens(ctx, p)
 			if err != nil {
 				return nucleo.Pagina[TokenAPI]{}, err
 			}

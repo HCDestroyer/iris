@@ -53,7 +53,11 @@ func nuevoActivarMFA(cfg Config) *auditoria.Caso[EntradaActivarMFA, Usuario] {
 			if err := t.Emitir("usuario.actualizado", map[string]any{"usuario_id": actor.ID, "campos": campos}); err != nil {
 				return Usuario{}, err
 			}
-			return aUsuario(despues, roles[actor.ID]), nil
+			empresas, err := empresasDe(ctx, q, actor.ID)
+			if err != nil {
+				return Usuario{}, err
+			}
+			return aUsuario(despues, roles[actor.ID], empresas[actor.ID]), nil
 		},
 	})
 }

@@ -28,6 +28,354 @@
         ],
         "type": "object"
       },
+      "ClienteResumen": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "Estado del cliente en Argos",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id del cliente en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "telefono": {
+            "type": "string"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "codigo",
+          "nombre",
+          "telefono",
+          "direccion",
+          "lat",
+          "lon",
+          "zonaId",
+          "estado"
+        ],
+        "type": "object"
+      },
+      "Conector": {
+        "additionalProperties": false,
+        "properties": {
+          "activadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "baseUrl": {
+            "description": "Origen del otro sistema",
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas de Argos que cubre el token (vacío si Argos no lo informó)",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "apagado",
+              "activo"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "origen": {
+            "description": "enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro",
+            "enum": [
+              "enlace_remoto",
+              "enlace_local"
+            ],
+            "type": "string"
+          },
+          "remotoId": {
+            "description": "Id de la conexión en el otro sistema, si lo informó",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sistema": {
+            "enum": [
+              "argosisp",
+              "horus"
+            ],
+            "type": "string"
+          },
+          "ultimoWebhookEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "webhookUrl": {
+            "description": "URL a la que el otro sistema envía los webhooks",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sistema",
+          "baseUrl",
+          "origen",
+          "estado",
+          "remotoId",
+          "empresas",
+          "webhookUrl",
+          "activadoEn",
+          "ultimoWebhookEn",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "ConexionCanjeada": {
+        "additionalProperties": false,
+        "properties": {
+          "conectorId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "El conector queda apagado hasta que un administrador de Iris lo active",
+            "enum": [
+              "apagado"
+            ],
+            "type": "string"
+          },
+          "sistema": {
+            "enum": [
+              "iris"
+            ],
+            "type": "string"
+          },
+          "webhookSecreto": {
+            "description": "Secreto para HMAC-SHA256 de X-Webhook-Signature; solo se entrega aquí",
+            "type": "string"
+          },
+          "webhookUrl": {
+            "description": "URL a la que Argos envía los webhooks firmados (§2.3)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conectorId",
+          "sistema",
+          "webhookUrl",
+          "webhookSecreto",
+          "estado"
+        ],
+        "type": "object"
+      },
+      "CuerpoWebhook": {
+        "additionalProperties": false,
+        "properties": {
+          "evento": {
+            "description": "cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, …",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "description": "Id estable del webhook (texto o número), igual a X-Webhook-Id; es la clave de deduplicación (va firmado)",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ocurrido_en": {
+            "description": "RFC 3339. Si falta o no se entiende, se usa la hora de recepción",
+            "type": "string"
+          },
+          "payload": {
+            "description": "Datos del evento; lleva empresa_id"
+          }
+        },
+        "required": [
+          "id",
+          "evento",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "DatosAdoptados": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "filas": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Filas adoptadas por tabla (esquema.tabla), también las que quedaron en 0",
+            "type": "object"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId",
+          "filas",
+          "total"
+        ],
+        "type": "object"
+      },
+      "Empresa": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id de la empresa en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nit": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "origen": {
+            "description": "argos: la trajo el conector; manual: la registró un administrador",
+            "enum": [
+              "argos",
+              "manual"
+            ],
+            "type": "string"
+          },
+          "sincronizadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "nit",
+          "origen",
+          "sincronizadoEn",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "EmpresaResumen": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ],
+        "type": "object"
+      },
+      "EnlaceGenerado": {
+        "additionalProperties": false,
+        "properties": {
+          "enlace": {
+            "description": "https://\u003ciris\u003e/conectar#\u003ccódigo\u003e; se muestra una sola vez",
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enlace",
+          "expiraEn"
+        ],
+        "type": "object"
+      },
       "EntradaActivarMFA": {
         "additionalProperties": false,
         "properties": {
@@ -39,6 +387,119 @@
         },
         "required": [
           "codigo"
+        ],
+        "type": "object"
+      },
+      "EntradaCambioConector": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión que leíste (409 si cambió)",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaCanjear": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código del enlace (lo que sigue a #)",
+            "maxLength": 200,
+            "minLength": 16,
+            "type": "string"
+          },
+          "conexionId": {
+            "description": "Id de la conexión en Argos",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas de Argos que cubre el token",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sistema": {
+            "description": "Sistema que canjea",
+            "enum": [
+              "argosisp"
+            ],
+            "type": "string"
+          },
+          "token": {
+            "description": "Token atk_… del usuario técnico «Iris» en Argos (§1.1)",
+            "maxLength": 500,
+            "minLength": 12,
+            "type": "string"
+          },
+          "url": {
+            "description": "Origen de Argos (https://…), sin /api/v1",
+            "maxLength": 500,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "sistema",
+          "url",
+          "token"
+        ],
+        "type": "object"
+      },
+      "EntradaConectar": {
+        "additionalProperties": false,
+        "properties": {
+          "enlace": {
+            "description": "Enlace de conexión generado en Argos: https://\u003cargos\u003e/conectar#\u003ccódigo\u003e (15 min, un solo uso)",
+            "maxLength": 2000,
+            "minLength": 10,
+            "type": "string"
+          }
+        },
+        "required": [
+          "enlace"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearEmpresa": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Id de la empresa en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nit": {
+            "maxLength": 30,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
         ],
         "type": "object"
       },
@@ -91,6 +552,18 @@
             "maxLength": 254,
             "type": "string"
           },
+          "empresas": {
+            "description": "Empresas en que operará (solo empresas en que operas tú). Obligatoria (al menos una) si no tienes empresas.todas y hay empresas registradas: si no, nadie más que un admin global podría administrarlo",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "nombre": {
             "maxLength": 120,
             "minLength": 1,
@@ -142,6 +615,31 @@
         ],
         "type": "object"
       },
+      "EntradaEditarEmpresa": {
+        "additionalProperties": false,
+        "properties": {
+          "nit": {
+            "maxLength": 30,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nombre",
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaEditarUsuario": {
         "additionalProperties": false,
         "properties": {
@@ -176,6 +674,21 @@
         },
         "required": [
           "version"
+        ],
+        "type": "object"
+      },
+      "EntradaEmpresaUsuario": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "description": "Id de la empresa (debe estar registrada)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId"
         ],
         "type": "object"
       },
@@ -245,6 +758,42 @@
         ],
         "type": "object"
       },
+      "EstadoCuenta": {
+        "additionalProperties": false,
+        "properties": {
+          "facturasVencidas": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "montoVencido": {
+            "description": "Monto vencido en texto decimal, si Argos lo informa",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "saldo": {
+            "description": "Saldo en texto decimal (numeric(14,2))",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "saldo",
+          "moneda",
+          "facturasVencidas",
+          "montoVencido"
+        ],
+        "type": "object"
+      },
       "EstadoSaludBody": {
         "additionalProperties": false,
         "properties": {
@@ -264,6 +813,105 @@
         ],
         "type": "object"
       },
+      "Ficha": {
+        "additionalProperties": false,
+        "properties": {
+          "cliente": {
+            "$ref": "#/components/schemas/ClienteResumen"
+          },
+          "estadoCuenta": {
+            "$ref": "#/components/schemas/EstadoCuenta",
+            "description": "Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron"
+          },
+          "estadoCuentaError": {
+            "description": "sin_permiso: falta clientes.estado_cuenta; argos_no_disponible: Argos no respondió; argos_rechazo: Argos lo negó",
+            "enum": [
+              "sin_permiso",
+              "argos_no_disponible",
+              "argos_rechazo"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servicios": {
+            "items": {
+              "$ref": "#/components/schemas/Servicio"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos esta instantánea",
+            "format": "date-time",
+            "type": "string"
+          },
+          "stale": {
+            "description": "true: Argos no respondió y se muestra la última instantánea",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cliente",
+          "servicios",
+          "estadoCuentaError",
+          "stale",
+          "sincronizadoEn"
+        ],
+        "type": "object"
+      },
+      "IPResuelta": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fuente": {
+            "description": "argos: respuesta de Argos; instantanea: Argos no respondió y se usó la instantánea local",
+            "enum": [
+              "argos",
+              "instantanea"
+            ],
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "servicioId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ip",
+          "clienteId",
+          "servicioId",
+          "empresaId",
+          "fuente",
+          "stale"
+        ],
+        "type": "object"
+      },
       "MFAConfigurado": {
         "additionalProperties": false,
         "properties": {
@@ -279,6 +927,58 @@
         "required": [
           "secreto",
           "url"
+        ],
+        "type": "object"
+      },
+      "PaginaConector": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Conector"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaEmpresa": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Empresa"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -389,14 +1089,27 @@
       "Permiso": {
         "description": "Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.",
         "enum": [
+          "clientes.estado_cuenta",
+          "clientes.ver",
+          "empresas.adoptar",
+          "empresas.crear",
+          "empresas.editar",
+          "empresas.todas",
+          "empresas.ver",
+          "integraciones.activar",
+          "integraciones.conectar",
+          "integraciones.desactivar",
+          "integraciones.ver",
           "permisos.ver",
           "roles.ver",
           "tokens.crear",
           "tokens.revocar",
           "tokens.ver",
+          "usuarios.asignar_empresa",
           "usuarios.crear",
           "usuarios.desactivar",
           "usuarios.editar",
+          "usuarios.quitar_empresa",
           "usuarios.ver"
         ],
         "title": "Permiso",
@@ -456,6 +1169,37 @@
         ],
         "type": "object"
       },
+      "ResultadoBusqueda": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ClienteResumen"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stale": {
+            "description": "true: Argos no respondió y los resultados salen de las instantáneas locales (solo clientes ya abiertos)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "stale"
+        ],
+        "type": "object"
+      },
       "Rol": {
         "additionalProperties": false,
         "properties": {
@@ -498,6 +1242,99 @@
           "sistema",
           "permisos",
           "version"
+        ],
+        "type": "object"
+      },
+      "Servicio": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "Estado del servicio en Argos (activo, suspendido, retirado…)",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id del servicio en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "planId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "planNombre": {
+            "type": "string"
+          },
+          "routerId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "routerNombre": {
+            "type": "string"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "zonaNombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "clienteId",
+          "codigo",
+          "planId",
+          "planNombre",
+          "routerId",
+          "routerNombre",
+          "zonaId",
+          "zonaNombre",
+          "ip",
+          "direccion",
+          "lat",
+          "lon",
+          "estado"
         ],
         "type": "object"
       },
@@ -637,6 +1474,17 @@
             "format": "date-time",
             "type": "string"
           },
+          "empresas": {
+            "description": "Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -677,9 +1525,28 @@
           "activo",
           "mfaActivo",
           "roles",
+          "empresas",
           "version",
           "creadoEn",
           "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "WebhookRecibido": {
+        "additionalProperties": false,
+        "properties": {
+          "duplicado": {
+            "description": "true: ese X-Webhook-Id ya se había recibido; no se vuelve a procesar",
+            "type": "boolean"
+          },
+          "entranteId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entranteId",
+          "duplicado"
         ],
         "type": "object"
       },
@@ -695,6 +1562,34 @@
             ],
             "type": "string"
           },
+          "empresaActiva": {
+            "$ref": "#/components/schemas/EmpresaResumen",
+            "description": "Empresa activa de esta petición (X-Iris-Empresa o la única disponible); ausente si no hay"
+          },
+          "empresas": {
+            "description": "Empresas en que puede operar (todas las registradas si tiene empresas.todas)",
+            "items": {
+              "$ref": "#/components/schemas/EmpresaResumen"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hayDatosSinEmpresa": {
+            "description": "Solo para admin global (empresas.adoptar): hay empresas registradas y quedan datos operativos con empresa_id null, que nadie ve; se asignan con POST /empresas/{id}/adoptar-sin-empresa. false para los demás",
+            "type": "boolean"
+          },
+          "modoEmpresa": {
+            "description": "activa: hay empresa activa; por_elegir: tiene varias y falta X-Iris-Empresa (lo operativo responde 422 empresa_requerida); sin_empresa: no tiene ninguna asignada (lo operativo responde 403 sin_empresa); sin_conector: no hay empresas registradas y se trabaja con empresa_id null",
+            "enum": [
+              "activa",
+              "por_elegir",
+              "sin_empresa",
+              "sin_conector"
+            ],
+            "type": "string"
+          },
           "permisos": {
             "description": "Permisos efectivos; el alcance de cada uno sale de los roles",
             "items": {
@@ -704,6 +1599,10 @@
               "array",
               "null"
             ]
+          },
+          "todasLasEmpresas": {
+            "description": "Tiene empresas.todas (rol global)",
+            "type": "boolean"
           },
           "tokenId": {
             "description": "Token con que entró, si aplica",
@@ -717,7 +1616,11 @@
         "required": [
           "usuario",
           "actor",
-          "permisos"
+          "permisos",
+          "empresas",
+          "modoEmpresa",
+          "todasLasEmpresas",
+          "hayDatosSinEmpresa"
         ],
         "type": "object"
       }
@@ -738,12 +1641,1524 @@
     }
   },
   "info": {
-    "description": "API de Iris: operación de campo y atención del ISP (familia Horus). Errores RFC 9457 (application/problem+json), listas con cursor (`{ data, nextCursor }`) e `Idempotency-Key` en las operaciones que cambian estado. Con sesión de panel, toda petición que cambia estado lleva `X-CSRF-Token` (valor de la cookie `iris_csrf`).",
+    "description": "API de Iris: operación de campo y atención del ISP (familia Horus). Errores RFC 9457 (application/problem+json), listas con cursor (`{ data, nextCursor }`) e `Idempotency-Key` en las operaciones que cambian estado. Con sesión de panel, toda petición que cambia estado lleva `X-CSRF-Token` (valor de la cookie `iris_csrf`). Multiempresa: la empresa activa se elige con `X-Iris-Empresa: \u003cid de Argos\u003e` (403 `empresa_no_permitida` si no es tuya); con varias empresas y sin cabecera, lo operativo responde 422 `empresa_requerida`; sin ninguna asignada, 403 `sin_empresa` (ver `GET /api/v1/yo`).",
     "title": "Iris API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/clientes": {
+      "get": {
+        "description": "Permiso: `clientes.ver`. Lectura auditada. Si Argos no responde, busca en las instantáneas locales y responde `stale: true`. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
+        "operationId": "buscarClientes",
+        "parameters": [
+          {
+            "description": "Nombre, código, teléfono, NIT o dirección (lo que Argos admita en su búsqueda)",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Nombre, código, teléfono, NIT o dirección (lo que Argos admita en su búsqueda)",
+              "maxLength": 100,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "nextCursor de la página anterior (de Argos)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "nextCursor de la página anterior (de Argos)",
+              "maxLength": 500,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoBusqueda"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Buscar clientes en Argos",
+        "tags": [
+          "clientes"
+        ],
+        "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/clientes/resolver-ip": {
+      "get": {
+        "description": "Permiso: `clientes.ver`. Lectura auditada. Pregunta a Argos (pedido A8, con respaldo a `GET /ip/{ip}`); si no responde, usa la instantánea (`stale: true`). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
+        "operationId": "resolverIP",
+        "parameters": [
+          {
+            "description": "IPv4 o IPv6 del cliente",
+            "explode": false,
+            "in": "query",
+            "name": "ip",
+            "required": true,
+            "schema": {
+              "description": "IPv4 o IPv6 del cliente",
+              "maxLength": 64,
+              "minLength": 2,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IPResuelta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cliente y servicio dueños de una IP",
+        "tags": [
+          "clientes"
+        ],
+        "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/clientes/{id}": {
+      "get": {
+        "description": "Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
+        "operationId": "obtenerFichaCliente",
+        "parameters": [
+          {
+            "description": "Id del cliente en Argos",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Id del cliente en Argos",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ficha"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ficha del cliente: datos, servicios y estado de cuenta resumido",
+        "tags": [
+          "clientes"
+        ],
+        "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/empresas": {
+      "get": {
+        "description": "Permiso: `empresas.ver`.",
+        "operationId": "listarEmpresas",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaEmpresa"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Listar las empresas registradas",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "empresas.ver"
+      },
+      "post": {
+        "description": "Permiso: `empresas.crear`. Para cuando el conector no la trajo (el canje con Argos registra las empresas que cubre su token). 409 si el id ya existe.",
+        "operationId": "crearEmpresa",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearEmpresa"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Empresa"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar una empresa de Argos",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "empresas.crear"
+      }
+    },
+    "/api/v1/empresas/{id}/adoptar-sin-empresa": {
+      "post": {
+        "description": "Permiso: `empresas.adoptar`. Solo admin global (además, `empresas.todas` sin límite; 403 si no). Al registrar la primera empresa, los datos operativos guardados en modo sin conector (`empresa_id` null) dejan de verse; esta acción los asigna, en una transacción, a la empresa `{id}` en cada tabla operativa registrada. Emite `empresa.datos_adoptados`. `GET /yo` avisa con `hayDatosSinEmpresa`.",
+        "operationId": "adoptarSinEmpresa",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatosAdoptados"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Asignar a una empresa los datos guardados sin empresa",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "empresas.adoptar"
+      }
+    },
+    "/api/v1/empresas/{id}/editar": {
+      "post": {
+        "description": "Permiso: `empresas.editar`.",
+        "operationId": "editarEmpresa",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarEmpresa"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Empresa"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar nombre y NIT de una empresa",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "empresas.editar"
+      }
+    },
+    "/api/v1/integraciones/argosisp/conectar": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).",
+        "operationId": "conectarArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConectar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Conectar con Argos usando un enlace generado en Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/argosisp/conexion/canjear": {
+      "post": {
+        "description": "Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y el token `atk_…`; Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.",
+        "operationId": "canjearConexionArgos",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCanjear"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConexionCanjeada"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Canje del enlace de conexión (lo llama Argos, servidor a servidor)",
+        "tags": [
+          "integraciones"
+        ]
+      }
+    },
+    "/api/v1/integraciones/argosisp/conexion/enlaces": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Argos lo canjea en `POST /api/v1/integraciones/argosisp/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
+        "operationId": "generarEnlaceArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlaceGenerado"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Generar un enlace de conexión para pegar en Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
+      "post": {
+        "description": "Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=\u003chex\u003e` sobre `\"\u003cX-Webhook-Timestamp\u003e.\u003ccuerpo\u003e\"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por `X-Webhook-Id` (un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.",
+        "operationId": "webhookArgos",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conector_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Id estable del webhook (deduplicación)",
+            "in": "header",
+            "name": "X-Webhook-Id",
+            "schema": {
+              "description": "Id estable del webhook (deduplicación)",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Segundos Unix del envío",
+            "in": "header",
+            "name": "X-Webhook-Timestamp",
+            "schema": {
+              "description": "Segundos Unix del envío",
+              "type": "string"
+            }
+          },
+          {
+            "description": "v1=\u003chex(HMAC-SHA256(secreto, \"\u003ctimestamp\u003e.\u003ccuerpo\u003e\"))\u003e",
+            "in": "header",
+            "name": "X-Webhook-Signature",
+            "schema": {
+              "description": "v1=\u003chex(HMAC-SHA256(secreto, \"\u003ctimestamp\u003e.\u003ccuerpo\u003e\"))\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRecibido"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Webhook de Argos (firmado)",
+        "tags": [
+          "integraciones"
+        ]
+      }
+    },
+    "/api/v1/integraciones/conectores": {
+      "get": {
+        "description": "Permiso: `integraciones.ver`.",
+        "operationId": "listarConectores",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaConector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Listar conectores (sin token ni secreto)",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.ver"
+      }
+    },
+    "/api/v1/integraciones/conectores/{id}/activar": {
+      "post": {
+        "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Encola la primera carga de zonas y routers.",
+        "operationId": "activarConector",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCambioConector"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar un conector",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.activar"
+      }
+    },
+    "/api/v1/integraciones/conectores/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `integraciones.desactivar`.",
+        "operationId": "desactivarConector",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCambioConector"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar un conector",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.desactivar"
+      }
+    },
     "/api/v1/listo": {
       "get": {
         "operationId": "listo",
@@ -1534,7 +3949,7 @@
     },
     "/api/v1/usuarios": {
       "get": {
-        "description": "Permiso: `usuarios.ver`.",
+        "description": "Permiso: `usuarios.ver`. Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo.",
         "operationId": "listarUsuarios",
         "parameters": [
           {
@@ -1756,9 +4171,122 @@
         "x-permiso": "usuarios.crear"
       }
     },
+    "/api/v1/usuarios/{id}/asignar-empresa": {
+      "post": {
+        "description": "Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.",
+        "operationId": "asignarEmpresaUsuario",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmpresaUsuario"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Asignar una empresa a un usuario",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "usuarios.asignar_empresa"
+      }
+    },
     "/api/v1/usuarios/{id}/desactivar": {
       "post": {
-        "description": "Permiso: `usuarios.desactivar`.",
+        "description": "Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
         "operationId": "desactivarUsuario",
         "parameters": [
           {
@@ -1881,7 +4409,7 @@
     },
     "/api/v1/usuarios/{id}/editar": {
       "post": {
-        "description": "Permiso: `usuarios.editar`.",
+        "description": "Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
         "operationId": "editarUsuario",
         "parameters": [
           {
@@ -2002,8 +4530,122 @@
         "x-permiso": "usuarios.editar"
       }
     },
+    "/api/v1/usuarios/{id}/quitar-empresa": {
+      "post": {
+        "description": "Permiso: `usuarios.quitar_empresa`. Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance y cuyas empresas son todas tuyas (403). 422 `empresa_no_asignada`.",
+        "operationId": "quitarEmpresaUsuario",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmpresaUsuario"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Quitar una empresa a un usuario",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "usuarios.quitar_empresa"
+      }
+    },
     "/api/v1/yo": {
       "get": {
+        "description": "Incluye `empresas` (para el selector), `empresaActiva` y `modoEmpresa`. La empresa activa se elige con la cabecera `X-Iris-Empresa: \u003cid\u003e` en cada petición; con una sola empresa disponible es esa por defecto.",
         "operationId": "obtenerYo",
         "responses": {
           "200": {
@@ -2055,7 +4697,7 @@
             "bearer": []
           }
         ],
-        "summary": "Usuario autenticado, permisos y alcance",
+        "summary": "Usuario autenticado, permisos, alcance y empresas",
         "tags": [
           "identidad"
         ]

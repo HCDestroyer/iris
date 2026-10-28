@@ -39,6 +39,7 @@ type Usuario struct {
 	Activo        bool            `json:"activo"`
 	MFAActivo     bool            `json:"mfaActivo" doc:"Tiene TOTP activo"`
 	Roles         []AsignacionRol `json:"roles"`
+	Empresas      []int64         `json:"empresas" doc:"Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas"`
 	Version       int32           `json:"version"`
 	CreadoEn      time.Time       `json:"creadoEn"`
 	ActualizadoEn time.Time       `json:"actualizadoEn"`
@@ -75,14 +76,30 @@ type TokenAPI struct {
 	CreadoEn   time.Time        `json:"creadoEn"`
 }
 
-func aUsuario(u identidadbd.NucleoUsuario, roles []AsignacionRol) Usuario {
+func aUsuario(u identidadbd.NucleoUsuario, roles []AsignacionRol, empresas []int64) Usuario {
 	if roles == nil {
 		roles = []AsignacionRol{}
 	}
+	if empresas == nil {
+		empresas = []int64{}
+	}
 	return Usuario{
 		ID: u.ID, Nombre: u.Nombre, Correo: u.Correo, Tipo: u.Tipo, Activo: u.Activo,
-		MFAActivo: u.TotpActivo, Roles: roles, Version: u.Version, CreadoEn: u.CreatedAt, ActualizadoEn: u.UpdatedAt,
+		MFAActivo: u.TotpActivo, Roles: roles, Empresas: empresas, Version: u.Version, CreadoEn: u.CreatedAt, ActualizadoEn: u.UpdatedAt,
 	}
+}
+
+// empresasDe carga las empresas asignadas a varios usuarios.
+func empresasDe(ctx context.Context, q *identidadbd.Queries, ids ...int64) (map[int64][]int64, error) {
+	filas, err := q.EmpresasDeUsuarios(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	salida := map[int64][]int64{}
+	for _, f := range filas {
+		salida[f.UsuarioID] = append(salida[f.UsuarioID], f.EmpresaID)
+	}
+	return salida, nil
 }
 
 func aTokenAPI(t identidadbd.NucleoTokensApi) TokenAPI {

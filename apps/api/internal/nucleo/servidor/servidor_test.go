@@ -198,7 +198,7 @@ func TestLoginCSRFYPermisoDenegado(t *testing.T) {
 	}
 
 	yo := c.pedir(http.MethodGet, "/api/v1/yo", nil)
-	if yo.status != 200 || yo.cuerpo["actor"] != "usuario" || fmt.Sprint(yo.cuerpo["permisos"]) != "[usuarios.ver]" {
+	if yo.status != 200 || yo.cuerpo["actor"] != "usuario" || fmt.Sprint(yo.cuerpo["permisos"]) != "[clientes.estado_cuenta clientes.ver usuarios.ver]" {
 		t.Fatalf("yo: %d %s", yo.status, yo.crudo)
 	}
 	if r := c.pedir(http.MethodGet, "/api/v1/usuarios?limit=1", nil); r.status != 200 {

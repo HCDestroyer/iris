@@ -29,6 +29,10 @@ const problema = (p: Schema<"Problema">, cabeceras: Record<string, string> = {})
 const yo: Schema<"Yo"> = {
     actor: "usuario",
     permisos: ["usuarios.ver"],
+    empresas: [],
+    modoEmpresa: "sin_conector",
+    todasLasEmpresas: false,
+    hayDatosSinEmpresa: false,
     usuario: {
         id: 1,
         nombre: "Ana",
@@ -37,6 +41,7 @@ const yo: Schema<"Yo"> = {
         activo: true,
         mfaActivo: false,
         roles: [{ rol: "admin" }],
+        empresas: [],
         version: 1,
         creadoEn: "2026-10-01T00:00:00Z",
         actualizadoEn: "2026-10-01T00:00:00Z",

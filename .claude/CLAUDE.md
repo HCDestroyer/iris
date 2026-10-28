@@ -151,6 +151,11 @@ Una tarea está terminada solo si:
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
 | `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
+| `conector.creado` / `conector.activado` / `conector.desactivado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado) |
+| `argos.servicio_retirado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id (o null), de, a, entrante_id |
+| `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |
+| `usuario.empresa_asignada` / `usuario.empresa_quitada` | identidad (núcleo) | usuario_id, empresa_id |
+| `empresa.datos_adoptados` | identidad (núcleo) | empresa_id, filas (por tabla) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

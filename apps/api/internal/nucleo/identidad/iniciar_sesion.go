@@ -125,7 +125,11 @@ func abrirSesion(ctx context.Context, q *identidadbd.Queries, cfg Config, u iden
 		if err != nil {
 			return SesionIniciada{}, err
 		}
-		usuario := aUsuario(u, roles[u.ID])
+		empresas, err := empresasDe(ctx, q, u.ID)
+		if err != nil {
+			return SesionIniciada{}, err
+		}
+		usuario := aUsuario(u, roles[u.ID], empresas[u.ID])
 		salida.Usuario = &usuario
 	}
 	return salida, nil

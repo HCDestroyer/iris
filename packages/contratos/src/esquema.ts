@@ -4,6 +4,270 @@
  */
 
 export interface paths {
+    "/api/v1/clientes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Buscar clientes en Argos
+         * @description Permiso: `clientes.ver`. Lectura auditada. Si Argos no responde, busca en las instantáneas locales y responde `stale: true`. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         */
+        get: operations["buscarClientes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clientes/resolver-ip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cliente y servicio dueños de una IP
+         * @description Permiso: `clientes.ver`. Lectura auditada. Pregunta a Argos (pedido A8, con respaldo a `GET /ip/{ip}`); si no responde, usa la instantánea (`stale: true`). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         */
+        get: operations["resolverIP"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clientes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ficha del cliente: datos, servicios y estado de cuenta resumido
+         * @description Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         */
+        get: operations["obtenerFichaCliente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/empresas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar las empresas registradas
+         * @description Permiso: `empresas.ver`.
+         */
+        get: operations["listarEmpresas"];
+        put?: never;
+        /**
+         * Registrar una empresa de Argos
+         * @description Permiso: `empresas.crear`. Para cuando el conector no la trajo (el canje con Argos registra las empresas que cubre su token). 409 si el id ya existe.
+         */
+        post: operations["crearEmpresa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/empresas/{id}/adoptar-sin-empresa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar a una empresa los datos guardados sin empresa
+         * @description Permiso: `empresas.adoptar`. Solo admin global (además, `empresas.todas` sin límite; 403 si no). Al registrar la primera empresa, los datos operativos guardados en modo sin conector (`empresa_id` null) dejan de verse; esta acción los asigna, en una transacción, a la empresa `{id}` en cada tabla operativa registrada. Emite `empresa.datos_adoptados`. `GET /yo` avisa con `hayDatosSinEmpresa`.
+         */
+        post: operations["adoptarSinEmpresa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/empresas/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar nombre y NIT de una empresa
+         * @description Permiso: `empresas.editar`.
+         */
+        post: operations["editarEmpresa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/conectar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Conectar con Argos usando un enlace generado en Argos
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).
+         */
+        post: operations["conectarArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/conexion/canjear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Canje del enlace de conexión (lo llama Argos, servidor a servidor)
+         * @description Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y el token `atk_…`; Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.
+         */
+        post: operations["canjearConexionArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/conexion/enlaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generar un enlace de conexión para pegar en Argos
+         * @description Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Argos lo canjea en `POST /api/v1/integraciones/argosisp/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         */
+        post: operations["generarEnlaceArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Webhook de Argos (firmado)
+         * @description Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=<hex>` sobre `"<X-Webhook-Timestamp>.<cuerpo>"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por `X-Webhook-Id` (un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.
+         */
+        post: operations["webhookArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar conectores (sin token ni secreto)
+         * @description Permiso: `integraciones.ver`.
+         */
+        get: operations["listarConectores"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar un conector
+         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Encola la primera carga de zonas y routers.
+         */
+        post: operations["activarConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar un conector
+         * @description Permiso: `integraciones.desactivar`.
+         */
+        post: operations["desactivarConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/listo": {
         parameters: {
             query?: never;
@@ -172,7 +436,7 @@ export interface paths {
         };
         /**
          * Listar usuarios
-         * @description Permiso: `usuarios.ver`.
+         * @description Permiso: `usuarios.ver`. Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo.
          */
         get: operations["listarUsuarios"];
         put?: never;
@@ -181,6 +445,26 @@ export interface paths {
          * @description Permiso: `usuarios.crear`.
          */
         post: operations["crearUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/asignar-empresa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar una empresa a un usuario
+         * @description Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.
+         */
+        post: operations["asignarEmpresaUsuario"];
         delete?: never;
         options?: never;
         head?: never;
@@ -198,7 +482,7 @@ export interface paths {
         put?: never;
         /**
          * Desactivar un usuario
-         * @description Permiso: `usuarios.desactivar`.
+         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["desactivarUsuario"];
         delete?: never;
@@ -218,9 +502,29 @@ export interface paths {
         put?: never;
         /**
          * Editar un usuario
-         * @description Permiso: `usuarios.editar`.
+         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["editarUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/quitar-empresa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar una empresa a un usuario
+         * @description Permiso: `usuarios.quitar_empresa`. Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance y cuyas empresas son todas tuyas (403). 422 `empresa_no_asignada`.
+         */
+        post: operations["quitarEmpresaUsuario"];
         delete?: never;
         options?: never;
         head?: never;
@@ -234,7 +538,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Usuario autenticado, permisos y alcance */
+        /**
+         * Usuario autenticado, permisos, alcance y empresas
+         * @description Incluye `empresas` (para el selector), `empresaActiva` y `modoEmpresa`. La empresa activa se elige con la cabecera `X-Iris-Empresa: <id>` en cada petición; con una sola empresa disponible es esa por defecto.
+         */
         get: operations["obtenerYo"];
         put?: never;
         post?: never;
@@ -299,9 +606,170 @@ export interface components {
              */
             zonaId?: number;
         };
+        ClienteResumen: {
+            codigo: string;
+            direccion: string;
+            /**
+             * Format: int64
+             * @description Empresa en Argos
+             */
+            empresaId: number;
+            /** @description Estado del cliente en Argos */
+            estado: string;
+            /**
+             * Format: int64
+             * @description Id del cliente en Argos
+             */
+            id: number;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            nombre: string;
+            telefono: string;
+            /** Format: int64 */
+            zonaId: number | null;
+        };
+        Conector: {
+            /** Format: date-time */
+            activadoEn: string | null;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Origen del otro sistema */
+            baseUrl: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description Empresas de Argos que cubre el token (vacío si Argos no lo informó) */
+            empresas: number[] | null;
+            /** @enum {string} */
+            estado: "apagado" | "activo";
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro
+             * @enum {string}
+             */
+            origen: "enlace_remoto" | "enlace_local";
+            /** @description Id de la conexión en el otro sistema, si lo informó */
+            remotoId: string | null;
+            /** @enum {string} */
+            sistema: "argosisp" | "horus";
+            /** Format: date-time */
+            ultimoWebhookEn: string | null;
+            /** Format: int32 */
+            version: number;
+            /** @description URL a la que el otro sistema envía los webhooks */
+            webhookUrl: string;
+        };
+        ConexionCanjeada: {
+            /** Format: int64 */
+            conectorId: number;
+            /**
+             * @description El conector queda apagado hasta que un administrador de Iris lo active
+             * @enum {string}
+             */
+            estado: "apagado";
+            /** @enum {string} */
+            sistema: "iris";
+            /** @description Secreto para HMAC-SHA256 de X-Webhook-Signature; solo se entrega aquí */
+            webhookSecreto: string;
+            /** @description URL a la que Argos envía los webhooks firmados (§2.3) */
+            webhookUrl: string;
+        };
+        CuerpoWebhook: {
+            /** @description cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, … */
+            evento: string;
+            /** @description Id estable del webhook (texto o número), igual a X-Webhook-Id; es la clave de deduplicación (va firmado) */
+            id: string;
+            /** @description RFC 3339. Si falta o no se entiende, se usa la hora de recepción */
+            ocurrido_en?: string;
+            /** @description Datos del evento; lleva empresa_id */
+            payload: unknown;
+        };
+        DatosAdoptados: {
+            /** Format: int64 */
+            empresaId: number;
+            /** @description Filas adoptadas por tabla (esquema.tabla), también las que quedaron en 0 */
+            filas: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            total: number;
+        };
+        Empresa: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /**
+             * Format: int64
+             * @description Id de la empresa en Argos
+             */
+            id: number;
+            nit: string;
+            nombre: string;
+            /**
+             * @description argos: la trajo el conector; manual: la registró un administrador
+             * @enum {string}
+             */
+            origen: "argos" | "manual";
+            /** Format: date-time */
+            sincronizadoEn: string | null;
+            /** Format: int32 */
+            version: number;
+        };
+        EmpresaResumen: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
+        EnlaceGenerado: {
+            /** @description https://<iris>/conectar#<código>; se muestra una sola vez */
+            enlace: string;
+            /** Format: date-time */
+            expiraEn: string;
+        };
         EntradaActivarMFA: {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
+        };
+        EntradaCambioConector: {
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión que leíste (409 si cambió)
+             */
+            version: number;
+        };
+        EntradaCanjear: {
+            /** @description Código del enlace (lo que sigue a #) */
+            codigo: string;
+            /** @description Id de la conexión en Argos */
+            conexionId?: string;
+            /** @description Empresas de Argos que cubre el token */
+            empresas?: number[] | null;
+            /**
+             * @description Sistema que canjea
+             * @enum {string}
+             */
+            sistema: "argosisp";
+            /** @description Token atk_… del usuario técnico «Iris» en Argos (§1.1) */
+            token: string;
+            /** @description Origen de Argos (https://…), sin /api/v1 */
+            url: string;
+        };
+        EntradaConectar: {
+            /** @description Enlace de conexión generado en Argos: https://<argos>/conectar#<código> (15 min, un solo uso) */
+            enlace: string;
+        };
+        EntradaCrearEmpresa: {
+            /**
+             * Format: int64
+             * @description Id de la empresa en Argos
+             */
+            id: number;
+            nit?: string;
+            nombre: string;
         };
         EntradaCrearToken: {
             /**
@@ -323,6 +791,8 @@ export interface components {
             contrasena?: string;
             /** Format: email */
             correo: string;
+            /** @description Empresas en que operará (solo empresas en que operas tú). Obligatoria (al menos una) si no tienes empresas.todas y hay empresas registradas: si no, nadie más que un admin global podría administrarlo */
+            empresas?: number[] | null;
             nombre: string;
             roles?: components["schemas"]["AsignacionRol"][] | null;
             /**
@@ -333,6 +803,15 @@ export interface components {
         };
         EntradaDesactivarUsuario: {
             motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaEditarEmpresa: {
+            nit?: string;
+            nombre: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -351,6 +830,13 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaEmpresaUsuario: {
+            /**
+             * Format: int64
+             * @description Id de la empresa (debe estar registrada)
+             */
+            empresaId: number;
         };
         EntradaIniciarSesion: {
             contrasena: string;
@@ -372,16 +858,68 @@ export interface components {
             /** @description Regla que falló */
             rule?: string;
         };
+        EstadoCuenta: {
+            /** Format: int64 */
+            facturasVencidas: number | null;
+            moneda: string;
+            /** @description Monto vencido en texto decimal, si Argos lo informa */
+            montoVencido: string | null;
+            /** @description Saldo en texto decimal (numeric(14,2)) */
+            saldo: string | null;
+        };
         EstadoSaludBody: {
             /** @enum {string} */
             estado: "ok";
             version: string;
+        };
+        Ficha: {
+            cliente: components["schemas"]["ClienteResumen"];
+            /** @description Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron */
+            estadoCuenta?: components["schemas"]["EstadoCuenta"];
+            /**
+             * @description sin_permiso: falta clientes.estado_cuenta; argos_no_disponible: Argos no respondió; argos_rechazo: Argos lo negó
+             * @enum {string|null}
+             */
+            estadoCuentaError: "sin_permiso" | "argos_no_disponible" | "argos_rechazo" | null;
+            servicios: components["schemas"]["Servicio"][] | null;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos esta instantánea
+             */
+            sincronizadoEn: string;
+            /** @description true: Argos no respondió y se muestra la última instantánea */
+            stale: boolean;
+        };
+        IPResuelta: {
+            /** Format: int64 */
+            clienteId: number | null;
+            /** Format: int64 */
+            empresaId: number | null;
+            /**
+             * @description argos: respuesta de Argos; instantanea: Argos no respondió y se usó la instantánea local
+             * @enum {string}
+             */
+            fuente: "argos" | "instantanea";
+            ip: string;
+            /** Format: int64 */
+            servicioId: number | null;
+            stale: boolean;
         };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
             /** @description URL otpauth:// para el código QR */
             url: string;
+        };
+        PaginaConector: {
+            data: components["schemas"]["Conector"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaEmpresa: {
+            data: components["schemas"]["Empresa"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
         };
         PaginaPermisoInfo: {
             data: components["schemas"]["PermisoInfo"][] | null;
@@ -408,7 +946,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "permisos.ver" | "roles.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.ver";
+        Permiso: "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "permisos.ver" | "roles.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -428,6 +966,13 @@ export interface components {
             /** @description URI estable del tipo de problema (urn:iris:problema:<codigo>) */
             type: string;
         };
+        ResultadoBusqueda: {
+            data: components["schemas"]["ClienteResumen"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+            /** @description true: Argos no respondió y los resultados salen de las instantáneas locales (solo clientes ya abiertos) */
+            stale: boolean;
+        };
         Rol: {
             codigo: string;
             descripcion: string;
@@ -439,6 +984,35 @@ export interface components {
             sistema: boolean;
             /** Format: int32 */
             version: number;
+        };
+        Servicio: {
+            /** Format: int64 */
+            clienteId: number;
+            codigo: string;
+            direccion: string;
+            /** Format: int64 */
+            empresaId: number;
+            /** @description Estado del servicio en Argos (activo, suspendido, retirado…) */
+            estado: string;
+            /**
+             * Format: int64
+             * @description Id del servicio en Argos
+             */
+            id: number;
+            ip: string;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            /** Format: int64 */
+            planId: number | null;
+            planNombre: string;
+            /** Format: int64 */
+            routerId: number | null;
+            routerNombre: string;
+            /** Format: int64 */
+            zonaId: number | null;
+            zonaNombre: string;
         };
         SesionIniciada: {
             /** @description Valor para la cabecera X-CSRF-Token (también va en la cookie iris_csrf) */
@@ -483,6 +1057,8 @@ export interface components {
             correo: string;
             /** Format: date-time */
             creadoEn: string;
+            /** @description Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas */
+            empresas: number[] | null;
             /** Format: int64 */
             id: number;
             /** @description Tiene TOTP activo */
@@ -494,14 +1070,33 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        WebhookRecibido: {
+            /** @description true: ese X-Webhook-Id ya se había recibido; no se vuelve a procesar */
+            duplicado: boolean;
+            /** Format: int64 */
+            entranteId: number;
+        };
         Yo: {
             /**
              * @description Cómo entró: sesión del panel, token o integración
              * @enum {string}
              */
             actor: "usuario" | "token" | "integracion";
+            /** @description Empresa activa de esta petición (X-Iris-Empresa o la única disponible); ausente si no hay */
+            empresaActiva?: components["schemas"]["EmpresaResumen"];
+            /** @description Empresas en que puede operar (todas las registradas si tiene empresas.todas) */
+            empresas: components["schemas"]["EmpresaResumen"][] | null;
+            /** @description Solo para admin global (empresas.adoptar): hay empresas registradas y quedan datos operativos con empresa_id null, que nadie ve; se asignan con POST /empresas/{id}/adoptar-sin-empresa. false para los demás */
+            hayDatosSinEmpresa: boolean;
+            /**
+             * @description activa: hay empresa activa; por_elegir: tiene varias y falta X-Iris-Empresa (lo operativo responde 422 empresa_requerida); sin_empresa: no tiene ninguna asignada (lo operativo responde 403 sin_empresa); sin_conector: no hay empresas registradas y se trabaja con empresa_id null
+             * @enum {string}
+             */
+            modoEmpresa: "activa" | "por_elegir" | "sin_empresa" | "sin_conector";
             /** @description Permisos efectivos; el alcance de cada uno sale de los roles */
             permisos: components["schemas"]["Permiso"][] | null;
+            /** @description Tiene empresas.todas (rol global) */
+            todasLasEmpresas: boolean;
             /**
              * Format: int64
              * @description Token con que entró, si aplica
@@ -518,6 +1113,1041 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    buscarClientes: {
+        parameters: {
+            query: {
+                /** @description Nombre, código, teléfono, NIT o dirección (lo que Argos admita en su búsqueda) */
+                q: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description nextCursor de la página anterior (de Argos) */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoBusqueda"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    resolverIP: {
+        parameters: {
+            query: {
+                /** @description IPv4 o IPv6 del cliente */
+                ip: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IPResuelta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    obtenerFichaCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id del cliente en Argos */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ficha"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarEmpresas: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaEmpresa"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearEmpresa: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearEmpresa"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Empresa"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    adoptarSinEmpresa: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatosAdoptados"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarEmpresa: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarEmpresa"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Empresa"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    conectarArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConectar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    canjearConexionArgos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCanjear"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConexionCanjeada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarEnlaceArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceGenerado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    webhookArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Id estable del webhook (deduplicación) */
+                "X-Webhook-Id"?: string;
+                /** @description Segundos Unix del envío */
+                "X-Webhook-Timestamp"?: string;
+                /** @description v1=<hex(HMAC-SHA256(secreto, "<timestamp>.<cuerpo>"))> */
+                "X-Webhook-Signature"?: string;
+            };
+            path: {
+                conector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookRecibido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarConectores: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaConector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarConector: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioConector"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarConector: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioConector"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listo: {
         parameters: {
             query?: never;
@@ -1216,6 +2846,80 @@ export interface operations {
             };
         };
     };
+    asignarEmpresaUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEmpresaUsuario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     desactivarUsuario: {
         parameters: {
             query?: never;
@@ -1355,6 +3059,80 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarEmpresaUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEmpresaUsuario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,5 +1,6 @@
-// Comando worker: workers de River. Por ahora, el relay del outbox (integracion.outbox →
-// suscriptores internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO.
+// Comando worker: workers de River. El relay del outbox (integracion.outbox → suscriptores
+// internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO, y los jobs del conector Argos
+// (webhooks entrantes y refresco periódico de zonas y routers).
 package main
 
 import (
@@ -12,7 +13,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/riverqueue/river"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
@@ -49,8 +54,24 @@ func correr() error {
 	})
 	relay := &integracion.Relay{BD: pool, Bus: bus, Log: log}
 
+	// Conector Argos: procesa los webhooks entrantes y refresca zonas y routers.
+	acfg := argos.Config{
+		BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version,
+		RedesPermitidas: cfg.ArgosRedesPermitidas,
+	}
+	if cfg.ClaveCifrado != "" {
+		if acfg.Cifrador, err = nucleo.NuevoCifrador(cfg.ClaveCifrado); err != nil {
+			return err
+		}
+	} else {
+		log.Warn("IRIS_CLAVE_CIFRADO vacía: los webhooks de Argos no se podrán procesar")
+	}
+	conectorArgos := argos.Nuevo(acfg)
+
 	cliente, err := integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
+		Registrar:  func(w *river.Workers) { conectorArgos.RegistrarWorkers(w, pool) },
+		Periodicos: argos.TrabajosPeriodicos(0),
 	})
 	if err != nil {
 		return err

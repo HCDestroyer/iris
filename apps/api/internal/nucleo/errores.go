@@ -156,6 +156,26 @@ func DemasiadosIntentos(codigo, detalle string, reintentar time.Duration) *Probl
 		ConCabecera("Retry-After", strconv.Itoa(segundos))
 }
 
+// Empresa activa (cabecera X-Iris-Empresa; ver identidad.MiddlewareEmpresa).
+
+// EmpresaRequerida: el actor opera en varias empresas y la acción necesita saber en cuál.
+func EmpresaRequerida() *Problema {
+	return NuevoProblema(http.StatusUnprocessableEntity, "empresa_requerida", "Falta la empresa activa",
+		"Puedes operar en varias empresas: indica cuál con la cabecera X-Iris-Empresa")
+}
+
+// EmpresaNoPermitida: la empresa de X-Iris-Empresa no es una en que el actor pueda operar.
+func EmpresaNoPermitida() *Problema {
+	return NuevoProblema(http.StatusForbidden, "empresa_no_permitida", "Empresa no permitida",
+		"La empresa de X-Iris-Empresa no existe o no tienes acceso a ella")
+}
+
+// SinEmpresa: hay empresas registradas y el actor no tiene ninguna asignada.
+func SinEmpresa() *Problema {
+	return NuevoProblema(http.StatusForbidden, "sin_empresa", "Sin empresa asignada",
+		"No tienes ninguna empresa asignada; pide a un administrador que te asigne una")
+}
+
 func NoDisponible(detalle string) *Problema {
 	return NuevoProblema(http.StatusServiceUnavailable, "no_disponible", "Servicio no disponible", detalle)
 }

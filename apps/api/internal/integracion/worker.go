@@ -18,6 +18,8 @@ type OpcionesWorker struct {
 	Log            *slog.Logger
 	// Registrar agrega los workers de otros módulos (I2) al mismo cliente.
 	Registrar func(*river.Workers)
+	// Periodicos: trabajos periódicos de otros módulos (p. ej. catálogos de Argos).
+	Periodicos []*river.PeriodicJob
 }
 
 // NuevoClienteRiver arma el cliente de River con el relay del outbox y su corrida periódica.
@@ -38,8 +40,22 @@ func NuevoClienteRiver(pool *pgxpool.Pool, relay *Relay, op OpcionesWorker) (*ri
 			ColaIntegracion:    {MaxWorkers: 2},
 		},
 		Workers:      workers,
-		PeriodicJobs: []*river.PeriodicJob{TrabajoPeriodicoRelay(op.RelayIntervalo)},
+		PeriodicJobs: append([]*river.PeriodicJob{TrabajoPeriodicoRelay(op.RelayIntervalo)}, op.Periodicos...),
 	})
+}
+
+// NuevoClienteInsercion arma un cliente de River que solo inserta jobs (la API los encola en la
+// transacción del caso de uso con InsertTx; los corre cmd/worker).
+func NuevoClienteInsercion(pool *pgxpool.Pool, esquema string, log *slog.Logger) (*river.Client[pgx.Tx], error) {
+	return river.NewClient(riverpgxv5.New(pool), &river.Config{Schema: esquema, Logger: log})
+}
+
+// Encolar devuelve la función con que un caso de uso encola un job en su transacción.
+func Encolar(cliente *river.Client[pgx.Tx]) func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+	return func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+		_, err := cliente.InsertTx(ctx, tx, args, nil)
+		return err
+	}
 }
 
 // EscucharOutbox hace LISTEN iris_outbox y, por cada aviso (un COMMIT con eventos), encola el

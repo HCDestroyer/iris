@@ -165,6 +165,7 @@ const (
 	clavePermisos
 	claveSesion
 	claveEmpresa
+	claveEmpresas
 )
 
 // ConActor fija el actor y sus permisos.
@@ -224,15 +225,65 @@ func SesionDe(ctx context.Context) Sesion {
 	return s
 }
 
-// ConEmpresa fija la empresa activa (id de Argos). 0 = sin empresa activa.
+// ConEmpresa fija la empresa activa (id de Argos). 0 = sin empresa activa. En HTTP la fija el
+// middleware de empresa (identidad.MiddlewareEmpresa) con ConEmpresas; los workers y las
+// pruebas pueden llamarla directo.
 func ConEmpresa(ctx context.Context, empresaID int64) context.Context {
 	return context.WithValue(ctx, claveEmpresa, empresaID)
 }
 
-// EmpresaDe devuelve la empresa activa (0 = ninguna).
+// EmpresaDe devuelve la empresa activa (0 = ninguna). Ojo: 0 NO significa «sin filtro» para un
+// usuario. Con un usuario detrás (Actor.EsUsuario), los casos de uso operativos solo corren con
+// EstadoEmpresa Activa (filtrar por este id) o SinConector (solo datos con empresa_id null):
+// auditoria.Caso corta los demás estados. Solo el actor sistema (workers, crons, consola) ve 0
+// con el significado de «todas».
 func EmpresaDe(ctx context.Context) int64 {
 	id, _ := ctx.Value(claveEmpresa).(int64)
 	return id
+}
+
+// EstadoEmpresa dice cómo quedó resuelta la empresa activa de una petición.
+type EstadoEmpresa string
+
+const (
+	// EmpresaNoResuelta: nadie la resolvió (actor sistema, consola, worker o pruebas que llaman
+	// casos de uso directo). Se usa EmpresaDe tal cual.
+	EmpresaNoResuelta EstadoEmpresa = ""
+	// EmpresaActiva: hay empresa activa (EmpresaDe != 0); todo lo operativo se filtra por ella.
+	EmpresaActiva EstadoEmpresa = "activa"
+	// EmpresaSinConector: no hay empresas registradas (nucleo.empresas vacía): Iris trabaja sin
+	// Argos y lo operativo lleva empresa_id null.
+	EmpresaSinConector EstadoEmpresa = "sin_conector"
+	// EmpresaPorElegir: el actor puede operar en varias y no mandó X-Iris-Empresa (422
+	// empresa_requerida en lo operativo).
+	EmpresaPorElegir EstadoEmpresa = "por_elegir"
+	// EmpresaSinAsignar: hay empresas pero el actor no tiene ninguna (403 sin_empresa en lo
+	// operativo).
+	EmpresaSinAsignar EstadoEmpresa = "sin_empresa"
+)
+
+// Empresas es el resultado de resolver la empresa activa de una petición.
+type Empresas struct {
+	Estado EstadoEmpresa
+	// Activa es la empresa activa (0 salvo con Estado EmpresaActiva).
+	Activa int64
+	// Disponibles son las empresas en que el actor puede operar (ordenadas).
+	Disponibles []int64
+	// Todas: el actor tiene empresas.todas (opera en cualquier empresa registrada).
+	Todas bool
+}
+
+// ConEmpresas fija el resultado del middleware de empresa y la empresa activa (ConEmpresa).
+func ConEmpresas(ctx context.Context, e Empresas) context.Context {
+	ctx = context.WithValue(ctx, claveEmpresas, e)
+	return ConEmpresa(ctx, e.Activa)
+}
+
+// EmpresasDe devuelve cómo se resolvió la empresa activa (Estado EmpresaNoResuelta si nadie lo
+// hizo).
+func EmpresasDe(ctx context.Context) Empresas {
+	e, _ := ctx.Value(claveEmpresas).(Empresas)
+	return e
 }
 
 // NuevoRequestID genera un id (uuid v7).

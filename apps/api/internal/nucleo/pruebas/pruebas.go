@@ -133,7 +133,11 @@ func ContextoSistema(bd nucleo.BD) context.Context {
 	return nucleo.ConBD(contexto.Sistema(context.Background(), contexto.CanalConsola), bd)
 }
 
-// ContextoUsuario: actor usuario con los permisos dados (globales), canal panel.
+// ContextoUsuario: actor usuario con los permisos dados (globales), canal panel y la empresa
+// resuelta en modo «sin conector» (EmpresaDe = 0 = datos con empresa_id null), como la dejaría
+// el middleware sin empresas registradas. Para operar en una empresa, ContextoUsuarioEnEmpresa;
+// para otros estados, contexto.ConEmpresas encima. Sin estado resuelto, auditoria.Caso
+// rechaza las acciones operativas de un usuario (falla cerrado).
 func ContextoUsuario(bd nucleo.BD, id int64, permisos ...nucleo.Permiso) context.Context {
 	mapa := map[string][]contexto.Alcance{}
 	for _, p := range permisos {
@@ -142,7 +146,16 @@ func ContextoUsuario(bd nucleo.BD, id int64, permisos ...nucleo.Permiso) context
 	ctx := contexto.ConActor(context.Background(), contexto.Actor{Tipo: contexto.ActorUsuario, ID: id, Nombre: "prueba"}, contexto.NuevosPermisos(mapa))
 	ctx = contexto.ConCanal(ctx, contexto.CanalPanel)
 	ctx = contexto.ConRequestID(ctx, contexto.NuevoRequestID())
+	ctx = contexto.ConEmpresas(ctx, contexto.Empresas{Estado: contexto.EmpresaSinConector, Disponibles: []int64{}})
 	return nucleo.ConBD(ctx, bd)
+}
+
+// ContextoUsuarioEnEmpresa es ContextoUsuario con la empresa activa dada (Estado EmpresaActiva),
+// como la dejaría el middleware con X-Iris-Empresa o con una sola empresa asignada.
+func ContextoUsuarioEnEmpresa(bd nucleo.BD, id, empresa int64, permisos ...nucleo.Permiso) context.Context {
+	return contexto.ConEmpresas(ContextoUsuario(bd, id, permisos...), contexto.Empresas{
+		Estado: contexto.EmpresaActiva, Activa: empresa, Disponibles: []int64{empresa},
+	})
 }
 
 var contador atomic.Int64

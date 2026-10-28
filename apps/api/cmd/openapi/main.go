@@ -15,6 +15,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
 )
@@ -36,6 +39,7 @@ func escribir(salida string) error {
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:   versionContrato,
 		Identidad: identidad.Nuevo(identidad.Config{}),
+		Modulos:   []func(huma.API){argos.Nuevo(argos.Config{}).Registrar},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()
 	if err != nil {

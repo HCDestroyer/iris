@@ -20,8 +20,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -77,16 +80,31 @@ func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func modulo(cfg config.Config) (*identidad.Modulo, error) {
-	icfg := identidad.Config{DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura}
-	if cfg.ClaveCifrado != "" {
-		c, err := nucleo.NuevoCifrador(cfg.ClaveCifrado)
-		if err != nil {
-			return nil, err
-		}
-		icfg.Cifrador = c
+func cifrador(cfg config.Config) (*nucleo.Cifrador, error) {
+	if cfg.ClaveCifrado == "" {
+		return nil, nil
 	}
-	return identidad.Nuevo(icfg), nil
+	return nucleo.NuevoCifrador(cfg.ClaveCifrado)
+}
+
+func modulo(cfg config.Config) (*identidad.Modulo, error) {
+	c, err := cifrador(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return identidad.Nuevo(identidad.Config{DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c}), nil
+}
+
+// configArgos arma la configuración del conector Argos desde el entorno.
+func configArgos(cfg config.Config) (argos.Config, error) {
+	c, err := cifrador(cfg)
+	if err != nil {
+		return argos.Config{}, err
+	}
+	return argos.Config{
+		Cifrador: c, BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, VentanaWebhook: cfg.WebhookVentana,
+		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: cfg.Version, RedesPermitidas: cfg.ArgosRedesPermitidas,
+	}, nil
 }
 
 func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
@@ -103,11 +121,26 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	if cfg.ClaveCifrado == "" {
-		log.Warn("IRIS_CLAVE_CIFRADO vacía: el MFA (TOTP) queda deshabilitado")
+		log.Warn("IRIS_CLAVE_CIFRADO vacía: el MFA (TOTP) y los conectores quedan deshabilitados")
 	}
+	if cfg.BaseURL == "" {
+		log.Warn("IRIS_BASE_URL vacía: no se pueden conectar Argos ni Horus (no hay URL para sus webhooks)")
+	}
+	acfg, err := configArgos(cfg)
+	if err != nil {
+		return err
+	}
+	cola, err := integracion.NuevoClienteInsercion(pool, migraciones.EsquemaRiver, log)
+	if err != nil {
+		return err
+	}
+	acfg.Encolar = integracion.Encolar(cola)
+	conectorArgos := argos.Nuevo(acfg)
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
-		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Idempotencia:      nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Modulos:           []func(huma.API){conectorArgos.Registrar},
+		ProxiesConfiables: cfg.ProxiesConfiables,
 	})
 
 	srv := &http.Server{

@@ -39,6 +39,113 @@ type AuditoriaCambio struct {
 	CreatedAt time.Time
 }
 
+type IntegracionArgosCliente struct {
+	ID             int64
+	EmpresaID      int64
+	Codigo         string
+	Nombre         string
+	Telefono       string
+	Direccion      string
+	Lat            *float64
+	Lon            *float64
+	ZonaID         *int64
+	Estado         string
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type IntegracionArgosRouter struct {
+	ID             int64
+	EmpresaID      int64
+	Nombre         string
+	ZonaID         *int64
+	Lat            *float64
+	Lon            *float64
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type IntegracionArgosServicio struct {
+	ID             int64
+	EmpresaID      int64
+	ClienteID      int64
+	Codigo         string
+	PlanID         *int64
+	PlanNombre     string
+	RouterID       *int64
+	RouterNombre   string
+	ZonaID         *int64
+	ZonaNombre     string
+	Ip             string
+	Direccion      string
+	Lat            *float64
+	Lon            *float64
+	Estado         string
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type IntegracionArgosZona struct {
+	ID             int64
+	EmpresaID      int64
+	Nombre         string
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type IntegracionCodigosConexion struct {
+	ID         int64
+	Sistema    string
+	CodigoHash []byte
+	ExpiraEn   time.Time
+	UsadoEn    *time.Time
+	ConectorID *int64
+	CreadoPor  *int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type IntegracionConectore struct {
+	ID                    int64
+	Sistema               string
+	BaseUrl               string
+	Origen                string
+	TokenCifrado          []byte
+	SecretoWebhookCifrado []byte
+	RemotoID              *string
+	Empresas              []int64
+	Estado                string
+	CreadoPor             *int64
+	ActivadoEn            *time.Time
+	ActivadoPor           *int64
+	UltimoWebhookEn       *time.Time
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type IntegracionEntrante struct {
+	ID          int64
+	ConectorID  int64
+	WebhookID   string
+	Evento      string
+	EmpresaID   *int64
+	Payload     []byte
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
+	ProcesadoEn *time.Time
+	Resultado   *string
+	Intentos    int32
+	Error       *string
+	RequestID   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type IntegracionOutbox struct {
 	ID             uuid.UUID
 	Evento         string
@@ -53,6 +160,17 @@ type IntegracionOutbox struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	FallidoEn      *time.Time
+}
+
+type NucleoEmpresa struct {
+	ID             int64
+	Nombre         string
+	Nit            string
+	Origen         string
+	SincronizadoEn *time.Time
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type NucleoIdempotencium struct {
@@ -148,6 +266,14 @@ type NucleoUsuario struct {
 	Version        int32
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type NucleoUsuariosEmpresa struct {
+	UsuarioID   int64
+	EmpresaID   int64
+	AsignadoPor *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type NucleoUsuariosRole struct {

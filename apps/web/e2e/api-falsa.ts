@@ -23,6 +23,7 @@ export function usuario(datos: Partial<Schema<"Usuario">> & Pick<Schema<"Usuario
         activo: true,
         mfaActivo: false,
         roles: [{ rol: "lectura" }],
+        empresas: [],
         version: 1,
         creadoEn: ahora,
         actualizadoEn: ahora,
@@ -213,7 +214,7 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
             });
         }
         if (metodo === "GET" && ruta === "/api/v1/yo") {
-            const yo: Schema<"Yo"> = { actor: "usuario", usuario: actual, permisos };
+            const yo: Schema<"Yo"> = { actor: "usuario", usuario: actual, permisos, empresas: [], modoEmpresa: "sin_conector", todasLasEmpresas: false, hayDatosSinEmpresa: false };
             return route.fulfill({ json: yo });
         }
         if (metodo === "GET" && ruta === "/api/v1/usuarios") {

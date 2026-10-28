@@ -15,8 +15,13 @@ SELECT * FROM nucleo.usuarios WHERE id = @id FOR UPDATE;
 SELECT * FROM nucleo.usuarios WHERE correo = @correo;
 
 -- name: ListarUsuarios :many
-SELECT * FROM nucleo.usuarios
-WHERE id > @despues_de
+-- Sin @todas (empresas.todas global o sin empresas registradas), solo el propio usuario y los
+-- que comparten alguna empresa con él (@empresas).
+SELECT * FROM nucleo.usuarios u
+WHERE u.id > @despues_de
+  AND (@todas::boolean OR u.id = @yo
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = u.id AND ue.empresa_id = ANY(@empresas::bigint[])))
   AND (sqlc.narg(q)::text IS NULL OR nombre ILIKE '%' || sqlc.narg(q) || '%' OR correo ILIKE '%' || sqlc.narg(q) || '%')
   AND (sqlc.narg(activo)::boolean IS NULL OR activo = sqlc.narg(activo))
 ORDER BY id
@@ -162,8 +167,12 @@ UPDATE nucleo.tokens_api SET ultimo_uso = now()
 WHERE id = @id AND (ultimo_uso IS NULL OR ultimo_uso < now() - interval '1 minute');
 
 -- name: ListarTokens :many
-SELECT * FROM nucleo.tokens_api
-WHERE id > @despues_de AND (sqlc.narg(usuario_id)::bigint IS NULL OR usuario_id = sqlc.narg(usuario_id))
+-- Sin @todas, solo los tokens propios y los de usuarios que comparten alguna empresa (@empresas).
+SELECT * FROM nucleo.tokens_api t
+WHERE t.id > @despues_de AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
+  AND (@todas::boolean OR t.usuario_id = @yo
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY(@empresas::bigint[])))
 ORDER BY id
 LIMIT @limite;
 
@@ -207,3 +216,76 @@ SELECT mfa_fallos FROM nucleo.sesiones WHERE id = @id;
 UPDATE nucleo.sesiones SET mfa_fallos = mfa_fallos + 1, updated_at = now()
 WHERE id = @id AND mfa_pendiente AND revocada_en IS NULL
 RETURNING mfa_fallos;
+
+-- Empresas y empresa activa ---------------------------------------------------
+
+-- name: EmpresasAccesibles :many
+-- Ids de las empresas en que el usuario puede operar: todas con @todas (empresas.todas), si no
+-- las de su membresía.
+SELECT e.id FROM nucleo.empresas e
+WHERE @todas::boolean
+   OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.empresa_id = e.id AND ue.usuario_id = @usuario_id)
+ORDER BY e.id;
+
+-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas);
+
+-- name: EmpresasPorIDs :many
+SELECT * FROM nucleo.empresas WHERE id = ANY(@ids::bigint[]) ORDER BY nombre, id;
+
+-- name: EmpresaPorID :one
+SELECT * FROM nucleo.empresas WHERE id = @id;
+
+-- name: EmpresaPorIDParaActualizar :one
+SELECT * FROM nucleo.empresas WHERE id = @id FOR UPDATE;
+
+-- name: ListarEmpresas :many
+-- Sin @todas, solo las de @empresas (las del actor).
+SELECT * FROM nucleo.empresas
+WHERE id > @despues_de AND (@todas::boolean OR id = ANY(@empresas::bigint[]))
+ORDER BY id LIMIT @limite;
+
+-- name: CrearEmpresa :one
+INSERT INTO nucleo.empresas (id, nombre, nit, origen) VALUES (@id, @nombre, @nit, 'manual')
+RETURNING *;
+
+-- name: EditarEmpresa :one
+UPDATE nucleo.empresas
+SET nombre = @nombre, nit = @nit, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: EmpresasDeUsuarios :many
+SELECT ue.usuario_id, ue.empresa_id
+FROM nucleo.usuarios_empresas ue
+WHERE ue.usuario_id = ANY(@usuarios::bigint[])
+ORDER BY ue.usuario_id, ue.empresa_id;
+
+-- name: AsignarEmpresa :execrows
+INSERT INTO nucleo.usuarios_empresas (usuario_id, empresa_id, asignado_por)
+VALUES (@usuario_id, @empresa_id, @asignado_por)
+ON CONFLICT (usuario_id, empresa_id) DO NOTHING;
+
+-- name: QuitarEmpresa :execrows
+DELETE FROM nucleo.usuarios_empresas WHERE usuario_id = @usuario_id AND empresa_id = @empresa_id;
+
+-- name: TieneEmpresasTodasGlobal :one
+-- El usuario tiene empresas.todas por un rol sin límite de zona ni cuadrilla.
+SELECT EXISTS (
+    SELECT 1 FROM nucleo.usuarios_roles ur
+    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+    WHERE ur.usuario_id = @usuario_id AND rp.permiso = 'empresas.todas'
+      AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
+);
+
+-- name: UsuarioEnEmpresa :one
+-- El usuario opera en la empresa: la tiene asignada o tiene empresas.todas sin límite (y la
+-- empresa está registrada).
+SELECT COALESCE(
+    EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = @usuario_id AND ue.empresa_id = @empresa_id)
+    OR (EXISTS (SELECT 1 FROM nucleo.empresas e WHERE e.id = @empresa_id)
+        AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                    WHERE ur.usuario_id = @usuario_id AND rp.permiso = 'empresas.todas'
+                      AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
+    false)::boolean AS en_empresa;

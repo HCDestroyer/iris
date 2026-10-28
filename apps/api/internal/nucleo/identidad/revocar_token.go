@@ -16,13 +16,18 @@ type EntradaRevocarToken struct {
 
 func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRevocarToken, TokenAPI]{
-		Accion:  "tokens.revocar",
-		Permiso: nucleo.PermTokensRevocar,
+		Accion:     "tokens.revocar",
+		Permiso:    nucleo.PermTokensRevocar,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRevocarToken) (TokenAPI, error) {
 			q := identidadbd.New(t)
 			t.FijarEntidad("token", in.ID)
 			antes, err := q.TokenPorIDParaActualizar(ctx, in.ID)
 			if err != nil {
+				return TokenAPI{}, err
+			}
+			// Revocar tokens de otro usuario exige operar en todas sus empresas.
+			if err := exigirEmpresasDe(ctx, q, antes.UsuarioID, "revocar tokens de este usuario"); err != nil {
 				return TokenAPI{}, err
 			}
 			if antes.RevocadoEn != nil {
