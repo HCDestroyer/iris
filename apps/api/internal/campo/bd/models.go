@@ -63,6 +63,7 @@ type CampoFirma struct {
 	OperacionID  *uuid.UUID
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	InvalidadaEn *time.Time
 }
 
 type CampoOperacionesSync struct {
@@ -181,6 +182,7 @@ type CampoOrdenEquipo struct {
 	OperacionID   *uuid.UUID
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	Validado      bool
 }
 
 type CampoOrdenEvento struct {

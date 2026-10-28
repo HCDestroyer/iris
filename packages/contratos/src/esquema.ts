@@ -137,7 +137,7 @@ export interface paths {
         };
         /**
          * Cambios en las órdenes del técnico desde el cursor
-         * @description Permiso: `campo.sincronizar`. Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (orden null: quitarla del teléfono).
+         * @description Permiso: `campo.sincronizar`. Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (sin orden: quitarla del teléfono). El cursor es del técnico y solo trae las órdenes de la empresa activa: al cambiar de empresa (X-Iris-Empresa), vuelve a pedir el paquete y usa su cursor.
          */
         get: operations["cambiosCampo"];
         put?: never;
@@ -1274,7 +1274,7 @@ export interface paths {
         put?: never;
         /**
          * Lote de operaciones de la app de campo
-         * @description Permiso: `campo.sincronizar`. Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json).
+         * @description Permiso: `campo.sincronizar`. Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json). Cuerpo de hasta 4 MiB y 200 operaciones (una firma SVG ocupa hasta 200 000 caracteres).
          */
         post: operations["loteSync"];
         delete?: never;
@@ -2736,7 +2736,7 @@ export interface components {
         EntradaUsarMaterial: {
             /**
              * Format: int64
-             * @description Bodega en Argos; por defecto, la de la orden
+             * @description Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden
              */
             bodegaId?: number;
             /**
@@ -2788,6 +2788,8 @@ export interface components {
              * @description Unidad en el inventario de Argos
              */
             unidadId: number | null;
+            /** @description Retirado y verificado contra el comodato del servicio en Argos (false: sin conector o Argos no respondió) */
+            validado: boolean;
         };
         ErrorCampo: {
             /** @description Campo con el error (p. ej. correo, roles[0].rol) */

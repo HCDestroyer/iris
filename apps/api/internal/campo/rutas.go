@@ -14,6 +14,10 @@ import (
 
 const etiqueta = "campo"
 
+// maxBytesLote: el lote lleva firmas (SVG de hasta 200 000 caracteres): 4 MiB en vez del 1 MiB
+// de huma, solo en /sync/lote.
+const maxBytesLote = 4 << 20
+
 var seguridad = []map[string][]string{{"sesion": {}}, {"bearer": {}}}
 
 func operacion(id, metodo, ruta, resumen string, permiso nucleo.Permiso, status int, errores ...int) huma.Operation {
@@ -66,6 +70,9 @@ func responder[T any](v T, err error) (*cuerpo[T], error) {
 func registrarAccion[In any](api huma.API, op huma.Operation, ejecutar func(context.Context, In) (Orden, error), fijar func(*In, int64)) {
 	huma.Register(api, op, func(ctx context.Context, in *conID[In]) (*cuerpo[Orden], error) {
 		e := in.Body
+		if err := sinNulos(e); err != nil {
+			return nil, err // validación de entrada: Postgres no guarda NUL (ni en la auditoría)
+		}
 		fijar(&e, in.ID)
 		return responder(ejecutar(ctx, e))
 	})
@@ -99,6 +106,9 @@ func (m *Modulo) Registrar(api huma.API) {
 	crear.Description += " Con `ticketId` la orden hereda los datos del ticket y deja una nota interna en él. Emite `orden.creada`."
 	huma.Register(api, crear, func(ctx context.Context, in *conClave[EntradaCrearOrden]) (*cuerpo[Orden], error) {
 		e := in.Body
+		if err := sinNulos(e); err != nil {
+			return nil, err
+		}
 		e.ClaveIdempotencia = in.IdempotencyKey
 		return responder(m.CrearOrden.Ejecutar(ctx, e))
 	})
@@ -155,13 +165,13 @@ func (m *Modulo) Registrar(api huma.API) {
 	registrarAccion(api, accion("agregarNotaOrden", "notas", "Agregar una nota a la orden",
 		"En cualquier estado.", nucleo.PermOrdenesRegistrar), m.AgregarNota.Ejecutar, func(e *EntradaAgregarNota, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("usarMaterialOrden", "materiales", "Registrar material usado",
-		"Producto de Argos desde la bodega de la orden.", nucleo.PermOrdenesRegistrar), m.UsarMaterial.Ejecutar,
+		"Producto de Argos desde la bodega de la orden.", nucleo.PermOrdenesRegistrar), m.UsarMaterialPanel,
 		func(e *EntradaUsarMaterial, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("instalarEquipoOrden", "equipos-instalados", "Registrar un equipo instalado (comodato)",
 		"Serie o unidad de Argos; MAC normalizada. 422 `equipo_duplicado`.", nucleo.PermOrdenesRegistrar), m.InstalarEquipo.Ejecutar,
 		func(e *EntradaEquipo, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("retirarEquipoOrden", "equipos-retirados", "Registrar un equipo retirado",
-		"Con su condición (buena, danada o perdido: no se recuperó).", nucleo.PermOrdenesRegistrar), m.RetirarEquipo.Ejecutar,
+		"Con su condición (buena, danada o perdido: no se recuperó).", nucleo.PermOrdenesRegistrar), m.RetirarEquipoPanel,
 		func(e *EntradaEquipo, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("capturarFirmaOrden", "firma", "Capturar la firma del cliente",
 		"Reemplaza la anterior. El SVG nunca sale por la API ni en la auditoría.", nucleo.PermOrdenesRegistrar), m.CapturarFirma.Ejecutar,
@@ -178,13 +188,14 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	cambios := operacion("cambiosCampo", http.MethodGet, "/api/v1/campo/cambios", "Cambios en las órdenes del técnico desde el cursor", nucleo.PermCampoSincronizar, http.StatusOK)
-	cambios.Description += " Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (orden null: quitarla del teléfono)."
+	cambios.Description += " Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (sin orden: quitarla del teléfono). El cursor es del técnico y solo trae las órdenes de la empresa activa: al cambiar de empresa (X-Iris-Empresa), vuelve a pedir el paquete y usa su cursor."
 	huma.Register(api, cambios, func(ctx context.Context, in *EntradaCambios) (*cuerpo[Cambios], error) {
 		return responder(m.Cambios(contexto.ConCanal(ctx, contexto.CanalCampo), *in))
 	})
 
 	lote := operacion("loteSync", http.MethodPost, "/api/v1/sync/lote", "Lote de operaciones de la app de campo", nucleo.PermCampoSincronizar, http.StatusOK)
-	lote.Description += " Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json)."
+	lote.Description += " Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json). Cuerpo de hasta 4 MiB y 200 operaciones (una firma SVG ocupa hasta 200 000 caracteres)."
+	lote.MaxBodyBytes = maxBytesLote
 	huma.Register(api, lote, func(ctx context.Context, in *conClave[EntradaLote]) (*cuerpo[RespuestaLote], error) {
 		return responder(m.Lote(ctx, in.Body))
 	})

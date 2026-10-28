@@ -150,6 +150,11 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 				}
 				despues.AsignadaEn = &ahora
 			}
+			if antes.Estado == EstadoFallida {
+				if err := invalidarFirma(ctx, t, q, antes.ID, ahora); err != nil {
+					return antes, "", err
+				}
+			}
 			despues.Estado = EstadoProgramada
 			despues.EnCaminoEn, despues.EnSitioEn, despues.FinalizadaEn = nil, nil, nil
 			despues.Resultado, despues.MotivoFalla = nil, nil

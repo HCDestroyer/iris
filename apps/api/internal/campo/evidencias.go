@@ -55,9 +55,11 @@ type EntradaUsarMaterial struct {
 	Version     *int32  `json:"version,omitempty" minimum:"1" doc:"Versión leída (opcional); si cambió, 409"`
 	ProductoID  int64   `json:"productoId" minimum:"1" doc:"Producto en Argos"`
 	Cantidad    float64 `json:"cantidad" exclusiveMinimum:"0" maximum:"1000000" doc:"Hasta 3 decimales (metros de cable, unidades…)"`
-	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Bodega en Argos; por defecto, la de la orden"`
+	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden"`
 	Descripcion string  `json:"descripcion,omitempty" maxLength:"200"`
 	Sync        *OpSync `json:"-"`
+
+	pre *prelectura // lo leído de Argos antes de la transacción
 }
 
 // EntradaEquipo es la entrada de ordenes.instalar_equipo y ordenes.retirar_equipo.
@@ -70,6 +72,8 @@ type EntradaEquipo struct {
 	Modelo    string  `json:"modelo,omitempty" maxLength:"100"`
 	Condicion *string `json:"condicion,omitempty" enum:"buena,danada,perdido" doc:"Obligatoria al retirar; no va al instalar"`
 	Sync      *OpSync `json:"-"`
+
+	pre *prelectura // lo leído de Argos antes de la transacción
 }
 
 // EntradaCapturarFirma es la entrada de ordenes.capturar_firma.
@@ -127,11 +131,11 @@ func tocar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.C
 func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, Orden] {
 	return accionOrden("ordenes.marcar_checklist", nucleo.PermOrdenesRegistrar, func(e EntradaMarcarChecklist) *OpSync { return e.Sync },
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaMarcarChecklist) (campobd.CampoOrden, string, error) {
-			cuando := m.cuando(in.Sync)
 			f, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesRegistrar, in.Version, in.Sync)
 			if err != nil {
 				return f, "", err
 			}
+			cuando := m.cuandoEn(in.Sync, f)
 			if err := exigirEstado(f, "marcar el checklist de", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
@@ -251,7 +255,7 @@ func (m *Modulo) nuevoAgregarNota() *auditoria.Caso[EntradaAgregarNota, Orden] {
 			}
 			n, err := q.CrearNota(ctx, campobd.CrearNotaParams{
 				ID: id, OrdenID: f.ID, Texto: cuerpo, AutorID: actorUsuario(t), AutorNombre: t.Actor().Nombre,
-				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuando(in.Sync), OperacionID: operacionDe(in.Sync),
+				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f), OperacionID: operacionDe(in.Sync),
 			})
 			if err != nil {
 				return f, "", err
@@ -279,8 +283,18 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			if !(cantidad > 0) || cantidad > 1_000_000 {
 				return f, "", campoInvalido("cantidad", "Debe ser mayor que 0 (hasta 3 decimales)", "rango")
 			}
+			// Siempre la bodega de la orden (la del técnico). Otra solo la indica despacho o
+			// supervisor y debe existir en la empresa según Argos.
 			bodega := f.BodegaID
-			if in.BodegaID != nil {
+			if in.BodegaID != nil && !mismoID(in.BodegaID, f.BodegaID) {
+				switch {
+				case in.Sync != nil:
+					return f, "", campoInvalido("bodegaId", "Desde la app se usa la bodega de la orden", "bodega")
+				case !cubre(ctx, nucleo.PermOrdenesAsignar, f):
+					return f, "", nucleo.Prohibido("Solo despacho o supervisor (ordenes.asignar) indican otra bodega")
+				case in.pre == nil || !in.pre.bodegaValida || in.pre.bodega != *in.BodegaID || in.pre.empresa != deref(f.EmpresaID):
+					return f, "", nucleo.ReglaNegocio("bodega_invalida", "La bodega no existe en la empresa según Argos (o no hay conector para verificarla)")
+				}
 				bodega = in.BodegaID
 			}
 			// Más que la existencia de la bodega (según Argos, leída antes por el lote): se acepta
@@ -300,7 +314,7 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			mat, err := q.CrearMaterial(ctx, campobd.CrearMaterialParams{
 				ID: id, OrdenID: f.ID, ProductoID: in.ProductoID, Descripcion: strings.TrimSpace(in.Descripcion),
 				Cantidad: aNumeric(cantidad), BodegaID: bodega, ExcedeExistencia: excede, RegistradoPor: actorUsuario(t),
-				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuando(in.Sync), OperacionID: operacionDe(in.Sync),
+				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f), OperacionID: operacionDe(in.Sync),
 			})
 			if err != nil {
 				return f, "", err
@@ -377,6 +391,33 @@ func (m *Modulo) nuevoEquipo(accionEquipo string) *auditoria.Caso[EntradaEquipo,
 				return f, "", campoObligatorio("condicion")
 			case accionEquipo == AccionInstalar && condicion != nil:
 				return f, "", campoInvalido("condicion", "Solo al retirar", "condicion")
+			case condicion != nil && *condicion != "buena" && *condicion != "danada" && *condicion != "perdido":
+				return f, "", campoInvalido("condicion", "Condición desconocida", "enum")
+			}
+			// Coherente con el tipo: se instala en instalación y cambio de equipo; se retira en
+			// retiro y cambio de equipo.
+			tipo, err := tipoDe(ctx, q, f)
+			if err != nil {
+				return f, "", err
+			}
+			if (accionEquipo == AccionInstalar && !tipo.ExigeInstalar) || (accionEquipo == AccionRetirar && !tipo.ExigeRetirar) {
+				return f, "", nucleo.ReglaNegocio("equipo_no_admitido",
+					fmt.Sprintf("Una orden de %s no admite %s equipos", tipo.Nombre, accionEquipo))
+			}
+			// Con conector, lo retirado debe ser un equipo en comodato del servicio (por unidad o
+			// serie). Sin conector (o Argos caído) se acepta como dato no verificado.
+			validado := false
+			if accionEquipo == AccionRetirar && in.pre != nil && in.pre.comodatoConocido && f.ServicioID != nil && in.pre.servicio == *f.ServicioID {
+				coincide := false
+				for _, eq := range in.pre.comodato {
+					if (in.UnidadID != nil && eq.UnidadID == *in.UnidadID) || (serie != nil && strings.EqualFold(eq.Serie, *serie)) {
+						coincide = true
+					}
+				}
+				if !coincide {
+					return f, "", nucleo.ReglaNegocio("equipo_no_en_comodato", "El equipo no está en comodato en el servicio de la orden según Argos")
+				}
+				validado = true
 			}
 			id, err := idDeEvidencia(in.Sync)
 			if err != nil {
@@ -384,8 +425,8 @@ func (m *Modulo) nuevoEquipo(accionEquipo string) *auditoria.Caso[EntradaEquipo,
 			}
 			eq, err := q.CrearEquipo(ctx, campobd.CrearEquipoParams{
 				ID: id, OrdenID: f.ID, Accion: accionEquipo, UnidadID: in.UnidadID, Serie: serie, Mac: mac,
-				Modelo: strings.TrimSpace(in.Modelo), Condicion: condicion, RegistradoPor: actorUsuario(t),
-				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuando(in.Sync), OperacionID: operacionDe(in.Sync),
+				Modelo: strings.TrimSpace(in.Modelo), Condicion: condicion, Validado: validado, RegistradoPor: actorUsuario(t),
+				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f), OperacionID: operacionDe(in.Sync),
 			})
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == "23505" {
@@ -424,7 +465,7 @@ func (m *Modulo) nuevoCapturarFirma() *auditoria.Caso[EntradaCapturarFirma, Orde
 			}
 			if _, err := q.GuardarFirma(ctx, campobd.GuardarFirmaParams{
 				OrdenID: f.ID, Nombre: nombre, Documento: documento, Svg: svg, AdjuntoID: in.AdjuntoID,
-				CapturadaPor: actorUsuario(t), Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuando(in.Sync),
+				CapturadaPor: actorUsuario(t), Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f),
 				OperacionID: operacionDe(in.Sync),
 			}); err != nil {
 				return f, "", err
@@ -482,7 +523,7 @@ func (m *Modulo) nuevoRegistrarAdjunto() *auditoria.Caso[EntradaRegistrarAdjunto
 			}
 			a, err := q.RegistrarAdjunto(ctx, campobd.RegistrarAdjuntoParams{
 				ID: in.AdjuntoID, OrdenID: f.ID, Tipo: in.Tipo, ItemID: in.ItemID, Descripcion: d,
-				RegistradoPor: actorUsuario(t), Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuando(in.Sync),
+				RegistradoPor: actorUsuario(t), Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f),
 				OperacionID: operacionDe(in.Sync),
 			})
 			if err != nil {
@@ -492,4 +533,66 @@ func (m *Modulo) nuevoRegistrarAdjunto() *auditoria.Caso[EntradaRegistrarAdjunto
 			f, err = tocar(ctx, t, q, f)
 			return f, "", err
 		})
+}
+
+// prelectura: lo que una acción necesita de Argos, leído antes de abrir la transacción (sin
+// llamadas HTTP dentro de ella). El caso de uso lo vuelve a cruzar con la orden ya tomada.
+type prelectura struct {
+	empresa          int64
+	bodega           int64
+	bodegaValida     bool
+	servicio         int64
+	comodato         []EquipoComodato
+	comodatoConocido bool
+}
+
+// leerOrden lee la orden sin caso de uso ni transacción, solo para preparar lecturas de Argos
+// (la acción vuelve a verificar todo con la orden tomada).
+func leerOrden(ctx context.Context, id int64) (campobd.CampoOrden, bool) {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return campobd.CampoOrden{}, false
+	}
+	f, err := campobd.New(bd).OrdenPorID(ctx, id)
+	return f, err == nil
+}
+
+// comodatoDe lee de Argos los equipos en comodato del servicio de la orden.
+func (m *Modulo) comodatoDe(ctx context.Context, empresa int64, servicio *int64) *prelectura {
+	if m.cfg.Inventario == nil || servicio == nil {
+		return nil
+	}
+	eq, err := m.cfg.Inventario.EquiposEnComodato(ctx, empresa, *servicio)
+	if err != nil {
+		return nil
+	}
+	return &prelectura{empresa: empresa, servicio: *servicio, comodato: eq, comodatoConocido: true}
+}
+
+// bodegaDe verifica en Argos que la bodega exista en la empresa.
+func (m *Modulo) bodegaDe(ctx context.Context, empresa, bodega int64) *prelectura {
+	p := &prelectura{empresa: empresa, bodega: bodega}
+	if m.cfg.Inventario != nil {
+		ok, err := m.cfg.Inventario.BodegaDeEmpresa(ctx, empresa, bodega)
+		p.bodegaValida = ok && err == nil
+	}
+	return p
+}
+
+// UsarMaterialPanel: materiales.usar desde el panel (verifica en Argos otra bodega antes).
+func (m *Modulo) UsarMaterialPanel(ctx context.Context, in EntradaUsarMaterial) (Orden, error) {
+	if in.BodegaID != nil {
+		if f, ok := leerOrden(ctx, in.ID); ok && !mismoID(in.BodegaID, f.BodegaID) {
+			in.pre = m.bodegaDe(ctx, deref(f.EmpresaID), *in.BodegaID)
+		}
+	}
+	return m.UsarMaterial.Ejecutar(ctx, in)
+}
+
+// RetirarEquipoPanel: equipo retirado desde el panel (lee el comodato antes).
+func (m *Modulo) RetirarEquipoPanel(ctx context.Context, in EntradaEquipo) (Orden, error) {
+	if f, ok := leerOrden(ctx, in.ID); ok {
+		in.pre = m.comodatoDe(ctx, deref(f.EmpresaID), f.ServicioID)
+	}
+	return m.RetirarEquipo.Ejecutar(ctx, in)
 }

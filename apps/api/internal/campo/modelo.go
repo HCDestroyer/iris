@@ -137,6 +137,7 @@ type EquipoOrden struct {
 	MAC        *string   `json:"mac" nullable:"true" doc:"AA:BB:CC:DD:EE:FF"`
 	Modelo     string    `json:"modelo"`
 	Condicion  *string   `json:"condicion" nullable:"true" enum:"buena,danada,perdido" doc:"Solo retirar"`
+	Validado   bool      `json:"validado" doc:"Retirado y verificado contra el comodato del servicio en Argos (false: sin conector o Argos no respondió)"`
 	OcurridoEn time.Time `json:"ocurridoEn"`
 }
 

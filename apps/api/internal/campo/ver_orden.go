@@ -341,7 +341,7 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 		for _, e := range equipos {
 			if e.OrdenID == f.ID {
 				d.Equipos = append(d.Equipos, EquipoOrden{ID: e.ID, Accion: e.Accion, UnidadID: e.UnidadID, Serie: e.Serie,
-					MAC: e.Mac, Modelo: e.Modelo, Condicion: e.Condicion, OcurridoEn: e.OcurridoEn})
+					MAC: e.Mac, Modelo: e.Modelo, Condicion: e.Condicion, Validado: e.Validado, OcurridoEn: e.OcurridoEn})
 			}
 		}
 		for _, fi := range firmas {

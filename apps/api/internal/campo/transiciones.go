@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
@@ -50,11 +51,11 @@ func syncFallar(e EntradaFallarOrden) *OpSync { return e.Sync }
 func (m *Modulo) nuevoIniciarCamino() *auditoria.Caso[EntradaPosicion, Orden] {
 	return accionOrden("ordenes.iniciar_camino", nucleo.PermOrdenesIniciarCamino, syncPosicion,
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaPosicion) (campobd.CampoOrden, string, error) {
-			cuando := m.cuando(in.Sync)
 			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesIniciarCamino, versionDe(in.Version, in.Sync), in.Sync)
 			if err != nil {
 				return antes, "", err
 			}
+			cuando := m.cuandoEn(in.Sync, antes)
 			if err := exigirEstado(antes, "iniciar el camino de", EstadoProgramada); err != nil {
 				return antes, "", err
 			}
@@ -74,11 +75,11 @@ func (m *Modulo) nuevoIniciarCamino() *auditoria.Caso[EntradaPosicion, Orden] {
 func (m *Modulo) nuevoLlegar() *auditoria.Caso[EntradaPosicion, Orden] {
 	return accionOrden("ordenes.llegar", nucleo.PermOrdenesLlegar, syncPosicion,
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaPosicion) (campobd.CampoOrden, string, error) {
-			cuando := m.cuando(in.Sync)
 			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesLlegar, versionDe(in.Version, in.Sync), in.Sync)
 			if err != nil {
 				return antes, "", err
 			}
+			cuando := m.cuandoEn(in.Sync, antes)
 			// Desde programada también: el técnico pudo no marcar «en camino».
 			if err := exigirEstado(antes, "marcar la llegada de", EstadoProgramada, EstadoEnCamino); err != nil {
 				return antes, "", err
@@ -102,11 +103,11 @@ func (m *Modulo) nuevoLlegar() *auditoria.Caso[EntradaPosicion, Orden] {
 func (m *Modulo) nuevoFallarOrden() *auditoria.Caso[EntradaFallarOrden, Orden] {
 	return accionOrden("ordenes.fallar", nucleo.PermOrdenesFallar, syncFallar,
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaFallarOrden) (campobd.CampoOrden, string, error) {
-			cuando := m.cuando(in.Sync)
 			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesFallar, versionDe(in.Version, in.Sync), in.Sync)
 			if err != nil {
 				return antes, "", err
 			}
+			cuando := m.cuandoEn(in.Sync, antes)
 			if err := exigirEstado(antes, "marcar como fallida", EstadoProgramada, EstadoEnCamino, EstadoEnSitio); err != nil {
 				return antes, "", err
 			}
@@ -186,6 +187,10 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// La firma del intento anterior no vale para el próximo cierre.
+			if err := invalidarFirma(ctx, t, q, antes.ID, ahora); err != nil {
+				return antes, "", err
+			}
 			despues := antes
 			despues.Estado, despues.FinalizadaEn, despues.Resultado, despues.MotivoFalla = EstadoPendiente, nil, nil, nil
 			despues.EnCaminoEn, despues.EnSitioEn, despues.Motivo = nil, nil, &motivo
@@ -203,4 +208,14 @@ func notaEnTicket(ctx context.Context, t *auditoria.Tx, f campobd.CampoOrden, cu
 		return nil
 	}
 	return soporte.NotaDeOrden(ctx, t, *f.TicketID, cuerpo)
+}
+
+// invalidarFirma: al reabrir o reprogramar una orden fallida, la firma del intento anterior deja
+// de contar (el nuevo cierre pide otra; queda guardada como evidencia).
+func invalidarFirma(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, ordenID int64, ahora time.Time) error {
+	n, err := q.InvalidarFirma(ctx, campobd.InvalidarFirmaParams{OrdenID: ordenID, InvalidadaEn: &ahora})
+	if err == nil && n > 0 {
+		t.Anotar(map[string]any{"firma_invalidada": true})
+	}
+	return err
 }

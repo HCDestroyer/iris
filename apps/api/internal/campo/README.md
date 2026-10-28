@@ -27,6 +27,14 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   marca vigente (gana la más reciente por `ocurrido_en`) y el historial de todas. MAC normalizada
   a `AA:BB:CC:DD:EE:FF`; equipo repetido 422 `equipo_duplicado`. El SVG de la firma nunca sale
   por la API ni en la auditoría.
+- **Bodega:** materiales siempre de la bodega de la orden (la del técnico). Otra bodega solo la
+  indica quien tiene `ordenes.asignar` con alcance (despacho, supervisor) desde el panel, y debe
+  existir en la empresa según Argos (`Inventario.BodegaDeEmpresa`; sin conector, 422
+  `bodega_invalida`). Desde el lote, `bodegaId` se rechaza.
+- **Equipos:** se instala solo en instalación y cambio de equipo, se retira solo en retiro y cambio
+  de equipo (422 `equipo_no_admitido`). Con conector, lo retirado debe estar en el comodato del
+  servicio (por unidad o serie; 422 `equipo_no_en_comodato`) y queda `validado`; sin conector o con
+  Argos caído se acepta como no verificado (`equipos_validados: false` en `orden.cerrada`).
 - **Cierre:** checklist obligatorio, equipos del tipo (instalación ≥1 instalado; retiro ≥1
   retirado con condición `buena|danada|perdido`; cambio de equipo ambos) y firma si la plantilla
   la pide → si no, 422 `cierre_incompleto` con `errors[]` (`checklist.<código>`,
@@ -44,6 +52,8 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   su empresa (422 `tecnico_fuera_de_empresa`).
 - **Empresa activa:** como soporte (`filtroEmpresa`): activa, sin conector (`null`) o sistema.
   `campo.ordenes` se registra para la adopción.
+- **Firma de un intento fallido:** reabrir o reprogramar una orden fallida la invalida
+  (`firmas.invalidada_en`, queda como evidencia): el nuevo cierre pide otra.
 - **Idempotencia:** `crear` guarda la `Idempotency-Key` (por credencial); las demás acciones la
   toleran con `version` y su estado; el lote, por id de operación.
 
@@ -69,8 +79,12 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
     `orden_reasignada` y `orden_cancelada`, que se evalúan una por una (tras la cancelación, notas
     y adjuntos siguen entrando). `orden {version, estado}` también en los rechazos si el técnico
     ve o tuvo la orden.
-  - Reloj: `desfaseMs = servidor − enviadoEn`; cada `ocurridoEn` se corrige con él (nunca en el
-    futuro). `campo.dispositivos` guarda plataforma, último contacto y desfase.
+  - Reloj: `desfaseMs = servidor − enviadoEn`; cada `ocurridoEn` se corrige con él y se acota a
+    `[max(ahora − 7 días, hora del estado de la orden), ahora]`; la hora original queda en
+    `operaciones_sync.ocurrido_en_telefono`.
+  - `datos` se valida con el esquema (OpenAPI) de la entrada de la acción: mismas reglas que el panel
+    (`errors[].field = "datos.<campo>"`). NUL en un texto → 422. Cuerpo hasta 4 MiB.
+  - Un `dispositivoId` es de un usuario: el de otro da 409 `dispositivo_ajeno`. `campo.dispositivos` guarda plataforma, último contacto y desfase.
   - Material por encima de la existencia de la bodega (según Argos): se acepta con
     `aviso: existencia_insuficiente` y `excede_existencia` en `orden.cerrada`.
 

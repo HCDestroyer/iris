@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -33,8 +34,10 @@ type OpSync struct {
 	// desfase del dispositivo (la que se usa: historial, checklist, materiales…).
 	OcurridoEnTelefono *time.Time
 	OcurridoEn         time.Time
-	// Existencia de la bodega según Argos (material.usar), leída antes, fuera de la transacción.
+	// Existencia de la bodega según Argos (material.usar) y comodato del servicio
+	// (equipo.retirar), leídos antes, fuera de la transacción.
 	Existencia *float64
+	pre        *prelectura
 }
 
 func noEncontrada() *nucleo.Problema { return nucleo.NoEncontrado("La orden no existe") }
@@ -233,7 +236,8 @@ func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden
 			return ordenReasignada()
 		}
 	}
-	if f.Estado == EstadoCancelada && s.Tipo != OpNotaAgregar && s.Tipo != OpAdjuntoRegistrar {
+	// Solo si el actor la ve: si no, la verificación normal responde 404 (sin oráculo).
+	if f.Estado == EstadoCancelada && visible(ctx, f) && s.Tipo != OpNotaAgregar && s.Tipo != OpAdjuntoRegistrar {
 		return ordenCancelada()
 	}
 	return nil
@@ -354,12 +358,26 @@ func actorUsuario(t *auditoria.Tx) *int64 {
 	return nil
 }
 
-// cuando es la hora del hecho: la del teléfono corregida (lote) o la del servidor.
-func (m *Modulo) cuando(s *OpSync) time.Time {
-	if s != nil {
-		return s.OcurridoEn
+// cuandoEn es la hora del hecho: la del servidor (panel) o la del teléfono corregida con el
+// desfase (lote; corregir ya la acota a ahora − 7 días), nunca anterior a la hora en que la
+// orden entró en su estado actual (asignación, en camino, en sitio): un teléfono con el reloj
+// atrasado no reescribe el orden de los hechos. La hora original queda en
+// operaciones_sync.ocurrido_en_telefono como evidencia.
+func (m *Modulo) cuandoEn(s *OpSync, f campobd.CampoOrden) time.Time {
+	ahora := m.ahora()
+	if s == nil {
+		return ahora
 	}
-	return m.ahora()
+	c := s.OcurridoEn
+	for _, piso := range []*time.Time{f.AsignadaEn, f.EnCaminoEn, f.EnSitioEn} {
+		if piso != nil && c.Before(*piso) {
+			c = *piso
+		}
+	}
+	if c.After(ahora) {
+		return ahora
+	}
+	return c
 }
 
 // gps arma los datos de posición del historial (evidencia con hora).
@@ -387,4 +405,61 @@ func validarCoordenadas(lat, lon *float64) error {
 // tipoDe devuelve el tipo de la orden.
 func tipoDe(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden) (campobd.CampoTiposOrden, error) {
 	return q.TipoPorID(ctx, f.TipoID)
+}
+
+// sinNulos rechaza (422) el carácter NUL en cualquier texto de la entrada: Postgres no lo
+// acepta en text y daría un 500.
+func sinNulos(in any) error {
+	var campo string
+	var revisar func(v reflect.Value, ruta string) bool
+	revisar = func(v reflect.Value, ruta string) bool {
+		switch v.Kind() {
+		case reflect.String:
+			if strings.ContainsRune(v.String(), 0) {
+				campo = ruta
+				return false
+			}
+		case reflect.Pointer, reflect.Interface:
+			if !v.IsNil() {
+				return revisar(v.Elem(), ruta)
+			}
+		case reflect.Struct:
+			for i := range v.NumField() {
+				f := v.Type().Field(i)
+				if !f.IsExported() {
+					continue
+				}
+				nombre := strings.Split(f.Tag.Get("json"), ",")[0]
+				if nombre == "-" {
+					continue
+				}
+				if nombre == "" {
+					nombre = f.Name
+				}
+				if !revisar(v.Field(i), strings.TrimPrefix(ruta+"."+nombre, ".")) {
+					return false
+				}
+			}
+		case reflect.Slice, reflect.Array:
+			for i := range v.Len() {
+				if !revisar(v.Index(i), ruta) {
+					return false
+				}
+			}
+		case reflect.Map:
+			for _, k := range v.MapKeys() {
+				if !revisar(v.MapIndex(k), strings.TrimPrefix(ruta+"."+fmt.Sprint(k.Interface()), ".")) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if revisar(reflect.ValueOf(in), "") {
+		return nil
+	}
+	if campo == "" {
+		campo = "texto"
+	}
+	return campoInvalido(campo, "El texto no puede contener el carácter NUL", "texto")
 }

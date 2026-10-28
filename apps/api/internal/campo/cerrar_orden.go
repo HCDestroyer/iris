@@ -46,11 +46,11 @@ func faltanAdjuntos(faltan []string) *nucleo.Problema {
 func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 	return accionOrden("ordenes.cerrar", nucleo.PermOrdenesCerrar, func(e EntradaCerrarOrden) *OpSync { return e.Sync },
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaCerrarOrden) (campobd.CampoOrden, string, error) {
-			cuando := m.cuando(in.Sync)
 			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesCerrar, versionDe(in.Version, in.Sync), in.Sync)
 			if err != nil {
 				return antes, "", err
 			}
+			cuando := m.cuandoEn(in.Sync, antes)
 			if err := exigirEstado(antes, "cerrar", EstadoEnSitio); err != nil {
 				return antes, "", err
 			}
@@ -158,11 +158,15 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		materiales = append(materiales, s)
 	}
 	equipos := make([]map[string]any, 0, len(d.Equipos))
+	validados := true
 	for _, e := range d.Equipos {
+		if e.Accion == AccionRetirar && !e.Validado {
+			validados = false
+		}
 		// condicion: buena | danada | perdido (perdido → pérdida del comodato en Argos).
 		equipos = append(equipos, map[string]any{
 			"id": e.ID, "accion": e.Accion, "unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC,
-			"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID,
+			"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID, "validado": e.Validado,
 		})
 	}
 	return map[string]any{
@@ -172,6 +176,9 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		"cerrada_en": f.FinalizadaEn, "materiales": materiales, "equipos": equipos,
 		// Un retiro exitoso retira el servicio en Argos (POST /servicios/:id/retirar).
 		"retirar_servicio": tipo == "retiro" && f.Resultado != nil && *f.Resultado == "exitosa",
+		// false: algún equipo retirado no se pudo verificar contra el comodato (sin conector o
+		// Argos caído): I1 lo trata como dato no verificado.
+		"equipos_validados": validados,
 	}
 }
 

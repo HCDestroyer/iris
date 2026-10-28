@@ -58,6 +58,9 @@ func accionOrden[In any](accion string, permiso nucleo.Permiso, op func(In) *OpS
 			return !errors.As(err, &d)
 		},
 		Logica: func(ctx context.Context, t *auditoria.Tx, in In) (Orden, error) {
+			if err := sinNulos(in); err != nil {
+				return Orden{}, err
+			}
 			q := campobd.New(t)
 			s := op(in)
 			if s != nil {

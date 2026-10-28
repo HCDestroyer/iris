@@ -120,6 +120,9 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 		Accion:  "ordenes.crear",
 		Permiso: nucleo.PermOrdenesCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrden) (Orden, error) {
+			if err := sinNulos(in); err != nil {
+				return Orden{}, err
+			}
 			q := campobd.New(t)
 
 			// La misma operación repetida (clave reclamada tras una caída) devuelve su orden.

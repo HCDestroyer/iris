@@ -290,9 +290,9 @@ func (q *Queries) CrearCambio(ctx context.Context, arg CrearCambioParams) error 
 }
 
 const crearEquipo = `-- name: CrearEquipo :one
-INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at
+INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado
 `
 
 type CrearEquipoParams struct {
@@ -304,6 +304,7 @@ type CrearEquipoParams struct {
 	Mac           *string
 	Modelo        string
 	Condicion     *string
+	Validado      bool
 	RegistradoPor *int64
 	Canal         string
 	OcurridoEn    time.Time
@@ -320,6 +321,7 @@ func (q *Queries) CrearEquipo(ctx context.Context, arg CrearEquipoParams) (Campo
 		arg.Mac,
 		arg.Modelo,
 		arg.Condicion,
+		arg.Validado,
 		arg.RegistradoPor,
 		arg.Canal,
 		arg.OcurridoEn,
@@ -341,6 +343,7 @@ func (q *Queries) CrearEquipo(ctx context.Context, arg CrearEquipoParams) (Campo
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Validado,
 	)
 	return i, err
 }
@@ -625,7 +628,7 @@ func (q *Queries) EmpresaRegistrada(ctx context.Context, id int64) (bool, error)
 }
 
 const equipoPorID = `-- name: EquipoPorID :one
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_equipos WHERE id = $1
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE id = $1
 `
 
 func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEquipo, error) {
@@ -646,12 +649,13 @@ func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEqui
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Validado,
 	)
 	return i, err
 }
 
 const equiposDeOrdenes = `-- name: EquiposDeOrdenes :many
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenEquipo, error) {
@@ -678,6 +682,7 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 			&i.OperacionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Validado,
 		); err != nil {
 			return nil, err
 		}
@@ -704,9 +709,10 @@ func (q *Queries) FijarResultadoOperacion(ctx context.Context, arg FijarResultad
 }
 
 const firmasDeOrdenes = `-- name: FirmasDeOrdenes :many
-SELECT id, orden_id, nombre, documento, svg, adjunto_id, capturada_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.firmas WHERE orden_id = ANY($1::bigint[])
+SELECT id, orden_id, nombre, documento, svg, adjunto_id, capturada_por, canal, ocurrido_en, operacion_id, created_at, updated_at, invalidada_en FROM campo.firmas WHERE orden_id = ANY($1::bigint[]) AND invalidada_en IS NULL
 `
 
+// Solo las vigentes (una firma de un intento anterior no cuenta).
 func (q *Queries) FirmasDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoFirma, error) {
 	rows, err := q.db.Query(ctx, firmasDeOrdenes, ordenes)
 	if err != nil {
@@ -729,6 +735,7 @@ func (q *Queries) FirmasDeOrdenes(ctx context.Context, ordenes []int64) ([]Campo
 			&i.OperacionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.InvalidadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -745,8 +752,9 @@ const guardarDispositivo = `-- name: GuardarDispositivo :one
 INSERT INTO campo.dispositivos (id, usuario_id, plataforma, ultimo_contacto, desfase_ms)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (id) DO UPDATE SET
-    usuario_id = EXCLUDED.usuario_id, plataforma = EXCLUDED.plataforma,
-    ultimo_contacto = EXCLUDED.ultimo_contacto, desfase_ms = EXCLUDED.desfase_ms, updated_at = now()
+    plataforma = EXCLUDED.plataforma, ultimo_contacto = EXCLUDED.ultimo_contacto,
+    desfase_ms = EXCLUDED.desfase_ms, updated_at = now()
+WHERE campo.dispositivos.usuario_id = EXCLUDED.usuario_id
 RETURNING id, usuario_id, plataforma, ultimo_contacto, desfase_ms, created_at, updated_at
 `
 
@@ -759,6 +767,7 @@ type GuardarDispositivoParams struct {
 }
 
 // Sincronización: dispositivos, operaciones y feed de cambios ------------------------
+// Un dispositivo es de un usuario: el de otro no se toma (sin fila = dispositivo ajeno).
 func (q *Queries) GuardarDispositivo(ctx context.Context, arg GuardarDispositivoParams) (CampoDispositivo, error) {
 	row := q.db.QueryRow(ctx, guardarDispositivo,
 		arg.ID,
@@ -786,8 +795,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (orden_id) DO UPDATE SET
     nombre = EXCLUDED.nombre, documento = EXCLUDED.documento, svg = EXCLUDED.svg, adjunto_id = EXCLUDED.adjunto_id,
     capturada_por = EXCLUDED.capturada_por, canal = EXCLUDED.canal, ocurrido_en = EXCLUDED.ocurrido_en,
-    operacion_id = EXCLUDED.operacion_id, updated_at = now()
-RETURNING id, orden_id, nombre, documento, svg, adjunto_id, capturada_por, canal, ocurrido_en, operacion_id, created_at, updated_at
+    operacion_id = EXCLUDED.operacion_id, invalidada_en = NULL, updated_at = now()
+RETURNING id, orden_id, nombre, documento, svg, adjunto_id, capturada_por, canal, ocurrido_en, operacion_id, created_at, updated_at, invalidada_en
 `
 
 type GuardarFirmaParams struct {
@@ -828,6 +837,7 @@ func (q *Queries) GuardarFirma(ctx context.Context, arg GuardarFirmaParams) (Cam
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.InvalidadaEn,
 	)
 	return i, err
 }
@@ -1037,6 +1047,24 @@ func (q *Queries) HistorialChecklist(ctx context.Context, ordenID int64) ([]Camp
 		return nil, err
 	}
 	return items, nil
+}
+
+const invalidarFirma = `-- name: InvalidarFirma :execrows
+UPDATE campo.firmas SET invalidada_en = $1, updated_at = now()
+WHERE orden_id = $2 AND invalidada_en IS NULL
+`
+
+type InvalidarFirmaParams struct {
+	InvalidadaEn *time.Time
+	OrdenID      int64
+}
+
+func (q *Queries) InvalidarFirma(ctx context.Context, arg InvalidarFirmaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, invalidarFirma, arg.InvalidadaEn, arg.OrdenID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const itemPorCodigo = `-- name: ItemPorCodigo :one

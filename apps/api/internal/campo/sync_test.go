@@ -215,11 +215,12 @@ func TestLoteChecklistGanaElMasReciente(t *testing.T) {
 	o := programada(t, e, cd, "visita", tec)
 	esperar(t, lote(t, e, ct, op(campo.OpLlegar, o.ID, nil)), "aplicada")
 
-	// Despacho corrige desde el panel a las 15:00.
+	// Despacho corrige desde el panel a las 15:20.
+	e.reloj.avanzar(20 * time.Minute)
 	deber(e.m.MarcarChecklist.Ejecutar(cd, campo.EntradaMarcarChecklist{ID: o.ID, Codigo: ptr("diagnostico"), Valor: "Del panel"}))(t)
-	// El teléfono marcó antes (14:50) y sincroniza después: queda en el historial, no gana.
+	// El teléfono marcó antes (15:10) y sincroniza después: queda en el historial, no gana.
 	viejo := op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "diagnostico", "valor": "Del teléfono, antes"})
-	viejo.OcurridoEn = ptr(inicio.Add(-10 * time.Minute))
+	viejo.OcurridoEn = ptr(inicio.Add(10 * time.Minute))
 	e.reloj.avanzar(time.Minute)
 	r := lote(t, e, ct, viejo)
 	esperar(t, r, "aplicada")
@@ -240,7 +241,7 @@ func TestLoteChecklistGanaElMasReciente(t *testing.T) {
 	}
 	// Una marca posterior del teléfono gana.
 	nuevo := op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "diagnostico", "valor": "Del teléfono, después"})
-	nuevo.OcurridoEn = ptr(inicio.Add(30 * time.Second))
+	nuevo.OcurridoEn = ptr(inicio.Add(20*time.Minute + 30*time.Second))
 	esperar(t, lote(t, e, ct, nuevo), "aplicada")
 	if v := valor(); v != "Del teléfono, después" {
 		t.Fatalf("gana la más reciente: %v", v)
@@ -288,7 +289,9 @@ func TestLoteDesfaseDeReloj(t *testing.T) {
 	e := nuevoEntorno()
 	d, tec := despacho(t), tecnico(t)
 	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	e.reloj.fijar(inicio.Add(-time.Hour)) // asignada una hora antes
 	o := programada(t, e, cd, "visita", tec)
+	e.reloj.fijar(inicio)
 
 	// El teléfono va 2 minutos atrasado: marcó la llegada «hace 3 minutos» en su reloj.
 	enviado := inicio.Add(-2 * time.Minute)

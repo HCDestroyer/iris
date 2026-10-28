@@ -32,6 +32,12 @@ func (r *reloj) ahora() time.Time {
 	return r.t
 }
 
+func (r *reloj) fijar(t time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.t = t
+}
+
 func (r *reloj) avanzar(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -80,6 +86,14 @@ func (i *inventarioFalso) EquiposEnComodato(_ context.Context, _, servicio int64
 		return nil, errors.New("argos caído")
 	}
 	return i.comodato[servicio], nil
+}
+
+func (i *inventarioFalso) BodegaDeEmpresa(_ context.Context, _, bodega int64) (bool, error) {
+	if i.caido {
+		return false, errors.New("argos caído")
+	}
+	_, ok := i.existencias[bodega]
+	return ok, nil
 }
 
 func (i *inventarioFalso) Existencias(_ context.Context, _, bodega int64) ([]campo.Existencia, error) {

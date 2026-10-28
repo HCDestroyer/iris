@@ -84,6 +84,8 @@ type Existencia struct {
 type Inventario interface {
 	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]EquipoComodato, error)
 	Existencias(ctx context.Context, empresaID, bodegaID int64) ([]Existencia, error)
+	// BodegaDeEmpresa: la bodega existe en la empresa (para que despacho use otra bodega).
+	BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error)
 }
 
 // Config del módulo.

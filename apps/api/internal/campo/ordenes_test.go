@@ -34,7 +34,7 @@ func TestCicloCompletoDeInstalacion(t *testing.T) {
 	// Sin técnico no se programa; programar exige pendiente.
 	_, err := e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: 1, Inicio: inicio})
 	problema(t, err, 422, "validacion")
-	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: 1, TecnicoID: &tec, Inicio: inicio.Add(time.Hour)}))(t)
+	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: 1, TecnicoID: &tec, BodegaID: ptr(int64(9)), Inicio: inicio.Add(time.Hour)}))(t)
 	if o.Estado != "programada" || o.ProgramadaFin == nil || !o.ProgramadaFin.Equal(inicio.Add(3*time.Hour)) || *o.TecnicoID != tec {
 		t.Fatalf("programada (fin = inicio + 120 min): %+v", o)
 	}
@@ -76,8 +76,8 @@ func TestCicloCompletoDeInstalacion(t *testing.T) {
 	problema(t, err, 422, "validacion")
 	_, err = e.m.RetirarEquipo.Ejecutar(ct, campo.EntradaEquipo{ID: o.ID, Serie: ptr("VIEJO")})
 	problema(t, err, 422, "validacion")
-	o = deber(e.m.UsarMaterial.Ejecutar(ct, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 40, Cantidad: 30.5, BodegaID: ptr(int64(9))}))(t)
-	o = deber(e.m.UsarMaterial.Ejecutar(ct, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 40, Cantidad: 4.25, BodegaID: ptr(int64(9))}))(t)
+	o = deber(e.m.UsarMaterial.Ejecutar(ct, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 40, Cantidad: 30.5}))(t)
+	o = deber(e.m.UsarMaterial.Ejecutar(ct, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 40, Cantidad: 4.25}))(t)
 	firma := uuid.Must(uuid.NewV7())
 	o = deber(e.m.CapturarFirma.Ejecutar(ct, campo.EntradaCapturarFirma{ID: o.ID, Nombre: "Ana López", Documento: "1234",
 		SVG: `<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10"/></svg>`, AdjuntoID: &firma}))(t)

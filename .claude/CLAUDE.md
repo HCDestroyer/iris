@@ -154,7 +154,7 @@ Una tarea está terminada solo si:
 | `orden.asignada` | campo | orden_id, tecnico_id (o null), cuadrilla_id (o null), tecnico_anterior_id (o null) |
 | `orden.programada` | agenda (hoy campo) | orden_id, tecnico_id, cuadrilla_id, inicio, fin, reprogramada |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
-| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion, unidad_id, serie, mac, condicion, bodega_id) |
+| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion, unidad_id, serie, mac, condicion, bodega_id) |
 | `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[] |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |

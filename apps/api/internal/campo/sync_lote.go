@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"sync"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,7 +84,14 @@ type InicioLote struct {
 	DesfaseMs int64
 	Cursor    int64
 	Previas   map[uuid.UUID]ResultadoOperacion
-	Bodegas   map[int64][2]int64 // orden → {empresa, bodega}
+	Ordenes   map[int64]infoOrden // las del lote que el actor ve
+}
+
+// infoOrden: lo que el lote necesita para leer de Argos antes de aplicar.
+type infoOrden struct {
+	empresa  int64
+	bodega   *int64
+	servicio *int64
 }
 
 // EntradaRechazo guarda una operación rechazada.
@@ -106,9 +117,13 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaDispositivo,
 				desfase = ahora.Sub(*in.EnviadoEn).Milliseconds()
 			}
 			t.FijarEntidad("dispositivo", in.DispositivoID)
-			if _, err := q.GuardarDispositivo(ctx, campobd.GuardarDispositivoParams{
+			_, err := q.GuardarDispositivo(ctx, campobd.GuardarDispositivoParams{
 				ID: in.DispositivoID, UsuarioID: actor.ID, Plataforma: in.Plataforma, UltimoContacto: ahora, DesfaseMs: desfase,
-			}); err != nil {
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return InicioLote{}, nucleo.Conflicto("dispositivo_ajeno", "Ese dispositivoId está registrado a otro usuario; genera uno propio")
+			}
+			if err != nil {
 				return InicioLote{}, err
 			}
 			t.Anotar(map[string]any{"desfase_ms": desfase})
@@ -117,7 +132,7 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaDispositivo,
 				return InicioLote{}, err
 			}
 			inicio := InicioLote{DesfaseMs: desfase, Cursor: cursor, Previas: map[uuid.UUID]ResultadoOperacion{},
-				Bodegas: map[int64][2]int64{}}
+				Ordenes: map[int64]infoOrden{}}
 			previas, err := q.OperacionesPorIDs(ctx, noNulo(in.ids))
 			if err != nil {
 				return InicioLote{}, err
@@ -132,8 +147,8 @@ func (m *Modulo) nuevoRegistrarDispositivo() *auditoria.Caso[EntradaDispositivo,
 				return InicioLote{}, err
 			}
 			for _, f := range ordenes {
-				if f.BodegaID != nil && enEmpresa(ctx, f) && visible(ctx, f) {
-					inicio.Bodegas[f.ID] = [2]int64{deref(f.EmpresaID), *f.BodegaID}
+				if enEmpresa(ctx, f) && visible(ctx, f) {
+					inicio.Ordenes[f.ID] = infoOrden{empresa: deref(f.EmpresaID), bodega: f.BodegaID, servicio: f.ServicioID}
 				}
 			}
 			return inicio, nil
@@ -187,6 +202,13 @@ var codigosNoBloqueantes = map[string]bool{"orden_reasignada": true, "orden_canc
 // Lote aplica un lote de operaciones del teléfono (canal campo).
 func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error) {
 	ctx = contexto.ConCanal(ctx, contexto.CanalCampo)
+	if err := sinNulos(struct {
+		DispositivoID string `json:"dispositivoId"`
+		Plataforma    string `json:"plataforma"`
+		Cursor        string `json:"cursor"`
+	}{in.DispositivoID, in.Plataforma, in.Cursor}); err != nil {
+		return RespuestaLote{}, err
+	}
 	ids := make([]uuid.UUID, len(in.Operaciones))
 	ordenes := []int64{}
 	for i, op := range in.Operaciones {
@@ -210,14 +232,18 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	if resp.Cursor == "" {
 		resp.Cursor = cursorDe(inicio.Cursor)
 	}
-	existencias := m.existenciasDelLote(ctx, in.Operaciones, inicio.Bodegas)
+	existencias := m.existenciasDelLote(ctx, in.Operaciones, inicio.Ordenes)
+	comodatos := m.comodatosDelLote(ctx, in.Operaciones, inicio.Ordenes)
 
 	enEsteLote := map[uuid.UUID]ResultadoOperacion{}
 	bloqueadas := map[int64]string{} // orden → operación rechazada que la bloquea
 	for i, op := range in.Operaciones {
 		id := ids[i]
 		if previa, ok := enEsteLote[id]; ok {
-			previa.Estado = "duplicada"
+			// Repetida en el mismo lote: el mismo resultado; una rechazada sigue rechazada.
+			if previa.Estado != "rechazada" {
+				previa.Estado = "duplicada"
+			}
 			resp.Resultados = append(resp.Resultados, previa)
 			continue
 		}
@@ -234,9 +260,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			res = m.rechazar(ctx, s, op.OrdenID, nucleo.Conflicto("bloqueada_por_rechazo",
 				"Una operación anterior de esta orden ("+bloqueo+") fue rechazada; resuélvela primero"))
 		} else {
-			if op.Tipo == OpMaterialUsar {
-				s.Existencia = existencias[i]
-			}
+			s.Existencia, s.pre = existencias[i], comodatos[i]
 			res = m.aplicar(ctx, s, op)
 		}
 		if res.Estado == "rechazada" && res.Error != nil && !codigosNoBloqueantes[res.Error.Codigo()] {
@@ -250,13 +274,21 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	return resp, nil
 }
 
+// antiguedadMaxima: una operación no puede fechar su hecho más atrás (la app caduca lo no
+// sincronizado a los 7 días, contratos/sync.md §1).
+const antiguedadMaxima = 7 * 24 * time.Hour
+
 // corregir lleva la hora del teléfono al reloj del servidor (más el desfase medido en este
-// lote). Sin hora, la del servidor; nunca en el futuro.
+// lote), acotada a [ahora − 7 días, ahora]. Sin hora, la del servidor. La acción la acota
+// además a la hora del estado de la orden (cuandoEn).
 func corregir(t *time.Time, desfaseMs int64, ahora time.Time) time.Time {
 	if t == nil {
 		return ahora
 	}
 	c := t.Add(time.Duration(desfaseMs) * time.Millisecond).UTC().Truncate(time.Microsecond)
+	if piso := ahora.Add(-antiguedadMaxima); c.Before(piso) {
+		return piso
+	}
 	if c.After(ahora) {
 		return ahora
 	}
@@ -265,6 +297,11 @@ func corregir(t *time.Time, desfaseMs int64, ahora time.Time) time.Time {
 
 // aplicar corre la operación con el caso de uso de su acción.
 func (m *Modulo) aplicar(ctx context.Context, s *OpSync, op OperacionLote) ResultadoOperacion {
+	// NUL antes del caso de uso: Postgres no lo guarda (ni en la auditoría).
+	if err := sinNulos(op.Datos); err != nil {
+		p, _ := nucleo.AProblema(err)
+		return m.rechazar(ctx, s, op.OrdenID, p)
+	}
 	o, err := m.despachar(ctx, s, op)
 	var d *duplicada
 	switch {
@@ -291,16 +328,63 @@ func (m *Modulo) rechazar(ctx context.Context, s *OpSync, ordenID int64, p *nucl
 	return res
 }
 
-// datosDe decodifica los datos de la operación en la entrada de su acción.
+// Esquemas de los datos de cada operación: los de la entrada de su acción (los del OpenAPI), para
+// que el lote valide lo mismo que el panel (maxLength, minimum, enum, required, sin campos
+// desconocidos).
+var (
+	esquemasUna   sync.Once
+	registroDatos huma.Registry
+	esquemasDatos map[reflect.Type]*huma.Schema
+)
+
+func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
+	esquemasUna.Do(func() {
+		registroDatos = huma.NewMapRegistry("#/components/schemas/", huma.DefaultSchemaNamer)
+		esquemasDatos = map[reflect.Type]*huma.Schema{}
+		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaUsarMaterial{},
+			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{}} {
+			tt := reflect.TypeOf(v)
+			esquemasDatos[tt] = registroDatos.Schema(tt, true, "")
+		}
+	})
+	return registroDatos, esquemasDatos[t]
+}
+
+// datosDe valida los datos de la operación con el esquema de la entrada de su acción y los
+// decodifica en ella. version no viaja en el lote (no se exige).
 func datosDe[T any](op OperacionLote) (T, error) {
 	var v T
-	if len(op.Datos) == 0 {
-		return v, nil
-	}
 	crudo, err := json.Marshal(op.Datos)
 	if err != nil {
 		return v, err
 	}
+	var datos map[string]any
+	if err := json.Unmarshal(crudo, &datos); err != nil || datos == nil {
+		datos = map[string]any{}
+	}
+	if _, ok := datos["version"]; !ok {
+		if f, ok := reflect.TypeOf(v).FieldByName("Version"); ok && f.Type.Kind() == reflect.Int32 {
+			datos["version"] = 1 // obligatoria en el panel; el lote no la usa
+		}
+	}
+	reg, esquema := esquemaDatos(reflect.TypeOf(v))
+	if esquema != nil {
+		res := &huma.ValidateResult{}
+		huma.Validate(reg, esquema, huma.NewPathBuffer([]byte(""), 0), huma.ModeWriteToServer, datos, res)
+		if len(res.Errors) > 0 {
+			errores := make([]nucleo.ErrorCampo, 0, len(res.Errors))
+			for _, e := range res.Errors {
+				campo, msj := "datos", e.Error()
+				var d *huma.ErrorDetail
+				if errors.As(e, &d) {
+					campo, msj = "datos."+d.Location, d.Message
+				}
+				errores = append(errores, nucleo.ErrorCampo{Field: campo, Message: msj, Rule: "esquema"})
+			}
+			return v, nucleo.Validacion(errores...)
+		}
+	}
+	crudo, _ = json.Marshal(datos)
 	if err := json.Unmarshal(crudo, &v); err != nil {
 		return v, campoInvalido("datos", "Datos inválidos para "+op.Tipo+": "+err.Error(), "datos")
 	}
@@ -348,6 +432,7 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 		}
 		e.ID, e.Version, e.Sync = op.OrdenID, nil, s
 		if op.Tipo == OpEquipoRetirar {
+			e.pre = s.pre
 			return m.RetirarEquipo.Ejecutar(ctx, e)
 		}
 		return m.InstalarEquipo.Ejecutar(ctx, e)
@@ -385,7 +470,7 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 
 // existenciasDelLote lee de Argos, fuera de toda transacción, la existencia de cada producto
 // que usan las operaciones material.usar (una lectura por bodega). nil = no se sabe.
-func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, bodegas map[int64][2]int64) []*float64 {
+func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []*float64 {
 	salida := make([]*float64, len(ops))
 	if m.cfg.Inventario == nil {
 		return salida
@@ -399,13 +484,11 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, bo
 		if err != nil {
 			continue
 		}
-		eb, ok := bodegas[op.OrdenID]
-		if !ok {
-			continue // la orden no es visible o no tiene bodega
+		info, ok := ordenes[op.OrdenID]
+		if !ok || info.bodega == nil {
+			continue // la orden no es visible o no tiene bodega (siempre la de la orden)
 		}
-		if e.BodegaID != nil {
-			eb[1] = *e.BodegaID
-		}
+		eb := [2]int64{info.empresa, *info.bodega}
 		lineas, ok := leidas[eb]
 		if !ok {
 			lista, err := m.cfg.Inventario.Existencias(ctx, eb[0], eb[1])
@@ -431,4 +514,24 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, bo
 func itoa(i int) string {
 	b, _ := json.Marshal(i)
 	return string(b)
+}
+
+// comodatosDelLote lee de Argos, fuera de toda transacción, el comodato del servicio de cada
+// orden con equipo.retirar (una lectura por servicio). nil = no se sabe (sin conector o caído).
+func (m *Modulo) comodatosDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []*prelectura {
+	salida := make([]*prelectura, len(ops))
+	leidos := map[int64]*prelectura{}
+	for i, op := range ops {
+		info, ok := ordenes[op.OrdenID]
+		if op.Tipo != OpEquipoRetirar || !ok || info.servicio == nil {
+			continue
+		}
+		p, ya := leidos[*info.servicio]
+		if !ya {
+			p = m.comodatoDe(ctx, info.empresa, info.servicio)
+			leidos[*info.servicio] = p
+		}
+		salida[i] = p
+	}
+	return salida
 }

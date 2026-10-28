@@ -198,8 +198,8 @@ WHERE orden_id = @orden_id AND producto_id = @producto_id;
 SELECT * FROM campo.orden_materiales WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
 
 -- name: CrearEquipo :one
-INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id)
-VALUES (@id, @orden_id, @accion, @unidad_id, @serie, @mac, @modelo, @condicion, @registrado_por, @canal, @ocurrido_en, @operacion_id)
+INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
+VALUES (@id, @orden_id, @accion, @unidad_id, @serie, @mac, @modelo, @condicion, @validado, @registrado_por, @canal, @ocurrido_en, @operacion_id)
 RETURNING *;
 
 -- name: EquiposDeOrdenes :many
@@ -211,11 +211,16 @@ VALUES (@orden_id, @nombre, @documento, @svg, @adjunto_id, @capturada_por, @cana
 ON CONFLICT (orden_id) DO UPDATE SET
     nombre = EXCLUDED.nombre, documento = EXCLUDED.documento, svg = EXCLUDED.svg, adjunto_id = EXCLUDED.adjunto_id,
     capturada_por = EXCLUDED.capturada_por, canal = EXCLUDED.canal, ocurrido_en = EXCLUDED.ocurrido_en,
-    operacion_id = EXCLUDED.operacion_id, updated_at = now()
+    operacion_id = EXCLUDED.operacion_id, invalidada_en = NULL, updated_at = now()
 RETURNING *;
 
 -- name: FirmasDeOrdenes :many
-SELECT * FROM campo.firmas WHERE orden_id = ANY(@ordenes::bigint[]);
+-- Solo las vigentes (una firma de un intento anterior no cuenta).
+SELECT * FROM campo.firmas WHERE orden_id = ANY(@ordenes::bigint[]) AND invalidada_en IS NULL;
+
+-- name: InvalidarFirma :execrows
+UPDATE campo.firmas SET invalidada_en = @invalidada_en, updated_at = now()
+WHERE orden_id = @orden_id AND invalidada_en IS NULL;
 
 -- name: NotaPorID :one
 SELECT * FROM campo.orden_notas WHERE id = @id;
@@ -240,11 +245,13 @@ SELECT * FROM campo.orden_adjuntos WHERE orden_id = ANY(@ordenes::bigint[]) ORDE
 -- Sincronización: dispositivos, operaciones y feed de cambios ------------------------
 
 -- name: GuardarDispositivo :one
+-- Un dispositivo es de un usuario: el de otro no se toma (sin fila = dispositivo ajeno).
 INSERT INTO campo.dispositivos (id, usuario_id, plataforma, ultimo_contacto, desfase_ms)
 VALUES (@id, @usuario_id, @plataforma, @ultimo_contacto, @desfase_ms)
 ON CONFLICT (id) DO UPDATE SET
-    usuario_id = EXCLUDED.usuario_id, plataforma = EXCLUDED.plataforma,
-    ultimo_contacto = EXCLUDED.ultimo_contacto, desfase_ms = EXCLUDED.desfase_ms, updated_at = now()
+    plataforma = EXCLUDED.plataforma, ultimo_contacto = EXCLUDED.ultimo_contacto,
+    desfase_ms = EXCLUDED.desfase_ms, updated_at = now()
+WHERE campo.dispositivos.usuario_id = EXCLUDED.usuario_id
 RETURNING *;
 
 -- name: OperacionPorID :one
