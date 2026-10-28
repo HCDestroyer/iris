@@ -1,0 +1,7 @@
+# Contexto: la raíz del repo (BuildKit usa este archivo junto al Dockerfile). Solo hace falta apps/api.
+*
+!apps/api/
+apps/api/bin/
+apps/api/datos/
+apps/api/.env
+**/*_test.go

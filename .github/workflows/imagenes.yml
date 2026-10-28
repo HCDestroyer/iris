@@ -1,0 +1,103 @@
+# Imágenes de producción (sin publicar): construye iris/api y iris/worker (distroless nonroot) e
+# iris/web (Next standalone) en las PRs que tocan apps/, packages/ o infra/, y las prueba de humo:
+# `iris migrar` contra un Postgres de servicio, `iris servir` responde /api/v1/salud, el worker
+# arranca y el panel responde /entrar. Las publica release.yml al crear una versión.
+name: Imágenes
+
+on:
+  pull_request:
+    paths:
+      - apps/**
+      - packages/**
+      - infra/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/imagenes.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/**
+      - packages/**
+      - infra/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/imagenes.yml
+  workflow_dispatch:
+
+concurrency:
+  group: imagenes-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  construir:
+    name: Construir y probar imágenes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: iris
+          POSTGRES_PASSWORD: iris
+          POSTGRES_DB: iris_imagenes
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U iris -d iris_imagenes"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      VERSION: ci-${{ github.sha }}
+      DB: postgres://iris:iris@127.0.0.1:5432/iris_imagenes?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Construir api, worker y web
+        run: |
+          docker build -f apps/api/Dockerfile --target api --build-arg VERSION="$VERSION" -t iris/api:ci .
+          docker build -f apps/api/Dockerfile --target worker --build-arg VERSION="$VERSION" -t iris/worker:ci .
+          docker build -f apps/web/Dockerfile -t iris/web:ci .
+          docker image ls 'iris/*' --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Usuario no root
+        run: |
+          for i in iris/api:ci iris/worker:ci iris/web:ci; do
+            u="$(docker image inspect -f '{{.Config.User}}' "$i")"
+            echo "$i → usuario '$u'"
+            case "$u" in ''|root|0|0:*) echo "::error::$i corre como root"; exit 1 ;; esac
+          done
+
+      - name: Migrar con la imagen de la API
+        run: docker run --rm --network host -e IRIS_DB_URL="$DB" iris/api:ci migrar
+
+      - name: Prueba de humo (api, worker y web)
+        run: |
+          docker run -d --name api --network host -e IRIS_DB_URL="$DB" -e PORT=8080 \
+            -e IRIS_BASE_URL=http://127.0.0.1:3000 iris/api:ci
+          docker run -d --name worker --network host -e IRIS_DB_URL="$DB" iris/worker:ci
+          docker run -d --name web --network host -e PORT=3000 -e IRIS_API_URL=http://127.0.0.1:8080 \
+            -e IRIS_BASE_URL=http://127.0.0.1:3000 iris/web:ci
+          esperar() {
+            for _ in $(seq 1 30); do curl -fsS "$1" && return 0; sleep 2; done
+            return 1
+          }
+          esperar http://127.0.0.1:8080/api/v1/salud | tee salud.json
+          grep -q "\"version\":\"$VERSION\"" salud.json || { echo "::error::la API no informa la versión $VERSION"; exit 1; }
+          # El panel sirve y su proxy /api llega a la API.
+          esperar http://127.0.0.1:3000/entrar >/dev/null
+          esperar http://127.0.0.1:3000/api/v1/salud
+          [ "$(docker inspect -f '{{.State.Running}}' worker)" = true ] || { echo "::error::el worker terminó"; exit 1; }
+
+      - name: Logs
+        if: always()
+        run: for c in api worker web; do echo "== $c"; docker logs "$c" 2>&1 | tail -50 || true; done

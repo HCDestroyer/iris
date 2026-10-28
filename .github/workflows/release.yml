@@ -4,11 +4,12 @@
 #    sale de los Conventional Commits y el CHANGELOG.md en español (secciones en
 #    release-please-config.json). La primera es 0.1.0 (release-as en la config).
 # 2. Al mergear esa PR, release-please crea la etiqueta vX.Y.Z y la GitHub Release.
+# 3. Con la versión creada, el job `imagenes` publica en GHCR ghcr.io/<dueño>/iris-api,
+#    iris-worker e iris-web con las etiquetas X.Y.Z y latest (las mismas que construye y prueba
+#    imagenes.yml en cada PR; VERSION queda en main.version de api y worker).
 #
 # La PR de release-please la abre GITHUB_TOKEN, así que el CI no corre solo en ella: ciérrala y
 # vuelve a abrirla (o corre CI con workflow_dispatch en su rama) antes de mergear (CLAUDE.md §12).
-# Las imágenes de producción (api y worker distroless, web standalone) se agregarán aquí como un
-# job que depende de release_created (tarea 4 de I5).
 name: Versión
 
 on:
@@ -17,8 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: version-main
@@ -28,6 +28,9 @@ jobs:
   release-please:
     name: release-please
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       creada: ${{ steps.rp.outputs.release_created }}
       version: ${{ steps.rp.outputs.version }}
@@ -37,3 +40,38 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  imagenes:
+    name: Publicar imágenes
+    needs: release-please
+    if: needs.release-please.outputs.creada == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.release-please.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Entrar a GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Construir y publicar
+        run: |
+          dueno="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          base="ghcr.io/$dueno"
+          docker build -f apps/api/Dockerfile --target api --build-arg VERSION="$VERSION" \
+            -t "$base/iris-api:$VERSION" -t "$base/iris-api:latest" .
+          docker build -f apps/api/Dockerfile --target worker --build-arg VERSION="$VERSION" \
+            -t "$base/iris-worker:$VERSION" -t "$base/iris-worker:latest" .
+          docker build -f apps/web/Dockerfile -t "$base/iris-web:$VERSION" -t "$base/iris-web:latest" .
+          for i in iris-api iris-worker iris-web; do
+            docker push "$base/$i:$VERSION"
+            docker push "$base/$i:latest"
+            echo "$base/$i:$VERSION" >>"$GITHUB_STEP_SUMMARY"
+          done
