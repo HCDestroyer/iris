@@ -835,6 +835,8 @@ type NucleoIdempotencium struct {
 	ExpiraEn     time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	HashFormato  int16
+	HashClaveID  []byte
 }
 
 type NucleoIntentosLogin struct {

@@ -28356,6 +28356,99 @@
         "x-permiso": "usuarios.crear"
       }
     },
+    "/api/v1/usuarios/{id}": {
+      "get": {
+        "description": "Permiso: `usuarios.ver`. Mismo alcance que la lista: Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo. Fuera de eso, 404 como un id inexistente.",
+        "operationId": "verUsuario",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver un usuario",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "usuarios.ver"
+      }
+    },
     "/api/v1/usuarios/{id}/asignar-empresa": {
       "post": {
         "description": "Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.",
