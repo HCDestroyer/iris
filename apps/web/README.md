@@ -9,7 +9,7 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   `mfa_bloqueado`). `middleware.ts` manda a `/entrar?siguiente=…` si no hay cookie `iris_sesion`;
   el layout del panel lee `GET /api/v1/yo` y un 401 también vuelve al inicio de sesión.
 - **Menú por permisos** (`lib/menu.ts`): nombres exactos del enum `Permiso` del OpenAPI. Los
-  módulos sin permiso en el contrato (órdenes, agenda, despacho, comercial) se ven como
+  módulos sin permiso en el contrato (agenda, despacho, comercial) se ven como
   «Próximamente» y un `satisfies` hace fallar `typecheck` cuando el permiso aparezca.
 - **Empresa activa** (`lib/empresa.ts`, `componentes/selector-empresa.tsx`): selector en la barra
   superior (varias empresas), nombre (una) o nada (sin conector). La elegida se guarda en
@@ -24,7 +24,13 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   espejo de la API, `version` + `Idempotency-Key`, 409 → «Recargar»); alta rápida con búsqueda de
   cliente en Argos o contacto a mano. «Contacto sin verificar» (correo sin DMARC/DKIM) y correos
   retenidos como nota interna; «Ver en Argos/Horus» (`GET /integraciones/enlaces`, `clientes.ver`)
-  con `rel="noopener noreferrer"`; incidente maestro y sus tickets.
+  con `rel="noopener noreferrer"`; incidente maestro y sus tickets. «Crear orden» desde el ticket.
+- **Órdenes** (`/ordenes`, `/ordenes/[id]`, `lib/ordenes`, `componentes/ordenes`): tablero en
+  lista o columnas por estado con filtros, cursor y marca «Pendiente en Argos»; detalle con
+  checklist, galería de fotos y firma (descarga autenticada a `blob:`, visor dentro del panel),
+  GPS con enlace a OpenStreetMap, materiales y equipos, historial y pendientes en Argos con
+  «Reintentar»; acciones asignar, programar, reprogramar, cancelar y reabrir; alta desde cero o
+  desde un ticket.
 - **Portal de soporte** (`/soporte`, `app/soporte`, `componentes/portal`, `lib/portal`): otro
   actor, separado del panel (sin menú ni empresa). `/soporte/entrar#<ticket>` lee el ticket del
   fragmento (nunca de la query), lo borra con `history.replaceState` y lo canjea con
