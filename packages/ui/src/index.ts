@@ -6,6 +6,7 @@ export { AreaTexto, CampoArea, type PropsCampoArea } from "./componentes/area-te
 export { Boton, variantesBoton, type PropsBoton } from "./componentes/boton";
 export { Campo, type PropsCampo, type PropsEnvolturaCampo } from "./componentes/campo";
 export { Cargando, type PropsCargando } from "./componentes/cargando";
+export { Casilla, type PropsCasilla } from "./componentes/casilla";
 export {
     Dialogo,
     DialogoCerrar,

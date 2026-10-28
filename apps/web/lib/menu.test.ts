@@ -26,10 +26,10 @@ describe("menú por permisos", () => {
         expect(menuVisible(["tickets.ver"]).map((e) => e.href)).toContain("/tickets");
     });
 
-    it("usuarios.ver muestra Usuarios; tokens.ver, roles.ver o permisos.ver, Administración", () => {
+    it("usuarios.ver muestra Usuarios; buzones.ver, tokens.ver, roles.ver o permisos.ver, Administración", () => {
         expect(menuVisible(["usuarios.ver"]).map((e) => e.href)).toContain("/usuarios");
         expect(menuVisible(["usuarios.ver"]).map((e) => e.href)).not.toContain("/administracion");
-        for (const p of ["tokens.ver", "roles.ver", "permisos.ver"] as const) {
+        for (const p of ["buzones.ver", "tokens.ver", "roles.ver", "permisos.ver"] as const) {
             expect(menuVisible([p]).map((e) => e.href)).toContain("/administracion");
         }
     });

@@ -13,19 +13,22 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { ArrowLeft, ChevronDown, GitMerge, Lock, MessageSquare, RotateCw, SearchX, Tag, TrendingUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, GitMerge, Lock, MailWarning, MessageSquare, Network, RotateCw, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
+import { enlaceHorusTicket } from "@/lib/enlaces";
 import { useLectura, type Lectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { ESTADOS, ORIGENES, PRIORIDADES, type EstadoTicket, type Prioridad } from "@/lib/tickets/presentacion";
+import { correoRetenido } from "@/lib/tickets/mensajes";
 import type { Ticket } from "@/lib/tickets/sla";
 import { BarraAcciones } from "./acciones";
 import { FichaCliente } from "./ficha-cliente";
@@ -127,6 +130,7 @@ function Detalle({ id }: { id: number }) {
     );
     const categorias = useCategorias();
     const usuarios = useUsuarios();
+    const enlaces = useEnlacesExternos();
 
     if (ticket.estado === "cargando") {
         return (
@@ -160,6 +164,7 @@ function Detalle({ id }: { id: number }) {
     };
     const categoria = nombreCategoria(categorias.estado === "listo" ? categorias.datos : undefined, t.categoriaId);
     const asignado = nombreUsuario(listaUsuarios, t.asignadoA, { id: yo.usuario.id, nombre: yo.usuario.nombre });
+    const verHorus = enlaceHorusTicket(enlaces, t.origen);
 
     return (
         <>
@@ -176,7 +181,25 @@ function Detalle({ id }: { id: number }) {
                     {t.nivelEscalamiento > 0 ? (
                         <InsigniaEstado tono="neutral" icono={TrendingUp} texto={`Escalado ${t.nivelEscalamiento === 1 ? "1 vez" : `${t.nivelEscalamiento} veces`}`} />
                     ) : null}
+                    {t.contacto.verificado ? null : (
+                        <InsigniaEstado
+                            tono="warning"
+                            icono={ShieldAlert}
+                            texto="Contacto sin verificar"
+                            title="El correo que abrió el ticket no se pudo autenticar (DMARC/DKIM)"
+                            data-testid="contacto-sin-verificar"
+                        />
+                    )}
+                    {verHorus ? <BotonVerEn enlace={verHorus} /> : null}
                 </div>
+                {t.ticketPadreId !== null ? (
+                    <Aviso tono="info" titulo="Parte de un incidente" icono={Network}>
+                        Este ticket depende de un incidente maestro.{" "}
+                        <Link className="text-primary underline-offset-4 hover:underline" href={`/tickets/${t.ticketPadreId}`}>
+                            Ver el incidente maestro
+                        </Link>
+                    </Aviso>
+                ) : null}
                 {t.fusionadoEnId !== null ? (
                     <Aviso tono="info" titulo="Ticket fusionado" icono={GitMerge}>
                         Se cerró como duplicado.{" "}
@@ -223,10 +246,17 @@ function Detalle({ id }: { id: number }) {
                     </Tarjeta>
 
                     <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} />
+                    <TicketsHijos ticketId={t.id} />
                     <Historial paginado={eventos} ahora={ahora} />
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente">
-                    <FichaCliente ticket={t} />
+                    {t.contacto.verificado ? null : (
+                        <Aviso tono="warning" titulo="Contacto sin verificar" icono={ShieldAlert}>
+                            El ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM): cualquiera puede escribir ese «De:».
+                            Confirma la identidad por otro medio antes de dar datos de la cuenta o hacer cambios.
+                        </Aviso>
+                    )}
+                    <FichaCliente ticket={t} enlaces={enlaces} />
                 </aside>
             </div>
         </>
@@ -288,27 +318,42 @@ function Conversacion({ paginado, veNotas, ahora }: { paginado: Paginado<Mensaje
                     <EstadoVacio icono={MessageSquare} titulo="Sin mensajes" descripcion="Aún no hay mensajes en este ticket." className="py-6" />
                 ) : (
                     <ol className="grid gap-3" aria-label="Mensajes">
-                        {items.map((m) => (
-                            <li
-                                key={m.id}
-                                data-publico={m.publico}
-                                className={cn(
-                                    "grid gap-1.5 rounded-lg border p-3",
-                                    m.publico ? "bg-card" : "border-dashed border-warning/50 bg-warning/5",
-                                    m.autorTipo === "cliente" && "bg-elevated",
-                                )}
-                            >
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                                    <span className="font-medium">{m.autorNombre}</span>
-                                    {m.autorTipo === "cliente" ? <span className="text-xs text-muted-foreground">Cliente</span> : null}
-                                    {m.publico ? null : <InsigniaEstado tono="warning" icono={Lock} texto="Nota interna" />}
-                                    <time className="ml-auto text-xs text-muted-foreground tabular-nums" dateTime={m.creadoEn} title={formatearFecha(m.creadoEn)}>
-                                        {haceCuanto(m.creadoEn, ahora)}
-                                    </time>
-                                </div>
-                                <p className="text-sm break-words whitespace-pre-wrap">{m.cuerpo}</p>
-                            </li>
-                        ))}
+                        {items.map((m) => {
+                            const retenido = correoRetenido(m);
+                            return (
+                                <li
+                                    key={m.id}
+                                    data-publico={m.publico}
+                                    data-correo-retenido={retenido?.motivo}
+                                    className={cn(
+                                        "grid gap-1.5 rounded-lg border p-3",
+                                        m.publico ? "bg-card" : "border-dashed border-warning/50 bg-warning/5",
+                                        m.autorTipo === "cliente" && "bg-elevated",
+                                        retenido && "border-l-4 border-solid border-warning/60",
+                                    )}
+                                >
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                                        <span className="min-w-0 font-medium break-all">{m.autorNombre}</span>
+                                        {m.autorTipo === "cliente" ? <span className="text-xs text-muted-foreground">Cliente</span> : null}
+                                        {retenido ? (
+                                            <InsigniaEstado tono="warning" icono={MailWarning} texto={retenido.texto} />
+                                        ) : m.publico ? null : (
+                                            <InsigniaEstado tono="warning" icono={Lock} texto="Nota interna" />
+                                        )}
+                                        <time className="ml-auto text-xs text-muted-foreground tabular-nums" dateTime={m.creadoEn} title={formatearFecha(m.creadoEn)}>
+                                            {haceCuanto(m.creadoEn, ahora)}
+                                        </time>
+                                    </div>
+                                    {retenido ? (
+                                        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                            <Lock aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                                            {retenido.explicacion}
+                                        </p>
+                                    ) : null}
+                                    <p className="text-sm break-words whitespace-pre-wrap">{m.cuerpo}</p>
+                                </li>
+                            );
+                        })}
                     </ol>
                 )}
                 <PieLista paginado={paginado} que="mensajes" />
@@ -374,6 +419,42 @@ function Historial({ paginado, ahora }: { paginado: Paginado<Evento>; ahora: num
                     </ol>
                 )}
                 <PieLista paginado={paginado} que="eventos" />
+            </TarjetaContenido>
+        </Tarjeta>
+    );
+}
+
+/** Tickets hijos de un incidente maestro (`GET /tickets?ticketPadreId=`). Sin hijos no se muestra nada. */
+function TicketsHijos({ ticketId }: { ticketId: number }) {
+    const hijos = useLectura((signal) => resolver(api().GET("/api/v1/tickets", { params: { query: { ticketPadreId: ticketId, limit: 50 } }, signal })));
+    if (hijos.estado === "cargando") {
+        return null;
+    }
+    if (hijos.estado === "error") {
+        return <ErrorLectura error={hijos.error} que="los tickets relacionados" reintentar={hijos.reintentar} />;
+    }
+    const lista = hijos.datos.data ?? [];
+    if (lista.length === 0) {
+        return null;
+    }
+    return (
+        <Tarjeta>
+            <TarjetaEncabezado>
+                <TarjetaTitulo>Tickets del incidente</TarjetaTitulo>
+            </TarjetaEncabezado>
+            <TarjetaContenido>
+                <ul className="grid gap-2" aria-label="Tickets del incidente">
+                    {lista.map((h) => (
+                        <li key={h.id} className="flex flex-wrap items-center gap-2 text-sm">
+                            <Link className="font-mono text-primary underline-offset-4 hover:underline" href={`/tickets/${h.id}`}>
+                                {h.numero}
+                            </Link>
+                            <span className="min-w-0 flex-1 truncate">{h.asunto}</span>
+                            <InsigniaEstadoTicket estado={h.estado} />
+                        </li>
+                    ))}
+                </ul>
+                {hijos.datos.nextCursor ? <p className="mt-2 text-xs text-muted-foreground">Se muestran los primeros 50.</p> : null}
             </TarjetaContenido>
         </Tarjeta>
     );
