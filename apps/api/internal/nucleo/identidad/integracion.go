@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
 // Usuarios de integración (Argos, Horus): un usuario de tipo integracion con el rol base de su
@@ -44,6 +45,21 @@ func (m *Modulo) PrepararIntegracion(ctx context.Context, in EntradaPrepararInte
 	rol, ok := RolesIntegracion[in.Sistema]
 	if !ok {
 		return IntegracionPreparada{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "sistema", Message: "Debe ser argosisp u horus", Rule: "enum"})
+	}
+	// Con empresas registradas, una integración sin empresas no operaría en ninguna: obligatorias.
+	if len(in.Empresas) == 0 {
+		bd := nucleo.BDDe(ctx)
+		if bd == nil {
+			return IntegracionPreparada{}, nucleo.ErrSinBD
+		}
+		hay, err := identidadbd.New(bd).HayEmpresas(ctx)
+		if err != nil {
+			return IntegracionPreparada{}, err
+		}
+		if hay {
+			return IntegracionPreparada{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "empresas",
+				Message: "Hay empresas registradas: indica en cuáles opera la integración (--empresa)", Rule: "requerido"})
+		}
 	}
 	correo := strings.ToLower(strings.TrimSpace(in.Correo))
 	if correo == "" {
@@ -91,10 +107,13 @@ func (m *Modulo) integracionExistente(ctx context.Context, correo, rol string) (
 		if u.Correo != correo {
 			continue
 		}
-		tieneRol := slices.ContainsFunc(u.Roles, func(a AsignacionRol) bool { return a.Rol == rol })
-		if u.Tipo != "integracion" || !u.Activo || !tieneRol {
+		// Sus roles deben ser exactamente {rol del sistema}, sin alcance: no se emite un token
+		// para un usuario con más permisos que los del contrato.
+		soloSuRol := len(u.Roles) == 1 && u.Roles[0].Rol == rol && u.Roles[0].ZonaID == nil && u.Roles[0].CuadrillaID == nil
+		if u.Tipo != "integracion" || !u.Activo || !soloSuRol {
 			return Usuario{}, nucleo.ReglaNegocio("usuario_no_es_integracion",
-				"El correo "+correo+" es de un usuario que no es la integración activa con el rol "+rol+"; usa otro --correo")
+				"El correo "+correo+" es de un usuario que no es una integración activa con solo el rol "+rol+
+					" (tiene otro tipo, está inactivo o tiene otros roles); corrige sus roles o usa otro --correo")
 		}
 		return u, nil
 	}

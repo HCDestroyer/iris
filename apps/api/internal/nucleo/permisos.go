@@ -167,10 +167,12 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermTicketsVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
-	//  - Argos (contratos/argosisp.md §1.2): tickets.ver, tickets.crear, portal.emitir (pedido
-	//    A9). ordenes.ver y sso.emitir se agregan aquí cuando existan esos permisos.
-	//  - Horus (contratos/horus.md §1.2): tickets.ver, tickets.crear. sso.emitir cuando exista.
-	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2)",
+	//  - Argos: tickets.ver y tickets.crear (contratos/argosisp.md §1.2); ordenes.ver y
+	//    sso.emitir (también §1.2) se agregan cuando existan esos permisos. portal.emitir NO es
+	//    del §1.2: es el pedido A9 (botón «Soporte» del portal de Argos), propuesto por Iris y
+	//    pendiente de acordar con Argos; se deja por decisión del líder.
+	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
+	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermPortalEmitir}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},

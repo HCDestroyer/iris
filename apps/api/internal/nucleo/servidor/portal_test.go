@@ -442,11 +442,27 @@ func TestPrepararIntegracion(t *testing.T) {
 
 	// Un correo de persona no se convierte en integración; sistema desconocido, 422.
 	_, persona := e.usuario("lectura")
-	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Correo: persona}); !esProblema(err, "usuario_no_es_integracion") {
+	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Empresas: []int64{1}, Correo: persona}); !esProblema(err, "usuario_no_es_integracion") {
 		t.Fatalf("persona: %v", err)
 	}
 	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "otro"}); !esProblema(err, "validacion") {
 		t.Fatalf("sistema: %v", err)
+	}
+	// Regresión (revisión): con empresas registradas, --empresa es obligatorio.
+	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Correo: pruebas.Correo("sin")}); !esProblema(err, "validacion") {
+		t.Fatalf("sin empresas: %v", err)
+	}
+	// Regresión (revisión): no se reutiliza (ni se le emite token) una integración con más roles
+	// que el de su sistema.
+	ancho := pruebas.Correo("ancho")
+	if _, err := e.mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{
+		Nombre: "Horus ancho", Correo: ancho, Tipo: "integracion", Empresas: []int64{1},
+		Roles: []identidad.AsignacionRol{{Rol: "integracion_horus"}, {Rol: "lectura"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Empresas: []int64{1}, Correo: ancho}); !esProblema(err, "usuario_no_es_integracion") {
+		t.Fatalf("roles de más: %v", err)
 	}
 }
 
