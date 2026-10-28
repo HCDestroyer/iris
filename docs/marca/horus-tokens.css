@@ -1,0 +1,411 @@
+/*
+ * Horus — "vidrio y luz". Tokens agnósticos de framework (React, Svelte, HTML, Tailwind…).
+ * Misma identidad que Horus Flow (Nuxt UI: ver assets/nuxt-ui/). Tema oscuro con la clase
+ * `.dark` o `[data-theme="dark"]` en <html>. Nunca colores crudos en componentes: usa estas
+ * variables.
+ */
+
+/* ---------- Tema claro ---------- */
+:root,
+.light,
+[data-theme='light'] {
+  color-scheme: light;
+  --hx-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans',
+    'Liberation Sans', Arial, sans-serif;
+  --hx-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* Marca y semánticos: tonos 600–800, los 500 no llegan a 4,5:1 sobre blanco. */
+  --hx-primary: #0f766e; /* teal 700 */
+  --hx-primary-hover: #115e59; /* teal 800 */
+  --hx-on-primary: #ffffff;
+  --hx-secondary: #4f46e5; /* indigo 600 */
+  --hx-success: #166534; /* green 800 */
+  --hx-info: #1d4ed8; /* blue 700 */
+  --hx-warning: #92400e; /* amber 800 */
+  --hx-error: #b91c1c; /* red 700 */
+
+  /* Neutros (zinc). */
+  --hx-bg: #ffffff;
+  --hx-bg-muted: #fafafa;
+  --hx-bg-elevated: #f4f4f5;
+  --hx-border: #e4e4e7;
+  --hx-text: #18181b;
+  --hx-text-muted: #52525b;
+  --hx-text-dimmed: #71717a;
+
+  /* Materiales. */
+  --hx-glass: rgb(255 255 255 / 0.66);
+  --hx-glass-strong: rgb(255 255 255 / 0.86);
+  --hx-glass-edge: rgb(255 255 255 / 0.7);
+  --hx-card: #ffffff; /* opaca en claro: el aura bajaría el contraste de los badges */
+  --hx-aura-1: rgb(20 184 166 / 0.12);
+  --hx-aura-2: rgb(99 102 241 / 0.09);
+  --hx-glow-brand: transparent; /* sin halos en claro */
+  --hx-glow-crit: rgb(220 38 38 / 0.12);
+  --hx-radius: 0.375rem;
+  --hx-radius-card: 0.875rem;
+}
+
+/* ---------- Tema oscuro ---------- */
+.dark,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --hx-primary: #2dd4bf; /* teal 400: la "luz" de la marca */
+  --hx-primary-hover: rgb(45 212 191 / 0.9);
+  --hx-on-primary: #042f2e;
+  --hx-secondary: #a5b4fc; /* indigo 300 */
+  --hx-success: #4ade80;
+  --hx-info: #60a5fa;
+  --hx-warning: #fbbf24;
+  --hx-error: #f87171;
+
+  /* Sin negro puro: azul noche. */
+  --hx-bg: #0b1014;
+  --hx-bg-muted: #10151b;
+  --hx-bg-elevated: #1a2029;
+  --hx-border: #232a33;
+  --hx-text: #f4f4f5;
+  --hx-text-muted: #a1a1aa;
+  --hx-text-dimmed: #a1a1aa;
+
+  --hx-glass: rgb(16 21 27 / 0.62);
+  --hx-glass-strong: rgb(16 21 27 / 0.86);
+  --hx-glass-edge: rgb(255 255 255 / 0.06);
+  --hx-card: rgb(20 25 32 / 0.86);
+  --hx-aura-1: rgb(20 184 166 / 0.2);
+  --hx-aura-2: rgb(99 102 241 / 0.16);
+  --hx-glow-brand: rgb(45 212 191 / 0.45);
+  --hx-glow-crit: rgb(255 107 120 / 0.26);
+}
+
+/* ---------- Base ---------- */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--hx-bg);
+  color: var(--hx-text);
+  font-family: var(--hx-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+kbd,
+.mono {
+  font-family: var(--hx-font-mono);
+}
+
+.tabular,
+table,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+
+h1 {
+  letter-spacing: -0.015em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hx-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Materiales ---------- */
+/* Vidrio: solo la capa funcional (barra lateral, barra superior, cabecera NOC). */
+.glass-material,
+.chrome-material {
+  background-color: var(--hx-glass);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--hx-glass-edge);
+}
+
+/* Vidrio fuerte: menús, popovers, modales, paneles laterales. */
+.glass-strong {
+  background-color: var(--hx-glass-strong);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: blur(40px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--hx-glass-edge);
+  border-radius: var(--hx-radius-card);
+}
+
+/* Tarjeta del contenido. Nunca vidrio sobre vidrio. */
+.surface-card {
+  background-color: var(--hx-card);
+  border-radius: var(--hx-radius-card);
+  box-shadow:
+    0 0 0 1px var(--hx-border),
+    inset 0 1px 0 var(--hx-glass-edge);
+}
+
+.dark .surface-card,
+[data-theme='dark'] .surface-card {
+  box-shadow:
+    0 0 0 1px var(--hx-border),
+    inset 0 1px 0 var(--hx-glass-edge),
+    0 12px 32px rgb(0 0 0 / 0.22);
+}
+
+/* Aura: <div class="app-aura" aria-hidden="true"></div> como primer hijo del layout. */
+.app-aura {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-aura::before,
+.app-aura::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  animation: hx-drift 60s ease-in-out infinite alternate;
+}
+
+.app-aura::before {
+  width: 44rem;
+  height: 44rem;
+  left: -12rem;
+  top: -14rem;
+  background: var(--hx-aura-1);
+}
+
+.app-aura::after {
+  width: 40rem;
+  height: 40rem;
+  right: -10rem;
+  bottom: -14rem;
+  background: var(--hx-aura-2);
+  animation-delay: -30s;
+}
+
+/* Murales/TVs: menos luminancia (quemado). */
+.app-aura-wall::before,
+.app-aura-wall::after {
+  opacity: 0.6;
+  animation-duration: 90s;
+}
+
+@keyframes hx-drift {
+  to {
+    transform: translate(3.5rem, 2.5rem) scale(1.08);
+  }
+}
+
+/* ---------- Botón primario de referencia ---------- */
+.btn-primary {
+  background: var(--hx-primary);
+  color: var(--hx-on-primary);
+  border-radius: var(--hx-radius);
+  box-shadow: 0 0 18px var(--hx-glow-brand);
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.btn-primary:hover,
+.btn-primary:active {
+  background: var(--hx-primary-hover);
+  box-shadow: 0 0 26px var(--hx-glow-brand);
+}
+
+/* ---------- Luz: solo señales ---------- */
+.glow-brand {
+  box-shadow: 0 0 18px var(--hx-glow-brand);
+}
+
+.halo-critical {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--hx-error) 55%, transparent),
+    0 0 18px var(--hx-glow-crit);
+}
+
+/* Punto "En vivo": alterna .ring-a / .ring-b en cada dato nuevo. */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--hx-primary);
+  box-shadow: 0 0 8px var(--hx-glow-brand);
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--hx-primary);
+  opacity: 0;
+}
+
+.live-dot.ring-a::after {
+  animation: hx-ring-a 1.2s ease-out;
+}
+
+.live-dot.ring-b::after {
+  animation: hx-ring-b 1.2s ease-out;
+}
+
+@keyframes hx-ring-a {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+@keyframes hx-ring-b {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+/* Destello del valor que cambió (solo oscuro): alterna .ping-a / .ping-b. */
+.dark .ping-a,
+[data-theme='dark'] .ping-a {
+  animation: hx-ping-a 1.4s ease-out;
+}
+
+.dark .ping-b,
+[data-theme='dark'] .ping-b {
+  animation: hx-ping-b 1.4s ease-out;
+}
+
+@keyframes hx-ping-a {
+  25% {
+    text-shadow: 0 0 18px var(--hx-glow-brand);
+  }
+}
+
+@keyframes hx-ping-b {
+  25% {
+    text-shadow: 0 0 18px var(--hx-glow-brand);
+  }
+}
+
+/*
+ * Números vivos: <span class="roll-digit" data-d="7">7</span> por dígito. El dígito real queda
+ * como texto (lectores de pantalla, copiar); la tira 0–9 rueda en 0,7 s sin rebote.
+ */
+.roll-digit {
+  position: relative;
+  display: inline-block;
+  height: 1em;
+  line-height: 1em;
+  overflow: hidden;
+  vertical-align: top;
+  -webkit-text-fill-color: transparent;
+}
+
+.roll-digit::before {
+  content: '0\A 1\A 2\A 3\A 4\A 5\A 6\A 7\A 8\A 9';
+  position: absolute;
+  inset: 0 0 auto;
+  white-space: pre;
+  text-align: center;
+  line-height: 1em;
+  -webkit-text-fill-color: currentColor;
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.roll-digit[data-d='1']::before { transform: translateY(-1em); }
+.roll-digit[data-d='2']::before { transform: translateY(-2em); }
+.roll-digit[data-d='3']::before { transform: translateY(-3em); }
+.roll-digit[data-d='4']::before { transform: translateY(-4em); }
+.roll-digit[data-d='5']::before { transform: translateY(-5em); }
+.roll-digit[data-d='6']::before { transform: translateY(-6em); }
+.roll-digit[data-d='7']::before { transform: translateY(-7em); }
+.roll-digit[data-d='8']::before { transform: translateY(-8em); }
+.roll-digit[data-d='9']::before { transform: translateY(-9em); }
+
+/* ---------- KPIs y escala mural ---------- */
+.kpi {
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-unit {
+  font-size: 0.5em;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-inline-start: 0.2em;
+}
+
+/* Pantalla mural: diseño a 1920×1080 que escala uniforme; KPI 72, título 28, etiqueta 22, meta 20. */
+.wall {
+  --u: min(calc(100dvh / 1080), calc(100dvw / 1920));
+  --w-kpi: calc(var(--u) * 72);
+  --w-title: calc(var(--u) * 28);
+  --w-label: calc(var(--u) * 22);
+  --w-meta: calc(var(--u) * 20);
+  overflow: hidden;
+}
+
+/* ---------- Preferencias del sistema ---------- */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-material,
+  .chrome-material,
+  .glass-strong {
+    background-color: var(--hx-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .surface-card {
+    background-color: var(--hx-bg-muted);
+  }
+
+  .app-aura {
+    display: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  .light,
+  [data-theme='light'] {
+    --hx-text-muted: #27272a;
+    --hx-border: #71717a;
+  }
+
+  .dark,
+  [data-theme='dark'] {
+    --hx-text-muted: #e4e4e7;
+    --hx-border: #a1a1aa;
+    --hx-glow-brand: transparent;
+    --hx-glow-crit: transparent;
+  }
+
+  .halo-critical {
+    box-shadow: 0 0 0 2px var(--hx-error);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

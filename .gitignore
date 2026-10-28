@@ -1,0 +1,8 @@
+node_modules/
+.next/
+/apps/api/bin/
+.env
+*.local
+coverage/
+playwright-report/
+test-results/
