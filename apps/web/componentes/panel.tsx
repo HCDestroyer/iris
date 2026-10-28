@@ -1,15 +1,17 @@
 "use client";
 
 import { Aviso, Boton, Esqueleto, Hoja, HojaContenido, HojaDisparador, MarcaIris } from "@iris/ui";
-import { LogOut, Menu, RotateCw } from "lucide-react";
+import { Menu, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuVisible } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
+import { MenuUsuario } from "./cuenta/menu-usuario";
 import { ErrorLectura, SinEmpresa } from "./error-lectura";
 import { Navegacion } from "./navegacion";
 import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
@@ -21,7 +23,7 @@ import { SelectorTema } from "./selector-tema";
  * 422/403 de empresa de cualquier petición llegan aquí.
  */
 /** Rutas administrativas: la API no exige empresa activa para ellas (i1.md). */
-const RUTAS_SIN_EMPRESA = ["/usuarios", "/administracion"];
+const RUTAS_SIN_EMPRESA = ["/usuarios", "/administracion", "/cuenta"];
 /** Excepciones dentro de las administrativas: los buzones son de la empresa activa (como los tickets). */
 const RUTAS_CON_EMPRESA = ["/administracion/buzones"];
 const enRuta = (ruta: string, r: string) => ruta === r || ruta.startsWith(`${r}/`);
@@ -59,8 +61,23 @@ export function Panel({ children }: { children: ReactNode }) {
         [refrescar],
     );
     const pedirEmpresa = useCallback(() => setPedida(true), []);
+
+    // Contraseña temporal (tras un reinicio de MFA): `GET /yo` lo dice y cualquier otra petición
+    // responde 403 `cambio_contrasena_requerido`. En los dos casos solo queda cambiarla.
+    const router = useRouter();
+    const [cambioRequerido, setCambioRequerido] = useState(false);
+    useEffect(() => suscribirCambioRequerido(() => setCambioRequerido(true)), []);
+    const debeCambiar = cambioRequerido || (yo.estado === "listo" && requiereCambio(yo.datos.usuario));
+    useEffect(() => {
+        if (debeCambiar) {
+            router.replace(rutaCambiarContrasena(`${window.location.pathname}${window.location.search}`));
+        }
+    }, [debeCambiar, router]);
     const refrescarSesion = useCallback(() => void refrescar(), [refrescar]);
 
+    if (debeCambiar) {
+        return <EsqueletoPanel />;
+    }
     if (yo.estado === "listo") {
         const datos = yo.datos;
         const varias = (datos.empresas?.length ?? 0) > 1;
@@ -182,23 +199,7 @@ function Estructura({ children }: { children: ReactNode }) {
                 </Link>
                 <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
                     <SelectorEmpresa />
-                    <div className="hidden min-w-0 text-right md:grid">
-                        <span className="truncate text-sm font-medium" data-testid="usuario-nombre">
-                            {yo.usuario.nombre}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">{yo.usuario.correo}</span>
-                    </div>
-                    <Boton
-                        variante="fantasma"
-                        tamano="md"
-                        onClick={cerrarSesion}
-                        disabled={cerrando}
-                        title="Cerrar sesión"
-                        className="px-2.5 sm:px-3"
-                    >
-                        <LogOut />
-                        <span className="sr-only sm:not-sr-only">{cerrando ? "Cerrando sesión…" : "Cerrar sesión"}</span>
-                    </Boton>
+                    <MenuUsuario cerrando={cerrando} cerrarSesion={cerrarSesion} />
                 </div>
             </header>
 
