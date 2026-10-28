@@ -69,6 +69,60 @@ type AgendaCuadrillaZona struct {
 	UpdatedAt   time.Time
 }
 
+type AgendaRuta struct {
+	ID                   int64
+	EmpresaID            *int64
+	TecnicoID            int64
+	Fecha                pgtype.Date
+	Estado               string
+	Modo                 string
+	Motor                string
+	MotivoMotor          *string
+	OrigenSalida         string
+	SalidaLat            *float64
+	SalidaLon            *float64
+	SaleEn               time.Time
+	TerminaEn            *time.Time
+	FinTurno             *time.Time
+	DistanciaM           int32
+	ViajeSeg             int32
+	EsperaSeg            int32
+	Geometria            []byte
+	Desactualizada       bool
+	DesactualizadaEn     *time.Time
+	MotivoDesactualizada *string
+	PropuestaPor         *int64
+	PropuestaEn          time.Time
+	PublicadaPor         *int64
+	PublicadaEn          *time.Time
+	ReemplazadaEn        *time.Time
+	ReemplazadaPorID     *int64
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type AgendaRutaParada struct {
+	RutaID          int64
+	Posicion        int16
+	OrdenID         int64
+	Lat             *float64
+	Lon             *float64
+	DuracionMin     int32
+	VentanaInicio   *time.Time
+	VentanaFin      *time.Time
+	CitaInicio      *time.Time
+	Fija            bool
+	LlegadaEstimada time.Time
+	SalidaEstimada  time.Time
+	ViajeSeg        int32
+	DistanciaM      int32
+	EsperaSeg       int32
+	RetrasoSeg      int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type AgendaTecnico struct {
 	ID          int64
 	UsuarioID   int64

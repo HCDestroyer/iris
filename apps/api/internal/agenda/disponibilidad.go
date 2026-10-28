@@ -335,6 +335,7 @@ type CitaAgenda struct {
 	Lon           *float64   `json:"lon" nullable:"true"`
 	ClienteID     *int64     `json:"clienteId" nullable:"true"`
 	ServicioID    *int64     `json:"servicioId" nullable:"true"`
+	EnSitioEn     *time.Time `json:"enSitioEn,omitempty" nullable:"true" doc:"Llegada real al sitio (ausente o null si todavía no llega)"`
 }
 
 // AusenciaAgenda: una ausencia en el rango.
@@ -384,7 +385,7 @@ func (m *Modulo) nuevoCalendario() *auditoria.Caso[EntradaCalendario, Calendario
 				salida.Citas = append(salida.Citas, CitaAgenda{OrdenID: f.OrdenID, Numero: f.Numero, Tipo: f.TipoCodigo, Estado: f.Estado,
 					OrdenVersion: f.OrdenVersion, TecnicoID: f.TecnicoID, Inicio: f.Inicio, Fin: f.Fin, VentanaInicio: f.VentanaInicio,
 					VentanaFin: f.VentanaFin, ZonaID: f.ZonaID, CuadrillaID: f.OrdenCuadrillaID, Direccion: f.Direccion, Lat: f.Lat,
-					Lon: f.Lon, ClienteID: f.ClienteID, ServicioID: f.ServicioID})
+					Lon: f.Lon, ClienteID: f.ClienteID, ServicioID: f.ServicioID, EnSitioEn: f.EnSitioEn})
 			}
 			// Ausencias de los técnicos visibles (con los mismos filtros de técnico y cuadrilla).
 			p := m.paramsTecnicos(ctx, nucleo.PermAgendaVer)

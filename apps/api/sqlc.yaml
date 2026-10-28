@@ -125,6 +125,8 @@ sql:
         package: agendabd
         out: internal/agenda/bd
         overrides:
+          - db_type: date
+            go_type: time.Time
           - db_type: timestamptz
             go_type: time.Time
           - db_type: timestamptz

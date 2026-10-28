@@ -91,6 +91,11 @@ const (
 	PermAgendaFijarCapacidad      Permiso = "agenda.fijar_capacidad"
 	PermAgendaRegistrarAusencia   Permiso = "agenda.registrar_ausencia"
 	PermAgendaAnularAusencia      Permiso = "agenda.anular_ausencia"
+
+	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
+	PermRutasVer      Permiso = "rutas.ver"
+	PermRutasProponer Permiso = "rutas.proponer"
+	PermRutasPublicar Permiso = "rutas.publicar"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -193,6 +198,9 @@ var Catalogo = []DefPermiso{
 	{PermPermisosVer, "Ver el catálogo de permisos"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
+	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
+	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
+	{PermRutasVer, "Ver las rutas del día: propuesta, publicada y el recorrido real (según el alcance)"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
 	{PermTicketsCrear, "Crear tickets de soporte"},
@@ -250,6 +258,9 @@ var permisosAgenda = []Permiso{
 	PermCampoVerPosiciones,
 }
 
+// permisosRutas son los de rutas del día (despacho, supervisor).
+var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar}
+
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
 // sincronizan en cada `iris migrar`: lo que no está aquí se les quita.
 var RolesBase = []DefRol{
@@ -259,14 +270,14 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
-			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda)...)},
+			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas)...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
 			PermCampoVerPosiciones},
-			permisosOrdenes...)},
+			slices.Concat(permisosOrdenes, permisosRutas)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
@@ -278,7 +289,7 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermClientesVer, PermClientesEstadoCuenta}},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
-			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer}},
+			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir

@@ -102,6 +102,9 @@ sistema). Fechas en UTC. `orden.programada` también es de agenda (arriba, en Ca
 | `tecnico.actualizado` | `tecnico_id`, `usuario_id`, `campos[]` (`cuadrilla_id`, `bodega_id`, `habilidades`, `base`, `activo`, `turnos`, `capacidad`), `activo` | Editar, activar, desactivar, fijar turnos o capacidad. |
 | `tecnico.ausencia_registrada` | `tecnico_id`, `usuario_id`, `ausencia_id`, `inicio`, `fin`, `motivo`, `citas_en_conflicto` (cuántas citas vivas caen dentro) | `agenda.registrar_ausencia`. Las citas no se mueven solas. |
 | `tecnico.ausencia_anulada` | `tecnico_id`, `usuario_id`, `ausencia_id`, `motivo` (o null) | `agenda.anular_ausencia`. |
+| `ruta.propuesta` | `ruta_id`, `tecnico_id` (usuario), `fecha` (YYYY-MM-DD, Guatemala), `ordenes[]` (en el orden de visita), `modo` (`optimizada` \| `manual`), `motor` (`osrm` \| `haversine`), `degradada` (bool), `motivo_motor` (`sin_osrm` \| `osrm_no_disponible` \| `datos_cambiaron`, o null) | `rutas.proponer`: crea o rehace el borrador del técnico ese día. |
+| `ruta.publicada` | `ruta_id`, `tecnico_id`, `fecha`, `ordenes[]` (orden de visita), `reemplaza_id` (la publicada anterior, que queda `reemplazada`, o null), `motor`, `degradada`, `version` | `rutas.publicar`. El técnico la recibe en `GET /campo/paquete` y `GET /campo/cambios`. |
+| `ruta.desactualizada` | `ruta_id`, `tecnico_id`, `fecha`, `estado` (`borrador` \| `publicada`), `orden_id`, `motivo` (texto: «La orden OT-… cambió de técnico/hora», «se canceló», «se reabrió», «quedó sin técnico», «se programó») | En la transacción de la acción de campo que mueve una cita (programar, reprogramar, asignar, cancelar, reabrir, quitar técnico): marca la ruta del día de antes y la de después. Solo al pasar de vigente a desactualizada (una vez por ruta). Nunca se borra una ruta. |
 
 Consume (campo): `argos.servicio_retirado` → orden de retiro automática (`origen = argos`) si el
 servicio tiene equipos en comodato según Argos y no hay otra orden de retiro abierta (no
@@ -110,6 +113,9 @@ cerrada ni cancelada) del servicio. Idempotente (candado por servicio y la Idemp
 (log); Argos caído: el relay reintenta.
 
 Las posiciones GPS (`POST /campo/posiciones`) **no** emiten eventos ni dejan auditoría por fila.
+
+En los eventos de rutas el `empresa_id` del sobre es el de la ruta (la empresa activa de quien
+propone; null sin conector).
 
 ## Horus (núcleo, I1)
 
