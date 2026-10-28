@@ -183,7 +183,7 @@ export function ConfigurarMfa() {
                                 >
                                     {agruparSecreto(secreto.secreto)}
                                 </code>
-                                <BotonCopiar texto={secreto.secreto} etiqueta="Copiar clave" copiado="Clave copiada" />
+                                <BotonCopiar texto={secreto.secreto} etiqueta="Copiar clave" copiado="Clave copiada" sensible />
                             </div>
                         </div>
                     </li>

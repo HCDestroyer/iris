@@ -6,7 +6,7 @@ import { Aviso, Boton, Campo, CampoArea, Casilla, DialogoContenido, DialogoPie }
 import { CircleCheck, RefreshCw, RotateCcw, RotateCw, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
-import { BotonCopiar } from "@/componentes/cuenta/boton-copiar";
+import { BotonCopiar, useBorradorPortapapeles } from "@/componentes/cuenta/boton-copiar";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cuerpoReiniciarMfa, esquemaReiniciarMfa, generarContrasenaTemporal, type DatosReiniciarMfa } from "@/lib/cuenta/esquemas";
@@ -45,6 +45,8 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
     const [recargando, setRecargando] = useState(false);
     const [resultado, setResultado] = useState<Resultado | null>(null);
     const clave = useClaveIdempotencia();
+    // Del diálogo entero: pasar al resultado no borra lo recién copiado; cerrarlo sí.
+    const portapapeles = useBorradorPortapapeles();
     const formulario = useForm<DatosReiniciarMfa>({
         resolver: zodResolver(esquemaReiniciarMfa),
         defaultValues: { motivo: "", contrasenaTemporal: "", revocarTokens: true },
@@ -112,7 +114,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
                     </div>
                     <Aviso tono="info" titulo="La contraseña temporal ya no se muestra">
                         Si no la entregaste aún, hazlo en persona o por teléfono. Iris no la guarda en ningún lugar donde se pueda
-                        volver a leer.
+                        volver a leer. Si la copiaste, se borra del portapapeles a los 45 s o al cerrar este diálogo.
                     </Aviso>
                     <DialogoPie>
                         <Boton onClick={alCerrar}>Listo</Boton>
@@ -156,7 +158,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
                             <WandSparkles />
                             Generar una segura
                         </Boton>
-                        <BotonCopiar texto={temporal} etiqueta="Copiar" copiado="Copiada" />
+                        <BotonCopiar texto={temporal} etiqueta="Copiar" copiado="Copiada" sensible borrador={portapapeles} />
                     </div>
                 </div>
                 <Casilla

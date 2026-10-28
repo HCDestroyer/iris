@@ -69,7 +69,7 @@ export function cuerpoReiniciarMfa(d: DatosReiniciarMfa, version: number): Schem
 
 /**
  * Alfabeto de la contraseña temporal: sin caracteres que se confunden al dictarla por teléfono
- * (0/O, 1/l/I) ni símbolos. 55 símbolos × 16 ≈ 92 bits.
+ * (0/O, 1/l/I) ni símbolos. 56 símbolos × 16 ≈ 93 bits.
  */
 export const ALFABETO_TEMPORAL = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
 const GRUPOS = 4;

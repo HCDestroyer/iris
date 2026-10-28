@@ -191,6 +191,7 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         await expect(dialogo.getByText("La contraseña temporal necesita al menos 12 caracteres")).toHaveCount(0);
         await dialogo.getByRole("button", { name: "Copiar" }).click();
         await expect(dialogo.getByRole("button", { name: "Copiada" })).toBeVisible();
+        await expect(dialogo.getByText("Se borra del portapapeles en 45 s.")).toBeVisible();
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(generada);
 
         await dialogo.getByLabel("Motivo").fill("Cambió de teléfono; verificado por llamada");
@@ -212,8 +213,11 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         expect(api.cuenta.reinicios[0]?.idempotencia).toBeTruthy();
         expect(api.mutaciones).toContainEqual({ metodo: "POST", ruta: `/api/v1/usuarios/${CON_MFA.id}/reiniciar-mfa`, csrf: CSRF });
 
+        // Pasar al resultado no borra lo copiado; cerrar el diálogo sí.
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(generada);
         await resultado.getByRole("button", { name: "Listo" }).click();
         await expect(resultado).toHaveCount(0);
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("");
         await expect(page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` })).toHaveCount(0);
     });
 
