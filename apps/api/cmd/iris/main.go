@@ -25,6 +25,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -108,6 +109,12 @@ func configArgos(cfg config.Config) (argos.Config, error) {
 	}, nil
 }
 
+// configHorus arma la configuración del conector Horus (se agrega al núcleo de conectores de
+// Argos).
+func configHorus(cfg config.Config, a *argos.Modulo) horus.Config {
+	return horus.Config{Argos: a, RedesPermitidas: cfg.HorusRedesPermitidas, Timeout: cfg.HorusTimeout}
+}
+
 func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	pool, err := conectar(ctx, cfg)
 	if err != nil {
@@ -137,11 +144,13 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	acfg.Encolar = integracion.Encolar(cola)
 	conectorArgos := argos.Nuevo(acfg)
+	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
+			conectorHorus.Registrar,
 			soporte.Nuevo(soporte.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,

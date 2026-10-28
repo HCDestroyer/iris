@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 )
 
 // Tipos de la API de Argos tal como Iris los lee.
@@ -212,81 +212,8 @@ type RouterArgos struct {
 	Zona      *Ref   `json:"zona"`
 }
 
-// PeticionCanje es el cuerpo del canje en Argos (§1.3). Supuesto: mismos campos que el canje
-// Argos ↔ Horus, en snake_case; el receptor de los webhooks (Iris) genera el secreto.
-type PeticionCanje struct {
-	Codigo         string `json:"codigo"`
-	Sistema        string `json:"sistema"`
-	URL            string `json:"url"`
-	WebhookURL     string `json:"webhook_url"`
-	WebhookSecreto string `json:"webhook_secreto"`
-}
-
-// RespuestaCanje es lo que Argos devuelve al canjear: el token atk_… del usuario técnico
-// «Iris», y opcionalmente el id de la conexión y las empresas que cubre el token.
-type RespuestaCanje struct {
-	Token      string            `json:"token"`
-	ConexionID json.RawMessage   `json:"conexion_id"`
-	Empresas   []json.RawMessage `json:"empresas"`
-}
-
-// IDConexion devuelve el id de la conexión como texto (número o texto en Argos).
-func (r RespuestaCanje) IDConexion() *string {
-	crudo := strings.Trim(strings.TrimSpace(string(r.ConexionID)), `"`)
-	if crudo == "" || crudo == "null" {
-		return nil
-	}
-	return &crudo
-}
-
-// IDsEmpresas acepta [1, 2] o [{ id: 1 }, …].
-func (r RespuestaCanje) IDsEmpresas() []int64 {
-	return idsEmpresas(r.Empresas)
-}
-
-func idsEmpresas(crudos []json.RawMessage) []int64 {
-	salida := []int64{}
-	for _, c := range crudos {
-		var n int64
-		if json.Unmarshal(c, &n) == nil {
-			salida = append(salida, n)
-			continue
-		}
-		var r Ref
-		if json.Unmarshal(c, &r) == nil && r.ID != nil {
-			salida = append(salida, *r.ID)
-		}
-	}
-	return salida
-}
-
 // Numero acepta un número JSON o un texto numérico.
-type Numero struct {
-	valor *float64
-}
-
-// UnmarshalJSON implementa json.Unmarshaler.
-func (n *Numero) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(strings.TrimSpace(string(b)), `"`)
-	if s == "" || s == "null" {
-		n.valor = nil
-		return nil
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return err
-	}
-	n.valor = &f
-	return nil
-}
-
-// Float devuelve el valor (nil si no vino).
-func (n *Numero) Float() *float64 {
-	if n == nil {
-		return nil
-	}
-	return n.valor
-}
+type Numero = conector.Numero
 
 // Decimal es un monto: se guarda como texto para no perder precisión (numeric(14,2)).
 type Decimal string
@@ -313,80 +240,4 @@ func (d *Decimal) Texto() *string {
 	}
 	s := string(*d)
 	return &s
-}
-
-// Decodificación tolerante ---------------------------------------------------------------
-
-// decodificar normaliza el JSON (claves a snake_case) y lo lee en destino.
-func decodificar(crudo []byte, destino any) error {
-	dec := json.NewDecoder(bytes.NewReader(crudo))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return err
-	}
-	b, err := json.Marshal(normalizar(v))
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, destino)
-}
-
-func normalizar(v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		salida := make(map[string]any, len(x))
-		for k, interno := range x {
-			salida[auditoria.SnakeCase(k)] = normalizar(interno)
-		}
-		return salida
-	case []any:
-		for i := range x {
-			x[i] = normalizar(x[i])
-		}
-		return x
-	}
-	return v
-}
-
-// envoltura lee un recurso que puede venir solo o como { data: {...} }.
-type envoltura struct {
-	destino any
-}
-
-// UnmarshalJSON implementa json.Unmarshaler.
-func (e *envoltura) UnmarshalJSON(b []byte) error {
-	var obj map[string]json.RawMessage
-	if json.Unmarshal(b, &obj) == nil {
-		if data, ok := obj["data"]; ok && len(obj) <= 3 && bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
-			return json.Unmarshal(data, e.destino)
-		}
-	}
-	return json.Unmarshal(b, e.destino)
-}
-
-// listaArgos lee una lista: un arreglo o { data: [...], next_cursor }.
-type listaArgos[T any] struct {
-	data []T
-	next string
-}
-
-// UnmarshalJSON implementa json.Unmarshaler.
-func (l *listaArgos[T]) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if bytes.HasPrefix(b, []byte("[")) {
-		return json.Unmarshal(b, &l.data)
-	}
-	var obj struct {
-		Data       []T     `json:"data"`
-		NextCursor *string `json:"next_cursor"`
-	}
-	if err := json.Unmarshal(b, &obj); err != nil {
-		return err
-	}
-	l.data = obj.Data
-	if obj.NextCursor != nil {
-		l.next = *obj.NextCursor
-	}
-	return nil
 }

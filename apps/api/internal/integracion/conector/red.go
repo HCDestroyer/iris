@@ -1,4 +1,4 @@
-package argos
+package conector
 
 import (
 	"errors"
@@ -10,16 +10,18 @@ import (
 	"time"
 )
 
-// Protección contra SSRF. La URL de Argos la escribe un administrador (enlace de conexión) o la
-// manda quien canjea un código; con ella Iris hace peticiones desde su red. Toda conexión hacia
-// Argos (canje, lecturas, webhooks en el worker) pasa por un net.Dialer cuyo Control mira la IP
-// a la que de verdad se conecta, después de resolver el DNS (un nombre que resuelve a una IP
-// interna, o que cambia de IP entre la validación y la conexión, también se corta). Se bloquean
-// loopback, redes privadas, enlace local (169.254.0.0/16, fe80::/10; incluye metadatos de la
-// nube), CGNAT (100.64.0.0/10), no especificadas, multicast y otras reservadas, salvo las redes
-// de IRIS_ARGOS_REDES_PERMITIDAS (desarrollo y laboratorio, donde Argos vive en la red local).
+// Protección contra SSRF. La URL del otro sistema (Argos, Horus) la escribe un administrador
+// (enlace de conexión) o la manda quien canjea un código; con ella Iris hace peticiones desde su
+// red. Toda conexión hacia un conector (canje, lecturas, jobs en el worker) pasa por un
+// net.Dialer cuyo Control mira la IP a la que de verdad se conecta, después de resolver el DNS
+// (un nombre que resuelve a una IP interna, o que cambia de IP entre la validación y la
+// conexión, también se corta). Se bloquean loopback, redes privadas, enlace local
+// (169.254.0.0/16, fe80::/10; incluye metadatos de la nube), CGNAT (100.64.0.0/10), no
+// especificadas, multicast y otras reservadas, salvo las redes permitidas de cada sistema
+// (IRIS_ARGOS_REDES_PERMITIDAS, IRIS_HORUS_REDES_PERMITIDAS: desarrollo y laboratorio, donde el
+// otro sistema vive en la red local).
 
-// ErrDestinoBloqueado: la URL de Argos resuelve a una red interna no permitida.
+// ErrDestinoBloqueado: la URL del conector resuelve a una red interna no permitida.
 var ErrDestinoBloqueado = errors.New("destino no permitido: red interna")
 
 // redesBloqueadas son las que no tienen ya un método en netip.Addr.
@@ -74,10 +76,10 @@ func controlDestino(permitidas []netip.Prefix) func(network, address string, _ s
 	}
 }
 
-// nuevoHTTP arma el cliente HTTP hacia Argos: dial con la protección de arriba, sin proxy del
-// entorno (un HTTP_PROXY haría que el dial vaya al proxy y la IP final no se revise) y sin
+// NuevoHTTP arma el cliente HTTP hacia un conector: dial con la protección de arriba, sin proxy
+// del entorno (un HTTP_PROXY haría que el dial vaya al proxy y la IP final no se revise) y sin
 // seguir redirecciones (el token no debe viajar a otro host).
-func nuevoHTTP(permitidas []netip.Prefix) *http.Client {
+func NuevoHTTP(permitidas []netip.Prefix) *http.Client {
 	d := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: controlDestino(permitidas)}
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.Proxy = nil

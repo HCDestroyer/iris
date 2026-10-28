@@ -22,5 +22,6 @@ Los suscriptores deben ser idempotentes: un evento puede llegar más de una vez.
 (`.claude/integration/contratos/eventos.md`). Hoy no hay suscriptores internos registrados; los
 webhooks salientes a Argos y Horus llegan con la Fase 2.
 
-**Conector Argos (lectura):** subpaquete `argos/` (ver su README): enlace de conexión, cliente
-HTTP, instantáneas y webhooks entrantes.
+**Conectores:** `conector/` (base común: enlace de conexión, webhooks firmados, cliente HTTP con
+SSRF, URL pública), `argos/` (lectura de Argos, instantáneas) y `horus/` (webhooks de Horus →
+eventos internos `horus.*`, lecturas de salud y router). Ver el README de cada uno.
