@@ -36,8 +36,9 @@ import (
 // Sin límite por IP (detrás del proxy del panel todos los clientes comparten la IP, y el ticket
 // de 256 bits, 60 s y un solo uso no se puede adivinar): los canjes rechazados se cuentan y van
 // al log con muestreo, sin auditar. Como freno de abuso hay un tope global muy alto de canjes
-// fallidos por ventana (PortalTope por PortalVentanaTope, 1000/min): pasado, el resto de esa
-// ventana responde 429 demasiados_intentos con Retry-After, sin bloqueo prolongado.
+// fallidos por ventana (PortalTope por PortalVentanaTope, 1000/min): pasado, los canjes fallidos
+// de esa ventana responden 429 demasiados_intentos con Retry-After (alarma en el log); un ticket
+// válido entra siempre.
 
 // Cookies del portal.
 const (
@@ -187,13 +188,16 @@ func nuevoEntrarPortal(m *Modulo) *auditoria.Caso[EntradaEntrarPortal, SesionPor
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEntrarPortal) (SesionPortal, error) {
 			q := identidadbd.New(t)
 			t.Anotar(map[string]any{"ip": in.IP, "user_agent": in.UserAgent})
-			if hasta, excedido := m.topePortal.excedido(time.Now(), cfg.PortalTope); excedido {
-				return SesionPortal{}, nucleo.DemasiadosIntentos("demasiados_intentos",
-					"Demasiados intentos fallidos de entrar al portal; vuelve a intentar en un momento", time.Until(hasta))
-			}
+			// El canje se intenta siempre: el tope global nunca bloquea un ticket válido. Pasado el
+			// tope, los fallidos responden 429 (freno y alarma) en vez de 401.
 			acceso, err := q.TomarAccesoPortal(ctx, Hash256(in.Ticket))
 			if errors.Is(err, pgx.ErrNoRows) {
-				m.topePortal.sumar(time.Now(), cfg.PortalVentanaTope)
+				ahora := time.Now()
+				m.topePortal.sumar(ahora, cfg.PortalVentanaTope)
+				if hasta, excedido := m.topePortal.excedido(ahora, cfg.PortalTope); excedido {
+					return SesionPortal{}, nucleo.DemasiadosIntentos("demasiados_intentos",
+						"Demasiados intentos fallidos de entrar al portal; vuelve a intentar en un momento", time.Until(hasta))
+				}
 				return SesionPortal{}, ticketInvalido()
 			}
 			if err != nil {
@@ -251,11 +255,11 @@ func (v *topeVentana) sumar(ahora time.Time, ventana time.Duration) {
 	v.cuenta++
 }
 
-// excedido indica si la ventana en curso ya pasó el tope y hasta cuándo dura.
+// excedido indica si la ventana en curso ya superó el tope y hasta cuándo dura.
 func (v *topeVentana) excedido(ahora time.Time, tope int64) (time.Time, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if ahora.Before(v.fin) && v.cuenta >= tope {
+	if ahora.Before(v.fin) && v.cuenta > tope {
 		if !v.avisado {
 			v.avisado = true
 			slog.Warn("identidad: tope global de canjes fallidos del portal alcanzado", "tope", tope, "hasta", v.fin)

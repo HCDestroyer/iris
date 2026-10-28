@@ -366,24 +366,23 @@ func TestPortalCanjesInvalidosNoBloquean(t *testing.T) {
 	}
 }
 
-// Freno global (muy alto en producción): pasado el tope de fallos en la ventana, 429 solo hasta
-// que termina la ventana; el ticket válido no se gasta y entra después.
+// Freno global (muy alto en producción): pasado el tope de fallos en la ventana, los canjes
+// fallidos responden 429; un ticket válido entra igual (regresión de la revisión: antes el tope
+// cortaba antes del canje y unas pocas peticiones basura bloqueaban a todos).
 func TestPortalTopeGlobal(t *testing.T) {
-	e := entornoPortal(t, identidad.Config{CookieSegura: false, PortalTope: 3, PortalVentanaTope: 300 * time.Millisecond})
+	e := entornoPortal(t, identidad.Config{CookieSegura: false, PortalTope: 3, PortalVentanaTope: time.Minute})
 	argos := e.argos(nucleo.PermPortalEmitir)
 	for range 3 {
 		_, r := e.entrarPortal("ticket-inventado-0123456789abcdef")
 		r.problema(t, 401, "ticket_invalido")
 	}
-	valido := emitir(t, argos, 77, 1)
-	_, r := e.entrarPortal(valido)
+	_, r := e.entrarPortal("ticket-inventado-0123456789abcdef")
 	r.problema(t, 429, "demasiados_intentos")
 	if r.h.Get("Retry-After") == "" {
 		t.Fatal("falta Retry-After")
 	}
-	time.Sleep(350 * time.Millisecond)
-	if _, r := e.entrarPortal(valido); r.status != 200 {
-		t.Fatalf("tras la ventana: %d %s", r.status, r.crudo)
+	if _, r := e.entrarPortal(emitir(t, argos, 77, 1)); r.status != 200 {
+		t.Fatalf("ticket válido con el tope excedido: %d %s", r.status, r.crudo)
 	}
 }
 

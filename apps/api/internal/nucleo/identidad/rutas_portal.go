@@ -42,7 +42,7 @@ func (m *Modulo) registrarPortal(api huma.API) {
 	entrar := operacion("entrarPortal", http.MethodPost, "/api/v1/portal/sesion", "Entrar al portal con el ticket de acceso", "", http.StatusOK, http.StatusTooManyRequests)
 	entrar.Tags = []string{etiquetaPortal}
 	entrar.Security = nil
-	entrar.Description = "Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), el resto de ese minuto responde 429 `demasiados_intentos` con `Retry-After`."
+	entrar.Description = "Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), los fallidos de ese minuto responden 429 `demasiados_intentos` con `Retry-After`; un ticket válido entra siempre."
 	huma.Register(api, entrar, func(ctx context.Context, in *entradaEntrarPortal) (*salidaSesionPortal, error) {
 		e := in.Body
 		e.IP, e.UserAgent = in.ip, in.UserAgent

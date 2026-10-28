@@ -40,10 +40,11 @@ type Config struct {
 	DuracionSesionPortal time.Duration
 	// VigenciaAccesoPortal: vida del ticket de acceso (60 s, un solo uso).
 	VigenciaAccesoPortal time.Duration
-	// PortalTope: canjes fallidos del portal (de todos, no por IP) por PortalVentanaTope que
-	// hacen responder 429 al resto de esa ventana: un freno de abuso global y muy alto (1000 por
-	// minuto), sin bloqueo prolongado. No hay límite por IP: detrás del proxy del panel todos
-	// comparten la IP, y el ticket (256 bits, 60 s, un solo uso) no se puede adivinar.
+	// PortalTope: canjes fallidos del portal (de todos, no por IP) por PortalVentanaTope a partir
+	// de los cuales los fallidos responden 429 en vez de 401 hasta que termina la ventana: freno
+	// y alarma globales, muy altos (1000 por minuto). Nunca bloquea un ticket válido. No hay
+	// límite por IP: detrás del proxy del panel todos comparten la IP, y el ticket (256 bits,
+	// 60 s, un solo uso) no se puede adivinar.
 	PortalTope        int64
 	PortalVentanaTope time.Duration
 }
