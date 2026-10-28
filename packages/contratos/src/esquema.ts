@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/categorias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Categorías de ticket
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["listarCategoriasTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/listo": {
         parameters: {
             query?: never;
@@ -113,6 +133,310 @@ export interface paths {
          * @description Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva. Al 5.º código inválido (o ya usado) la sesión pendiente se revoca (401 `mfa_bloqueado`) y hay que volver a iniciar sesión.
          */
         post: operations["verificarMFA"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/slas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SLA con sus objetivos por prioridad
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["listarSLAs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar tickets (bandeja)
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["listarTickets"];
+        put?: never;
+        /**
+         * Crear un ticket
+         * @description Permiso: `tickets.crear`. Calcula el SLA (categoría → SLA, o el por defecto; objetivos de la prioridad) y emite `ticket.creado`.
+         */
+        post: operations["crearTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver un ticket
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["verTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/asignar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar un ticket
+         * @description Permiso: `tickets.asignar`. A un usuario y/o una cuadrilla (sin ambos, queda sin asignar). Un ticket nuevo pasa a abierto. Emite `ticket.asignado`.
+         */
+        post: operations["asignarTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/cerrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar un ticket
+         * @description Permiso: `tickets.cerrar`. Desde resuelto, o desde nuevo, abierto o en_espera con motivo. Cerrado es final. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["cerrarTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/escalar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Escalar un ticket
+         * @description Permiso: `tickets.escalar`. Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA. Emite `ticket.escalado`.
+         */
+        post: operations["escalarTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historial del ticket (estado, asignación, escalamiento y SLA)
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["listarEventosTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/fusionar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fusionar un ticket duplicado en otro
+         * @description Permiso: `tickets.fusionar`. El ticket {id} se cierra fusionado en `destinoId` (no cerrado, misma empresa; si no, 422 `fusion_invalida`). Emite `ticket.estado_cambiado` y `ticket.fusionado`.
+         */
+        post: operations["fusionarTickets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/mensajes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Conversación del ticket (mensajes y notas internas)
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["listarMensajesTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/nota-interna": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agregar una nota interna
+         * @description Permiso: `tickets.nota_interna`. El cliente no la ve; no cambia el estado ni el SLA. Se permite en cualquier estado.
+         */
+        post: operations["agregarNotaInterna"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/poner-en-espera": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poner un ticket en espera
+         * @description Permiso: `tickets.poner_en_espera`. abierto → en_espera. Pausa el reloj de resolución. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["ponerTicketEnEspera"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/reabrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reabrir un ticket resuelto
+         * @description Permiso: `tickets.reabrir`. resuelto → abierto. El tiempo en resuelto no cuenta para el SLA de resolución. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["reabrirTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/reanudar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanudar un ticket en espera
+         * @description Permiso: `tickets.reanudar`. en_espera → abierto. El tiempo laboral en espera corre el vencimiento de resolución. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["reanudarTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/resolver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolver un ticket
+         * @description Permiso: `tickets.resolver`. nuevo, abierto o en_espera → resuelto, con la solución como mensaje público. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["resolverTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/responder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Responder al cliente (mensaje público)
+         * @description Permiso: `tickets.responder`. Cuenta como primera respuesta del SLA; un ticket nuevo pasa a abierto. No se permite en cerrado. Emite `ticket.respondido`.
+         */
+        post: operations["responderTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -299,9 +623,105 @@ export interface components {
              */
             zonaId?: number;
         };
+        Categoria: {
+            activa: boolean;
+            codigo: string;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @description Suele terminar en una orden de trabajo */
+            requiereOrden: boolean;
+            /**
+             * Format: int64
+             * @description null = SLA por defecto
+             */
+            slaId: number | null;
+            /** Format: int32 */
+            version: number;
+        };
+        Contacto: {
+            correo: string | null;
+            nombre: string | null;
+            telefono: string | null;
+        };
         EntradaActivarMFA: {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
+        };
+        EntradaAsignarTicket: {
+            /**
+             * Format: int64
+             * @description Cuadrilla; ausente = ninguna
+             */
+            cuadrillaId?: number;
+            /**
+             * Format: int64
+             * @description Usuario responsable; ausente = ninguno
+             */
+            usuarioId?: number;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaCerrarTicket: {
+            /** @description Obligatorio si el ticket no está resuelto */
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaContacto: {
+            /** Format: email */
+            correo?: string;
+            nombre?: string;
+            telefono?: string;
+        };
+        EntradaCrearTicket: {
+            asunto: string;
+            /** Format: int64 */
+            categoriaId?: number;
+            /**
+             * Format: int64
+             * @description Cliente en Argos
+             */
+            clienteId?: number;
+            contacto?: components["schemas"]["EntradaContacto"];
+            /** @description Primer mensaje público del ticket */
+            descripcion?: string;
+            /**
+             * Format: int64
+             * @description Empresa en Argos; por defecto, la activa
+             */
+            empresaId?: number;
+            /**
+             * @description Por defecto, según el canal
+             * @enum {string}
+             */
+            origen?: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
+            /**
+             * @description media por defecto
+             * @enum {string}
+             */
+            prioridad?: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: int64
+             * @description Servicio en Argos (exige clienteId)
+             */
+            servicioId?: number;
+            /**
+             * Format: int64
+             * @description Incidente maestro al que se vincula
+             */
+            ticketPadreId?: number;
+            /**
+             * Format: int64
+             * @description Zona (Argos); define el alcance
+             */
+            zonaId?: number;
         };
         EntradaCrearToken: {
             /**
@@ -352,10 +772,86 @@ export interface components {
              */
             version: number;
         };
+        EntradaEscalarTicket: {
+            motivo: string;
+            /**
+             * @description Nueva prioridad, mayor que la actual
+             * @enum {string}
+             */
+            prioridad?: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaFusionarTickets: {
+            /**
+             * Format: int64
+             * @description Ticket que absorbe al duplicado
+             */
+            destinoId: number;
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída del ticket duplicado; si cambió, 409
+             */
+            version: number;
+        };
         EntradaIniciarSesion: {
             contrasena: string;
             /** Format: email */
             correo: string;
+        };
+        EntradaNotaInterna: {
+            cuerpo: string;
+            /**
+             * Format: int32
+             * @description Versión leída (opcional); si se envía y cambió, 409
+             */
+            version?: number;
+        };
+        EntradaPonerEnEspera: {
+            /** @description Qué se espera (del cliente, de un proveedor…) */
+            motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaReabrirTicket: {
+            motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaReanudarTicket: {
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaResolverTicket: {
+            /** @description Qué se hizo; la ve el cliente */
+            solucion: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaResponderTicket: {
+            cuerpo: string;
+            /**
+             * Format: int32
+             * @description Versión leída (opcional); si se envía y cambió, 409
+             */
+            version?: number;
         };
         EntradaRevocarToken: {
             motivo?: string;
@@ -377,11 +873,73 @@ export interface components {
             estado: "ok";
             version: string;
         };
+        EventoTicket: {
+            a: string | null;
+            /** Format: int64 */
+            actorId: number | null;
+            actorNombre: string;
+            actorTipo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            datos: {
+                [key: string]: unknown;
+            };
+            de: string | null;
+            /** Format: int64 */
+            id: number;
+            motivo: string | null;
+            /** Format: int64 */
+            ticketId: number;
+            /** @enum {string} */
+            tipo: "creado" | "estado" | "asignado" | "escalado" | "fusionado" | "sla_en_riesgo" | "sla_vencido";
+        };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
             /** @description URL otpauth:// para el código QR */
             url: string;
+        };
+        Mensaje: {
+            /** @description Ids de adjuntos (la subida llega con POST /adjuntos) */
+            adjuntos: string[] | null;
+            /** Format: int64 */
+            autorId: number | null;
+            autorNombre: string;
+            /** @enum {string} */
+            autorTipo: "usuario" | "cliente" | "sistema";
+            canal: string;
+            /** Format: date-time */
+            creadoEn: string;
+            cuerpo: string;
+            /** Format: int64 */
+            id: number;
+            /** @description false = nota interna */
+            publico: boolean;
+            /** Format: int64 */
+            ticketId: number;
+        };
+        ObjetivoSLA: {
+            /** @enum {string} */
+            prioridad: "baja" | "media" | "alta" | "critica";
+            /** Format: int32 */
+            resolucionMin: number;
+            /** Format: int32 */
+            respuestaMin: number;
+        };
+        PaginaCategoria: {
+            data: components["schemas"]["Categoria"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaEventoTicket: {
+            data: components["schemas"]["EventoTicket"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaMensaje: {
+            data: components["schemas"]["Mensaje"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
         };
         PaginaPermisoInfo: {
             data: components["schemas"]["PermisoInfo"][] | null;
@@ -390,6 +948,16 @@ export interface components {
         };
         PaginaRol: {
             data: components["schemas"]["Rol"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaSLA: {
+            data: components["schemas"]["SLA"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaTicket: {
+            data: components["schemas"]["Ticket"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -408,7 +976,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "permisos.ver" | "roles.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.ver";
+        Permiso: "permisos.ver" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -428,6 +996,35 @@ export interface components {
             /** @description URI estable del tipo de problema (urn:iris:problema:<codigo>) */
             type: string;
         };
+        RelojSLA: {
+            /**
+             * Format: date-time
+             * @description Primera respuesta o resolución
+             */
+            cumplidoEn: string | null;
+            /** @enum {string} */
+            estado: "sin_sla" | "en_tiempo" | "en_riesgo" | "vencido" | "cumplido" | "incumplido" | "pausado";
+            /**
+             * Format: int32
+             * @description Objetivo en minutos (laborales si el SLA tiene calendario); null = sin SLA
+             */
+            objetivoMin: number | null;
+            /**
+             * Format: date-time
+             * @description 80 % del objetivo
+             */
+            riesgoEn: string | null;
+            /**
+             * Format: date-time
+             * @description Vencimiento; null = sin SLA o en pausa
+             */
+            venceEn: string | null;
+        };
+        ResultadoFusion: {
+            destino: components["schemas"]["Ticket"];
+            /** @description El duplicado, ya cerrado */
+            origen: components["schemas"]["Ticket"];
+        };
         Rol: {
             codigo: string;
             descripcion: string;
@@ -440,6 +1037,24 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        SLA: {
+            activo: boolean;
+            /** Format: int64 */
+            calendarioId: number | null;
+            calendarioNombre: string | null;
+            codigo: string;
+            /** @description 24/7: sin calendario ni feriados */
+            continuo: boolean;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            objetivos: components["schemas"]["ObjetivoSLA"][] | null;
+            /** @description Se usa para categorías sin SLA */
+            porDefecto: boolean;
+            /** Format: int32 */
+            version: number;
+            zonaHoraria: string | null;
+        };
         SesionIniciada: {
             /** @description Valor para la cabecera X-CSRF-Token (también va en la cookie iris_csrf) */
             csrfToken: string;
@@ -449,6 +1064,82 @@ export interface components {
             mfaRequerido: boolean;
             /** @description El usuario, cuando la sesión quedó completa */
             usuario?: components["schemas"]["Usuario"];
+        };
+        Ticket: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /**
+             * Format: int64
+             * @description Usuario asignado
+             */
+            asignadoA: number | null;
+            asunto: string;
+            /** Format: int64 */
+            categoriaId: number | null;
+            /** Format: date-time */
+            cerradoEn: string | null;
+            /**
+             * Format: int64
+             * @description Cliente en Argos
+             */
+            clienteId: number | null;
+            contacto: components["schemas"]["Contacto"];
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            /**
+             * Format: int64
+             * @description Empresa en Argos; null sin conector
+             */
+            empresaId: number | null;
+            /** Format: date-time */
+            enEsperaDesde: string | null;
+            /** @enum {string} */
+            estado: "nuevo" | "abierto" | "en_espera" | "resuelto" | "cerrado";
+            /**
+             * Format: int64
+             * @description Ticket que absorbió a este (fusión)
+             */
+            fusionadoEnId: number | null;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: int32
+             * @description Veces que se escaló
+             */
+            nivelEscalamiento: number;
+            /** @description Número legible (TK-000123) */
+            numero: string;
+            /** @enum {string} */
+            origen: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
+            /** @enum {string} */
+            prioridad: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: int64
+             * @description Servicio en Argos
+             */
+            servicioId: number | null;
+            /** Format: int64 */
+            slaId: number | null;
+            slaResolucion: components["schemas"]["RelojSLA"];
+            slaRespuesta: components["schemas"]["RelojSLA"];
+            /**
+             * Format: int64
+             * @description Incidente maestro
+             */
+            ticketPadreId: number | null;
+            /** Format: int32 */
+            version: number;
+            /**
+             * Format: int64
+             * @description Zona (Argos); define el alcance
+             */
+            zonaId: number | null;
+        };
+        TicketConMensaje: {
+            mensaje: components["schemas"]["Mensaje"];
+            ticket: components["schemas"]["Ticket"];
         };
         TokenAPI: {
             /** Format: date-time */
@@ -518,6 +1209,65 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listarCategoriasTicket: {
+        parameters: {
+            query?: {
+                /** @description Incluye las inactivas */
+                todas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCategoria"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listo: {
         parameters: {
             query?: never;
@@ -834,6 +1584,1249 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarSLAs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaSLA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarTickets: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Uno o varios estados (estado=nuevo,abierto) */
+                estado?: ("nuevo" | "abierto" | "en_espera" | "resuelto" | "cerrado")[] | null;
+                /** @description Una o varias prioridades */
+                prioridad?: ("baja" | "media" | "alta" | "critica")[] | null;
+                /** @description Categoría */
+                categoriaId?: number;
+                /** @description Usuario asignado */
+                asignadoA?: number;
+                /** @description Solo tickets sin usuario asignado */
+                sinAsignar?: boolean;
+                /** @description Cliente de Argos (historial del cliente) */
+                clienteId?: number;
+                /** @description Servicio de Argos */
+                servicioId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Hijos de un incidente maestro */
+                ticketPadreId?: number;
+                /** @description Busca en número, asunto y nombre de contacto */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaTicket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearTicket"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asignarTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsignarTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cerrarTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCerrarTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    escalarTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEscalarTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarEventosTicket: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaEventoTicket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    fusionarTickets: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFusionarTickets"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoFusion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarMensajesTicket: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Sin notas internas (lo que ve el cliente) */
+                soloPublicos?: boolean;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaMensaje"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    agregarNotaInterna: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaNotaInterna"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketConMensaje"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    ponerTicketEnEspera: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPonerEnEspera"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reabrirTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReabrirTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reanudarTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReanudarTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    resolverTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResolverTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    responderTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResponderTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketConMensaje"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
