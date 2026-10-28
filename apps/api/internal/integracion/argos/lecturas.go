@@ -11,6 +11,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -26,8 +27,6 @@ import (
 //
 // Si Argos no responde, se sirve la última instantánea con stale = true; solo sin instantánea
 // se responde 503 argos_no_disponible.
-
-func requestID(ctx context.Context) string { return contexto.RequestIDDe(ctx) }
 
 // Multiempresa: toda lectura de clientes se filtra por la empresa activa (contexto.EmpresaDe,
 // que fija identidad.MiddlewareEmpresa con X-Iris-Empresa). Lo que Argos devuelva de otra
@@ -49,11 +48,11 @@ func empresaDeLectura(ctx context.Context) (int64, error) {
 }
 
 // nuevoPrevio arma la fase 1 genérica: permiso + conector activo. No deja fila al terminar bien.
-func nuevoPrevio[In any](m *Modulo, accion string) *auditoria.Caso[In, conectorLeido] {
-	return auditoria.Nuevo(auditoria.Caso[In, conectorLeido]{
-		Accion: accion, Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[conectorLeido],
-		Logica: func(ctx context.Context, t *auditoria.Tx, _ In) (conectorLeido, error) {
-			c, err := m.conectorActivo(ctx, argosbd.New(t))
+func nuevoPrevio[In any](m *Modulo, accion string) *auditoria.Caso[In, conector.Leido] {
+	return auditoria.Nuevo(auditoria.Caso[In, conector.Leido]{
+		Accion: accion, Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[conector.Leido],
+		Logica: func(ctx context.Context, t *auditoria.Tx, _ In) (conector.Leido, error) {
+			c, err := m.conectorActivo(ctx, t)
 			if err != nil {
 				return c, err
 			}
@@ -83,7 +82,7 @@ type entradaBusquedaFinal struct {
 // resultados: la instantánea es solo de lo que se muestra en una ficha.
 type BuscarClientes struct {
 	m      *Modulo
-	previo *auditoria.Caso[EntradaBuscarClientes, conectorLeido]
+	previo *auditoria.Caso[EntradaBuscarClientes, conector.Leido]
 	final  *auditoria.Caso[entradaBusquedaFinal, ResultadoBusqueda]
 }
 
@@ -161,7 +160,7 @@ type EntradaFicha struct {
 }
 
 type fichaPrevia struct {
-	conector  conectorLeido
+	conector  conector.Leido
 	cliente   *argosbd.IntegracionArgosCliente
 	estadoCta bool
 }
@@ -192,7 +191,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 		Accion: "clientes.ver", Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[fichaPrevia],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaFicha) (fichaPrevia, error) {
 			q := argosbd.New(t)
-			c, err := m.conectorActivo(ctx, q)
+			c, err := m.conectorActivo(ctx, t)
 			if err != nil {
 				return fichaPrevia{}, err
 			}
@@ -342,7 +341,7 @@ type entradaIPFinal struct {
 // responde, busca la IP en la instantánea de servicios (stale).
 type ResolverIP struct {
 	m      *Modulo
-	previo *auditoria.Caso[EntradaResolverIP, conectorLeido]
+	previo *auditoria.Caso[EntradaResolverIP, conector.Leido]
 	final  *auditoria.Caso[entradaIPFinal, IPResuelta]
 }
 
@@ -473,7 +472,7 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 	if bd == nil {
 		return ResultadoCatalogos{}, nucleo.ErrSinBD
 	}
-	c, err := s.m.conectorActivo(ctx, argosbd.New(bd))
+	c, err := s.m.conectorActivo(ctx, bd)
 	var p *nucleo.Problema
 	if errors.As(err, &p) && p.Codigo() == "conector_apagado" {
 		return ResultadoCatalogos{Omitido: true}, nil

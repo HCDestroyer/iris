@@ -303,7 +303,7 @@ export interface paths {
         put?: never;
         /**
          * Canje del enlace de conexión (lo llama Argos, servidor a servidor)
-         * @description Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y el token `atk_…`; Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.
+         * @description Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y su token `atk_…` (`sistema: "argosisp"`); Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.
          */
         post: operations["canjearConexionArgos"];
         delete?: never;
@@ -343,7 +343,7 @@ export interface paths {
         put?: never;
         /**
          * Webhook de Argos (firmado)
-         * @description Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=<hex>` sobre `"<X-Webhook-Timestamp>.<cuerpo>"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por `X-Webhook-Id` (un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.
+         * @description Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=<hex>` sobre `"<X-Webhook-Timestamp>.<cuerpo>"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por el `id` del cuerpo (firmado, igual a `X-Webhook-Id`; un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Máximo 1 MiB. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.
          */
         post: operations["webhookArgos"];
         delete?: never;
@@ -383,7 +383,7 @@ export interface paths {
         put?: never;
         /**
          * Activar un conector
-         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Encola la primera carga de zonas y routers.
+         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Con Argos, encola la primera carga de zonas y routers.
          */
         post: operations["activarConector"];
         delete?: never;
@@ -406,6 +406,126 @@ export interface paths {
          * @description Permiso: `integraciones.desactivar`.
          */
         post: operations["desactivarConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores/{id}/url-publica": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configurar la URL pública de un conector
+         * @description Permiso: `integraciones.conectar`. Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus» (null = la URL base del conector). Emite `conector.actualizado`.
+         */
+        post: operations["configurarURLPublicaConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/enlaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Orígenes de Argos y Horus para los enlaces «Ver en …»
+         * @description Permiso: `clientes.ver`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
+         */
+        get: operations["obtenerEnlacesExternos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/horus/conectar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Conectar con Horus usando un enlace generado en Horus
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).
+         */
+        post: operations["conectarHorus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/horus/conexion/canjear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Canje del enlace de conexión (lo llama Horus, servidor a servidor)
+         * @description Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Horus entrega su URL y su token `hf_pat_…` (`sistema: "horus"`); Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.
+         */
+        post: operations["canjearConexionHorus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/horus/conexion/enlaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generar un enlace de conexión para pegar en Horus
+         * @description Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Horus lo canjea en `POST /api/v1/integraciones/horus/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         */
+        post: operations["generarEnlaceHorus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/horus/webhook/{conector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Webhook de Horus (firmado)
+         * @description Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=<hex>` sobre `"<X-Webhook-Timestamp>.<cuerpo>"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por el `id` del cuerpo (firmado, igual a `X-Webhook-Id`; un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Máximo 1 MiB. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.
+         */
+        post: operations["webhookHorus"];
         delete?: never;
         options?: never;
         head?: never;
@@ -443,6 +563,54 @@ export interface paths {
         get: operations["listarPermisos"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/sesion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sesión del portal: cliente y vencimiento
+         * @description Solo con la sesión del portal (actor cliente); cualquier otra credencial, 403.
+         */
+        get: operations["obtenerSesionPortal"];
+        put?: never;
+        /**
+         * Entrar al portal con el ticket de acceso
+         * @description Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), los fallidos de ese minuto responden 429 `demasiados_intentos` con `Retry-After`; un ticket válido entra siempre.
+         */
+        post: operations["entrarPortal"];
+        /**
+         * Cerrar la sesión del portal
+         * @description Con `X-CSRF-Token` (valor de la cookie `iris_portal_csrf`).
+         */
+        delete: operations["cerrarSesionPortal"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tickets-acceso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Emitir un acceso al portal de soporte para un cliente de Argos
+         * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         */
+        post: operations["emitirAccesoPortal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1040,6 +1208,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccesoPortalEmitido: {
+            /** Format: date-time */
+            expiraEn: string;
+            /** @description <IRIS_BASE_URL>/soporte/entrar#<ticket>: válida 60 s y de un solo uso; se muestra una sola vez */
+            url: string;
+        };
         AsignacionRol: {
             /**
              * Format: int64
@@ -1108,6 +1282,20 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        ClientePortal: {
+            /**
+             * Format: int64
+             * @description Id del cliente en Argos
+             */
+            clienteId: number;
+            /**
+             * Format: int64
+             * @description Empresa del cliente en Argos
+             */
+            empresaId: number;
+            /** @description Nombre a mostrar (lo manda Argos al emitir el acceso) */
+            nombre: string;
+        };
         ClienteResumen: {
             codigo: string;
             direccion: string;
@@ -1141,7 +1329,7 @@ export interface components {
             baseUrl: string;
             /** Format: date-time */
             creadoEn: string;
-            /** @description Empresas de Argos que cubre el token (vacío si Argos no lo informó) */
+            /** @description Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó) */
             empresas: number[] | null;
             /** @enum {string} */
             estado: "apagado" | "activo";
@@ -1158,6 +1346,8 @@ export interface components {
             sistema: "argosisp" | "horus";
             /** Format: date-time */
             ultimoWebhookEn: string | null;
+            /** @description Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus»: la configurada o, si no hay, baseUrl */
+            urlPublica: string;
             /** Format: int32 */
             version: number;
             /** @description URL a la que el otro sistema envía los webhooks */
@@ -1175,7 +1365,7 @@ export interface components {
             sistema: "iris";
             /** @description Secreto para HMAC-SHA256 de X-Webhook-Signature; solo se entrega aquí */
             webhookSecreto: string;
-            /** @description URL a la que Argos envía los webhooks firmados (§2.3) */
+            /** @description URL a la que el otro sistema envía los webhooks firmados */
             webhookUrl: string;
         };
         Contacto: {
@@ -1186,13 +1376,13 @@ export interface components {
             verificado: boolean;
         };
         CuerpoWebhook: {
-            /** @description cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, … */
+            /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
             evento: string;
             /** @description Id estable del webhook (texto o número), igual a X-Webhook-Id; es la clave de deduplicación (va firmado) */
             id: string;
             /** @description RFC 3339. Si falta o no se entiende, se usa la hora de recepción */
             ocurrido_en?: string;
-            /** @description Datos del evento; lleva empresa_id */
+            /** @description Datos del evento; lleva empresa_id cuando aplica */
             payload: unknown;
         };
         DatosAdoptados: {
@@ -1232,11 +1422,23 @@ export interface components {
             id: number;
             nombre: string;
         };
+        EnlaceExterno: {
+            /** Format: int64 */
+            conectorId: number;
+            /** @description Origen de la interfaz del sistema (https://…), sin barra final */
+            urlPublica: string;
+        };
         EnlaceGenerado: {
             /** @description https://<iris>/conectar#<código>; se muestra una sola vez */
             enlace: string;
             /** Format: date-time */
             expiraEn: string;
+        };
+        EnlacesExternos: {
+            /** @description ArgosISP; ausente sin conector activo */
+            argosisp?: components["schemas"]["EnlaceExterno"];
+            /** @description Horus Flow; ausente sin conector activo */
+            horus?: components["schemas"]["EnlaceExterno"];
         };
         EntradaActivarMFA: {
             /** @description Código TOTP de 6 dígitos */
@@ -1274,18 +1476,18 @@ export interface components {
         EntradaCanjear: {
             /** @description Código del enlace (lo que sigue a #) */
             codigo: string;
-            /** @description Id de la conexión en Argos */
+            /** @description Id de la conexión en el otro sistema */
             conexionId?: string;
-            /** @description Empresas de Argos que cubre el token */
+            /** @description Empresas de Argos que cubre el token (solo Argos) */
             empresas?: number[] | null;
             /**
-             * @description Sistema que canjea
+             * @description Sistema que canjea; debe ser el de la ruta
              * @enum {string}
              */
-            sistema: "argosisp";
-            /** @description Token atk_… del usuario técnico «Iris» en Argos (§1.1) */
+            sistema: "argosisp" | "horus";
+            /** @description Token del otro sistema para Iris: atk_… del usuario técnico «Iris» en Argos, hf_pat_… en Horus */
             token: string;
-            /** @description Origen de Argos (https://…), sin /api/v1 */
+            /** @description Origen del otro sistema (https://…), sin /api/v1 */
             url: string;
         };
         EntradaCerrarTicket: {
@@ -1298,7 +1500,7 @@ export interface components {
             version: number;
         };
         EntradaConectar: {
-            /** @description Enlace de conexión generado en Argos: https://<argos>/conectar#<código> (15 min, un solo uso) */
+            /** @description Enlace de conexión generado en el otro sistema: https://<sistema>/conectar#<código> (15 min, un solo uso) */
             enlace: string;
         };
         EntradaContacto: {
@@ -1455,12 +1657,30 @@ export interface components {
              */
             version: number;
         };
+        EntradaEmitirAccesoPortal: {
+            /**
+             * Format: int64
+             * @description Id del cliente en Argos
+             */
+            clienteId: number;
+            /**
+             * Format: int64
+             * @description Empresa del cliente en Argos; debe ser una en que opera quien emite
+             */
+            empresaId: number;
+            /** @description Nombre a mostrar en el portal */
+            nombre?: string;
+        };
         EntradaEmpresaUsuario: {
             /**
              * Format: int64
              * @description Id de la empresa (debe estar registrada)
              */
             empresaId: number;
+        };
+        EntradaEntrarPortal: {
+            /** @description Lo que sigue a # en /soporte/entrar#<ticket> */
+            ticket: string;
         };
         EntradaEscalarTicket: {
             motivo: string;
@@ -1569,6 +1789,15 @@ export interface components {
             tls: "tls" | "starttls";
             /** @description Sin usuario no se autentica */
             usuario?: string;
+        };
+        EntradaURLPublica: {
+            /** @description Origen de la interfaz del otro sistema (https://…); null = la URL base del conector */
+            urlPublica: string | null;
+            /**
+             * Format: int32
+             * @description Versión que leíste (409 si cambió)
+             */
+            version: number;
         };
         EntradaVerificarMFA: {
             /** @description Código TOTP de 6 dígitos */
@@ -1747,7 +1976,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "permisos.ver" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.ver" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -1909,6 +2138,18 @@ export interface components {
             /** @description El usuario, cuando la sesión quedó completa */
             usuario?: components["schemas"]["Usuario"];
         };
+        SesionPortal: {
+            cliente: components["schemas"]["ClientePortal"];
+            /** @description Valor para la cabecera X-CSRF-Token (también va en la cookie iris_portal_csrf) */
+            csrfToken: string;
+            /** Format: date-time */
+            expiraEn: string;
+        };
+        SesionPortalActual: {
+            cliente: components["schemas"]["ClientePortal"];
+            /** Format: date-time */
+            expiraEn: string;
+        };
         Ticket: {
             /** Format: date-time */
             actualizadoEn: string;
@@ -2032,7 +2273,7 @@ export interface components {
             version: number;
         };
         WebhookRecibido: {
-            /** @description true: ese X-Webhook-Id ya se había recibido; no se vuelve a procesar */
+            /** @description true: ese id de webhook ya se había recibido; no se vuelve a procesar */
             duplicado: boolean;
             /** Format: int64 */
             entranteId: number;
@@ -3422,6 +3663,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -3678,6 +3928,423 @@ export interface operations {
             };
         };
     };
+    configurarURLPublicaConector: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaURLPublica"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    obtenerEnlacesExternos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlacesExternos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    conectarHorus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConectar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    canjearConexionHorus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCanjear"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConexionCanjeada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarEnlaceHorus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceGenerado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    webhookHorus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Id estable del webhook (deduplicación) */
+                "X-Webhook-Id"?: string;
+                /** @description Segundos Unix del envío */
+                "X-Webhook-Timestamp"?: string;
+                /** @description v1=<hex(HMAC-SHA256(secreto, "<timestamp>.<cuerpo>"))> */
+                "X-Webhook-Signature"?: string;
+            };
+            path: {
+                conector_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookRecibido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listo: {
         parameters: {
             query?: never;
@@ -3745,6 +4412,250 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    obtenerSesionPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionPortalActual"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    entrarPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEntrarPortal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cerrarSesionPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    emitirAccesoPortal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEmitirAccesoPortal"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoPortalEmitido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

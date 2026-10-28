@@ -45,6 +45,12 @@ type Config struct {
 	ArgosRedesPermitidas []netip.Prefix
 	// IRIS_ARGOS_TIMEOUT: tiempo máximo de cada llamada a Argos (5s).
 	ArgosTimeout time.Duration
+	// IRIS_HORUS_REDES_PERMITIDAS: como IRIS_ARGOS_REDES_PERMITIDAS, para el conector Horus.
+	HorusRedesPermitidas []netip.Prefix
+	// IRIS_HORUS_TIMEOUT: tiempo máximo de cada llamada a Horus (5s).
+	HorusTimeout time.Duration
+	// IRIS_DURACION_SESION_PORTAL: vida de una sesión del portal de soporte (2h).
+	DuracionSesionPortal time.Duration
 	// IRIS_WEBHOOK_VENTANA: desfase máximo aceptado en X-Webhook-Timestamp (5m).
 	WebhookVentana time.Duration
 	// IRIS_CONECTORES_PERMITIR_HTTP: acepta conectores con base_url http:// (solo desarrollo;
@@ -67,7 +73,10 @@ func Cargar() (Config, error) {
 
 		IdempotenciaReclamo: 2 * time.Minute,
 		ArgosTimeout:        5 * time.Second,
-		WebhookVentana:      5 * time.Minute,
+		HorusTimeout:        5 * time.Second,
+
+		DuracionSesionPortal: 2 * time.Hour,
+		WebhookVentana:       5 * time.Minute,
 	}
 	var errs []string
 	if c.DBURL == "" {
@@ -120,10 +129,16 @@ func Cargar() (Config, error) {
 		errs = append(errs, "IRIS_ARGOS_REDES_PERMITIDAS inválido: "+err.Error())
 	}
 	c.ArgosRedesPermitidas = permitidas
+	horus, err := ParsearRedes(os.Getenv("IRIS_HORUS_REDES_PERMITIDAS"))
+	if err != nil {
+		errs = append(errs, "IRIS_HORUS_REDES_PERMITIDAS inválido: "+err.Error())
+	}
+	c.HorusRedesPermitidas = horus
 	for nombre, destino := range map[string]*time.Duration{
 		"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo,
 		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,
 		"IRIS_ARGOS_TIMEOUT":        &c.ArgosTimeout, "IRIS_WEBHOOK_VENTANA": &c.WebhookVentana,
+		"IRIS_HORUS_TIMEOUT": &c.HorusTimeout, "IRIS_DURACION_SESION_PORTAL": &c.DuracionSesionPortal,
 	} {
 		if v := os.Getenv(nombre); v != "" {
 			d, err := time.ParseDuration(v)

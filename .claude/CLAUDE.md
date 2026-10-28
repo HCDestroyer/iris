@@ -93,7 +93,7 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 ### 8. Permisos (ACL)
 
 - Permiso = nombre de la acción (`tickets.crear`). Los roles agrupan permisos, con alcance opcional por zona o cuadrilla.
-- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`.
+- Roles base: `admin`, `supervisor`, `despacho`, `tecnico`, `soporte`, `ventas`, `lectura`, y para los usuarios de tipo integración `integracion_argos` e `integracion_horus` (permisos del §1.2 de cada contrato).
 - Un token de API o de integración es un usuario con alcances acotados y pasa por el mismo ACL.
 
 ### 9. Auditoría
@@ -154,6 +154,8 @@ Una tarea está terminada solo si:
 | `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[] |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |
+| `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
+| `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
 | `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
 | `conector.creado` / `conector.activado` / `conector.desactivado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado) |

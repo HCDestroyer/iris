@@ -71,6 +71,11 @@ const (
 	PermIntegracionesVer        Permiso = "integraciones.ver"
 )
 
+// Portal de soporte (/soporte).
+const (
+	PermPortalEmitir Permiso = "portal.emitir"
+)
+
 // DefPermiso es una entrada del catálogo.
 type DefPermiso struct {
 	Codigo      Permiso
@@ -96,6 +101,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
+	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
@@ -159,6 +165,17 @@ var RolesBase = []DefRol{
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer}},
+	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
+	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
+	//  - Argos: tickets.ver y tickets.crear (contratos/argosisp.md §1.2); ordenes.ver y
+	//    sso.emitir (también §1.2) se agregan cuando existan esos permisos. portal.emitir NO es
+	//    del §1.2: es el pedido A9 (botón «Soporte» del portal de Argos), propuesto por Iris y
+	//    pendiente de acordar con Argos; se deja por decisión del líder.
+	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
+	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermPortalEmitir}},
+	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
 
 // PermisosDeRol devuelve los permisos efectivos de un rol base.

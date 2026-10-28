@@ -45,6 +45,16 @@ func MiddlewareEmpresa(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			if a := contexto.ActorDe(ctx); a.Tipo == contexto.ActorCliente {
+				// El actor cliente opera solo en la empresa de su sesión (ya fijada por el
+				// middleware de identidad); pedir otra es 403.
+				if h := strings.TrimSpace(r.Header.Get(CabeceraEmpresa)); h != "" && h != strconv.FormatInt(a.EmpresaID, 10) {
+					nucleo.EscribirProblema(w, nucleo.EmpresaNoPermitida())
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
 			bd := nucleo.BDDe(ctx)
 			if bd == nil || !contexto.ActorDe(ctx).EsUsuario() {
 				next.ServeHTTP(w, r)

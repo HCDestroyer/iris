@@ -97,6 +97,8 @@ func configuracion(version string) huma.Config {
 			Description: "Sesión del panel. Las peticiones que cambian estado llevan además X-CSRF-Token."},
 		"bearer": {Type: "http", Scheme: "bearer", BearerFormat: "iris_pat_<32B base62>",
 			Description: "Token de API o de integración."},
+		"portal": {Type: "apiKey", In: "cookie", Name: identidad.CookiePortal,
+			Description: "Sesión del portal de soporte (actor cliente), solo en /api/v1/portal/…. Las peticiones que cambian estado llevan X-CSRF-Token (valor de la cookie iris_portal_csrf)."},
 	}
 	return cfg
 }

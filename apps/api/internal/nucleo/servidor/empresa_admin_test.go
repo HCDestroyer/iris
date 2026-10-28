@@ -2,6 +2,7 @@ package servidor_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -391,8 +392,19 @@ func TestAdoptarDatosSinEmpresa(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT payload::text FROM integracion.outbox WHERE evento = 'empresa.datos_adoptados' AND empresa_id = 101 ORDER BY id LIMIT 1`).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload != `{"filas": {"public.prueba_operativa": 3}, "empresa_id": 101}` {
+	// Las demás tablas registradas (las de los módulos que se enlazan en este binario de
+	// pruebas, p. ej. soporte) van con 0.
+	var ev struct {
+		Filas     map[string]int `json:"filas"`
+		EmpresaID int64          `json:"empresa_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &ev); err != nil || ev.EmpresaID != 101 || ev.Filas[tabla] != 3 {
 		t.Fatalf("payload: %s", payload)
+	}
+	for k, v := range ev.Filas {
+		if k != tabla && v != 0 {
+			t.Fatalf("payload: %s", payload)
+		}
 	}
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'empresas.adoptar' AND resultado = 'ok' AND entidad_id = '101'`).Scan(&n); err != nil || n != 2 {

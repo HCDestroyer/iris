@@ -1,52 +1,13 @@
 package argos
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // Tipos que expone la API de Iris (camelCase). El OpenAPI se genera de aquí.
-
-// Conector con Argos u Horus. Nunca lleva el token ni el secreto del webhook.
-type Conector struct {
-	ID              int64      `json:"id"`
-	Sistema         string     `json:"sistema" enum:"argosisp,horus"`
-	BaseURL         string     `json:"baseUrl" doc:"Origen del otro sistema"`
-	Origen          string     `json:"origen" enum:"enlace_remoto,enlace_local" doc:"enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro"`
-	Estado          string     `json:"estado" enum:"apagado,activo"`
-	RemotoID        *string    `json:"remotoId" nullable:"true" doc:"Id de la conexión en el otro sistema, si lo informó"`
-	Empresas        []int64    `json:"empresas" doc:"Empresas de Argos que cubre el token (vacío si Argos no lo informó)"`
-	WebhookURL      string     `json:"webhookUrl" doc:"URL a la que el otro sistema envía los webhooks"`
-	ActivadoEn      *time.Time `json:"activadoEn" nullable:"true"`
-	UltimoWebhookEn *time.Time `json:"ultimoWebhookEn" nullable:"true"`
-	Version         int32      `json:"version"`
-	CreadoEn        time.Time  `json:"creadoEn"`
-	ActualizadoEn   time.Time  `json:"actualizadoEn"`
-}
-
-func (m *Modulo) aConector(f argosbd.IntegracionConectore) Conector {
-	empresas := f.Empresas
-	if empresas == nil {
-		empresas = []int64{}
-	}
-	return Conector{
-		ID: f.ID, Sistema: f.Sistema, BaseURL: f.BaseUrl, Origen: f.Origen, Estado: f.Estado,
-		RemotoID: f.RemotoID, Empresas: empresas, WebhookURL: m.urlWebhook(f.ID), ActivadoEn: f.ActivadoEn,
-		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
-	}
-}
-
-func (m *Modulo) urlWebhook(id int64) string {
-	return fmt.Sprintf("%s/api/v1/integraciones/argosisp/webhook/%d", m.cfg.BaseURL, id)
-}
 
 // ClienteResumen es un cliente de Argos tal como lo muestra Iris.
 type ClienteResumen struct {
@@ -118,57 +79,7 @@ type IPResuelta struct {
 	Stale      bool   `json:"stale"`
 }
 
-// Conector leído y descifrado (solo dentro del proceso; nunca se serializa).
-type conectorLeido struct {
-	argosbd.IntegracionConectore
-	token   string
-	secreto string
-}
-
-func datosAsociados(id int64, campo string) []byte {
-	return fmt.Appendf(nil, "conector:%d:%s", id, campo)
-}
-
-func (m *Modulo) cifrar(id int64, campo, valor string) ([]byte, error) {
-	if m.cfg.Cifrador == nil {
-		return nil, sinCifrado()
-	}
-	return m.cfg.Cifrador.Cifrar([]byte(valor), datosAsociados(id, campo))
-}
-
-func (m *Modulo) leerConector(f argosbd.IntegracionConectore) (conectorLeido, error) {
-	if m.cfg.Cifrador == nil {
-		return conectorLeido{}, sinCifrado()
-	}
-	token, err := m.cfg.Cifrador.Descifrar(f.TokenCifrado, datosAsociados(f.ID, "token"))
-	if err != nil {
-		return conectorLeido{}, fmt.Errorf("conector %d: descifrar token: %w", f.ID, err)
-	}
-	secreto, err := m.cfg.Cifrador.Descifrar(f.SecretoWebhookCifrado, datosAsociados(f.ID, "secreto_webhook"))
-	if err != nil {
-		return conectorLeido{}, fmt.Errorf("conector %d: descifrar secreto: %w", f.ID, err)
-	}
-	return conectorLeido{IntegracionConectore: f, token: string(token), secreto: string(secreto)}, nil
-}
-
-// conectorActivo devuelve el conector Argos activo o 503 conector_apagado.
-func (m *Modulo) conectorActivo(ctx context.Context, q *argosbd.Queries) (conectorLeido, error) {
-	f, err := q.ConectorActivo(ctx, Sistema)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return conectorLeido{}, ConectorApagado()
-	}
-	if err != nil {
-		return conectorLeido{}, err
-	}
-	return m.leerConector(f)
-}
-
 // ConectorApagado: no hay conector Argos activo; el panel trabaja con datos locales.
 func ConectorApagado() *nucleo.Problema {
-	return nucleo.NuevoProblema(http.StatusServiceUnavailable, "conector_apagado", "Conector con Argos apagado",
-		"No hay un conector con ArgosISP activo; trabaja con los datos capturados en Iris")
-}
-
-func sinCifrado() *nucleo.Problema {
-	return nucleo.ReglaNegocio("cifrado_no_disponible", "Los conectores necesitan IRIS_CLAVE_CIFRADO para guardar el token cifrado")
+	return conector.ConectorApagado(Remoto.Nombre)
 }

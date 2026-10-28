@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AccesoPortalEmitido": {
+        "additionalProperties": false,
+        "properties": {
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "description": "\u003cIRIS_BASE_URL\u003e/soporte/entrar#\u003cticket\u003e: válida 60 s y de un solo uso; se muestra una sola vez",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiraEn"
+        ],
+        "type": "object"
+      },
       "AsignacionRol": {
         "additionalProperties": false,
         "properties": {
@@ -174,6 +192,31 @@
         ],
         "type": "object"
       },
+      "ClientePortal": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "description": "Id del cliente en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "empresaId": {
+            "description": "Empresa del cliente en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "description": "Nombre a mostrar (lo manda Argos al emitir el acceso)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clienteId",
+          "empresaId",
+          "nombre"
+        ],
+        "type": "object"
+      },
       "ClienteResumen": {
         "additionalProperties": false,
         "properties": {
@@ -262,7 +305,7 @@
             "type": "string"
           },
           "empresas": {
-            "description": "Empresas de Argos que cubre el token (vacío si Argos no lo informó)",
+            "description": "Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó)",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -312,6 +355,10 @@
               "null"
             ]
           },
+          "urlPublica": {
+            "description": "Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus»: la configurada o, si no hay, baseUrl",
+            "type": "string"
+          },
           "version": {
             "format": "int32",
             "type": "integer"
@@ -325,6 +372,7 @@
           "id",
           "sistema",
           "baseUrl",
+          "urlPublica",
           "origen",
           "estado",
           "remotoId",
@@ -363,7 +411,7 @@
             "type": "string"
           },
           "webhookUrl": {
-            "description": "URL a la que Argos envía los webhooks firmados (§2.3)",
+            "description": "URL a la que el otro sistema envía los webhooks firmados",
             "type": "string"
           }
         },
@@ -414,7 +462,7 @@
         "additionalProperties": false,
         "properties": {
           "evento": {
-            "description": "cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, …",
+            "description": "Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto…",
             "maxLength": 100,
             "minLength": 1,
             "type": "string"
@@ -430,7 +478,7 @@
             "type": "string"
           },
           "payload": {
-            "description": "Datos del evento; lleva empresa_id"
+            "description": "Datos del evento; lleva empresa_id cuando aplica"
           }
         },
         "required": [
@@ -538,6 +586,24 @@
         ],
         "type": "object"
       },
+      "EnlaceExterno": {
+        "additionalProperties": false,
+        "properties": {
+          "conectorId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "urlPublica": {
+            "description": "Origen de la interfaz del sistema (https://…), sin barra final",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conectorId",
+          "urlPublica"
+        ],
+        "type": "object"
+      },
       "EnlaceGenerado": {
         "additionalProperties": false,
         "properties": {
@@ -554,6 +620,20 @@
           "enlace",
           "expiraEn"
         ],
+        "type": "object"
+      },
+      "EnlacesExternos": {
+        "additionalProperties": false,
+        "properties": {
+          "argosisp": {
+            "$ref": "#/components/schemas/EnlaceExterno",
+            "description": "ArgosISP; ausente sin conector activo"
+          },
+          "horus": {
+            "$ref": "#/components/schemas/EnlaceExterno",
+            "description": "Horus Flow; ausente sin conector activo"
+          }
+        },
         "type": "object"
       },
       "EntradaActivarMFA": {
@@ -640,12 +720,12 @@
             "type": "string"
           },
           "conexionId": {
-            "description": "Id de la conexión en Argos",
+            "description": "Id de la conexión en el otro sistema",
             "maxLength": 100,
             "type": "string"
           },
           "empresas": {
-            "description": "Empresas de Argos que cubre el token",
+            "description": "Empresas de Argos que cubre el token (solo Argos)",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -657,20 +737,21 @@
             ]
           },
           "sistema": {
-            "description": "Sistema que canjea",
+            "description": "Sistema que canjea; debe ser el de la ruta",
             "enum": [
-              "argosisp"
+              "argosisp",
+              "horus"
             ],
             "type": "string"
           },
           "token": {
-            "description": "Token atk_… del usuario técnico «Iris» en Argos (§1.1)",
+            "description": "Token del otro sistema para Iris: atk_… del usuario técnico «Iris» en Argos, hf_pat_… en Horus",
             "maxLength": 500,
             "minLength": 12,
             "type": "string"
           },
           "url": {
-            "description": "Origen de Argos (https://…), sin /api/v1",
+            "description": "Origen del otro sistema (https://…), sin /api/v1",
             "maxLength": 500,
             "minLength": 8,
             "type": "string"
@@ -708,7 +789,7 @@
         "additionalProperties": false,
         "properties": {
           "enlace": {
-            "description": "Enlace de conexión generado en Argos: https://\u003cargos\u003e/conectar#\u003ccódigo\u003e (15 min, un solo uso)",
+            "description": "Enlace de conexión generado en el otro sistema: https://\u003csistema\u003e/conectar#\u003ccódigo\u003e (15 min, un solo uso)",
             "maxLength": 2000,
             "minLength": 10,
             "type": "string"
@@ -1119,6 +1200,33 @@
         ],
         "type": "object"
       },
+      "EntradaEmitirAccesoPortal": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "description": "Id del cliente en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "empresaId": {
+            "description": "Empresa del cliente en Argos; debe ser una en que opera quien emite",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nombre": {
+            "description": "Nombre a mostrar en el portal",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "clienteId",
+          "empresaId"
+        ],
+        "type": "object"
+      },
       "EntradaEmpresaUsuario": {
         "additionalProperties": false,
         "properties": {
@@ -1131,6 +1239,21 @@
         },
         "required": [
           "empresaId"
+        ],
+        "type": "object"
+      },
+      "EntradaEntrarPortal": {
+        "additionalProperties": false,
+        "properties": {
+          "ticket": {
+            "description": "Lo que sigue a # en /soporte/entrar#\u003cticket\u003e",
+            "maxLength": 200,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
         ],
         "type": "object"
       },
@@ -1430,6 +1553,30 @@
           "host",
           "puerto",
           "tls"
+        ],
+        "type": "object"
+      },
+      "EntradaURLPublica": {
+        "additionalProperties": false,
+        "properties": {
+          "urlPublica": {
+            "description": "Origen de la interfaz del otro sistema (https://…); null = la URL base del conector",
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Versión que leíste (409 si cambió)",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "urlPublica"
         ],
         "type": "object"
       },
@@ -2147,6 +2294,7 @@
           "integraciones.desactivar",
           "integraciones.ver",
           "permisos.ver",
+          "portal.emitir",
           "roles.ver",
           "tickets.asignar",
           "tickets.cerrar",
@@ -2699,6 +2847,45 @@
         ],
         "type": "object"
       },
+      "SesionPortal": {
+        "additionalProperties": false,
+        "properties": {
+          "cliente": {
+            "$ref": "#/components/schemas/ClientePortal"
+          },
+          "csrfToken": {
+            "description": "Valor para la cabecera X-CSRF-Token (también va en la cookie iris_portal_csrf)",
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csrfToken",
+          "expiraEn",
+          "cliente"
+        ],
+        "type": "object"
+      },
+      "SesionPortalActual": {
+        "additionalProperties": false,
+        "properties": {
+          "cliente": {
+            "$ref": "#/components/schemas/ClientePortal"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cliente",
+          "expiraEn"
+        ],
+        "type": "object"
+      },
       "Ticket": {
         "additionalProperties": false,
         "properties": {
@@ -3078,7 +3265,7 @@
         "additionalProperties": false,
         "properties": {
           "duplicado": {
-            "description": "true: ese X-Webhook-Id ya se había recibido; no se vuelve a procesar",
+            "description": "true: ese id de webhook ya se había recibido; no se vuelve a procesar",
             "type": "boolean"
           },
           "entranteId": {
@@ -3173,6 +3360,12 @@
         "description": "Token de API o de integración.",
         "scheme": "bearer",
         "type": "http"
+      },
+      "portal": {
+        "description": "Sesión del portal de soporte (actor cliente), solo en /api/v1/portal/…. Las peticiones que cambian estado llevan X-CSRF-Token (valor de la cookie iris_portal_csrf).",
+        "in": "cookie",
+        "name": "iris_portal",
+        "type": "apiKey"
       },
       "sesion": {
         "description": "Sesión del panel. Las peticiones que cambian estado llevan además X-CSRF-Token.",
@@ -4928,7 +5121,7 @@
     },
     "/api/v1/integraciones/argosisp/conexion/canjear": {
       "post": {
-        "description": "Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y el token `atk_…`; Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.",
+        "description": "Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Argos entrega su URL y su token `atk_…` (`sistema: \"argosisp\"`); Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.",
         "operationId": "canjearConexionArgos",
         "requestBody": {
           "content": {
@@ -5083,7 +5276,7 @@
     },
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
       "post": {
-        "description": "Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=\u003chex\u003e` sobre `\"\u003cX-Webhook-Timestamp\u003e.\u003ccuerpo\u003e\"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por `X-Webhook-Id` (un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.",
+        "description": "Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=\u003chex\u003e` sobre `\"\u003cX-Webhook-Timestamp\u003e.\u003ccuerpo\u003e\"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por el `id` del cuerpo (firmado, igual a `X-Webhook-Id`; un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Máximo 1 MiB. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.",
         "operationId": "webhookArgos",
         "parameters": [
           {
@@ -5156,6 +5349,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -5294,7 +5497,7 @@
     },
     "/api/v1/integraciones/conectores/{id}/activar": {
       "post": {
-        "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Encola la primera carga de zonas y routers.",
+        "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Con Argos, encola la primera carga de zonas y routers.",
         "operationId": "activarConector",
         "parameters": [
           {
@@ -5538,6 +5741,591 @@
         "x-permiso": "integraciones.desactivar"
       }
     },
+    "/api/v1/integraciones/conectores/{id}/url-publica": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus» (null = la URL base del conector). Emite `conector.actualizado`.",
+        "operationId": "configurarURLPublicaConector",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaURLPublica"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Configurar la URL pública de un conector",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/enlaces": {
+      "get": {
+        "description": "Permiso: `clientes.ver`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).",
+        "operationId": "obtenerEnlacesExternos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlacesExternos"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Orígenes de Argos y Horus para los enlaces «Ver en …»",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/integraciones/horus/conectar": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).",
+        "operationId": "conectarHorus",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConectar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Conectar con Horus usando un enlace generado en Horus",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/horus/conexion/canjear": {
+      "post": {
+        "description": "Sin credenciales: autoriza el código del enlace (15 min, un solo uso; 401 `codigo_invalido`). Horus entrega su URL y su token `hf_pat_…` (`sistema: \"horus\"`); Iris responde la URL del webhook y el secreto HMAC. El conector queda apagado hasta que un administrador de Iris lo active.",
+        "operationId": "canjearConexionHorus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCanjear"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConexionCanjeada"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Canje del enlace de conexión (lo llama Horus, servidor a servidor)",
+        "tags": [
+          "integraciones"
+        ]
+      }
+    },
+    "/api/v1/integraciones/horus/conexion/enlaces": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Horus lo canjea en `POST /api/v1/integraciones/horus/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
+        "operationId": "generarEnlaceHorus",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlaceGenerado"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Generar un enlace de conexión para pegar en Horus",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/horus/webhook/{conector_id}": {
+      "post": {
+        "description": "Firmado con HMAC-SHA256 (`X-Webhook-Signature: v1=\u003chex\u003e` sobre `\"\u003cX-Webhook-Timestamp\u003e.\u003ccuerpo\u003e\"`), ventana de 5 min. 401 `firma_invalida` / `firma_vencida`. Se guarda en `integracion.entrantes` deduplicado por el `id` del cuerpo (firmado, igual a `X-Webhook-Id`; un repetido responde 200 con `duplicado: true`) y se procesa en un job. Con el conector apagado responde 503 `conector_apagado` con `Retry-After`. Máximo 1 MiB. Cuerpo JSON con la forma del esquema `CuerpoWebhook`: `{ id, evento, ocurrido_en, payload }`.",
+        "operationId": "webhookHorus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conector_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Id estable del webhook (deduplicación)",
+            "in": "header",
+            "name": "X-Webhook-Id",
+            "schema": {
+              "description": "Id estable del webhook (deduplicación)",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Segundos Unix del envío",
+            "in": "header",
+            "name": "X-Webhook-Timestamp",
+            "schema": {
+              "description": "Segundos Unix del envío",
+              "type": "string"
+            }
+          },
+          {
+            "description": "v1=\u003chex(HMAC-SHA256(secreto, \"\u003ctimestamp\u003e.\u003ccuerpo\u003e\"))\u003e",
+            "in": "header",
+            "name": "X-Webhook-Signature",
+            "schema": {
+              "description": "v1=\u003chex(HMAC-SHA256(secreto, \"\u003ctimestamp\u003e.\u003ccuerpo\u003e\"))\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRecibido"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Webhook de Horus (firmado)",
+        "tags": [
+          "integraciones"
+        ]
+      }
+    },
     "/api/v1/listo": {
       "get": {
         "operationId": "listo",
@@ -5648,6 +6436,315 @@
           "identidad"
         ],
         "x-permiso": "permisos.ver"
+      }
+    },
+    "/api/v1/portal/sesion": {
+      "delete": {
+        "description": "Con `X-CSRF-Token` (valor de la cookie `iris_portal_csrf`).",
+        "operationId": "cerrarSesionPortal",
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "portal": []
+          }
+        ],
+        "summary": "Cerrar la sesión del portal",
+        "tags": [
+          "portal"
+        ]
+      },
+      "get": {
+        "description": "Solo con la sesión del portal (actor cliente); cualquier otra credencial, 403.",
+        "operationId": "obtenerSesionPortal",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SesionPortalActual"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "portal": []
+          }
+        ],
+        "summary": "Sesión del portal: cliente y vencimiento",
+        "tags": [
+          "portal"
+        ]
+      },
+      "post": {
+        "description": "Canjea el ticket de `/soporte/entrar#\u003cticket\u003e` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), los fallidos de ese minuto responden 429 `demasiados_intentos` con `Retry-After`; un ticket válido entra siempre.",
+        "operationId": "entrarPortal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEntrarPortal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SesionPortal"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Entrar al portal con el ticket de acceso",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/tickets-acceso": {
+      "post": {
+        "description": "Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `\u003cIRIS_BASE_URL\u003e/soporte/entrar#\u003cticket\u003e`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
+        "operationId": "emitirAccesoPortal",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmitirAccesoPortal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccesoPortalEmitido"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Emitir un acceso al portal de soporte para un cliente de Argos",
+        "tags": [
+          "portal"
+        ],
+        "x-permiso": "portal.emitir"
       }
     },
     "/api/v1/roles": {

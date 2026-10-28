@@ -3,6 +3,9 @@
 //	iris                    servidor HTTP (también `iris servir`)
 //	iris migrar             migraciones goose + River y sincroniza permisos y roles base
 //	iris admin crear --correo admin@isp.gt --nombre "Admin" [--contrasena-stdin]
+//	iris portal acceso --cliente <id> --empresa <id> [--nombre "Ana"]   URL de entrada al portal
+//	iris integracion crear --sistema argosisp|horus --empresa 1,2 [--correo …] [--nombre …]
+//	                        usuario de integración con su rol base y un token iris_pat_ nuevo
 package main
 
 import (
@@ -25,6 +28,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -69,8 +73,18 @@ func correr(args []string) error {
 			return errors.New("uso: iris admin crear --correo <correo> --nombre <nombre> [--contrasena-stdin]")
 		}
 		return crearAdmin(ctx, cfg, args[1:])
+	case "portal":
+		if len(args) == 0 || args[0] != "acceso" {
+			return errors.New(usoPortal)
+		}
+		return accesoPortal(ctx, cfg, args[1:])
+	case "integracion":
+		if len(args) == 0 || args[0] != "crear" {
+			return errors.New(usoIntegracion)
+		}
+		return crearIntegracion(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -89,11 +103,27 @@ func cifrador(cfg config.Config) (*nucleo.Cifrador, error) {
 }
 
 func modulo(cfg config.Config) (*identidad.Modulo, error) {
+	return moduloConArgos(cfg, nil)
+}
+
+// moduloConArgos arma identidad; con el conector Argos, el portal valida en Argos los clientes
+// que Iris no conoce al emitir un acceso.
+func moduloConArgos(cfg config.Config, a *argos.Modulo) (*identidad.Modulo, error) {
 	c, err := cifrador(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return identidad.Nuevo(identidad.Config{DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c}), nil
+	icfg := identidad.Config{
+		DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c,
+		BaseURL: cfg.BaseURL, DuracionSesionPortal: cfg.DuracionSesionPortal,
+	}
+	if a != nil {
+		icfg.ValidarCliente = func(ctx context.Context, clienteID int64) (identidad.ValidacionCliente, error) {
+			v, err := a.ValidarCliente(ctx, clienteID)
+			return identidad.ValidacionCliente{Validado: v.Validado, Existe: v.Existe, EmpresaID: v.EmpresaID, Motivo: v.Motivo}, err
+		}
+	}
+	return identidad.Nuevo(icfg), nil
 }
 
 // configArgos arma la configuración del conector Argos desde el entorno.
@@ -108,6 +138,12 @@ func configArgos(cfg config.Config) (argos.Config, error) {
 	}, nil
 }
 
+// configHorus arma la configuración del conector Horus (se agrega al núcleo de conectores de
+// Argos).
+func configHorus(cfg config.Config, a *argos.Modulo) horus.Config {
+	return horus.Config{Argos: a, RedesPermitidas: cfg.HorusRedesPermitidas, Timeout: cfg.HorusTimeout}
+}
+
 func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	pool, err := conectar(ctx, cfg)
 	if err != nil {
@@ -116,10 +152,6 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer pool.Close()
 	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
 		return fmt.Errorf("sincronizar permisos (¿corriste `iris migrar`?): %w", err)
-	}
-	id, err := modulo(cfg)
-	if err != nil {
-		return err
 	}
 	if cfg.ClaveCifrado == "" {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: el MFA (TOTP) y los conectores quedan deshabilitados")
@@ -137,16 +169,22 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	acfg.Encolar = integracion.Encolar(cola)
 	conectorArgos := argos.Nuevo(acfg)
+	id, err := moduloConArgos(cfg, conectorArgos)
+	if err != nil {
+		return err
+	}
 	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
 	if err != nil {
 		return err
 	}
 	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Encolar: integracion.Encolar(cola)})
+	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
+			conectorHorus.Registrar,
 			sop.Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
@@ -242,5 +280,100 @@ func crearAdmin(ctx context.Context, cfg config.Config, args []string) error {
 	if generada {
 		fmt.Printf("Contraseña (no se vuelve a mostrar): %s\n", contrasena)
 	}
+	return nil
+}
+
+const usoPortal = "uso: iris portal acceso --cliente <id de Argos> --empresa <id de Argos> [--nombre <nombre>]"
+
+// accesoPortal emite la URL de entrada al portal de soporte para un cliente de Argos, como lo
+// haría Argos con portal.emitir (pruebas locales sin Argos). Solo con acceso a la base: corre
+// como actor sistema, por el mismo caso de uso (auditado). La empresa debe estar registrada.
+func accesoPortal(ctx context.Context, cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("portal acceso", flag.ContinueOnError)
+	cliente := fs.Int64("cliente", 0, "id del cliente en Argos")
+	empresa := fs.Int64("empresa", 0, "id de la empresa en Argos (registrada en Iris)")
+	nombre := fs.String("nombre", "", "nombre a mostrar en el portal")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *cliente <= 0 || *empresa <= 0 {
+		return errors.New(usoPortal)
+	}
+	pool, err := conectar(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
+		return err
+	}
+	acfg, err := configArgos(cfg)
+	if err != nil {
+		return err
+	}
+	id, err := moduloConArgos(cfg, argos.Nuevo(acfg))
+	if err != nil {
+		return err
+	}
+	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	a, err := id.EmitirAccesoPortal.Ejecutar(cctx, identidad.EntradaEmitirAccesoPortal{ClienteID: *cliente, EmpresaID: *empresa, Nombre: *nombre})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Acceso al portal (un solo uso, vence %s):\n%s\n", a.ExpiraEn.Format(time.RFC3339), a.URL)
+	return nil
+}
+
+const usoIntegracion = "uso: iris integracion crear --sistema argosisp|horus [--empresa 1,2] [--correo <correo>] [--nombre <nombre>]"
+
+// crearIntegracion crea (o reutiliza) el usuario de tipo integración de Argos u Horus con su rol
+// base (integracion_argos, integracion_horus) y sus empresas, y emite un token iris_pat_ nuevo
+// para entregar al otro sistema. Solo con acceso a la base (actor sistema), sin pasar por admin.
+func crearIntegracion(ctx context.Context, cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("integracion crear", flag.ContinueOnError)
+	sistema := fs.String("sistema", "", "argosisp u horus")
+	empresas := fs.String("empresa", "", "ids de empresas de Argos separados por coma (obligatorio si hay empresas registradas)")
+	correo := fs.String("correo", "", "correo del usuario (por defecto integracion.<sistema>@iris.local)")
+	nombre := fs.String("nombre", "", "nombre del usuario")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *sistema == "" {
+		return errors.New(usoIntegracion)
+	}
+	var ids []int64
+	for _, parte := range strings.Split(*empresas, ",") {
+		if parte = strings.TrimSpace(parte); parte == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(parte, 10, 64)
+		if err != nil || id <= 0 {
+			return fmt.Errorf("--empresa: %q no es un id", parte)
+		}
+		ids = append(ids, id)
+	}
+	pool, err := conectar(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
+		return err
+	}
+	id, err := modulo(cfg)
+	if err != nil {
+		return err
+	}
+	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	r, err := id.PrepararIntegracion(cctx, identidad.EntradaPrepararIntegracion{Sistema: *sistema, Empresas: ids, Correo: *correo, Nombre: *nombre})
+	if err != nil {
+		return err
+	}
+	estado := "existente"
+	if r.Creado {
+		estado = "creado"
+	}
+	fmt.Printf("Usuario de integración %s: id %d, %s, rol %s, empresas %v\n", estado, r.Usuario.ID, r.Usuario.Correo, identidad.RolesIntegracion[*sistema], r.Usuario.Empresas)
+	fmt.Printf("Token (no se vuelve a mostrar; entrégalo a %s): %s\n", *sistema, r.Token.Valor)
 	return nil
 }

@@ -158,6 +158,17 @@ func ContextoUsuarioEnEmpresa(bd nucleo.BD, id, empresa int64, permisos ...nucle
 	})
 }
 
+// ContextoCliente: actor cliente del portal (cliente y empresa de Argos fijos), canal portal y
+// su empresa como activa, como lo deja el middleware con la cookie iris_portal. Para probar
+// los casos de uso del portal (Acceso auditoria.Cliente).
+func ContextoCliente(bd nucleo.BD, clienteID, empresaID int64) context.Context {
+	ctx := contexto.ComoCliente(context.Background(), contexto.Actor{
+		Tipo: contexto.ActorCliente, ClienteID: clienteID, EmpresaID: empresaID, Nombre: "cliente de prueba",
+	})
+	ctx = contexto.ConRequestID(ctx, contexto.NuevoRequestID())
+	return nucleo.ConBD(ctx, bd)
+}
+
 var contador atomic.Int64
 
 // Unico devuelve un sufijo único para datos de prueba (correos, nombres).

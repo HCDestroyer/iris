@@ -5,6 +5,10 @@ Escrituras en Argos y cola de `pendientes`: Fase 2.
 
 ## Qué hace
 
+La conexión, los webhooks, el cliente HTTP y la protección contra SSRF son la base común de
+`integracion/conector` (este módulo crea su `Nucleo`, le agrega Argos y publica también las rutas
+comunes de conectores); aquí queda lo propio de Argos.
+
 - **Enlace de conexión (§1.3), en los dos sentidos.** `POST /integraciones/argosisp/conectar
   { enlace }` canjea un enlace de Argos (Iris llama a `POST /api/v1/integraciones/iris/conexion/canjear`
   de Argos con su URL, la URL del webhook y el secreto que genera). `POST
@@ -15,12 +19,15 @@ Escrituras en Argos y cola de `pendientes`: Fase 2.
 - **Activar / desactivar** (`POST /integraciones/conectores/{id}/activar|desactivar`, con
   `version`): nace apagado; uno activo por sistema. Activar encola la carga de zonas y routers.
   El canje registra en `nucleo.empresas` las empresas que cubre el token.
-- **Cliente HTTP** (`cliente.go`): timeout por llamada (`IRIS_ARGOS_TIMEOUT`), 3 intentos con
+- **Cliente HTTP** (`cliente.go`, sobre `conector.Cliente`): timeout por llamada (`IRIS_ARGOS_TIMEOUT`), 3 intentos con
   espera exponencial en lecturas ante red, 429 y 5xx, sin seguir redirecciones, problem+json
   mapeado (`Problema`): 404 → 404, 401/403 → 502 `argos_sin_permiso`, caída → 503
   `argos_no_disponible`, otro 4xx → 502 `argos_rechazo` (resumen con status y `type`, nunca el
   `detail` crudo). Lee JSON en snake_case o camelCase, envuelto o no en `{ data }`.
-- **SSRF** (`red.go`): todo el tráfico hacia Argos pasa por un `net.Dialer` cuyo `Control`
+- **Resolución de IP interna** (`resolver_interno.go`): `ResolverIPInterno(ctx, ip, empresa)` para
+  otros jobs (hallazgos de Horus), sin HTTP ni permisos; el motivo cuando no resuelve
+  (`conector_argos_apagado`, `ip_sin_cliente`, `argos_no_disponible`, `otra_empresa`…).
+- **SSRF** (`conector/red.go`): todo el tráfico hacia Argos pasa por un `net.Dialer` cuyo `Control`
   bloquea la IP ya resuelta si es loopback, privada, de enlace local, CGNAT, no especificada,
   multicast u otra reservada (422 `destino_no_permitido`), salvo `IRIS_ARGOS_REDES_PERMITIDAS`.
   Sin proxy del entorno.

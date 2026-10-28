@@ -41,6 +41,11 @@ const (
 	Autenticado
 	// Publico: sin credenciales (inicio de sesión). Se audita igual.
 	Publico
+	// Cliente: solo el actor cliente del portal (/soporte), con su cliente y su empresa de
+	// Argos. No pasa por permisos de usuario: la empresa activa queda fija en la de su sesión y
+	// el canal en portal. Sin credenciales, 401; cualquier otro actor, 403. Es el único Acceso
+	// que acepta al actor cliente: con ConPermiso o Autenticado, el actor cliente recibe 403.
+	Cliente
 )
 
 // Caso es un caso de uso. Se arma una vez (con Nuevo, normalmente en una variable del
@@ -115,6 +120,10 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 	entrada := Enmascarar(in)
 	externa, _ := ctx.Value(claveTxCaso).(*Tx)
 	var t *Tx
+	if a := contexto.ActorDe(ctx); c.Acceso == Cliente && a.EsCliente() {
+		// La empresa y el canal del actor cliente no se eligen: son los de su sesión.
+		ctx = contexto.ComoCliente(ctx, a)
+	}
 
 	err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		t = &Tx{Tx: tx}
@@ -156,6 +165,16 @@ func (c *Caso[In, Out]) autorizar(ctx context.Context) error {
 	actor := contexto.ActorDe(ctx)
 	if actor.Tipo == contexto.ActorAnonimo {
 		return nucleo.NoAutenticado("")
+	}
+	if c.Acceso == Cliente {
+		if !actor.EsCliente() {
+			return nucleo.Prohibido("Solo el cliente del portal de soporte")
+		}
+		return nil
+	}
+	if actor.Tipo == contexto.ActorCliente {
+		// El actor cliente solo usa los casos del portal (Acceso Cliente).
+		return nucleo.Prohibido("El cliente del portal no puede usar esta acción")
 	}
 	if c.Acceso == ConPermiso && !contexto.PermisosDe(ctx).Tiene(string(c.Permiso)) {
 		return nucleo.Prohibido(fmt.Sprintf("Falta el permiso %s", c.Permiso))
@@ -261,6 +280,10 @@ func registrar(ctx context.Context, t *Tx, tx pgx.Tx, accion string, entrada any
 	var actorID, tokenID *int64
 	if actor.ID != 0 {
 		actorID = &actor.ID
+	}
+	if actor.Tipo == contexto.ActorCliente && actor.ClienteID != 0 {
+		// Actor cliente del portal: actor_id es el id del cliente en Argos.
+		actorID = &actor.ClienteID
 	}
 	if actor.TokenID != 0 {
 		tokenID = &actor.TokenID

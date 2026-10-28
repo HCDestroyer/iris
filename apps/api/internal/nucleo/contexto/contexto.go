@@ -24,20 +24,32 @@ const (
 	ActorSistema TipoActor = "sistema"
 	// ActorAnonimo es una petición sin credenciales (p. ej. el inicio de sesión).
 	ActorAnonimo TipoActor = "anonimo"
+	// ActorCliente es el cliente final de Argos en el portal de soporte (/soporte): no es un
+	// usuario de Iris; entra con una sesión de portal (cookie iris_portal) con su cliente y su
+	// empresa de Argos fijos. Solo lo aceptan los casos de uso con Acceso auditoria.Cliente.
+	ActorCliente TipoActor = "cliente"
 )
 
 // Actor es quien ejecuta. ID es nucleo.usuarios.id (también para tokens e integraciones);
-// 0 para sistema y anónimo. TokenID es el id en nucleo.tokens_api cuando entró por token.
+// 0 para sistema, anónimo y cliente. TokenID es el id en nucleo.tokens_api cuando entró por
+// token. ClienteID y EmpresaID son los de Argos del actor cliente (0 para los demás).
 type Actor struct {
-	Tipo    TipoActor
-	ID      int64
-	Nombre  string
-	TokenID int64
+	Tipo      TipoActor
+	ID        int64
+	Nombre    string
+	TokenID   int64
+	ClienteID int64
+	EmpresaID int64
 }
 
 // EsUsuario indica si ID apunta a nucleo.usuarios.
 func (a Actor) EsUsuario() bool {
 	return a.ID != 0 && (a.Tipo == ActorUsuario || a.Tipo == ActorToken || a.Tipo == ActorIntegracion)
+}
+
+// EsCliente indica si es el actor cliente del portal, con su cliente y su empresa.
+func (a Actor) EsCliente() bool {
+	return a.Tipo == ActorCliente && a.ClienteID > 0 && a.EmpresaID > 0
 }
 
 // Canal es por dónde entró la acción.
@@ -166,6 +178,7 @@ const (
 	claveSesion
 	claveEmpresa
 	claveEmpresas
+	claveSesionPortal
 )
 
 // ConActor fija el actor y sus permisos.
@@ -223,6 +236,17 @@ func ConSesion(ctx context.Context, s Sesion) context.Context {
 func SesionDe(ctx context.Context) Sesion {
 	s, _ := ctx.Value(claveSesion).(Sesion)
 	return s
+}
+
+// ConSesionPortal fija la sesión del portal que autenticó al actor cliente.
+func ConSesionPortal(ctx context.Context, id int64) context.Context {
+	return context.WithValue(ctx, claveSesionPortal, id)
+}
+
+// SesionPortalDe devuelve la sesión del portal (0 si la petición no vino con una).
+func SesionPortalDe(ctx context.Context) int64 {
+	id, _ := ctx.Value(claveSesionPortal).(int64)
+	return id
 }
 
 // ConEmpresa fija la empresa activa (id de Argos). 0 = sin empresa activa. En HTTP la fija el
@@ -300,4 +324,12 @@ func Sistema(ctx context.Context, canal Canal) context.Context {
 		ctx = ConRequestID(ctx, NuevoRequestID())
 	}
 	return ctx
+}
+
+// ComoCliente prepara el contexto del actor cliente del portal: el actor (sin permisos de
+// usuario), el canal portal y su empresa como empresa activa (fija: no la elige él).
+func ComoCliente(ctx context.Context, a Actor) context.Context {
+	ctx = ConActor(ctx, a, Permisos{})
+	ctx = ConCanal(ctx, CanalPortal)
+	return ConEmpresas(ctx, Empresas{Estado: EmpresaActiva, Activa: a.EmpresaID, Disponibles: []int64{a.EmpresaID}})
 }
