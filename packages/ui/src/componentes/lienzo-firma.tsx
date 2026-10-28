@@ -1,3 +1,5 @@
+"use client";
+
 import { Eraser } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "../utilidades";
@@ -72,7 +74,12 @@ export function LienzoFirma({ alCambiar, etiqueta = "Firma del cliente", alto = 
         if (disabled) {
             return;
         }
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+            // Sigue el trazo aunque el dedo salga del recuadro.
+            e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+            // Puntero sin captura posible (p. ej. sintético): se dibuja igual.
+        }
         actual.current = [punto(e)];
         trazos.current = [...trazos.current, actual.current];
         redibujar();

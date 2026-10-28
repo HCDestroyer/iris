@@ -97,6 +97,8 @@ export interface EstadoSync {
     sincronizando: boolean;
     /** Operaciones por enviar (incluye las retenidas detrás de un rechazo). */
     pendientes: number;
+    /** Las mismas, en el orden de la cola (para mostrarlas). */
+    cola: readonly OperacionLocal[];
     /** Rechazadas: el técnico decide `descartar` o `rehacer`. */
     rechazos: readonly OperacionLocal[];
     /** `orden.cerrar` que reintentará sola cuando terminen sus subidas. */
@@ -1222,6 +1224,7 @@ export class MotorSync {
             conexion: this.conexion,
             sincronizando: this.sincronizando > 0,
             pendientes: pendientes.length,
+            cola: pendientes,
             rechazos: ops.filter((op) => op.estado === "rechazada"),
             esperandoAdjuntos: ops.filter((op) => op.estado === "esperando_adjuntos"),
             subidas: {

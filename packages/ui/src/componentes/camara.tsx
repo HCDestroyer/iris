@@ -1,3 +1,5 @@
+"use client";
+
 import { Camera } from "lucide-react";
 import { useId, type ChangeEvent, type ReactNode } from "react";
 import { cn } from "../utilidades";

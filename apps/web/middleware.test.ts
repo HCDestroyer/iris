@@ -23,4 +23,10 @@ describe("middleware", () => {
         expect(coincide("/soporte/3")).toBe(true);
         expect(coincide("/tickets")).toBe(true);
     });
+    it("/campo, su manifest y el service worker no pasan por el middleware (abren sin señal)", () => {
+        expect(coincide("/campo")).toBe(false);
+        expect(coincide("/campo/manifest.webmanifest")).toBe(false);
+        expect(coincide("/sw.js")).toBe(false);
+        expect(coincide("/campos")).toBe(true);
+    });
 });
