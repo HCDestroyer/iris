@@ -42,9 +42,9 @@ type EntradaVerProspecto struct {
 type EntradaCrearProspecto struct {
 	Origen            string   `json:"origen,omitempty" enum:"panel,web,referido,argos,otro" doc:"Por defecto panel (desde el panel) u otro; argos solo la integración de Argos o el sistema"`
 	OrigenDetalle     *string  `json:"origenDetalle,omitempty" maxLength:"200" doc:"Quién lo refirió, campaña…"`
-	Nombre            string   `json:"nombre" minLength:"1" maxLength:"200"`
+	Nombre            string   `json:"nombre" minLength:"2" maxLength:"200"`
 	Documento         *string  `json:"documento,omitempty" maxLength:"40" doc:"NIT o DPI"`
-	Telefono          *string  `json:"telefono,omitempty" maxLength:"40"`
+	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Hasta 30 (lo que acepta Argos)"`
 	Correo            *string  `json:"correo,omitempty" maxLength:"200" format:"email"`
 	Direccion         string   `json:"direccion" minLength:"1" maxLength:"300"`
 	Lat               *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90"`
@@ -65,9 +65,9 @@ type EntradaEditarProspecto struct {
 	ID                int64    `json:"-"`
 	Version           int32    `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 	OrigenDetalle     *string  `json:"origenDetalle,omitempty" maxLength:"200"`
-	Nombre            *string  `json:"nombre,omitempty" minLength:"1" maxLength:"200"`
+	Nombre            *string  `json:"nombre,omitempty" minLength:"2" maxLength:"200"`
 	Documento         *string  `json:"documento,omitempty" maxLength:"40"`
-	Telefono          *string  `json:"telefono,omitempty" maxLength:"40"`
+	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Hasta 30 (lo que acepta Argos)"`
 	Correo            *string  `json:"correo,omitempty" maxLength:"200" format:"email"`
 	Direccion         *string  `json:"direccion,omitempty" minLength:"1" maxLength:"300"`
 	Lat               *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90" doc:"Cambiar las coordenadas obliga a evaluar de nuevo la factibilidad antes de ganar"`
@@ -239,7 +239,7 @@ func (m *Modulo) nuevoCrearProspecto() *auditoria.Caso[EntradaCrearProspecto, Pr
 			}
 			d := comercialbd.CrearProspectoParams{Origen: origen, Lat: in.Lat, Lon: in.Lon, ZonaID: in.ZonaID,
 				PlanInteresID: in.PlanInteresID, VendedorID: in.VendedorID, CreadoPor: actorUsuario(t), Idempotencia: idem}
-			if d.Nombre, err = texto("nombre", in.Nombre, 1, 200); err != nil {
+			if d.Nombre, err = texto("nombre", in.Nombre, 2, 200); err != nil {
 				return Prospecto{}, err
 			}
 			if d.Direccion, err = texto("direccion", in.Direccion, 1, 300); err != nil {
@@ -255,7 +255,7 @@ func (m *Modulo) nuevoCrearProspecto() *auditoria.Caso[EntradaCrearProspecto, Pr
 				max     int
 			}{
 				{"origenDetalle", in.OrigenDetalle, &d.OrigenDetalle, 200}, {"documento", in.Documento, &d.Documento, 40},
-				{"telefono", in.Telefono, &d.Telefono, 40}, {"correo", in.Correo, &d.Correo, 200},
+				{"telefono", in.Telefono, &d.Telefono, 30}, {"correo", in.Correo, &d.Correo, 200},
 				{"planInteresNombre", in.PlanInteresNombre, &d.PlanInteresNombre, 200},
 			} {
 				if *c.destino, err = textoOpcional(c.campo, c.valor, c.max); err != nil {
@@ -315,7 +315,7 @@ func (m *Modulo) nuevoEditarProspecto() *auditoria.Caso[EntradaEditarProspecto, 
 			}
 			d := antes
 			if in.Nombre != nil {
-				if d.Nombre, err = texto("nombre", *in.Nombre, 1, 200); err != nil {
+				if d.Nombre, err = texto("nombre", *in.Nombre, 2, 200); err != nil {
 					return Prospecto{}, err
 				}
 			}
@@ -336,7 +336,7 @@ func (m *Modulo) nuevoEditarProspecto() *auditoria.Caso[EntradaEditarProspecto, 
 				max     int
 			}{
 				{"origenDetalle", in.OrigenDetalle, &d.OrigenDetalle, 200}, {"documento", in.Documento, &d.Documento, 40},
-				{"telefono", in.Telefono, &d.Telefono, 40}, {"correo", in.Correo, &d.Correo, 200},
+				{"telefono", in.Telefono, &d.Telefono, 30}, {"correo", in.Correo, &d.Correo, 200},
 				{"planInteresNombre", in.PlanInteresNombre, &d.PlanInteresNombre, 200},
 			} {
 				if c.valor == nil {

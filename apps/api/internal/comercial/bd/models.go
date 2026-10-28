@@ -546,23 +546,25 @@ type ComercialCotizacionLinea struct {
 }
 
 type ComercialFactibilidad struct {
-	ID           int64
-	EmpresaID    *int64
-	ProspectoID  int64
-	Resultado    string
-	Motor        string
-	Motivo       *string
-	Lat          *float64
-	Lon          *float64
-	RouterID     *int64
-	RouterNombre *string
-	Caja         *string
-	DistanciaM   *float64
-	ViableM      *int32
-	ObraM        *int32
-	Notas        string
-	EvaluadaPor  *int64
-	CreatedAt    time.Time
+	ID              int64
+	EmpresaID       *int64
+	ProspectoID     int64
+	Resultado       string
+	Motor           string
+	Motivo          *string
+	Lat             *float64
+	Lon             *float64
+	RouterID        *int64
+	RouterNombre    *string
+	Caja            *string
+	DistanciaM      *float64
+	ViableM         *int32
+	ObraM           *int32
+	Notas           string
+	EvaluadaPor     *int64
+	CreatedAt       time.Time
+	AnulaID         *int64
+	MotivoAnulacion *string
 }
 
 type ComercialProspecto struct {
@@ -598,6 +600,8 @@ type ComercialProspecto struct {
 	Version           int32
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	RouterID          *int64
+	AltaError         *string
 }
 
 type ComercialProspectoEvento struct {

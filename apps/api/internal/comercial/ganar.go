@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -74,6 +75,10 @@ func AltasDeArgos(am *argos.Modulo) RecuperadorAltas { return altasArgos{am: am}
 
 type altasArgos struct{ am *argos.Modulo }
 
+// ErrAltaInconsistente: el id que devolvió Argos no es del alta del prospecto (codigo_externo o
+// cliente distintos). No se reintenta: el alta queda en error para revisión manual.
+var ErrAltaInconsistente = errors.New("comercial: el recurso de Argos no corresponde al alta del prospecto")
+
 func (a altasArgos) Recuperar(ctx context.Context, p pendientesbd.IntegracionPendiente) (int64, error) {
 	cli, err := a.am.ClienteActivo(ctx, nucleo.BDDe(ctx))
 	if err != nil {
@@ -82,21 +87,47 @@ func (a altasArgos) Recuperar(ctx context.Context, p pendientesbd.IntegracionPen
 	var r struct {
 		ID json.Number `json:"id"`
 	}
+	// Mismos bytes que el primer envío: el cuerpo guardado en el pendiente, sin reserializar.
 	if err := cli.Escribir(ctx, p.Metodo, p.Ruta, json.RawMessage(p.Payload), p.IdempotencyKey, &conector.Recurso{Destino: &r}); err != nil {
 		return 0, err
 	}
 	id, err := r.ID.Int64()
 	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("comercial: Argos no devolvió el id en %s %s (%s)", p.Metodo, p.Ruta, p.IdempotencyKey)
+		return 0, fmt.Errorf("%w: Argos no devolvió el id en %s %s (%s)", ErrAltaInconsistente, p.Metodo, p.Ruta, p.IdempotencyKey)
+	}
+	// El cliente de Argos no tiene empresa: se comprueba que sea el del prospecto por su
+	// codigo_externo; el servicio, por su cliente.
+	var enviado struct {
+		CodigoExterno string      `json:"codigo_externo"`
+		ClienteID     json.Number `json:"cliente_id"`
+	}
+	_ = json.Unmarshal(p.Payload, &enviado)
+	var leido struct {
+		CodigoExterno string      `json:"codigo_externo"`
+		ClienteID     json.Number `json:"cliente_id"`
+	}
+	if err := cli.Pedir(ctx, http.MethodGet, p.Ruta+"/"+strconv.FormatInt(id, 10), nil, nil, true, &conector.Recurso{Destino: &leido}); err != nil {
+		return 0, err
+	}
+	switch p.Ruta {
+	case "/clientes":
+		if enviado.CodigoExterno == "" || leido.CodigoExterno != enviado.CodigoExterno {
+			return 0, fmt.Errorf("%w: el cliente %d de Argos tiene codigo_externo %q (se esperaba %q)", ErrAltaInconsistente, id, leido.CodigoExterno, enviado.CodigoExterno)
+		}
+	case "/servicios":
+		if leido.ClienteID.String() != enviado.ClienteID.String() {
+			return 0, fmt.Errorf("%w: el servicio %d de Argos es del cliente %s (se esperaba %s)", ErrAltaInconsistente, id, leido.ClienteID, enviado.ClienteID)
+		}
 	}
 	return id, nil
 }
 
 // EntradaGanar gana el prospecto.
 type EntradaGanar struct {
-	ID            int64 `json:"-"`
-	Version       int32 `json:"version" minimum:"1"`
-	ConfirmarObra bool  `json:"confirmarObra,omitempty" doc:"Obligatorio (true) si la factibilidad es requiere_obra"`
+	ID            int64  `json:"-"`
+	Version       int32  `json:"version" minimum:"1"`
+	ConfirmarObra bool   `json:"confirmarObra,omitempty" doc:"Obligatorio (true) si la factibilidad es requiere_obra"`
+	RouterID      *int64 `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido"`
 }
 
 // requisitos de ganar: contrato firmado, su cotización aceptada y la factibilidad al día.
@@ -182,6 +213,19 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 					return Prospecto{}, nucleo.ReglaNegocio("plan_requerido",
 						"La cotización aceptada no tiene un plan de Argos (se hizo sin conector): crea una revisión con el plan y vuelve a contratar")
 				}
+				router := r.factibilidad.RouterID
+				if in.RouterID != nil {
+					router = in.RouterID
+				}
+				if router == nil {
+					return Prospecto{}, nucleo.ReglaNegocio("router_requerido",
+						"Argos exige el router del servicio y la factibilidad no sugirió uno: indica routerId al ganar")
+				}
+				if _, err := routerDeEmpresa(ctx, q, *router, antes.EmpresaID); err != nil {
+					return Prospecto{}, err
+				}
+				d.RouterID = router
+				evento["router_id"] = *router
 				p, err := m.encolar(ctx, t, pendientesbd.InsertarPendienteParams{
 					EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
 					Ruta: "/clientes", Payload: payloadCliente(antes), DependeDe: []int64{},
@@ -207,21 +251,59 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 	})
 }
 
+// CodigoExterno identifica al prospecto en el cliente de Argos (POST /clientes codigo_externo).
+// Tras recuperar el id del cliente se comprueba con GET /clientes/{id}.
+func CodigoExterno(prospecto int64) string { return "iris:prospecto:" + idTexto(prospecto) }
+
+// coordenadas en el formato de Argos ("lat,lng"), o "" sin ellas.
+func coordenadas(lat, lon *float64) string {
+	if lat == nil || lon == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*lat, 'f', -1, 64) + "," + strconv.FormatFloat(*lon, 'f', -1, 64)
+}
+
+// conDatos agrega al cuerpo solo los opcionales con valor (Argos guarda la huella del cuerpo
+// crudo: nada de nulls de más).
+func conDatos(cuerpo map[string]any, opcionales map[string]any) map[string]any {
+	for k, v := range opcionales {
+		switch x := v.(type) {
+		case *string:
+			if x != nil && *x != "" {
+				cuerpo[k] = *x
+			}
+		case string:
+			if x != "" {
+				cuerpo[k] = x
+			}
+		case *int64:
+			if x != nil {
+				cuerpo[k] = *x
+			}
+		}
+	}
+	return cuerpo
+}
+
+// payloadCliente: cuerpo de POST /clientes (Argos 1.2). Sin empresa_id (el cliente es de la
+// instalación); codigo_externo = iris:prospecto:<id>. Se serializa UNA vez y se guarda en el
+// pendiente: la cola y la repetición mandan esos mismos bytes (la huella de Argos es el cuerpo crudo).
 func payloadCliente(p comercialbd.ComercialProspecto) []byte {
-	b, _ := json.Marshal(map[string]any{
-		"empresa_id": p.EmpresaID, "nombre": p.Nombre, "documento": p.Documento, "telefono": p.Telefono, "correo": p.Correo,
-		"direccion": p.Direccion, "lat": p.Lat, "lon": p.Lon, "zona_id": p.ZonaID,
-		"origen_tipo": OrigenTipo, "origen_id": idTexto(p.ID),
-	})
+	b, _ := json.Marshal(conDatos(map[string]any{"nombre": p.Nombre, "codigo_externo": CodigoExterno(p.ID)}, map[string]any{
+		"nit_cui": p.Documento, "email": p.Correo, "telefono": p.Telefono, "direccion": p.Direccion,
+		"coordenadas": coordenadas(p.Lat, p.Lon), "zona_id": p.ZonaID,
+	}))
 	return b
 }
 
+// payloadServicio: cuerpo de POST /servicios (Argos 1.2): cliente, router y plan obligatorios,
+// empresa_id siempre (la del prospecto) y estado_inicial pendiente_instalacion (A1). Sin
+// origen_tipo ni origen_id (van solo en activar-instalacion).
 func payloadServicio(p comercialbd.ComercialProspecto, r requisitos, cliente int64) []byte {
-	b, _ := json.Marshal(map[string]any{
-		"empresa_id": p.EmpresaID, "cliente_id": cliente, "plan_id": r.cotizacion.PlanID, "estado": "pendiente_instalacion",
-		"direccion": p.Direccion, "lat": p.Lat, "lon": p.Lon, "zona_id": p.ZonaID, "router_id": r.factibilidad.RouterID,
-		"origen_tipo": OrigenTipo, "origen_id": idTexto(p.ID),
-	})
+	b, _ := json.Marshal(conDatos(map[string]any{
+		"cliente_id": cliente, "router_id": deref(p.RouterID), "plan_id": deref(r.cotizacion.PlanID),
+		"empresa_id": deref(p.EmpresaID), "estado_inicial": "pendiente_instalacion",
+	}, map[string]any{"direccion": p.Direccion, "coordenadas": coordenadas(p.Lat, p.Lon)}))
 	return b
 }
 
@@ -428,7 +510,7 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 		if err != nil {
 			return err
 		}
-		if deref(p.AltaModo) != AltaArgos {
+		if deref(p.AltaModo) != AltaArgos || p.AltaError != nil {
 			return nil
 		}
 		var clave string
@@ -455,8 +537,18 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 			slog.WarnContext(ctx, "comercial: sin RecuperadorAltas; el alta en Argos no avanza", "prospecto", p.ID)
 			return nil
 		}
+		// Argos guarda la clave al menos 30 días: más viejo, no se repite (revisión manual).
+		if pend.HechoEn != nil && m.ahora().Sub(*pend.HechoEn) > RetencionIdempotencia {
+			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("%s quedó hecho hace más de 30 días sin completar el alta: revisar a mano en Argos", clave))
+		}
 		id, err := m.cfg.Altas.Recuperar(ctx, pend)
-		if err != nil {
+		var er *conector.ErrorRemoto
+		switch {
+		case errors.Is(err, ErrAltaInconsistente):
+			return m.errorDeAlta(ctx, p.ID, err.Error())
+		case errors.As(err, &er) && rechazoDeNegocio(er):
+			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("Argos rechazó %s %s al recuperar el alta (HTTP %d %s)", pend.Metodo, pend.Ruta, er.Status, er.Tipo))
+		case err != nil:
 			return err
 		}
 		if _, err := paso.Ejecutar(ctx, entradaAltaArgos{ProspectoID: p.ID, ArgosID: id}); err != nil {
@@ -464,6 +556,71 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 		}
 	}
 	return nil
+}
+
+// RetencionIdempotencia: Argos guarda una Idempotency-Key al menos 30 días.
+const RetencionIdempotencia = 30 * 24 * time.Hour
+
+// rechazoDeNegocio: un 4xx que repetir no arregla (422 idempotency_key_reutilizada, 404…). No lo
+// son 401/403 (credencial), 408, 409 (idempotencia_en_curso), 425 ni 429: esos se reintentan.
+func rechazoDeNegocio(er *conector.ErrorRemoto) bool {
+	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
+		return false
+	}
+	switch er.Status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusConflict,
+		http.StatusTooEarly, http.StatusTooManyRequests:
+		return false
+	}
+	return true
+}
+
+type entradaErrorAlta struct {
+	ProspectoID int64  `json:"prospecto_id"`
+	Error       string `json:"error"`
+}
+
+// errorDeAlta deja el alta en error visible (alta.error) y lo registra; el barrido la salta.
+func (m *Modulo) errorDeAlta(ctx context.Context, prospecto int64, detalle string) error {
+	slog.ErrorContext(ctx, "comercial: el alta en Argos necesita revisión manual", "prospecto", prospecto, "detalle", detalle)
+	_, err := m.marcarErrorAlta.Ejecutar(ctx, entradaErrorAlta{ProspectoID: prospecto, Error: detalle})
+	return err
+}
+
+func (m *Modulo) nuevoMarcarErrorAlta() *auditoria.Caso[entradaErrorAlta, Prospecto] {
+	return auditoria.Nuevo(auditoria.Caso[entradaErrorAlta, Prospecto]{
+		Accion: "prospectos.alta_error", Acceso: auditoria.Autenticado,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaErrorAlta) (Prospecto, error) {
+			if err := exigirSistema(ctx); err != nil {
+				return Prospecto{}, err
+			}
+			q := comercialbd.New(t)
+			antes, err := tomar(ctx, t, q, in.ProspectoID, nucleo.PermProspectosGanar, nil)
+			if err != nil {
+				return Prospecto{}, err
+			}
+			if antes.AltaError != nil || deref(antes.AltaEstado) == AltaCompleta {
+				return aProspecto(antes), nil
+			}
+			detalle := in.Error
+			if r := []rune(detalle); len(r) > 1000 {
+				detalle = string(r[:1000])
+			}
+			d := antes
+			d.AltaError = &detalle
+			f, err := guardar(ctx, t, q, antes, d)
+			if err != nil {
+				return Prospecto{}, err
+			}
+			if err := historial(ctx, t, q, f.ID, "alta_error", f.AltaEstado, f.AltaEstado, &detalle, nil); err != nil {
+				return Prospecto{}, err
+			}
+			return aProspecto(f), t.Emitir("prospecto.alta_actualizada", map[string]any{
+				"prospecto_id": f.ID, "estado": deref(f.AltaEstado), "cliente_id": f.ClienteArgosID, "servicio_id": f.ServicioArgosID,
+				"orden_id": f.OrdenID, "error": detalle,
+			})
+		},
+	})
 }
 
 // eventoPendienteHecho: lo que usa comercial de integracion.pendiente_hecho.

@@ -222,9 +222,9 @@ Montos como texto decimal con 2 cifras (`"250.00"`). Fechas en UTC.
 | `prospecto.estado_cambiado` | `prospecto_id`, `de`, `a`, `motivo` (o null) | Cada cambio de estado del embudo: `contactar`, factibilidad (nuevo/contactado → factibilidad), cotizar (→ cotizado; también desde contrato si se anula el borrador), contratar (→ contrato), `perder`, `reabrir` (perdido → contactado) y `ganar`. |
 | `prospecto.actividad_registrada` | `prospecto_id`, `actividad_id`, `tipo` (`llamada`, `visita`, `nota`, `mensaje`), `proxima_fecha` (o null) | `prospectos.registrar_actividad`. |
 | `prospecto.perdido` | `prospecto_id`, `empresa_id`, `motivo`, `de` (estado anterior) | `prospectos.perder`. Anula el contrato vivo (`contrato.anulado`). |
-| `prospecto.ganado` | `prospecto_id`, `empresa_id`, `modo` (`local` \| `argos`), `contrato_id`, `cotizacion_id`, `plan_id` (o null), `obra_confirmada`, `orden_id` (local: la orden de instalación; argos: null hasta el alta), `pendientes[]` (argos: el id del pendiente `crear_cliente`) | `prospectos.ganar`. |
-| `prospecto.alta_actualizada` | `prospecto_id`, `estado` (`esperando_servicio` \| `completa`), `cliente_id`, `servicio_id` (o null), `orden_id` (o null) | El alta en Argos avanza (actor sistema): cliente creado → se encola el servicio; servicio creado → orden de instalación (`orden.creada` con `origen = sistema` y `prospecto_id`). |
-| `factibilidad.evaluada` | `prospecto_id`, `factibilidad_id`, `resultado` (`viable`, `no_viable`, `requiere_obra`, `indeterminado`), `motor` (`distancia`, `manual`; `ozmap` en la fase 6), `motivo` (indeterminado: `sin_conector`, `conector_apagado`, `sin_coordenadas`, `sin_empresa`, `sin_instantanea`, `sin_routers_con_coordenadas`, `planta_no_disponible`; si no, null), `router_id` (sugerido, o null), `caja` (o null), `distancia_m` (o null) | `factibilidad.evaluar`. |
+| `prospecto.ganado` | `prospecto_id`, `empresa_id`, `modo` (`local` \| `argos`), `contrato_id`, `cotizacion_id`, `plan_id` (o null), `obra_confirmada`, `router_id` (argos), `orden_id` (local: la orden de instalación; argos: null hasta el alta), `pendientes[]` (argos: el id del pendiente `crear_cliente`) | `prospectos.ganar`. |
+| `prospecto.alta_actualizada` | `prospecto_id`, `estado` (`esperando_cliente` \| `esperando_servicio` \| `completa`), `cliente_id`, `servicio_id` (o null), `orden_id` (o null), `error` (solo si el alta quedó para revisión manual) | El alta en Argos avanza (actor sistema): cliente creado → se encola el servicio; servicio creado → orden de instalación (`orden.creada` con `origen = sistema` y `prospecto_id`). |
+| `factibilidad.evaluada` | `prospecto_id`, `factibilidad_id`, `resultado` (`viable`, `no_viable`, `requiere_obra`, `indeterminado`), `motor` (`distancia`, `manual`; `ozmap` en la fase 6), `motivo` (indeterminado: `sin_conector`, `conector_apagado`, `sin_coordenadas`, `sin_empresa`, `sin_instantanea`, `sin_routers_con_coordenadas`, `planta_no_disponible`; si no, null), `router_id` (sugerido, o null), `caja` (o null), `distancia_m` (o null), `anula_id` (la automática no_viable que anula una manual, o null) | `factibilidad.evaluar` y `factibilidad.registrar_manual`. |
 | `factibilidad.umbrales_cambiados` | `empresa_id`, `viable_m`, `obra_m` | `factibilidad.configurar`. |
 | `cotizacion.creada` | `cotizacion_id`, `prospecto_id`, `numero`, `revision`, `plan_id` (o null sin conector), `total_mensual`, `total_unico`, `moneda`, `reemplaza_id` (la anterior, que queda `reemplazada`, o null) | `cotizaciones.crear`. |
 | `cotizacion.aceptada` | `cotizacion_id`, `prospecto_id`, `numero` | `cotizaciones.aceptar`. |
@@ -234,11 +234,12 @@ Montos como texto decimal con 2 cifras (`"250.00"`). Fechas en UTC.
 
 Pendientes hacia Argos (contratos/argosisp.md §3, «Prospecto ganado»), `entidad = prospecto`:
 `crear_cliente` (`POST /clientes`, `iris:cliente:<prospecto_id>`) y `crear_servicio`
-(`POST /servicios`, `iris:servicio:<prospecto_id>`, `depende_de` = el del cliente). Cuerpos (propuesta
-de Iris; falta fijarlos en el contrato con Argos):
+(`POST /servicios`, `iris:servicio:<prospecto_id>`, `depende_de` = el del cliente). Cuerpos según
+Argos 1.2 (solo los opcionales con valor; se serializan una vez y se guardan en el pendiente: la
+cola y la repetición mandan los mismos bytes, que es la huella de idempotencia de Argos):
 
-- `POST /clientes`: `empresa_id`, `nombre`, `documento`, `telefono`, `correo`, `direccion`, `lat`, `lon`, `zona_id`, `origen_tipo = "iris_prospecto"`, `origen_id`.
-- `POST /servicios`: `empresa_id`, `cliente_id`, `plan_id`, `estado = "pendiente_instalacion"` (A1), `direccion`, `lat`, `lon`, `zona_id`, `router_id` (sugerido por la factibilidad, o null), `origen_tipo`, `origen_id`.
-- Respuesta esperada de los dos: `2xx` con `{ id }` (o `{ data: { id } }`), y la **misma** respuesta al repetir la Idempotency-Key.
+- `POST /clientes`: `nombre`, `codigo_externo = "iris:prospecto:<id>"`, y si hay: `nit_cui` (documento), `email`, `telefono`, `direccion`, `coordenadas` (`"lat,lng"`), `zona_id`. Sin `empresa_id` (el cliente es de la instalación).
+- `POST /servicios`: `cliente_id`, `router_id` (el sugerido por la factibilidad o el elegido al ganar), `plan_id`, `empresa_id` (la del prospecto), `estado_inicial = "pendiente_instalacion"`, y si hay: `direccion`, `coordenadas`. Sin `origen_tipo`/`origen_id`.
+- Respuesta: `2xx` con `{ id }`; repetir la clave con los mismos bytes devuelve el 2xx original (`Idempotent-Replayed: true`). Tras recuperar el id, Iris comprueba con `GET /clientes/{id}` que `codigo_externo` sea el del prospecto (y con `GET /servicios/{id}` que el servicio sea de ese cliente); si no, `alta.error`.
 
 Consume `integracion.pendiente_hecho` con `entidad = prospecto` (avanza el alta; idempotente).

@@ -3,6 +3,8 @@ package comercial
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,17 +177,59 @@ func (m *Modulo) pdfCotizacion(d datosCotizacionPDF) ([]byte, error) {
 	return salida(pdf)
 }
 
-// firmaValida: la firma SVG se puede dibujar en el PDF (fpdf.SVGBasicParse: <svg width height>
-// con <path d> de comandos M, L, C, Q, H, V, Z).
-func firmaValida(svg string) error {
+// Límites de la firma: ancho y alto en (0, 10000]; coordenadas en ±100000.
+const (
+	maxLadoFirma  = 10_000.0
+	maxCoordFirma = 100_000.0
+)
+
+// argsDe: cuántos números lleva cada comando ya absoluto (fpdf.SVGBasicParse).
+var argsDe = map[byte]int{'M': 2, 'L': 2, 'C': 6, 'Q': 4, 'H': 1, 'V': 1, 'Z': 0}
+
+// normalizarFirma lee la firma SVG (fpdf.SVGBasicParse: <svg width height> con <path d> de
+// comandos M, L, C, Q, H, V, Z) y devuelve un SVG RECONSTRUIDO solo con esos trazos: nunca se
+// guarda ni se dibuja el texto recibido (atributos como onload, <script>, estilos o enlaces se
+// pierden). Ancho y alto finitos en (0, 10000]; coordenadas finitas en ±100000.
+func normalizarFirma(svg string) (string, error) {
 	sig, err := fpdf.SVGBasicParse([]byte(svg))
 	if err != nil {
-		return err
+		return "", fmt.Errorf("no se pudo leer el SVG")
 	}
-	if len(sig.Segments) == 0 {
-		return fmt.Errorf("la firma no tiene trazos")
+	finito := func(v, maximo float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) <= maximo }
+	if !finito(sig.Wd, maxLadoFirma) || !finito(sig.Ht, maxLadoFirma) || sig.Wd <= 0 || sig.Ht <= 0 {
+		return "", fmt.Errorf("width y height deben estar entre 0 y %.0f", maxLadoFirma)
 	}
-	return nil
+	num := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s">`, num(sig.Wd), num(sig.Ht))
+	trazos := 0
+	for _, path := range sig.Segments {
+		if len(path) == 0 {
+			continue
+		}
+		partes := make([]string, 0, len(path))
+		for _, seg := range path {
+			n, ok := argsDe[seg.Cmd]
+			if !ok {
+				return "", fmt.Errorf("comando de trazo no admitido")
+			}
+			p := []string{string(seg.Cmd)}
+			for k := range n {
+				if !finito(seg.Arg[k], maxCoordFirma) {
+					return "", fmt.Errorf("coordenada fuera de rango")
+				}
+				p = append(p, num(seg.Arg[k]))
+			}
+			partes = append(partes, strings.Join(p, " "))
+		}
+		fmt.Fprintf(&b, `<path d="%s"/>`, strings.Join(partes, " "))
+		trazos++
+	}
+	if trazos == 0 {
+		return "", fmt.Errorf("la firma no tiene trazos")
+	}
+	b.WriteString("</svg>")
+	return b.String(), nil
 }
 
 func (m *Modulo) pdfContrato(d datosContratoPDF) ([]byte, error) {

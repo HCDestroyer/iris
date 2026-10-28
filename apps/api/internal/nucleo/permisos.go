@@ -110,10 +110,12 @@ const (
 	PermProspectosGanar              Permiso = "prospectos.ganar"
 	PermFactibilidadEvaluar          Permiso = "factibilidad.evaluar"
 	PermFactibilidadConfigurar       Permiso = "factibilidad.configurar"
-	PermCotizacionesCrear            Permiso = "cotizaciones.crear"
-	PermCotizacionesAceptar          Permiso = "cotizaciones.aceptar"
-	PermContratosCrear               Permiso = "contratos.crear"
-	PermContratosFirmar              Permiso = "contratos.firmar"
+	// factibilidad.registrar_manual: el resultado de una visita técnica (supervisor, técnico).
+	PermFactibilidadRegistrarManual Permiso = "factibilidad.registrar_manual"
+	PermCotizacionesCrear           Permiso = "cotizaciones.crear"
+	PermCotizacionesAceptar         Permiso = "cotizaciones.aceptar"
+	PermContratosCrear              Permiso = "contratos.crear"
+	PermContratosFirmar             Permiso = "contratos.firmar"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -199,7 +201,8 @@ var Catalogo = []DefPermiso{
 	{PermEmpresasTodas, "Operar en todas las empresas sin asignación (rol global); el resto solo en sus empresas asignadas"},
 	{PermEmpresasVer, "Ver las empresas registradas"},
 	{PermFactibilidadConfigurar, "Configurar los umbrales de distancia de la factibilidad de la empresa"},
-	{PermFactibilidadEvaluar, "Evaluar la factibilidad técnica de un prospecto (o registrar la de una visita)"},
+	{PermFactibilidadEvaluar, "Evaluar la factibilidad técnica de un prospecto (distancia al router o planta externa)"},
+	{PermFactibilidadRegistrarManual, "Registrar la factibilidad de una visita técnica (manual; puede anular una automática con motivo)"},
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
@@ -312,7 +315,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
 			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosComercial,
-				[]Permiso{PermFactibilidadConfigurar})...)},
+				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -323,7 +326,8 @@ var RolesBase = []DefRol{
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
-			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones}},
+			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
+			PermFactibilidadRegistrarManual}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},

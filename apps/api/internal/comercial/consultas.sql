@@ -48,6 +48,8 @@ SET origen_detalle      = sqlc.narg(origen_detalle),
     cliente_argos_id    = sqlc.narg(cliente_argos_id),
     servicio_argos_id   = sqlc.narg(servicio_argos_id),
     orden_id            = sqlc.narg(orden_id),
+    router_id           = sqlc.narg(router_id),
+    alta_error          = sqlc.narg(alta_error),
     version             = version + 1,
     updated_at          = now()
 WHERE id = @id AND version = @version
@@ -86,7 +88,7 @@ SELECT * FROM comercial.prospecto_eventos WHERE prospecto_id = @prospecto_id ORD
 -- name: ProspectosConAltaPendiente :many
 -- Ganados con el alta en Argos sin terminar (barrido del worker).
 SELECT id FROM comercial.prospectos
-WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio') AND id > @despues_de
+WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio') AND alta_error IS NULL AND id > @despues_de
 ORDER BY id
 LIMIT @limite;
 
@@ -142,6 +144,10 @@ FROM integracion.argos_routers
 WHERE empresa_id = @empresa_id AND lat IS NOT NULL AND lon IS NOT NULL
 ORDER BY id;
 
+-- name: RouterDeEmpresa :one
+-- El router está en la instantánea de Argos de la empresa (al elegirlo al ganar).
+SELECT id, nombre FROM integracion.argos_routers WHERE id = @id AND empresa_id = @empresa_id;
+
 -- name: ContarRoutersDeEmpresa :one
 SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = @empresa_id;
 
@@ -154,16 +160,23 @@ SELECT coalesce(
 -- name: CrearFactibilidad :one
 INSERT INTO comercial.factibilidades (
     empresa_id, prospecto_id, resultado, motor, motivo, lat, lon, router_id, router_nombre, caja,
-    distancia_m, viable_m, obra_m, notas, evaluada_por
+    distancia_m, viable_m, obra_m, notas, evaluada_por, anula_id, motivo_anulacion
 ) VALUES (
     sqlc.narg(empresa_id), @prospecto_id, @resultado, @motor, sqlc.narg(motivo), sqlc.narg(lat), sqlc.narg(lon),
     sqlc.narg(router_id), sqlc.narg(router_nombre), sqlc.narg(caja), sqlc.narg(distancia_m), sqlc.narg(viable_m),
-    sqlc.narg(obra_m), @notas, sqlc.narg(evaluada_por)
+    sqlc.narg(obra_m), @notas, sqlc.narg(evaluada_por), sqlc.narg(anula_id), sqlc.narg(motivo_anulacion)
 )
 RETURNING *;
 
 -- name: UltimaFactibilidad :one
 SELECT * FROM comercial.factibilidades WHERE prospecto_id = @prospecto_id ORDER BY id DESC LIMIT 1;
+
+-- name: UltimaAutomaticaNoViable :one
+-- La última evaluación automática (no manual) no_viable sobre esas coordenadas.
+SELECT * FROM comercial.factibilidades
+WHERE prospecto_id = @prospecto_id AND motor <> 'manual' AND resultado = 'no_viable'
+  AND lat IS NOT DISTINCT FROM sqlc.narg(lat)::double precision AND lon IS NOT DISTINCT FROM sqlc.narg(lon)::double precision
+ORDER BY id DESC LIMIT 1;
 
 -- name: FactibilidadesDeProspecto :many
 SELECT * FROM comercial.factibilidades WHERE prospecto_id = @prospecto_id ORDER BY id DESC;

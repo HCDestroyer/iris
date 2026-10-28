@@ -81,9 +81,10 @@ type Modulo struct {
 	RegistrarActividad *auditoria.Caso[EntradaActividad, Actividad]
 	ListarActividades  *auditoria.Caso[EntradaListarActividades, nucleo.Pagina[Actividad]]
 
-	VerUmbrales   *auditoria.Caso[struct{}, Umbrales]
-	FijarUmbrales *auditoria.Caso[EntradaUmbrales, Umbrales]
-	Cobertura     *auditoria.Caso[struct{}, Cobertura]
+	FactibilidadManual *auditoria.Caso[EntradaFactibilidadManual, Factibilidad]
+	VerUmbrales        *auditoria.Caso[struct{}, Umbrales]
+	FijarUmbrales      *auditoria.Caso[EntradaUmbrales, Umbrales]
+	Cobertura          *auditoria.Caso[struct{}, Cobertura]
 
 	AceptarCotizacion  *auditoria.Caso[EntradaAceptarCotizacion, Cotizacion]
 	VerCotizacion      *auditoria.Caso[EntradaVerCotizacion, Cotizacion]
@@ -102,6 +103,7 @@ type Modulo struct {
 	firmar               *auditoria.Caso[entradaFirmaLista, Contrato]
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
+	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
 }
 
 // Nuevo arma el módulo.
@@ -135,6 +137,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Ganar = m.nuevoGanar()
 	m.RegistrarActividad = m.nuevoRegistrarActividad()
 	m.ListarActividades = m.nuevoListarActividades()
+	m.FactibilidadManual = m.nuevoFactibilidadManual()
 	m.VerUmbrales = m.nuevoVerUmbrales()
 	m.FijarUmbrales = m.nuevoFijarUmbrales()
 	m.Cobertura = m.nuevoCobertura()
@@ -154,6 +157,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.firmar = m.nuevoFirmar()
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()
+	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	return m
 }
 

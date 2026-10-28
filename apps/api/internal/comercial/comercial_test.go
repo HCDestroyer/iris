@@ -1,9 +1,12 @@
 package comercial_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,25 +39,38 @@ func TestMain(m *testing.M) { os.Exit(pruebas.Correr(m)) }
 var ident = identidad.Nuevo(identidad.Config{})
 
 // Firma de prueba (como la de un pad de firma: <path d> con M y L).
-const firmaSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M 10 40 L 60 20 L 120 60 L 190 30"/></svg>`
+// Lleva onload y <script>: se guarda reconstruido solo con los trazos.
+const firmaSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80" onload="alert(1)"><script>alert(2)</script><path d="M 10 40 L 60 20 L 120 60 L 190 30" onclick="x()"/></svg>`
 
 // --- Argos falso (contrato §2.1 y §3) ---------------------------------------------------------
 
 type argosFalso struct {
-	srv       *httptest.Server
-	mu        sync.Mutex
-	altas     map[string]int64          // Idempotency-Key → id creado
-	cuerpos   map[string]map[string]any // Idempotency-Key → cuerpo de la primera llamada
-	llamadas  map[string]int            // Idempotency-Key → llamadas recibidas
-	siguiente int64
-	caido     bool
+	srv        *httptest.Server
+	mu         sync.Mutex
+	altas      map[string]int64    // Idempotency-Key → id creado
+	huellas    map[string]string   // Idempotency-Key → sha256(método + URL + cuerpo crudo)
+	crudos     map[string][][]byte // Idempotency-Key → cuerpos crudos recibidos
+	consultas  []string            // queries de GET /planes
+	siguiente  int64
+	caido      bool
+	codigoMalo bool // GET /clientes/{id} devuelve otro codigo_externo
+	repetidas  int  // respuestas con Idempotent-Replayed
+	porID      map[string]map[string]any
 }
 
+// Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
+// y Idempotent-Replayed, misma clave con otro cuerpo → 422 idempotency_key_reutilizada.
 func nuevoArgos(t *testing.T) *argosFalso {
-	a := &argosFalso{altas: map[string]int64{}, cuerpos: map[string]map[string]any{}, llamadas: map[string]int{}, siguiente: 9000}
+	a := &argosFalso{altas: map[string]int64{}, huellas: map[string]string{}, crudos: map[string][][]byte{},
+		porID: map[string]map[string]any{}, siguiente: 9000}
 	json200 := func(w http.ResponseWriter, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(v))
+	}
+	problema := func(w http.ResponseWriter, status int, tipo string) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(status)
+		_, _ = fmt.Fprintf(w, `{"type":%q,"title":"x","status":%d}`, tipo, status)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
@@ -68,34 +84,93 @@ func nuevoArgos(t *testing.T) *argosFalso {
 			{"id":53,"empresa_id":1,"nombre":"RT-Sin-Coordenadas","zona_id":7001},
 			{"id":52,"empresa_id":2,"nombre":"RT-Otra","zona_id":7002,"lat":14.6000,"lon":-90.5000}],"nextCursor":null}`)
 	})
-	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, _ *http.Request) {
-		json200(w, `{"data":[{"id":300,"empresa_id":1,"nombre":"Fibra 100","precio":"250.00","estado":"activo"},
-			{"id":301,"empresa_id":1,"nombre":"Fibra 200 (sin precio)","precio":null,"estado":"activo"},
-			{"id":400,"empresa_id":2,"nombre":"Plan de otra empresa","precio":"99.00","estado":"activo"}],"nextCursor":null}`)
+	// Planes de toda la instalación: precio texto, activo booleano, filtro por router.
+	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.consultas = append(a.consultas, r.URL.RawQuery)
+		a.mu.Unlock()
+		planes := []string{`{"id":300,"nombre":"Fibra 100","precio":"250.00","activo":true}`,
+			`{"id":301,"nombre":"Fibra 200 (sin precio)","precio":null,"activo":true}`}
+		if r.URL.Query().Get("router_id") == "52" {
+			planes = []string{`{"id":400,"nombre":"Plan del router 52","precio":"99.00","activo":true}`}
+		}
+		if r.URL.Query().Get("activo") != "true" {
+			planes = append(planes, `{"id":399,"nombre":"Inactivo","precio":"10.00","activo":false}`)
+		}
+		json200(w, `{"data":[`+strings.Join(planes, ",")+`],"nextCursor":null}`)
 	})
-	alta := func(w http.ResponseWriter, r *http.Request) {
-		clave := r.Header.Get("Idempotency-Key")
-		var c map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&c)
+	alta := func(obligatorios, prohibidos []string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			clave := r.Header.Get("Idempotency-Key")
+			crudo, _ := io.ReadAll(r.Body)
+			suma := sha256.Sum256(append([]byte(r.Method+" "+r.URL.String()+"\n"), crudo...))
+			huella := hex.EncodeToString(suma[:])
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.caido {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			a.crudos[clave] = append(a.crudos[clave], crudo)
+			if previa, ok := a.huellas[clave]; ok {
+				if previa != huella {
+					problema(w, http.StatusUnprocessableEntity, "idempotency_key_reutilizada")
+					return
+				}
+				a.repetidas++
+				w.Header().Set("Idempotent-Replayed", "true")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = fmt.Fprintf(w, `{"data":{"id":%d}}`, a.altas[clave])
+				return
+			}
+			var c map[string]any
+			if json.Unmarshal(crudo, &c) != nil {
+				problema(w, http.StatusUnprocessableEntity, "validacion")
+				return
+			}
+			for _, k := range obligatorios {
+				if c[k] == nil {
+					problema(w, http.StatusUnprocessableEntity, "validacion")
+					return
+				}
+			}
+			for _, k := range prohibidos {
+				if _, ok := c[k]; ok {
+					problema(w, http.StatusUnprocessableEntity, "campo_no_admitido")
+					return
+				}
+			}
+			a.siguiente++
+			a.altas[clave], a.huellas[clave] = a.siguiente, huella
+			a.porID[fmt.Sprint(a.siguiente)] = c
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"data":{"id":%d}}`, a.siguiente)
+		}
+	}
+	mux.HandleFunc("POST /api/v1/clientes", alta([]string{"nombre"}, []string{"empresa_id", "origen_tipo", "origen_id"}))
+	mux.HandleFunc("POST /api/v1/servicios", alta([]string{"cliente_id", "router_id", "plan_id", "empresa_id"}, []string{"origen_tipo", "origen_id"}))
+	leer := func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.caido {
-			w.WriteHeader(http.StatusServiceUnavailable)
+		c, ok := a.porID[r.PathValue("id")]
+		if !ok {
+			http.NotFound(w, r)
 			return
 		}
-		a.llamadas[clave]++
-		id, ok := a.altas[clave]
-		if !ok {
-			a.siguiente++
-			id = a.siguiente
-			a.altas[clave], a.cuerpos[clave] = id, c
+		v := map[string]any{"id": r.PathValue("id")}
+		for k, x := range c {
+			v[k] = x
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, _ = fmt.Fprintf(w, `{"data":{"id":%d}}`, id)
+		if a.codigoMalo {
+			v["codigo_externo"] = "otro:1"
+		}
+		b, _ := json.Marshal(v)
+		json200(w, string(b))
 	}
-	mux.HandleFunc("POST /api/v1/clientes", alta)
-	mux.HandleFunc("POST /api/v1/servicios", alta)
+	mux.HandleFunc("GET /api/v1/clientes/{id}", leer)
+	mux.HandleFunc("GET /api/v1/servicios/{id}", leer)
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
@@ -104,13 +179,30 @@ func nuevoArgos(t *testing.T) *argosFalso {
 func (a *argosFalso) cuerpo(clave string) map[string]any {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.cuerpos[clave]
+	id, ok := a.altas[clave]
+	if !ok {
+		return nil
+	}
+	return a.porID[fmt.Sprint(id)]
 }
 
 func (a *argosFalso) altasDistintas() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.altas)
+}
+
+// envios: los cuerpos crudos recibidos con una clave.
+func (a *argosFalso) envios(clave string) [][]byte {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.crudos[clave]
+}
+
+func (a *argosFalso) fijar(f func(*argosFalso)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	f(a)
 }
 
 // --- Entorno -----------------------------------------------------------------------------------
@@ -290,6 +382,12 @@ func problema(t *testing.T, err error, status int, codigo string) {
 
 func ptr[T any](v T) *T { return &v }
 
+func compacto(b []byte) []byte {
+	var c bytes.Buffer
+	_ = json.Compact(&c, b)
+	return c.Bytes()
+}
+
 func contar(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	var n int
@@ -348,20 +446,39 @@ func lineaPlanLocal() comercial.EntradaLinea {
 	return comercial.EntradaLinea{Tipo: "plan", Descripcion: ptr("Fibra 50 local"), PrecioUnitario: ptr("199.99")}
 }
 
-// hastaContrato lleva el prospecto de nuevo a contrato firmado (factibilidad manual si no
-// es viable por distancia).
-func hastaContrato(t *testing.T, com *comercial.Modulo, ctx context.Context, id int64, lineas []comercial.EntradaLinea, manual string) comercial.ProspectoDetalle {
+// tecnicoDe: el mismo actor y empresa con los permisos (globales) de otro rol (la factibilidad
+// manual la registra un supervisor o un técnico).
+func conRol(ctx context.Context, r string) context.Context {
+	mapa := map[string][]contexto.Alcance{}
+	for _, p := range permisosDe(r) {
+		mapa[string(p)] = []contexto.Alcance{{}}
+	}
+	return contexto.ConActor(ctx, contexto.ActorDe(ctx), contexto.NuevosPermisos(mapa))
+}
+
+const notasVisita = "Visita técnica: hay poste a 40 m y ducto libre"
+
+// manual registra una factibilidad de visita (como supervisor).
+func manual(t *testing.T, com *comercial.Modulo, ctx context.Context, id int64, resultado string, router *int64) comercial.Factibilidad {
+	t.Helper()
+	p := deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	return deber(com.FactibilidadManual.Ejecutar(conRol(ctx, "supervisor"), comercial.EntradaFactibilidadManual{ProspectoID: id, Version: p.Version,
+		Resultado: resultado, Notas: notasVisita, Caja: ptr("CJ-01"), RouterID: router}))(t)
+}
+
+// hastaContrato lleva el prospecto a contrato firmado (con factibilidad manual si se pide).
+func hastaContrato(t *testing.T, com *comercial.Modulo, ctx context.Context, id int64, lineas []comercial.EntradaLinea, resultadoManual string) comercial.ProspectoDetalle {
 	t.Helper()
 	p := deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 	if p.Estado == comercial.EstadoNuevo {
 		deber(com.Contactar.Ejecutar(ctx, comercial.EntradaTransicion{ID: id, Version: p.Version}))(t)
 		p = deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 	}
-	entrada := comercial.EntradaFactibilidad{ProspectoID: id, Version: p.Version}
-	if manual != "" {
-		entrada.Manual, entrada.Notas = &comercial.EntradaManual{Resultado: manual, Caja: ptr("CJ-01")}, "Visita técnica: hay poste"
+	if resultadoManual != "" {
+		manual(t, com, ctx, id, resultadoManual, nil)
+	} else {
+		deber(com.EvaluarFactibilidad(ctx, comercial.EntradaFactibilidad{ProspectoID: id, Version: p.Version}))(t)
 	}
-	deber(com.EvaluarFactibilidad(ctx, entrada))(t)
 	p = deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 	c := deber(com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: id, Version: p.Version, Lineas: lineas}))(t)
 	deber(com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version}))(t)
@@ -398,8 +515,13 @@ func TestEmbudoSinConector(t *testing.T) {
 	d := deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
 	_, err := e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: p.ID, Version: d.Version, Lineas: []comercial.EntradaLinea{lineaPlanLocal()}})
 	problema(t, err, 422, "factibilidad_no_viable")
-	// Manual sin notas: 422; con la visita, viable.
-	_, err = e.com.EvaluarFactibilidad(ctx, comercial.EntradaFactibilidad{ProspectoID: p.ID, Version: d.Version, Manual: &comercial.EntradaManual{Resultado: "viable"}})
+	// La manual no la registra ventas (403); con notas cortas, 422.
+	_, err = e.com.FactibilidadManual.Ejecutar(ctx, comercial.EntradaFactibilidadManual{ProspectoID: p.ID, Version: d.Version, Resultado: "viable", Notas: notasVisita})
+	problema(t, err, 403, "prohibido")
+	_, err = e.com.FactibilidadManual.Ejecutar(conRol(ctx, "supervisor"), comercial.EntradaFactibilidadManual{ProspectoID: p.ID, Version: d.Version, Resultado: "viable", Notas: "corta"})
+	problema(t, err, 422, "validacion")
+	// Sin conector no hay routers que elegir.
+	_, err = e.com.FactibilidadManual.Ejecutar(conRol(ctx, "supervisor"), comercial.EntradaFactibilidadManual{ProspectoID: p.ID, Version: d.Version, Resultado: "viable", Notas: notasVisita, RouterID: ptr(int64(51))})
 	problema(t, err, 422, "validacion")
 
 	// Sin conector, el plan va a mano (planId → 422).
@@ -424,6 +546,9 @@ func TestEmbudoSinConector(t *testing.T) {
 	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'contratos.firmar' AND resultado = 'ok' AND entrada->'auditoria'->>'pdf_firmado_sha256' = $1",
 		*d.Contrato.PDFFirmado.SHA256); n != 1 {
 		t.Fatalf("hash en la auditoría: %d", n)
+	}
+	if n := contar(t, `SELECT count(*) FROM comercial.contratos WHERE prospecto_id = $1 AND firma_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><path d="M 10 40 L 60 20 L 120 60 L 190 30"/></svg>'`, p.ID); n != 1 {
+		t.Fatal("la firma se guarda reconstruida, sin onload ni script")
 	}
 	if n := contar(t, "SELECT count(*) FROM auditoria.cambios WHERE entidad = 'contrato' AND campo = 'firma_svg' AND despues = '\"***\"'::jsonb"); n == 0 {
 		t.Fatal("la firma debe quedar enmascarada en auditoria.cambios")
@@ -455,9 +580,7 @@ func TestEmbudoSinConector(t *testing.T) {
 // hastaContratoParcial: deja el prospecto con factibilidad manual viable (para probar cotizar).
 func hastaContratoParcial(t *testing.T, com *comercial.Modulo, ctx context.Context, id int64) comercial.ProspectoDetalle {
 	t.Helper()
-	p := deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
-	deber(com.EvaluarFactibilidad(ctx, comercial.EntradaFactibilidad{ProspectoID: id, Version: p.Version,
-		Manual: &comercial.EntradaManual{Resultado: "viable"}, Notas: "Visita técnica"}))(t)
+	manual(t, com, ctx, id, "viable", nil)
 	return deber(com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 }
 
@@ -484,15 +607,22 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatalf("factibilidad: %+v", fa)
 	}
 
-	// Planes: solo los de la empresa activa.
-	pl := deber(e.com.Planes(ctx))(t)
-	if !pl.Disponible || len(pl.Data) != 2 {
+	// Planes de toda la instalación, activos y del router sugerido.
+	pl := deber(e.com.Planes(ctx, comercial.EntradaPlanes{RouterID: 51}))(t)
+	if !pl.Disponible || len(pl.Data) != 2 || pl.Data[0].Precio == nil || *pl.Data[0].Precio != "250.00" || !pl.Data[0].Activo {
 		t.Fatalf("planes: %+v", pl)
 	}
+	e.falso.fijar(func(a *argosFalso) {
+		if len(a.consultas) == 0 || a.consultas[len(a.consultas)-1] != "activo=true&limit=200&router_id=51" {
+			t.Errorf("GET /planes: %v", a.consultas)
+		}
+	})
 	d := deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	// El plan de otra empresa no existe para esta; sin planId con conector, 422; el precio de Argos no se pisa.
+	// Un plan de otro router no se ofrece en este; sin planId con conector, 422; el precio de Argos
+	// no se pisa; el plan va con cantidad 1.
 	for _, l := range []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(400))}, lineaPlanLocal(),
-		{Tipo: "plan", PlanID: ptr(int64(300)), PrecioUnitario: ptr("1.00")}, {Tipo: "plan", PlanID: ptr(int64(301))}} {
+		{Tipo: "plan", PlanID: ptr(int64(300)), PrecioUnitario: ptr("1.00")}, {Tipo: "plan", PlanID: ptr(int64(301))},
+		{Tipo: "plan", PlanID: ptr(int64(300)), Cantidad: "2"}} {
 		_, err := e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: p.ID, Version: d.Version, Lineas: []comercial.EntradaLinea{l}})
 		problema(t, err, 422, "validacion")
 	}
@@ -538,8 +668,14 @@ func TestEmbudoConArgos(t *testing.T) {
 	// POST /clientes hecho → comercial encola POST /servicios (pendiente_instalacion), que depende del primero.
 	e.procesar()
 	cli := e.falso.cuerpo(comercial.ClaveCliente(p.ID))
-	if cli == nil || cli["nombre"] != "Comercial Las Flores" || cli["origen_tipo"] != "iris_prospecto" || cli["empresa_id"] != float64(1) {
-		t.Fatalf("POST /clientes: %+v", cli)
+	esperado := map[string]any{"nombre": "Comercial Las Flores", "codigo_externo": comercial.CodigoExterno(p.ID), "nit_cui": "1234567-8",
+		"direccion": "Calzada 5-10", "coordenadas": fmt.Sprintf("%v,-90.5", cerca), "zona_id": float64(7001)}
+	if fmt.Sprint(cli) != fmt.Sprint(esperado) {
+		t.Fatalf("POST /clientes: %v\nesperaba %v", cli, esperado)
+	}
+	// La repetición (para saber el id) manda exactamente los mismos bytes que el primer envío.
+	if env := e.falso.envios(comercial.ClaveCliente(p.ID)); len(env) != 2 || !bytes.Equal(env[0], env[1]) {
+		t.Fatalf("envíos de POST /clientes: %q", env)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
 	if d.Alta.Estado != comercial.AltaEsperandoServicio || d.Alta.ClienteArgosID == nil || len(d.Pendientes) != 2 {
@@ -553,9 +689,18 @@ func TestEmbudoConArgos(t *testing.T) {
 	// POST /servicios hecho → orden de instalación con el cliente y el servicio de Argos.
 	e.procesar()
 	srv := e.falso.cuerpo(comercial.ClaveServicio(p.ID))
-	if srv == nil || srv["estado"] != "pendiente_instalacion" || srv["plan_id"] != float64(300) || srv["cliente_id"] != float64(*d.Alta.ClienteArgosID) ||
-		srv["router_id"] != float64(51) {
-		t.Fatalf("POST /servicios: %+v", srv)
+	esperadoSrv := map[string]any{"cliente_id": float64(*d.Alta.ClienteArgosID), "router_id": float64(51), "plan_id": float64(300),
+		"empresa_id": float64(1), "estado_inicial": "pendiente_instalacion", "direccion": "Calzada 5-10", "coordenadas": fmt.Sprintf("%v,-90.5", cerca)}
+	if fmt.Sprint(srv) != fmt.Sprint(esperadoSrv) {
+		t.Fatalf("POST /servicios: %v\nesperaba %v", srv, esperadoSrv)
+	}
+	if env := e.falso.envios(comercial.ClaveServicio(p.ID)); len(env) != 2 || !bytes.Equal(env[0], env[1]) {
+		t.Fatalf("envíos de POST /servicios: %q", env)
+	}
+	var crudo []byte
+	if err := pruebas.Pool(t).QueryRow(context.Background(), "SELECT payload::text FROM integracion.pendientes WHERE idempotency_key = $1",
+		comercial.ClaveServicio(p.ID)).Scan(&crudo); err != nil || !bytes.Equal(compacto(crudo), e.falso.envios(comercial.ClaveServicio(p.ID))[0]) {
+		t.Fatalf("el cuerpo enviado es el guardado en el pendiente: %s %v", crudo, err)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
 	if d.Alta.Estado != comercial.AltaCompleta || d.Alta.ServicioArgosID == nil || d.Alta.OrdenID == nil || d.Alta.OrdenNumero == nil {
@@ -599,6 +744,45 @@ func TestEmbudoConArgos(t *testing.T) {
 	if !g2.ObraConfirmada {
 		t.Fatal("obra confirmada")
 	}
+	// El id recuperado no es del prospecto (codigo_externo distinto): el alta queda en error
+	// visible, no encola el servicio y el barrido no la repite.
+	e.falso.fijar(func(a *argosFalso) { a.codigoMalo = true })
+	e.procesar()
+	if _, err := e.com.BarrerAltas(sistema(t)); err != nil {
+		t.Fatal(err)
+	}
+	d2 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p2.ID}))(t)
+	if d2.Alta.Error == nil || !strings.Contains(*d2.Alta.Error, "codigo_externo") || d2.Alta.Estado != comercial.AltaEsperandoCliente || len(d2.Pendientes) != 1 {
+		t.Fatalf("alta con un cliente ajeno: %+v %+v", d2.Alta, d2.Pendientes)
+	}
+	if env := e.falso.envios(comercial.ClaveCliente(p2.ID)); len(env) != 2 {
+		t.Fatalf("una sola repetición: %d", len(env))
+	}
+	e.falso.fijar(func(a *argosFalso) { a.codigoMalo = false })
+
+	// Factibilidad manual sin router: ganar con conector pide el router (de la empresa).
+	p4 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Sin coordenadas", Direccion: "Aldea"}))(t)
+	d4 := hastaContrato(t, e.com, ctx, p4.ID, lineas, "viable")
+	_, err = e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version})
+	problema(t, err, 422, "router_requerido")
+	_, err = e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version, RouterID: ptr(int64(52))})
+	problema(t, err, 422, "validacion")
+	g4 := deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version, RouterID: ptr(int64(51))}))(t)
+	if g4.Alta.RouterID == nil || *g4.Alta.RouterID != 51 {
+		t.Fatalf("router del alta: %+v", g4.Alta)
+	}
+	// Un pendiente hecho hace más de 30 días (Argos ya no guarda la clave): no se repite.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET estado = 'hecho', hecho_en = now() - interval '31 days' WHERE idempotency_key = $1",
+		comercial.ClaveCliente(p4.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.com.CompletarAlta(sistema(t), p4.ID); err != nil {
+		t.Fatal(err)
+	}
+	d4 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p4.ID}))(t)
+	if d4.Alta.Error == nil || !strings.Contains(*d4.Alta.Error, "30 días") || len(e.falso.envios(comercial.ClaveCliente(p4.ID))) != 0 {
+		t.Fatalf("pendiente viejo: %+v", d4.Alta)
+	}
 
 	// Coordenadas fuera de umbral (no viable) y umbrales por empresa: a 2 km no es viable; con
 	// obra hasta 3 km, requiere obra.
@@ -607,6 +791,23 @@ func TestEmbudoConArgos(t *testing.T) {
 	f3 := deber(e.com.EvaluarFactibilidad(ctx, comercial.EntradaFactibilidad{ProspectoID: p3.ID, Version: p3.Version}))(t)
 	if f3.Resultado != comercial.FactibleNoViable {
 		t.Fatalf("a 2 km: %+v", f3)
+	}
+	// Una visita que contradice la automática no_viable exige motivo y la anula (auditado);
+	// el router de la manual es de la empresa del prospecto.
+	p3d := deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p3.ID}))(t)
+	m3 := comercial.EntradaFactibilidadManual{ProspectoID: p3.ID, Version: p3d.Version, Resultado: "requiere_obra", Notas: notasVisita, RouterID: ptr(int64(51))}
+	_, err = e.com.FactibilidadManual.Ejecutar(conRol(ctx, "supervisor"), m3)
+	problema(t, err, 422, "validacion")
+	m3.MotivoAnulacion, m3.RouterID = ptr("Hay un tendido nuevo de la municipalidad"), ptr(int64(52))
+	_, err = e.com.FactibilidadManual.Ejecutar(conRol(ctx, "supervisor"), m3)
+	problema(t, err, 422, "validacion")
+	m3.RouterID = ptr(int64(51))
+	fm := deber(e.com.FactibilidadManual.Ejecutar(conRol(ctx, "tecnico"), m3))(t)
+	if fm.AnulaID == nil || *fm.AnulaID != f3.ID || fm.RouterID == nil || *fm.RouterID != 51 {
+		t.Fatalf("manual que anula: %+v", fm)
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'factibilidad.registrar_manual' AND resultado = 'ok' AND (entrada->'auditoria'->>'anula_automatica')::bigint = $1", f3.ID); n != 1 {
+		t.Fatal("la anulación queda auditada")
 	}
 	sup := usuarioCon(t, rol("supervisor"))
 	asignarEmpresa(t, sup, 1)
@@ -618,7 +819,7 @@ func TestEmbudoConArgos(t *testing.T) {
 	}
 	_, err = e.com.FijarUmbrales.Ejecutar(enEmpresa(t, sup, 1, "supervisor"), comercial.EntradaUmbrales{Version: 0, ViableM: 300, ObraM: 2000})
 	problema(t, err, 409, "conflicto_version")
-	p3d := deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p3.ID}))(t)
+	p3d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p3.ID}))(t)
 	f3 = deber(e.com.EvaluarFactibilidad(ctx, comercial.EntradaFactibilidad{ProspectoID: p3.ID, Version: p3d.Version}))(t)
 	if f3.Resultado != comercial.FactibleRequiereObra || f3.ObraM == nil || *f3.ObraM != 3000 {
 		t.Fatalf("con umbrales de la empresa: %+v", f3)
@@ -641,7 +842,7 @@ func TestEmbudoConArgos(t *testing.T) {
 	if f3.Resultado != comercial.FactibleIndeterminado || *f3.Motivo != comercial.MotivoConectorApagado {
 		t.Fatalf("conector apagado: %+v", f3)
 	}
-	if pl := deber(e.com.Planes(ctx))(t); pl.Disponible || pl.Motivo == nil {
+	if pl := deber(e.com.Planes(ctx, comercial.EntradaPlanes{}))(t); pl.Disponible || pl.Motivo == nil {
 		t.Fatalf("planes con el conector apagado: %+v", pl)
 	}
 	if cob := deber(e.com.Cobertura.Ejecutar(ctx, struct{}{}))(t); cob.Disponible || *cob.Motivo != comercial.MotivoConectorApagado {
@@ -700,6 +901,12 @@ func TestCotizacionesYContrato(t *testing.T) {
 	problema(t, err, 422, "validacion")
 	_, err = e.com.FirmarContrato(ctx, comercial.EntradaFirmar{ContratoID: ctr.ID, Version: ctr.Version + 1, FirmanteNombre: "Ana", SVG: firmaSVG})
 	problema(t, err, 409, "conflicto_version")
+	// La cotización del contrato venció: no se firma (422 cotizacion_vencida).
+	mu.Lock()
+	ahora = ahora.Add(16 * 24 * time.Hour)
+	mu.Unlock()
+	_, err = e.com.FirmarContrato(ctx, comercial.EntradaFirmar{ContratoID: ctr.ID, Version: ctr.Version, FirmanteNombre: "Ana", SVG: firmaSVG})
+	problema(t, err, 422, "cotizacion_vencida")
 	// Revisión 3 con el contrato en borrador: lo anula y vuelve a cotizado.
 	c3 := deber(e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: p.ID, Version: d.Version, Lineas: []comercial.EntradaLinea{lineaPlanLocal()}}))(t)
 	ctr = deber(e.com.VerContrato.Ejecutar(ctx, comercial.EntradaVerContrato{ID: ctr.ID}))(t)
@@ -744,9 +951,9 @@ func TestPermisosAlcanceYEmpresa(t *testing.T) {
 	sinZona := deber(e.com.CrearProspecto.Ejecutar(ca, comercial.EntradaCrearProspecto{Nombre: "Sin zona", Direccion: "?"}))(t)
 
 	// Con alcance por zona: crear exige una zona propia.
-	_, err := e.com.CrearProspecto.Ejecutar(ctxA, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x"})
+	_, err := e.com.CrearProspecto.Ejecutar(ctxA, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x"})
 	problema(t, err, 403, "fuera_de_alcance")
-	_, err = e.com.CrearProspecto.Ejecutar(ctxA, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x", ZonaID: &zonaB})
+	_, err = e.com.CrearProspecto.Ejecutar(ctxA, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x", ZonaID: &zonaB})
 	problema(t, err, 403, "fuera_de_alcance")
 	enA := deber(e.com.CrearProspecto.Ejecutar(ctxA, comercial.EntradaCrearProspecto{Nombre: "En zona A", Direccion: "A", ZonaID: &zonaA}))(t)
 
@@ -779,7 +986,7 @@ func TestPermisosAlcanceYEmpresa(t *testing.T) {
 	lec := usuarioCon(t, rol("lectura"))
 	cl := como(t, lec, "lectura")
 	deber(e.com.VerProspecto.Ejecutar(cl, comercial.EntradaVerProspecto{ID: enA.ID}))(t)
-	_, err = e.com.CrearProspecto.Ejecutar(cl, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x"})
+	_, err = e.com.CrearProspecto.Ejecutar(cl, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x"})
 	problema(t, err, 403, "prohibido")
 	_, err = e.com.Contactar.Ejecutar(cl, comercial.EntradaTransicion{ID: enA.ID, Version: a.Version})
 	problema(t, err, 403, "prohibido")
@@ -809,7 +1016,7 @@ func TestPermisosAlcanceYEmpresa(t *testing.T) {
 		t.Fatalf("actividades: %+v", acts)
 	}
 	// El origen argos solo lo usa la integración.
-	_, err = e.com.CrearProspecto.Ejecutar(ca, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x", Origen: "argos"})
+	_, err = e.com.CrearProspecto.Ejecutar(ca, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x", Origen: "argos"})
 	problema(t, err, 422, "origen_no_permitido")
 }
 
@@ -824,9 +1031,9 @@ func TestMultiempresa(t *testing.T) {
 	c1, c2 := enEmpresa(t, v, 1, "ventas"), enEmpresa(t, v, 2, "ventas")
 	p := deber(e.com.CrearProspecto.Ejecutar(c1, comercial.EntradaCrearProspecto{Nombre: "De la 1", Direccion: "x", ZonaID: ptr(int64(7001))}))(t)
 	// Zona de la otra empresa: 422; empresa distinta a la activa: 422.
-	_, err := e.com.CrearProspecto.Ejecutar(c2, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x", ZonaID: ptr(int64(7001))})
+	_, err := e.com.CrearProspecto.Ejecutar(c2, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x", ZonaID: ptr(int64(7001))})
 	problema(t, err, 422, "validacion")
-	_, err = e.com.CrearProspecto.Ejecutar(c2, comercial.EntradaCrearProspecto{Nombre: "x", Direccion: "x", EmpresaID: ptr(int64(1))})
+	_, err = e.com.CrearProspecto.Ejecutar(c2, comercial.EntradaCrearProspecto{Nombre: "xx", Direccion: "x", EmpresaID: ptr(int64(1))})
 	problema(t, err, 422, "empresa_no_coincide")
 	_, err = e.com.VerProspecto.Ejecutar(c2, comercial.EntradaVerProspecto{ID: p.ID})
 	problema(t, err, 404, "no_encontrado")
