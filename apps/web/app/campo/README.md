@@ -51,13 +51,19 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     permiso dado y sin «Ahora no» en la visita), con el aviso «Turno iniciado: se envía tu
     ubicación cada minuto»; al terminar el tramo se apaga solo y lo avisa. Un «Terminar turno» a
     mano dentro de un tramo se respeta hasta el tramo siguiente (también al reabrir la app). Fuera
-    de tramo, «En camino» / «Llegué» lo encienden igual (hay trabajo real) y termina con la última
-    orden o al final del tramo, lo que ocurra después.
+    de tramo solo lo mantiene una orden **en curso** (`en_camino` o `en_sitio`; ni pendientes, ni
+    programadas, ni atrasadas, ni pausadas): termina cuando no queda ninguna y, como tope, 2 h
+    después del fin del tramo («Turno terminado: pasaron 2 h de tu horario…»). «En camino» /
+    «Llegué» lo encienden igual fuera de tramo (antes del primer tramo se ata a él; después, tope
+    de 2 h).
   - **Sin turno en la agenda** (ese día no trabaja, sin ficha o paquete de otro día): empieza con
-    «Iniciar turno» o solo con «En camino» / «Llegué», y termina cuando no quedan órdenes abiertas
-    del día (cerró o falló la última, o se la cancelaron o reasignaron) o a mano.
+    «Iniciar turno» o solo con «En camino» / «Llegué», y termina cuando no queda ninguna orden en
+    curso (la cerró, falló, se la cancelaron o reasignaron) o a mano.
   - Siempre: «Terminar turno» a mano y, como red de seguridad, fin a medianoche de Guatemala (con la
-    app abierta se baja el paquete del día nuevo). Cerrar sesión lo termina antes de esperar a la
+    app abierta se baja el paquete del día nuevo una vez por día; tras un error se reintenta al
+    volver la señal o la app, con espera exponencial, y nunca solo sin sesión o sin empresa). El
+    turno local va por usuario y empresa (`iris-campo-turno-<usuario>-<empresa>`) y cambiar de
+    empresa lo termina. Cerrar sesión lo termina antes de esperar a la
     red y cierra la cola (no entran más puntos).
   - **Indicador** bajo la barra de conexión (icono + texto + color): «Ubicación activa», «Sin
     permiso», «Sin señal GPS», «Buscando GPS…», «Sin GPS», «Fuera de turno» y «Pendientes de
@@ -67,6 +73,9 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **«En camino»:** `orden.iniciar_camino` (con GPS si hay permiso) a la cola sin conexión, e inicia
   el turno como se dice arriba. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
   `.claude/integration/i4.md`).
+- **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
+  `cambio_contrasena_requerido` (paquete, lote, ubicaciones), va a
+  `/cambiar-contrasena?siguiente=/campo` (pantalla del panel, I3).
 - **Service worker** (Serwist, `app/sw.ts`, alcance `/campo`): precachea el shell y los estáticos;
   nunca toca `/api`. Manifest «Iris Campo» en `/campo/manifest.webmanifest`.
 

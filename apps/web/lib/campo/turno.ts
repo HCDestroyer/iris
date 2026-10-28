@@ -48,17 +48,20 @@ export function proximaFrontera(tramos: readonly Tramo[], ms: number): number | 
     return proxima;
 }
 
+/** Extensión máxima del turno después del fin de un tramo (con una orden en curso). */
+export const EXTENSION_MAX_MS = 2 * 60 * 60_000;
+
 /** Estado local del turno de la ubicación, del día en Guatemala. */
 export interface TurnoLocal {
     fecha: string;
     enTurno: boolean;
-    /**
-     * Hubo trabajo real («En camino» / «Llegué»): si el tramo termina con órdenes abiertas, el turno
-     * sigue hasta cerrar la última (termina lo que ocurra después).
-     */
-    trabajo: boolean;
     /** Fin (ms) del tramo de la agenda en el que está el turno: al llegar, termina solo. */
     hastaTramo: number | null;
+    /**
+     * Fuera de tramo con una orden en curso (en camino o en sitio): tope duro (ms). Al llegar, el
+     * turno termina aunque siga en curso.
+     */
+    limite: number | null;
     /** Lo terminó a mano dentro de un tramo: no se enciende solo hasta el fin de ese tramo (ms). */
     apagadoHasta: number | null;
 }
@@ -67,13 +70,13 @@ const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 const numeroONulo = (v: unknown): v is number | null => v === null || (typeof v === "number" && Number.isFinite(v));
 
-/** Lee el turno guardado. Acepta el formato anterior (solo la fecha = en turno ese día). */
+/** Lee el turno guardado. Acepta los formatos anteriores (solo la fecha, o sin `limite`). */
 export function leerTurnoLocal(valor: string | undefined): TurnoLocal | null {
     if (valor === undefined) {
         return null;
     }
     if (RE_FECHA.test(valor)) {
-        return { fecha: valor, enTurno: true, trabajo: true, hastaTramo: null, apagadoHasta: null };
+        return { fecha: valor, enTurno: true, hastaTramo: null, limite: null, apagadoHasta: null };
     }
     try {
         const v: unknown = JSON.parse(valor);
@@ -81,17 +84,18 @@ export function leerTurnoLocal(valor: string | undefined): TurnoLocal | null {
             return null;
         }
         const t = v as Record<string, unknown>;
+        const limite = t.limite ?? null;
         if (
             typeof t.fecha !== "string" ||
             !RE_FECHA.test(t.fecha) ||
             typeof t.enTurno !== "boolean" ||
-            typeof t.trabajo !== "boolean" ||
             !numeroONulo(t.hastaTramo) ||
-            !numeroONulo(t.apagadoHasta)
+            !numeroONulo(t.apagadoHasta) ||
+            !numeroONulo(limite)
         ) {
             return null;
         }
-        return { fecha: t.fecha, enTurno: t.enTurno, trabajo: t.trabajo, hastaTramo: t.hastaTramo, apagadoHasta: t.apagadoHasta };
+        return { fecha: t.fecha, enTurno: t.enTurno, hastaTramo: t.hastaTramo, limite, apagadoHasta: t.apagadoHasta };
     } catch {
         return null;
     }

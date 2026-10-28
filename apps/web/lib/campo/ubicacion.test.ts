@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TurnoDelDia } from "@iris/sync";
 import { hoyEnGuatemala } from "./fechas";
 import { leerTurnoLocal } from "./turno";
-import { puntoDeLectura, RastreadorUbicacion, type AvisoTurno, type DependenciasUbicacion } from "./ubicacion";
+import { olvidarTurno, puntoDeLectura, RastreadorUbicacion, turnoGuardado, type AvisoTurno, type DependenciasUbicacion } from "./ubicacion";
 
 const INICIO = Date.parse("2026-10-28T15:00:00Z");
 
@@ -173,24 +173,24 @@ describe("ubicación en vivo (PWA)", () => {
         expect(rastreador.obtenerEstado()).toMatchObject({ permiso: "no_disponible", activa: false });
     });
 
-    it("el turno termina solo al quedarse sin órdenes abiertas (no si nunca hubo ninguna)", async () => {
+    it("sin agenda, el turno termina solo al quedarse sin órdenes en curso (no si nunca hubo ninguna)", async () => {
         const { geo, rastreador, turno } = await montar();
         // Turno iniciado a mano sin órdenes: sigue.
         rastreador.iniciarTurno();
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(false);
-        expect(rastreador.alCambiarOrdenesAbiertas(2)).toBe(false);
-        expect(rastreador.alCambiarOrdenesAbiertas(1)).toBe(false);
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(false);
+        expect(rastreador.alCambiarOrdenesEnCurso(2)).toBe(false);
+        expect(rastreador.alCambiarOrdenesEnCurso(1)).toBe(false);
         expect(rastreador.obtenerEstado().enTurno).toBe(true);
         // Cierra (o falla, cancelan, reasignan) la última: termina y deja de leer.
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(true);
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(true);
         expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: false, activa: false });
         expect(turno()).toBeNull();
         const lecturas = geo.lecturas;
         await vi.advanceTimersByTimeAsync(5 * 60_000);
         expect(geo.lecturas).toBe(lecturas);
         // Fuera de turno, otra vez sin órdenes no hace nada.
-        expect(rastreador.alCambiarOrdenesAbiertas(1)).toBe(false);
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(false);
+        expect(rastreador.alCambiarOrdenesEnCurso(1)).toBe(false);
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(false);
     });
 
     it("recuerda por usuario que aceptó la explicación", async () => {
@@ -333,34 +333,98 @@ describe("turno según la agenda (Paquete.turno)", () => {
         expect(segunda.rastreador.obtenerEstado().enTurno).toBe(true);
     });
 
-    it("fuera de tramo «En camino» lo enciende y termina con la última orden o el fin del tramo, lo que ocurra después", async () => {
+    it("revisión: con una orden cerrada y tres pendientes sin tocar, a las 17:00 se apaga y a las 18:00 sigue apagado", async () => {
+        vi.setSystemTime(GT("08:30"));
+        const DIA = agenda([["08:00", "17:00"]]);
+        const { geo, rastreador, avisos } = await montar({ hoy: () => hoyEnGuatemala(), explicada: true });
+        rastreador.alCambiarOrdenesEnCurso(0); // cuatro órdenes programadas: ninguna en curso
+        rastreador.establecerAgenda(DIA);
+        expect(rastreador.obtenerEstado().enTurno).toBe(true);
+        // «En camino» y cierre de una sola; las otras tres quedan pendientes sin tocar.
+        await hasta(GT("09:00"));
+        rastreador.alTrabajar();
+        rastreador.alCambiarOrdenesEnCurso(1);
+        await hasta(GT("10:00"));
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(false); // dentro del tramo sigue
+        expect(rastreador.obtenerEstado().enTurno).toBe(true);
+
+        await hasta(GT("17:00"));
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: false, activa: false });
+        expect(avisos).toEqual(["iniciado_por_agenda", "terminado_por_agenda"]);
+        const lecturas = geo.lecturas;
+        await hasta(GT("18:00"));
+        expect(rastreador.obtenerEstado().enTurno).toBe(false);
+        expect(geo.lecturas).toBe(lecturas);
+    });
+
+    it("con una orden en curso al terminar el tramo sigue hasta que no quede ninguna", async () => {
+        vi.setSystemTime(GT("16:00"));
+        const { rastreador, avisos } = await montar({ hoy: () => hoyEnGuatemala(), explicada: true });
+        rastreador.alCambiarOrdenesEnCurso(0);
+        rastreador.establecerAgenda(agenda([["08:00", "17:00"]]));
+        await hasta(GT("16:50"));
+        rastreador.alCambiarOrdenesEnCurso(1); // «En camino» a las 16:50
+        await hasta(GT("17:00"));
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, hasta: null, tope: GT("19:00") });
+        await hasta(GT("17:40"));
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(true);
+        expect(rastreador.obtenerEstado().enTurno).toBe(false);
+        expect(avisos).toEqual(["iniciado_por_agenda", "terminado_por_ordenes"]);
+    });
+
+    it("tope de 2 h después del fin del tramo aunque la orden siga en curso, también al reabrir la app", async () => {
+        vi.setSystemTime(GT("16:30"));
+        const local: { turno?: string } = {};
+        const primera = await montar({ hoy: () => hoyEnGuatemala(), explicada: true, local });
+        primera.rastreador.alCambiarOrdenesEnCurso(1);
+        primera.rastreador.establecerAgenda(agenda([["08:00", "17:00"]]));
+        await hasta(GT("17:00"));
+        expect(primera.rastreador.obtenerEstado()).toMatchObject({ enTurno: true, tope: GT("19:00") });
+        primera.desmontar();
+
+        // Reabre la app con la orden todavía en curso: sigue, y a las 19:00 termina.
+        await hasta(GT("18:00"));
+        const segunda = await montar({ hoy: () => hoyEnGuatemala(), explicada: true, local });
+        segunda.rastreador.alCambiarOrdenesEnCurso(1);
+        segunda.rastreador.establecerAgenda(agenda([["08:00", "17:00"]]));
+        expect(segunda.rastreador.obtenerEstado()).toMatchObject({ enTurno: true, tope: GT("19:00") });
+        await hasta(GT("19:00"));
+        expect(segunda.rastreador.obtenerEstado().enTurno).toBe(false);
+        expect(segunda.avisos).toEqual(["terminado_por_tope"]);
+
+        // Reabrir en la extensión sin nada en curso la termina.
+        const local2: { turno?: string } = {};
+        vi.setSystemTime(GT("17:30"));
+        local2.turno = JSON.stringify({ fecha: "2026-10-28", enTurno: true, hastaTramo: null, limite: GT("19:00"), apagadoHasta: null });
+        const tercera = await montar({ hoy: () => hoyEnGuatemala(), explicada: true, local: local2 });
+        tercera.rastreador.alCambiarOrdenesEnCurso(0);
+        tercera.rastreador.establecerAgenda(agenda([["08:00", "17:00"]]));
+        expect(tercera.rastreador.obtenerEstado().enTurno).toBe(false);
+        expect(tercera.avisos).toEqual(["terminado_por_ordenes"]);
+    });
+
+    it("fuera de tramo «En camino» lo enciende: antes del tramo se ata a él; después, con tope de 2 h", async () => {
         vi.setSystemTime(GT("07:00"));
         const { rastreador, avisos } = await montar({ hoy: () => hoyEnGuatemala(), explicada: true });
-        rastreador.establecerAgenda(DIA_PARTIDO);
-        rastreador.alCambiarOrdenesAbiertas(2);
+        rastreador.alCambiarOrdenesEnCurso(0);
+        rastreador.establecerAgenda(agenda([["08:00", "12:00"]]));
         expect(rastreador.alTrabajar()).toBe(true);
-        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, hasta: null });
-
-        // Empieza el tramo: queda atado a él. Cierra todas a las 10:00: sigue hasta las 12:00.
+        rastreador.alCambiarOrdenesEnCurso(1);
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, hasta: null, tope: null });
         await hasta(GT("08:00"));
         expect(rastreador.obtenerEstado().hasta).toBe(GT("12:00"));
-        await hasta(GT("10:00"));
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(false);
-        expect(rastreador.obtenerEstado().enTurno).toBe(true);
+        rastreador.alCambiarOrdenesEnCurso(0);
         await hasta(GT("12:00"));
         expect(rastreador.obtenerEstado().enTurno).toBe(false);
-        expect(avisos).toEqual(["terminado_por_agenda"]);
 
-        // En el tramo de la tarde: «En camino» a las 16:50 y la orden sigue abierta a las 17:00.
-        rastreador.alCambiarOrdenesAbiertas(1);
-        await hasta(GT("16:50"));
-        expect(rastreador.alTrabajar()).toBe(false); // ya estaba en turno (encendido a las 13:00)
-        await hasta(GT("17:00"));
-        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, hasta: null });
-        await hasta(GT("17:40"));
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(true);
+        // A las 20:00, después del tramo: tope a las 22:00.
+        await hasta(GT("20:00"));
+        expect(rastreador.alTrabajar()).toBe(true);
+        rastreador.alCambiarOrdenesEnCurso(1);
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, tope: GT("22:00") });
+        await hasta(GT("22:00"));
         expect(rastreador.obtenerEstado().enTurno).toBe(false);
-        expect(avisos).toEqual(["terminado_por_agenda", "iniciado_por_agenda", "terminado_por_ordenes"]);
+        expect(avisos).toEqual(["terminado_por_agenda", "terminado_por_tope"]);
     });
 
     it("día sin turno en la agenda (o el turno es de otro día): el turno de siempre", async () => {
@@ -374,12 +438,17 @@ describe("turno según la agenda (Paquete.turno)", () => {
         rastreador.establecerAgenda(agenda([["08:00", "17:00"]], "2026-10-27"));
         expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: false, tramos: null });
 
-        rastreador.alCambiarOrdenesAbiertas(1);
+        // Tres programadas sin tocar no cuentan: solo la que va en camino.
+        rastreador.alCambiarOrdenesEnCurso(0);
         expect(rastreador.alTrabajar()).toBe(true);
-        await hasta(GT("20:00"));
-        expect(rastreador.obtenerEstado().enTurno).toBe(true);
-        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(true);
+        rastreador.alCambiarOrdenesEnCurso(1);
+        await hasta(GT("12:00"));
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, tope: null });
+        expect(rastreador.alCambiarOrdenesEnCurso(0)).toBe(true);
+        expect(rastreador.obtenerEstado().enTurno).toBe(false);
         expect(avisos).toEqual(["terminado_por_ordenes"]);
+        await hasta(GT("20:00"));
+        expect(rastreador.obtenerEstado().enTurno).toBe(false);
     });
 
     it("el día cambia a medianoche de Guatemala, no de UTC", async () => {
@@ -400,5 +469,35 @@ describe("turno según la agenda (Paquete.turno)", () => {
         expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: false, empieza: GT("08:00", "2026-10-29") });
         await hasta(GT("08:00", "2026-10-29"));
         expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: true, hasta: GT("17:00", "2026-10-29") });
+    });
+});
+
+describe("turno guardado por usuario y empresa", () => {
+    const datos = new Map<string, string>();
+    beforeEach(() => {
+        datos.clear();
+        vi.stubGlobal("window", {
+            localStorage: {
+                getItem: (k: string) => datos.get(k) ?? null,
+                setItem: (k: string, v: string) => void datos.set(k, v),
+                removeItem: (k: string) => void datos.delete(k),
+            },
+        });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("cada empresa tiene el suyo; la clave vieja (por usuario) se descarta sin usarla", () => {
+        datos.set("iris-campo-turno-51", "2026-10-28");
+        const a = turnoGuardado(51, 7);
+        expect(datos.has("iris-campo-turno-51")).toBe(false);
+        expect(a.leerTurno()).toBeUndefined();
+        a.guardarTurno("x");
+        const b = turnoGuardado(51, 8);
+        expect(b.leerTurno()).toBeUndefined();
+        expect(datos.get("iris-campo-turno-51-7")).toBe("x");
+        expect(turnoGuardado(51, null).leerTurno()).toBeUndefined();
+
+        olvidarTurno(51, 7);
+        expect(datos.has("iris-campo-turno-51-7")).toBe(false);
     });
 });

@@ -15,7 +15,8 @@ export const AVISO_TURNO_INICIADO = "Turno iniciado: se envía tu ubicación cad
 const AVISOS: Record<AvisoTurno, Notificacion> = {
     iniciado_por_agenda: { tono: "info", texto: AVISO_TURNO_INICIADO },
     terminado_por_agenda: { tono: "info", texto: "Turno terminado: terminó tu horario de la agenda. Ya no se envía tu ubicación." },
-    terminado_por_ordenes: { tono: "info", texto: "Turno terminado: no te quedan órdenes abiertas hoy. Ya no se envía tu ubicación." },
+    terminado_por_ordenes: { tono: "info", texto: "Turno terminado: no tienes órdenes en curso. Ya no se envía tu ubicación." },
+    terminado_por_tope: { tono: "warning", texto: "Turno terminado: pasaron 2 h de tu horario; vuelve a iniciarlo si sigues trabajando" },
 };
 const RUTA_VOLVER_A_ENTRAR = "/entrar?siguiente=%2Fcampo&motivo=expirada";
 
@@ -67,7 +68,10 @@ export function textoTurno(estado: EstadoUbicacion): string | null {
         return null;
     }
     if (estado.enTurno) {
-        return estado.hasta !== null ? `En turno hasta ${horaCorta(ISO(estado.hasta))}` : "En turno fuera de horario";
+        if (estado.hasta !== null) {
+            return `En turno hasta ${horaCorta(ISO(estado.hasta))}`;
+        }
+        return estado.tope !== null ? `En turno fuera de horario, máx. ${horaCorta(ISO(estado.tope))}` : "En turno fuera de horario";
     }
     return estado.empieza !== null ? `empieza ${horaCorta(ISO(estado.empieza))}` : null;
 }
@@ -227,14 +231,14 @@ export function ProveedorUbicacion({
                         <li>Registrar dónde marcas «En camino», «Llegué», las fotos y el cierre.</li>
                         <li>Mientras estás en turno y la app está abierta, enviar tu ubicación cada minuto a despacho.</li>
                         <li>
-                            Si tienes turno en la agenda, empieza y termina solo a esas horas (te avisamos). Si sigues trabajando al terminar,
-                            sigue hasta tu última orden abierta.
+                            Si tienes turno en la agenda, empieza y termina solo a esas horas (te avisamos). Si al terminar tienes una orden en
+                            curso (en camino o en sitio), sigue hasta que no quede ninguna en curso, como máximo 2 horas después.
                         </li>
                         <li>
                             Sin turno en la agenda, empieza cuando tocas «Iniciar turno», o solo al marcar «En camino» o «Llegué» (te
-                            avisamos), y termina solo cuando ya no te quedan órdenes abiertas del día (cerraste o no se pudo la última, o te
-                            la cancelaron o reasignaron).
+                            avisamos), y termina solo cuando no queda ninguna orden en curso (en camino o en sitio).
                         </li>
+                        <li>Las órdenes pendientes, programadas o pausadas que no has empezado no mantienen el turno.</li>
                         <li>Siempre puedes terminarlo tú; como máximo, termina a medianoche.</li>
                         <li>Fuera de turno no se registra nada. Si no la permites, la app funciona igual.</li>
                     </ul>
@@ -438,16 +442,17 @@ function PanelUbicacion({
     );
 }
 
-const TERMINALES = new Set(["cerrada", "fallida", "cancelada"]);
+/** En curso: el técnico va en camino o está en sitio (una pausada, pendiente o programada no cuenta). */
+const EN_CURSO = new Set(["en_camino", "en_sitio"]);
 
 /**
  * Turno automático (va dentro de `ProveedorCampo`): pasa al rastreador el turno de la agenda que
- * guarda el motor y las órdenes abiertas del día, y avisa lo que el rastreador hizo solo
- * (encender o apagar al empezar o terminar un tramo, o al quedarse sin órdenes abiertas).
+ * guarda el motor y las órdenes en curso, y avisa lo que el rastreador hizo solo
+ * (encender o apagar al empezar o terminar un tramo, al quedarse sin órdenes en curso o al tope).
  */
 export function TurnoAutomatico({ rastreador }: { rastreador: RastreadorUbicacion }) {
     const { estado, notificar } = useCampo();
-    const abiertas = estado.ordenes.filter((o) => !TERMINALES.has(o.estado) && !o.reasignada).length;
+    const enCurso = estado.ordenes.filter((o) => EN_CURSO.has(o.estado) && !o.reasignada).length;
     const pendiente = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(
@@ -469,9 +474,10 @@ export function TurnoAutomatico({ rastreador }: { rastreador: RastreadorUbicacio
         [rastreador, notificar],
     );
 
-    useEffect(() => rastreador.establecerAgenda(estado.turno), [rastreador, estado.turno]);
+    // Primero las órdenes en curso: al pasar la agenda ya se sabe si algo mantiene el turno.
     useEffect(() => {
-        rastreador.alCambiarOrdenesAbiertas(abiertas);
-    }, [rastreador, abiertas]);
+        rastreador.alCambiarOrdenesEnCurso(enCurso);
+    }, [rastreador, enCurso]);
+    useEffect(() => rastreador.establecerAgenda(estado.turno), [rastreador, estado.turno]);
     return null;
 }

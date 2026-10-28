@@ -37,6 +37,26 @@ export function usableSinSenal(s: SesionCampo, ahora = Date.now(), horas = HORAS
     return edad >= 0 && edad <= Math.min(horas * HORA_MS, SIETE_DIAS_MS);
 }
 
+/** 403 de la API con una contraseña temporal: solo se puede cambiar (`GET /yo` trae `cambioContrasenaRequerido`). */
+export const CODIGO_CAMBIO_CONTRASENA = "cambio_contrasena_requerido";
+export const RUTA_CAMBIAR_CONTRASENA = "/cambiar-contrasena?siguiente=%2Fcampo";
+
+let yendoACambiarContrasena = false;
+
+/** Lleva a cambiar la contraseña y vuelve a `/campo` (carga completa: la página es del panel). Una sola vez. */
+export function irACambiarContrasena(): void {
+    if (yendoACambiarContrasena) {
+        return;
+    }
+    yendoACambiarContrasena = true;
+    window.location.replace(RUTA_CAMBIAR_CONTRASENA);
+}
+
+/** ¿El problema de la API pide cambiar la contraseña? */
+export function pideCambioContrasena(problema: { type?: string | null } | null | undefined): boolean {
+    return problema?.type === `urn:iris:problema:${CODIGO_CAMBIO_CONTRASENA}`;
+}
+
 const CLAVE_SESION = "iris-campo-sesion";
 /** Se cerró sesión sin señal: la cookie sigue en la API; al volver la señal se cierra allí. */
 const CLAVE_CIERRE_PENDIENTE = "iris-campo-cierre-pendiente";
@@ -175,6 +195,14 @@ export async function verificarDueno(usuarioId: number, empresaId: number | null
     }
     if (yo.usuario.id !== usuarioId) {
         throw errorSesionAjena("La sesión abierta en este navegador es de otro usuario");
+    }
+    if (yo.usuario.cambioContrasenaRequerido) {
+        // Igual que respondería la API a cualquier otra llamada: nada sale hasta cambiarla.
+        throw new ErrorTransporte("http", "Tienes que cambiar tu contraseña", 403, {
+            type: `urn:iris:problema:${CODIGO_CAMBIO_CONTRASENA}`,
+            title: "Tienes que cambiar tu contraseña",
+            status: 403,
+        });
     }
     if (empresaId !== null && yo.empresaActiva?.id !== empresaId) {
         throw errorSesionAjena("La sesión abierta ya no trabaja en esta empresa");

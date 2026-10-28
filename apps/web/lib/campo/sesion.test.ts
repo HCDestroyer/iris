@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HORAS_SIN_SENAL, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
+import { HORAS_SIN_SENAL, pideCambioContrasena, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
 
 const HORA = 60 * 60 * 1000;
 const sesion = (verificadoEn: number): SesionCampo => ({
@@ -57,5 +57,15 @@ describe("verificarDueno (antes de cada envío del motor)", () => {
         await expect(verificarDueno(51, null)).rejects.toMatchObject({ tipo: "red" });
         responder({ type: "urn:iris:problema:no_autenticado", title: "Sin sesión", status: 401 }, 401);
         await expect(verificarDueno(51, null)).rejects.toMatchObject({ status: 401, esDeSesion: true });
+    });
+    it("con contraseña temporal: 403 cambio_contrasena_requerido (no sale nada hasta cambiarla)", async () => {
+        const temporal = yo(51);
+        temporal.usuario.cambioContrasenaRequerido = true;
+        responder(temporal);
+        const error: unknown = await verificarDueno(51, null).catch((e: unknown) => e);
+        expect(error).toMatchObject({ status: 403, esDeSesion: true, codigo: "cambio_contrasena_requerido" });
+        expect(pideCambioContrasena((error as { problema: { type: string } }).problema)).toBe(true);
+        expect(pideCambioContrasena({ type: "urn:iris:problema:no_autenticado" })).toBe(false);
+        expect(pideCambioContrasena(null)).toBe(false);
     });
 });

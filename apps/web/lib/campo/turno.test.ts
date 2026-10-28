@@ -42,11 +42,16 @@ describe("turno de la agenda", () => {
     });
 
     it("lee el turno local guardado, también el formato anterior (solo la fecha)", () => {
-        const t = { fecha: "2026-10-28", enTurno: false, trabajo: false, hastaTramo: null, apagadoHasta: ms("18:00") };
+        const t = { fecha: "2026-10-28", enTurno: false, hastaTramo: null, limite: null, apagadoHasta: ms("18:00") };
         expect(leerTurnoLocal(escribirTurnoLocal(t))).toEqual(t);
-        expect(leerTurnoLocal("2026-10-28")).toEqual({ fecha: "2026-10-28", enTurno: true, trabajo: true, hastaTramo: null, apagadoHasta: null });
+        expect(leerTurnoLocal("2026-10-28")).toEqual({ fecha: "2026-10-28", enTurno: true, hastaTramo: null, limite: null, apagadoHasta: null });
         expect(leerTurnoLocal(undefined)).toBeNull();
         expect(leerTurnoLocal("{roto")).toBeNull();
         expect(leerTurnoLocal(JSON.stringify({ ...t, enTurno: "si" }))).toBeNull();
+        // El de la versión anterior (con `trabajo`, sin `limite`) se lee sin tope.
+        expect(leerTurnoLocal(JSON.stringify({ fecha: "2026-10-28", enTurno: true, trabajo: true, hastaTramo: null, apagadoHasta: null }))).toMatchObject({
+            enTurno: true,
+            limite: null,
+        });
     });
 });

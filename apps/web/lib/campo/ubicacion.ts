@@ -5,18 +5,19 @@
 // «En turno»:
 // - Con turno en la agenda (`Paquete.turno`, guardado en el motor): al empezar un tramo se enciende
 //   solo (si ya aceptó la explicación y hay permiso; con aviso) y al terminar el tramo se apaga solo.
-//   Un «Terminar turno» a mano dentro de un tramo se respeta hasta el tramo siguiente. Fuera de tramo,
-//   «En camino» / «Llegué» lo encienden igual (hay trabajo real) y termina con la última orden o al
-//   final del tramo, lo que ocurra después.
+//   Un «Terminar turno» a mano dentro de un tramo se respeta hasta el tramo siguiente. Fuera de tramo
+//   solo lo mantiene una orden en curso (`en_camino` o `en_sitio`): termina cuando no queda ninguna,
+//   y como máximo 2 h después del fin del tramo. «En camino» / «Llegué» lo encienden igual.
 // - Sin turno en la agenda: lo empieza el técnico («Iniciar turno») o «En camino» / «Llegué», y
-//   termina cuando no le quedan órdenes abiertas del día o cuando lo termina él.
+//   termina cuando no le queda ninguna orden en curso o cuando lo termina él. Las pendientes,
+//   programadas, atrasadas o pausadas no lo mantienen.
 // - Siempre: al cambiar el día en Guatemala termina solo (red de seguridad).
 // La explicación se muestra la primera vez por usuario aunque el permiso ya esté dado, y el navegador
 // pregunta solo después de ella; si se niega, la app sigue funcionando y queda «Sin permiso».
 import type { ColaPosiciones, PuntoPosicion, TurnoDelDia } from "@iris/sync";
 import { borrarLocal, escribirLocal, leerLocal } from "@/lib/almacen";
 import { hoyEnGuatemala } from "./fechas";
-import { escribirTurnoLocal, leerTurnoLocal, proximaFrontera, siguienteTramo, tramoEn, tramosDeHoy, type Tramo, type TurnoLocal } from "./turno";
+import { escribirTurnoLocal, EXTENSION_MAX_MS, leerTurnoLocal, proximaFrontera, siguienteTramo, tramoEn, tramosDeHoy, type Tramo, type TurnoLocal } from "./turno";
 
 /** `preguntar`: el navegador todavía no preguntó; `desconocido`: no hay API de permisos para saberlo. */
 export type Permiso = "desconocido" | "preguntar" | "concedido" | "denegado" | "no_disponible";
@@ -38,10 +39,12 @@ export interface EstadoUbicacion {
     hasta: number | null;
     /** Fuera de turno: inicio (ms) del próximo tramo de hoy. */
     empieza: number | null;
+    /** En turno fuera de tramo por una orden en curso: hora (ms) en que termina como máximo. */
+    tope: number | null;
 }
 
 /** Cambios del turno que hizo el rastreador solo (la pantalla los avisa). */
-export type AvisoTurno = "iniciado_por_agenda" | "terminado_por_agenda" | "terminado_por_ordenes";
+export type AvisoTurno = "iniciado_por_agenda" | "terminado_por_agenda" | "terminado_por_ordenes" | "terminado_por_tope";
 
 export interface DependenciasUbicacion {
     geolocalizacion: Geolocation | null;
@@ -62,29 +65,40 @@ export interface DependenciasUbicacion {
     documento: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener"> | null;
 }
 
-const claveTurno = (usuarioId: number) => `iris-campo-turno-${usuarioId}`;
+/** Clave de antes (por usuario, compartida entre empresas): se descarta sin usarla. */
+const claveTurnoVieja = (usuarioId: number) => `iris-campo-turno-${usuarioId}`;
+const claveTurno = (usuarioId: number, empresaId: number | null) => `iris-campo-turno-${usuarioId}-${empresaId ?? 0}`;
 const claveExplicacion = (usuarioId: number) => `iris-campo-ubicacion-explicada-${usuarioId}`;
 
-/** Turno guardado por usuario (comodidad local: si se pierde, el técnico lo inicia otra vez). */
-export function turnoGuardado(usuarioId: number) {
+/**
+ * Turno guardado por usuario y empresa (comodidad local: si se pierde, el técnico lo inicia otra
+ * vez o lo enciende la agenda). La clave vieja, por usuario, se lee una sola vez y se borra: un
+ * turno no pasa de una empresa a otra.
+ */
+export function turnoGuardado(usuarioId: number, empresaId: number | null) {
+    if (leerLocal(claveTurnoVieja(usuarioId)) !== undefined) {
+        borrarLocal(claveTurnoVieja(usuarioId));
+    }
+    const clave = claveTurno(usuarioId, empresaId);
     return {
-        leerTurno: () => leerLocal(claveTurno(usuarioId)),
-        guardarTurno: (valor: string | null) => (valor === null ? borrarLocal(claveTurno(usuarioId)) : escribirLocal(claveTurno(usuarioId), valor)),
+        leerTurno: () => leerLocal(clave),
+        guardarTurno: (valor: string | null) => (valor === null ? borrarLocal(clave) : escribirLocal(clave, valor)),
     };
 }
 
-export function olvidarTurno(usuarioId: number): void {
-    borrarLocal(claveTurno(usuarioId));
+export function olvidarTurno(usuarioId: number, empresaId: number | null): void {
+    borrarLocal(claveTurno(usuarioId, empresaId));
+    borrarLocal(claveTurnoVieja(usuarioId));
 }
 
 /** Dependencias del navegador (las pruebas pasan las suyas). */
-export function dependenciasNavegador(usuarioId: number): DependenciasUbicacion {
+export function dependenciasNavegador(usuarioId: number, empresaId: number | null): DependenciasUbicacion {
     const hayNavegador = typeof navigator !== "undefined";
     return {
         geolocalizacion: hayNavegador && "geolocation" in navigator ? navigator.geolocation : null,
         permisos: hayNavegador && "permissions" in navigator && typeof navigator.permissions?.query === "function" ? navigator.permissions : null,
         hoy: () => hoyEnGuatemala(),
-        ...turnoGuardado(usuarioId),
+        ...turnoGuardado(usuarioId, empresaId),
         leerExplicacion: () => leerLocal(claveExplicacion(usuarioId)),
         guardarExplicacion: (valor) => escribirLocal(claveExplicacion(usuarioId), valor),
         intervaloMs: 60_000,
@@ -130,8 +144,8 @@ export class RastreadorUbicacion {
     private montado = false;
     private evaluando = false;
     private estadoPermiso: PermissionStatus | null = null;
-    /** Órdenes abiertas del día vistas la última vez (`null` = aún no se vio ninguna lista). */
-    private abiertasPrevias: number | null = null;
+    /** Órdenes en curso (`en_camino` o `en_sitio`) vistas la última vez (`null` = aún no se vio la lista). */
+    private enCurso: number | null = null;
     /** «Ahora no» a la explicación en esta visita: nada vuelve a preguntar ni se enciende solo. */
     private declinado = false;
     private readonly oyentes = new Set<Oyente>();
@@ -234,18 +248,13 @@ export class RastreadorUbicacion {
     }
 
     /**
-     * «En camino» / «Llegué»: hay trabajo real. Fuera de turno lo enciende (si puede empezar solo);
-     * en turno, lo marca para que no se apague al terminar el tramo mientras queden órdenes
-     * abiertas. Devuelve si lo encendió.
+     * «En camino» / «Llegué»: hay trabajo real. Fuera de turno lo enciende (si puede empezar solo).
+     * Devuelve si lo encendió. Lo que lo mantiene después es la orden en curso, no la acción.
      */
     alTrabajar(): boolean {
-        if (this.local?.enTurno) {
-            if (!this.local.trabajo) {
-                this.guardar({ ...this.local, trabajo: true });
-            }
-            return false;
-        }
-        if (!this.puedeEmpezarSolo()) {
+        // La orden acaba de quedar en curso, aunque la lista todavía no lo haya contado.
+        this.enCurso = Math.max(this.enCurso ?? 0, 1);
+        if (this.enTurno || !this.puedeEmpezarSolo()) {
             return false;
         }
         this.encender(true);
@@ -253,22 +262,18 @@ export class RastreadorUbicacion {
     }
 
     /**
-     * Sin agenda (o fuera de tramo), el turno termina solo cuando el técnico se queda sin órdenes
-     * abiertas del día (pasa de alguna a ninguna: cerró, falló, se canceló o se reasignó la
-     * última). Dentro de un tramo sigue hasta el fin del tramo. Devuelve si lo terminó.
+     * Órdenes en curso (`en_camino` o `en_sitio`; ni pendientes, ni programadas, ni atrasadas, ni
+     * pausadas). Fuera de tramo (o sin agenda), al pasar de alguna a ninguna el turno termina solo;
+     * dentro de un tramo sigue hasta el fin del tramo. Devuelve si lo terminó.
      */
-    alCambiarOrdenesAbiertas(abiertas: number): boolean {
-        const previas = this.abiertasPrevias;
-        this.abiertasPrevias = abiertas;
-        if (previas === null || previas === 0 || abiertas > 0 || !this.local?.enTurno) {
+    alCambiarOrdenesEnCurso(enCurso: number): boolean {
+        const previas = this.enCurso;
+        this.enCurso = enCurso;
+        if (previas === null || previas === 0 || enCurso > 0 || !this.enTurno) {
             return false;
         }
         const tramos = this.tramos();
         if (tramos && tramoEn(tramos, Date.now())) {
-            // Lo que ocurra después: el tramo sigue, el turno también.
-            if (this.local.trabajo) {
-                this.guardar({ ...this.local, trabajo: false });
-            }
             return false;
         }
         this.apagar();
@@ -317,17 +322,25 @@ export class RastreadorUbicacion {
         this.deps.guardarTurno(turno === null ? null : escribirTurnoLocal(turno));
     }
 
-    private encender(trabajo: boolean): void {
+    /**
+     * Enciende el turno. Con agenda, fuera de tramo y por trabajo («En camino» / «Llegué») después
+     * de algún tramo de hoy, lleva tope: 2 h desde el fin del último tramo o desde ahora, lo que sea
+     * más tarde (antes del primer tramo, se ata al tramo cuando empiece).
+     */
+    private encender(porTrabajo: boolean): void {
         const tramos = this.tramos();
-        const tramo = tramos ? tramoEn(tramos, Date.now()) : null;
-        this.guardar({ fecha: this.deps.hoy(), enTurno: true, trabajo, hastaTramo: tramo?.fin ?? null, apagadoHasta: null });
+        const ahora = Date.now();
+        const tramo = tramos ? tramoEn(tramos, ahora) : null;
+        const ultimoFin = tramos?.filter((t) => t.fin <= ahora).at(-1)?.fin ?? null;
+        const limite = porTrabajo && !tramo && ultimoFin !== null ? Math.max(ultimoFin, ahora) + EXTENSION_MAX_MS : null;
+        this.guardar({ fecha: this.deps.hoy(), enTurno: true, hastaTramo: tramo?.fin ?? null, limite, apagadoHasta: null });
         // Al empezar el turno se lee enseguida, aunque haya una lectura reciente (de la acción o del permiso).
         this.leidaEn = null;
         this.evaluar();
     }
 
     private apagar(apagadoHasta: number | null = null): void {
-        this.guardar(apagadoHasta === null ? null : { fecha: this.deps.hoy(), enTurno: false, trabajo: false, hastaTramo: null, apagadoHasta });
+        this.guardar(apagadoHasta === null ? null : { fecha: this.deps.hoy(), enTurno: false, hastaTramo: null, limite: null, apagadoHasta });
         this.gps = "inactiva";
         this.evaluar();
     }
@@ -356,22 +369,27 @@ export class RastreadorUbicacion {
                 const tramo = tramoEn(tramos, ahora);
                 if (local?.enTurno) {
                     if (tramo) {
-                        if (local.hastaTramo !== tramo.fin) {
-                            this.guardar({ ...local, hastaTramo: tramo.fin });
+                        if (local.hastaTramo !== tramo.fin || local.limite !== null) {
+                            this.guardar({ ...local, hastaTramo: tramo.fin, limite: null });
                         }
                     } else if (local.hastaTramo !== null) {
-                        // Terminó el tramo. Con trabajo real y órdenes abiertas sigue hasta la última.
-                        if (local.trabajo && (this.abiertasPrevias ?? 0) > 0) {
-                            this.guardar({ ...local, hastaTramo: null });
+                        // Terminó el tramo. Solo una orden en curso lo mantiene, y como mucho 2 h.
+                        const limite = local.hastaTramo + EXTENSION_MAX_MS;
+                        if ((this.enCurso ?? 0) > 0 && ahora < limite) {
+                            this.guardar({ ...local, hastaTramo: null, limite });
                         } else {
-                            this.guardar(null);
-                            this.gps = "inactiva";
-                            this.avisar("terminado_por_agenda");
+                            this.terminarSolo("terminado_por_agenda");
+                        }
+                    } else if (local.limite !== null) {
+                        if (ahora >= local.limite) {
+                            this.terminarSolo("terminado_por_tope");
+                        } else if (this.enCurso === 0) {
+                            this.terminarSolo("terminado_por_ordenes");
                         }
                     }
                 } else if (tramo && !(ahora < (local?.apagadoHasta ?? 0)) && this.puedeEmpezarSolo()) {
                     // Al empezar un tramo (o al abrir la app dentro de él), salvo que lo haya terminado a mano en este tramo.
-                    this.guardar({ fecha: this.deps.hoy(), enTurno: true, trabajo: false, hastaTramo: tramo.fin, apagadoHasta: null });
+                    this.guardar({ fecha: this.deps.hoy(), enTurno: true, hastaTramo: tramo.fin, limite: null, apagadoHasta: null });
                     this.leidaEn = null;
                     this.avisar("iniciado_por_agenda");
                 }
@@ -383,12 +401,20 @@ export class RastreadorUbicacion {
         this.actualizar();
     }
 
+    private terminarSolo(aviso: AvisoTurno): void {
+        this.guardar(null);
+        this.gps = "inactiva";
+        this.avisar(aviso);
+    }
+
     private programarRevision(tramos: readonly Tramo[] | null, ahora: number): void {
         this.pararRevision();
         if (!this.montado || (tramos === null && this.local === null)) {
             return;
         }
-        const frontera = tramos ? proximaFrontera(tramos, ahora) : null;
+        const limite = this.local?.enTurno && this.local.limite !== null && this.local.limite > ahora ? this.local.limite : null;
+        const borde = tramos ? proximaFrontera(tramos, ahora) : null;
+        const frontera = borde === null ? limite : limite === null ? borde : Math.min(borde, limite);
         const espera = Math.min(frontera === null ? REVISION_MAX_MS : frontera - ahora, REVISION_MAX_MS);
         this.revision = setTimeout(() => {
             this.revision = null;
@@ -536,6 +562,7 @@ export class RastreadorUbicacion {
             tramos,
             hasta: tramos && enTurno ? (tramoEn(tramos, ahora)?.fin ?? null) : null,
             empieza: tramos && !enTurno ? (siguienteTramo(tramos, ahora)?.inicio ?? null) : null,
+            tope: tramos && enTurno && this.local?.hastaTramo === null ? this.local.limite : null,
         };
     }
 
@@ -550,6 +577,7 @@ export class RastreadorUbicacion {
             previo.activa === siguiente.activa &&
             previo.hasta === siguiente.hasta &&
             previo.empieza === siguiente.empieza &&
+            previo.tope === siguiente.tope &&
             mismosTramos(previo.tramos, siguiente.tramos)
         ) {
             return;
