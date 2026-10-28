@@ -86,10 +86,13 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   checklist, notas, materiales, equipos, firma, adjuntos, instantánea de cliente y servicio y
   `comodato` (`disponible`, `motivo`: `sin_conector|argos_no_disponible|sin_servicio`);
   `existencias` de sus bodegas (igual, `sin_bodega`); `cita` de la agenda (inicio, fin, ventana);
-  `ruta` ausente (llega con las rutas); `cursor` tomado
+  `ruta` publicada del día (agenda: `ordenIds` y `paradas` con la llegada estimada, solo las
+  órdenes del paquete; `desactualizada` si una cambió después) y `ordenes` en ese orden (las que
+  no están en la ruta, después); `cursor` tomado
   antes de leer (puede repetir, nunca saltar). El inventario se lee de Argos fuera de la
   transacción (interfaz `Inventario`, nil sin conector).
-- `GET /campo/cambios?cursor=&limit=`: feed por técnico (`campo.orden_cambios`, escrito con un
+- `GET /campo/cambios?cursor=&limit=`: trae además `ruta` (la publicada de hoy, como está ahora).
+  Feed por técnico (`campo.orden_cambios`, escrito con un
   candado por técnico para que sus ids sigan el orden de COMMIT). Una entrada por orden (`nueva`,
   `actualizada`, `reprogramada`, `cancelada`, `reasignada` sin `orden`), `cursor` y `hayMas`.
 - `POST /sync/lote`: `{ dispositivoId, plataforma?, enviadoEn?, cursor?, operaciones[] }` →

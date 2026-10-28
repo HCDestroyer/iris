@@ -165,4 +165,33 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, cal, func(ctx context.Context, in *EntradaCalendario) (*cuerpo[Calendario], error) {
 		return responder(m.Calendario.Ejecutar(ctx, *in))
 	})
+
+	// Rutas del día.
+	listarRutas := operacion("listarRutas", http.MethodGet, "/api/v1/rutas", "Rutas del día (borradores y publicadas)", nucleo.PermRutasVer, http.StatusOK)
+	listarRutas.Description += " De la empresa activa, de los técnicos que cubre tu alcance (su cuadrilla). Sin paradas ni recorrido: GET /rutas/{id}."
+	huma.Register(api, listarRutas, func(ctx context.Context, in *EntradaListarRutas) (*cuerpo[nucleo.Pagina[Ruta]], error) {
+		return responder(m.ListarRutas.Ejecutar(ctx, *in))
+	})
+	proponer := operacion("proponerRuta", http.MethodPost, "/api/v1/rutas/proponer", "Proponer la ruta del día de un técnico",
+		nucleo.PermRutasProponer, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	proponer.Description += " Ordena las citas del técnico ese día (las ya en camino, en sitio o terminadas van primero, en el orden real)" +
+		" para llegar dentro de la ventana acordada con el cliente con el menor viaje (OSRM /table; trazo con /route), con la duración" +
+		" estimada por tipo de orden. Si OSRM no responde, ordena por ventana y distancia en línea recta y lo dice (`degradada`, `motivoMotor`)." +
+		" Crea o rehace el borrador (una publicada no se toca hasta publicar otra). 422 `ruta_vacia`, `demasiadas_paradas`," +
+		" `validacion` (ordenIds). Emite `ruta.propuesta`."
+	huma.Register(api, proponer, func(ctx context.Context, in *conClave[EntradaProponerRuta]) (*cuerpo[RutaDetalle], error) {
+		return responder(m.ProponerRuta(ctx, in.Body))
+	})
+	verRuta := operacion("verRuta", http.MethodGet, "/api/v1/rutas/{id}", "Ruta propuesta frente a la real",
+		nucleo.PermRutasVer, http.StatusOK, http.StatusNotFound)
+	verRuta.Description += " Paradas con la llegada estimada y la real (en sitio), el desvío, si la orden sigue en la ruta (`vigente`)," +
+		" y el recorrido real del técnico ese día (campo.posiciones; exige `campo.ver_posiciones`). Paradas fuera de tu alcance salen ocultas."
+	huma.Register(api, verRuta, func(ctx context.Context, in *EntradaVerRuta) (*cuerpo[RutaDetalle], error) {
+		return responder(m.VerRuta.Ejecutar(ctx, *in))
+	})
+	registrarConID(api, accion("publicarRuta", "/api/v1/rutas/{id}/publicar", "Publicar la ruta del día",
+		"Publica el borrador: el técnico la recibe en el paquete de la app de campo (órdenes en el orden de la ruta). La publicada"+
+			" anterior queda `reemplazada` (nunca se borra). 422 `ruta_desactualizada` (una orden cambió de técnico o de hora: propónla"+
+			" de nuevo) y `transicion_invalida`. Emite `ruta.publicada`.", nucleo.PermRutasPublicar),
+		m.Publicar.Ejecutar, func(e *EntradaPublicarRuta, id int64) { e.ID = id })
 }
