@@ -141,6 +141,9 @@ Una tarea está terminada solo si:
 | `ticket.creado` | soporte | ticket_id, empresa_id, cliente_id (o null), servicio_id (o null), categoria, prioridad, origen |
 | `ticket.estado_cambiado` | soporte | ticket_id, de, a, motivo |
 | `ticket.asignado` | soporte | ticket_id, usuario_id (o null), cuadrilla_id (o null) |
+| `ticket.respondido` | soporte | ticket_id, mensaje_id |
+| `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
+| `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id |
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin |

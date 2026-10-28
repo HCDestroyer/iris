@@ -1,6 +1,7 @@
 // Comando worker: workers de River. El relay del outbox (integracion.outbox → suscriptores
-// internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO, y los jobs del conector Argos
-// (webhooks entrantes y refresco periódico de zonas y routers).
+// internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO, los jobs del conector Argos
+// (webhooks entrantes y refresco periódico de zonas y routers) y el cron de SLA de soporte
+// (cada minuto).
 package main
 
 import (
@@ -19,6 +20,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
 
@@ -67,11 +69,16 @@ func correr() error {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: los webhooks de Argos no se podrán procesar")
 	}
 	conectorArgos := argos.Nuevo(acfg)
+	sop := soporte.Nuevo(soporte.Config{})
+	registrarSoporte := sop.RegistrarTrabajos(pool)
 
 	cliente, err := integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
-		Registrar:  func(w *river.Workers) { conectorArgos.RegistrarWorkers(w, pool) },
-		Periodicos: argos.TrabajosPeriodicos(0),
+		Registrar: func(w *river.Workers) {
+			conectorArgos.RegistrarWorkers(w, pool)
+			registrarSoporte(w)
+		},
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute)),
 	})
 	if err != nil {
 		return err

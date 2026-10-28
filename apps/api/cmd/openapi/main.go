@@ -20,6 +20,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
 // versionContrato es la versión del contrato publicada en info.version.
@@ -39,7 +40,10 @@ func escribir(salida string) error {
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:   versionContrato,
 		Identidad: identidad.Nuevo(identidad.Config{}),
-		Modulos:   []func(huma.API){argos.Nuevo(argos.Config{}).Registrar},
+		Modulos: []func(huma.API){
+			argos.Nuevo(argos.Config{}).Registrar,
+			soporte.Nuevo(soporte.Config{}).Registrar,
+		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()
 	if err != nil {

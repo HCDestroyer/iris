@@ -39,6 +39,7 @@ export const BLOQUEADO = "bloqueado@iris.test";
 export const PERMISOS_ADMIN: Permiso[] = [
     "permisos.ver",
     "roles.ver",
+    "tickets.ver",
     "tokens.crear",
     "tokens.revocar",
     "tokens.ver",

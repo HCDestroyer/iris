@@ -51,3 +51,10 @@ sql:
         <<: *gen
         package: argosbd
         out: internal/integracion/argos/bd
+  - <<: *base
+    queries: internal/soporte/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: soportebd
+        out: internal/soporte/bd

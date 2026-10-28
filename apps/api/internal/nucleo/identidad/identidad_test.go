@@ -76,7 +76,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo) {
 		t.Fatalf("admin tiene todos los permisos: %v", porCodigo["admin"].Permisos)
 	}
-	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermClientesVer, nucleo.PermPermisosVer, nucleo.PermRolesVer, nucleo.PermUsuariosVer}) {
+	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermClientesVer, nucleo.PermPermisosVer, nucleo.PermRolesVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
 }
@@ -104,9 +104,14 @@ func TestNadieAsignaMasDeLoQueTiene(t *testing.T) {
 	if !errors.As(err, &p) || p.Status != http.StatusForbidden {
 		t.Fatalf("esperaba 403 con alcance limitado, llegó %v", err)
 	}
-	// Con los permisos de soporte globales sí puede darlo.
-	ok := pruebas.ContextoUsuario(pool, 1, nucleo.PermUsuariosCrear, nucleo.PermUsuariosVer,
-		nucleo.PermClientesVer, nucleo.PermClientesEstadoCuenta)
+	// Con cada permiso del rol soporte (usuarios.ver, clientes.* y tickets.*) sin límite sí puede darlo.
+	deSoporte := []nucleo.Permiso{nucleo.PermUsuariosCrear}
+	for _, r := range nucleo.RolesBase {
+		if r.Codigo == "soporte" {
+			deSoporte = append(deSoporte, r.PermisosDeRol()...)
+		}
+	}
+	ok := pruebas.ContextoUsuario(pool, 1, deSoporte...)
 	if _, err := mod.CrearUsuario.Ejecutar(ok, identidad.EntradaCrearUsuario{
 		Nombre: "Soporte", Correo: pruebas.Correo("sop"), Contrasena: "contrasena-larga-1",
 		Roles: []identidad.AsignacionRol{{Rol: "soporte"}},

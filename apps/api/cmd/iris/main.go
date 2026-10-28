@@ -30,6 +30,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
 
@@ -138,8 +139,11 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	conectorArgos := argos.Nuevo(acfg)
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
-		Idempotencia:      nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
-		Modulos:           []func(huma.API){conectorArgos.Registrar},
+		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Modulos: []func(huma.API){
+			conectorArgos.Registrar,
+			soporte.Nuevo(soporte.Config{}).Registrar,
+		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})
 

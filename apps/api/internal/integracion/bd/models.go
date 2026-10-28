@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AuditoriaAccione struct {
@@ -284,4 +285,152 @@ type NucleoUsuariosRole struct {
 	CuadrillaID *int64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type SoporteCalendario struct {
+	ID          int64
+	EmpresaID   *int64
+	Codigo      string
+	Nombre      string
+	ZonaHoraria string
+	Version     int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type SoporteCalendarioTramo struct {
+	ID           int64
+	CalendarioID int64
+	DiaSemana    int16
+	Inicio       pgtype.Time
+	Fin          pgtype.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type SoporteCategoria struct {
+	ID            int64
+	EmpresaID     *int64
+	Codigo        string
+	Nombre        string
+	SlaID         *int64
+	RequiereOrden bool
+	Activa        bool
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type SoporteFeriado struct {
+	ID           int64
+	CalendarioID int64
+	Fecha        pgtype.Date
+	Nombre       string
+	Desde        pgtype.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type SoporteSla struct {
+	ID           int64
+	EmpresaID    *int64
+	Codigo       string
+	Nombre       string
+	CalendarioID *int64
+	PorDefecto   bool
+	Activo       bool
+	Version      int32
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type SoporteSlaObjetivo struct {
+	SlaID         int64
+	Prioridad     string
+	RespuestaMin  int32
+	ResolucionMin int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type SoporteTicket struct {
+	ID                 int64
+	Numero             string
+	EmpresaID          *int64
+	ClienteID          *int64
+	ServicioID         *int64
+	ZonaID             *int64
+	ContactoNombre     *string
+	ContactoTelefono   *string
+	ContactoCorreo     *string
+	CategoriaID        *int64
+	Prioridad          string
+	Estado             string
+	Origen             string
+	Asunto             string
+	AsignadoA          *int64
+	CuadrillaID        *int64
+	NivelEscalamiento  int32
+	SlaID              *int64
+	CalendarioID       *int64
+	SlaInicio          time.Time
+	SlaRespuestaMin    *int32
+	SlaResolucionMin   *int32
+	PausaSeg           int64
+	RiesgoRespuesta    *time.Time
+	VenceRespuesta     *time.Time
+	RiesgoResolucion   *time.Time
+	VenceResolucion    *time.Time
+	PrimeraRespuestaEn *time.Time
+	EnEsperaDesde      *time.Time
+	ResueltoEn         *time.Time
+	CerradoEn          *time.Time
+	TicketPadreID      *int64
+	FusionadoEnID      *int64
+	Version            int32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Idempotencia       *string
+}
+
+type SoporteTicketEvento struct {
+	ID          int64
+	TicketID    int64
+	EmpresaID   *int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	Datos       []byte
+	ActorTipo   string
+	ActorID     *int64
+	ActorNombre string
+	RequestID   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type SoporteTicketMensaje struct {
+	ID           int64
+	TicketID     int64
+	EmpresaID    *int64
+	Publico      bool
+	AutorTipo    string
+	AutorID      *int64
+	AutorNombre  string
+	Canal        string
+	Cuerpo       string
+	Adjuntos     []uuid.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Idempotencia *string
+}
+
+type SoporteTicketSlaAlerta struct {
+	TicketID  int64
+	Sla       string
+	Umbral    string
+	VenceEn   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
