@@ -152,6 +152,8 @@ Una tarea está terminada solo si:
 | `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[] |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |
+| `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
+| `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
 | `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
 | `conector.creado` / `conector.activado` / `conector.desactivado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado) |

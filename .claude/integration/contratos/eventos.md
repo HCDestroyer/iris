@@ -21,15 +21,38 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 
 ## Integraciones (núcleo, I1)
 
-Emite `integracion/argos`. Los de conectores van con `empresa_id = null`; `argos.servicio_retirado`
-lleva la empresa del servicio según Argos.
+Emiten `integracion/conector` (los `conector.*`, de Argos y de Horus) e `integracion/argos`. Los de
+conectores van con `empresa_id = null`; `argos.servicio_retirado` lleva la empresa del servicio
+según Argos.
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `conector.creado` | `conector_id`, `sistema` (`argosisp`), `origen` (`enlace_remoto` \| `enlace_local`) | Se canjeó un enlace de conexión. El conector nace apagado. |
+| `conector.creado` | `conector_id`, `sistema` (`argosisp` \| `horus`), `origen` (`enlace_remoto` \| `enlace_local`) | Se canjeó un enlace de conexión. El conector nace apagado. |
 | `conector.activado` | `conector_id`, `sistema` | `integraciones.activar`. |
 | `conector.desactivado` | `conector_id`, `sistema`, `motivo` | `integraciones.desactivar`. |
+| `conector.actualizado` | `conector_id`, `sistema`, `campos[]` (hoy `url_publica`) | `integraciones.configurar_url` (`POST /integraciones/conectores/{id}/url-publica`), solo si cambió algo. |
 | `argos.servicio_retirado` | `servicio_id`, `cliente_id` (o null), `de`, `a` (`retirado`), `entrante_id` | Argos avisó `servicio.estado_cambiado` con `a = retirado` **y** Iris lo confirmó releyendo `GET /servicios/:id` en Argos (ids y empresa salen de esa lectura, no del payload). Gancho para que I2 proponga la orden de retiro (Fase 2) si el servicio tiene equipos en comodato. Una vez por webhook (deduplicado por el `id` firmado del cuerpo). |
+
+## Horus (núcleo, I1)
+
+Emite `integracion/horus` al procesar los webhooks de Horus (contrato `horus.md` §2): el job valida
+y normaliza el payload y lo publica con **el mismo nombre** que el webhook. **No crea tickets**:
+soporte (I2) se suscribe (`bus.Suscribir("soporte.horus", "horus.router_estado_cambiado", fn)`) y
+decide. Uno por webhook (deduplicado por su `id` firmado; el job es idempotente), pero un
+suscriptor debe tolerar recibirlo dos veces (relay). `empresa_id` va en el sobre y en el payload
+(null si no se supo). Fechas en UTC (RFC 3339). Todos llevan `entrante_id`
+(`integracion.entrantes.id`, para rastrear).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `horus.router_estado_cambiado` | `router_id` (id del router **en Argos**; supuesto), `nombre`, `estado` (`caido` \| `arriba`), `ocurrido_en`, `empresa_id` (o null), `entrante_id` | Un router cae o vuelve. `empresa_id`: la del payload; si no viene, la del router en la instantánea `integracion.argos_routers`; si tampoco, null. |
+| `horus.servicio_infra_cambiado` | `infra_id` (texto, id en Horus), `nombre`, `tipo` (minúsculas: `olt`, `enlace`…), `estado` (`caido` \| `arriba`), `router_id` (o null), `ocurrido_en`, `empresa_id` (o null), `entrante_id` | Igual, para servicios de infraestructura (OLT, enlaces). |
+| `horus.hallazgo_abierto` | `hallazgo_id` (texto), `categoria` (minúsculas), `severidad` (minúsculas o `""`), `ip` (o null), `router_id` (o null), `resumen`, `url_horus` (o null), `cliente_id`, `servicio_id`, `empresa_id` (o null), `fuente_cliente` (`argos` \| `instantanea` \| null), `motivo_sin_cliente` (null si se resolvió; si no: `sin_ip`, `ip_invalida`, `conector_argos_apagado`, `ip_sin_cliente`, `argos_no_disponible`, `argos_rechazo`, `otra_empresa`), `ocurrido_en`, `entrante_id` | Horus abre un hallazgo de seguridad. El cliente sale de Argos (IP → cliente, A8 con respaldo a `GET /ip/{ip}` y a la instantánea si Argos no responde); con `empresa_id` en el payload se busca solo en esa empresa (`otra_empresa` si la IP es de otra). `url_horus` solo si es del mismo origen que el conector (su URL base o la pública). |
+| `horus.hallazgo_resuelto` | `hallazgo_id`, `categoria`, `ip` (o null), `resumen`, `ocurrido_en`, `empresa_id` (o null), `entrante_id` | Horus cierra el hallazgo (soporte agrega la nota al ticket vinculado por `hallazgo_id` y propone cerrarlo). |
+
+Un payload inválido (sin `router_id`, `estado` que no es caído/arriba, hallazgo sin `hallazgo_id`
+o sin `categoria`) o un evento desconocido no emite nada: el entrante queda «ignorado» con el
+motivo en `integracion.entrantes.error`.
 
 ## Soporte (I2)
 
