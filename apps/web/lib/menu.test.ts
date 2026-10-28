@@ -18,8 +18,12 @@ describe("menú por permisos", () => {
 
     it("sin permisos: solo Inicio y los módulos «Próximamente» sin permiso", () => {
         const visibles = menuVisible([]).map((e) => e.etiqueta);
-        expect(visibles).toEqual(["Inicio", "Tickets", "Órdenes", "Agenda", "Despacho", "Comercial"]);
+        expect(visibles).toEqual(["Inicio", "Órdenes", "Agenda", "Despacho", "Comercial"]);
         expect(menuVisible(null)).toEqual(menuVisible([]));
+    });
+
+    it("tickets.ver muestra Tickets", () => {
+        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).toContain("/tickets");
     });
 
     it("usuarios.ver muestra Usuarios; tokens.ver, roles.ver o permisos.ver, Administración", () => {
