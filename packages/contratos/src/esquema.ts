@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * Registrar un buzón de correo
-         * @description Permiso: `buzones.crear`. Nace inactivo. Solo TLS (`tls` o `starttls`). Las contraseñas se guardan cifradas (IRIS_CLAVE_CIFRADO; sin ella, 422 `cifrado_no_configurado`) y nunca se devuelven. Un host que es una IP interna da 422 `destino_no_permitido`. Emite `buzon.creado`.
+         * @description Permiso: `buzones.crear`. Nace inactivo. Solo TLS (`tls` o `starttls`). Las contraseñas se guardan cifradas (IRIS_CLAVE_CIFRADO; sin ella, 422 `cifrado_no_configurado`) y nunca se devuelven. Un host que es una IP interna da 422 `destino_no_permitido`. `authservId` es el authserv-id de Authentication-Results del servidor de correo de confianza: sin él ningún remitente queda verificado y las respuestas a tickets entran como nota interna. Exige el permiso con alcance global (si no, 403). Emite `buzon.creado`.
          */
         post: operations["crearBuzon"];
         delete?: never;
@@ -59,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * Activar un buzón (empieza a leerse cada minuto)
-         * @description Permiso: `buzones.activar`. La primera lectura toma solo los correos no leídos. Emite `buzon.activado`.
+         * @description Permiso: `buzones.activar`. La primera lectura toma solo los correos no leídos. Exige el permiso con alcance global (si no, 403). Emite `buzon.activado`.
          */
         post: operations["activarBuzon"];
         delete?: never;
@@ -79,7 +79,7 @@ export interface paths {
         put?: never;
         /**
          * Desactivar un buzón (deja de leerse)
-         * @description Permiso: `buzones.desactivar`. Emite `buzon.desactivado`.
+         * @description Permiso: `buzones.desactivar`. Exige el permiso con alcance global (si no, 403). Emite `buzon.desactivado`.
          */
         post: operations["desactivarBuzon"];
         delete?: never;
@@ -99,7 +99,7 @@ export interface paths {
         put?: never;
         /**
          * Editar un buzón de correo
-         * @description Permiso: `buzones.editar`. Reemplaza los datos editables (con `version`). Una contraseña omitida se conserva, salvo que cambie el host, el puerto, el TLS o el usuario: entonces es obligatoria (la guardada no viaja a otro servidor). Cambiar servidor, usuario o carpeta reinicia la lectura (solo los no leídos). Emite `buzon.actualizado`.
+         * @description Permiso: `buzones.editar`. Reemplaza los datos editables (con `version`). Una contraseña omitida se conserva, salvo que cambie el host, el puerto, el TLS o el usuario: entonces es obligatoria (la guardada no viaja a otro servidor). Cambiar servidor, usuario o carpeta reinicia la lectura (solo los no leídos). Exige el permiso con alcance global (si no, 403). Emite `buzon.actualizado`.
          */
         post: operations["editarBuzon"];
         delete?: never;
@@ -119,7 +119,7 @@ export interface paths {
         put?: never;
         /**
          * Probar la conexión IMAP (y SMTP) del buzón
-         * @description Permiso: `buzones.editar`. Conecta con TLS, inicia sesión y abre la carpeta (IMAP); con SMTP, negocia TLS y se autentica sin enviar nada. Responde 200 con el resultado de cada uno: `ok` o un `codigo` y `detalle` resumidos (nunca la contraseña ni la respuesta cruda del servidor).
+         * @description Permiso: `buzones.editar`. Conecta con TLS, inicia sesión y abre la carpeta (IMAP); con SMTP, negocia TLS y se autentica sin enviar nada. Responde 200 con el resultado de cada uno: `ok` o un `codigo` y `detalle` resumidos (nunca la contraseña ni la respuesta cruda del servidor). Plazo total de 20 s; la red corre fuera de toda transacción. Exige `buzones.editar` con alcance global (si no, 403).
          */
         post: operations["probarBuzon"];
         delete?: never;
@@ -1058,6 +1058,8 @@ export interface components {
             activo: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description authserv-id de Authentication-Results del servidor de correo de confianza; null = ningún remitente queda verificado */
+            authservId: string | null;
             /**
              * Format: int64
              * @description Categoría de los tickets nuevos
@@ -1180,6 +1182,8 @@ export interface components {
             correo: string | null;
             nombre: string | null;
             telefono: string | null;
+            /** @description false = el ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM); mostrarlo como no verificado */
+            verificado: boolean;
         };
         CuerpoWebhook: {
             /** @description cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, … */
@@ -1304,6 +1308,8 @@ export interface components {
             telefono?: string;
         };
         EntradaCrearBuzon: {
+            /** @description authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera */
+            authservId?: string;
             /** Format: int64 */
             categoriaId?: number;
             /** Format: email */
@@ -1409,6 +1415,8 @@ export interface components {
             version: number;
         };
         EntradaEditarBuzon: {
+            /** @description authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera */
+            authservId?: string;
             /** Format: int64 */
             categoriaId?: number;
             /** Format: email */

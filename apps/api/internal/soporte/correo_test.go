@@ -36,6 +36,10 @@ var permisosBuzones = []nucleo.Permiso{
 const claveIMAP = "clave-imap-Secreta-123"
 const claveSMTP = "clave-smtp-Secreta-456"
 
+// authservPrueba es el authserv-id del «servidor de correo de confianza» de los buzones de
+// prueba: crudo pone su Authentication-Results con dmarc=pass para el dominio del From.
+const authservPrueba = "mx.prueba.iris.gt"
+
 // escenario: servidores falsos, módulo y un buzón activo de la empresa del contexto.
 type escenario struct {
 	m      *soporte.Modulo
@@ -48,7 +52,7 @@ type escenario struct {
 
 func datosBuzon(correoBuzon string, imapPuerto, smtpPuerto int, tlsIMAP string) soporte.DatosBuzon {
 	d := soporte.DatosBuzon{
-		Nombre: "Soporte", Correo: correoBuzon,
+		Nombre: "Soporte", Correo: correoBuzon, AuthservID: ptrS(authservPrueba),
 		IMAP: soporte.EntradaIMAP{Host: "127.0.0.1", Puerto: puerto(imapPuerto), TLS: tlsIMAP, Usuario: "soporte", Contrasena: ptrS(claveIMAP)},
 	}
 	if smtpPuerto != 0 {
@@ -93,7 +97,16 @@ func (e escenario) leerYProcesar(t *testing.T) soporte.ResultadoLectura {
 	return r
 }
 
+// crudo arma un correo de texto con el remitente verificado por el servidor de confianza
+// (Authentication-Results de authservPrueba con dmarc=pass). Ver crudoSinVerificar.
 func crudo(de, asunto, messageID, cuerpo string, cabeceras ...string) string {
+	_, dominio, _ := strings.Cut(de, "@")
+	return "Authentication-Results: " + authservPrueba + "; dkim=pass header.d=" + dominio + "; dmarc=pass header.from=" + dominio + "\n" +
+		crudoSinVerificar(de, asunto, messageID, cuerpo, cabeceras...)
+}
+
+// crudoSinVerificar: como crudo, sin Authentication-Results (el From no se puede verificar).
+func crudoSinVerificar(de, asunto, messageID, cuerpo string, cabeceras ...string) string {
 	extra := ""
 	if len(cabeceras) > 0 {
 		extra = strings.Join(cabeceras, "\n") + "\n"
@@ -266,7 +279,7 @@ func TestCorreoRespuestaPorInReplyToYEnvioIdempotente(t *testing.T) {
 	env := enviados[0]
 	if !strings.Contains(env, "Subject: Re: ["+tk.Numero+"] Lentitud") || !strings.Contains(env, "In-Reply-To: <"+id1+">") ||
 		!strings.Contains(env, "Revisamos tu nodo.") || !strings.Contains(env, "To: <"+cliente+">") ||
-		!strings.Contains(env, "Auto-Submitted: auto-replied") {
+		strings.Contains(env, "Auto-Submitted") {
 		t.Fatalf("correo enviado:\n%s", env)
 	}
 	if auth := e.smtp.auth; len(auth) != 1 || auth[0] != "soporte|"+claveSMTP {

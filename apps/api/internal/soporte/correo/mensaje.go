@@ -2,6 +2,7 @@ package correo
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"regexp"
@@ -19,6 +20,30 @@ import (
 // MaxTextoParte es lo máximo que se lee de una parte de texto (el resto se descarta).
 const MaxTextoParte = 1 << 20
 
+// Límites del análisis MIME. Un correo que los supera se guarda igual, truncado (Limite dice
+// por qué), para que el buzón no se trabe: el cursor avanza y el ticket lleva una nota.
+const (
+	// MaxDelimitadores: con más «boundary=» o «multipart/» en el crudo no se analiza el cuerpo
+	// (solo cabeceras). Un anidamiento profundo cuesta O(n²) al recorrerlo.
+	MaxDelimitadores = 50
+	// MaxPartes: partes MIME recorridas como mucho.
+	MaxPartes = 100
+	// MaxProfundidad: niveles de multipart anidados como mucho.
+	MaxProfundidad = 10
+	// MaxCuerpoAnalizado: bytes del cuerpo (después de las cabeceras) que lee el analizador.
+	MaxCuerpoAnalizado = 2 << 20
+)
+
+// Motivos de un correo truncado (Correo.Limite).
+const (
+	LimiteTamano      = "tamano"       // superó el tamaño máximo del buzón: solo cabeceras
+	LimiteMIMEAnidado = "mime_anidado" // demasiados delimitadores multipart: solo cabeceras
+	LimitePartes      = "partes"
+	LimiteProfundidad = "profundidad"
+	LimiteBytes       = "bytes"
+	LimiteTiempo      = "tiempo" // se canceló el contexto (plazo del worker)
+)
+
 // Correo es un mensaje leído, ya reducido a texto seguro.
 type Correo struct {
 	MessageID       string // sin <>; vacío si no traía
@@ -32,6 +57,12 @@ type Correo struct {
 	Adjuntos        []Adjunto
 	// Automatico explica por qué es una autorespuesta o un rebote (vacío si es de una persona).
 	Automatico string
+	// Limite: si no vacío, el correo no se leyó completo (ver Limite*). Texto y Adjuntos traen
+	// lo que se alcanzó a leer.
+	Limite string
+	// Autenticacion: valores de las cabeceras Authentication-Results, de arriba abajo (ver
+	// Verificar).
+	Autenticacion []string
 }
 
 // Adjunto: solo metadatos (la subida es de la tarea de adjuntos).
@@ -43,8 +74,9 @@ type Adjunto struct {
 
 // Leer interpreta un mensaje RFC 5322. Con soloCabeceras (el correo superó el tamaño máximo) no
 // lee el cuerpo. Nunca ejecuta nada: el HTML se reduce a texto (Texto) y los adjuntos a
-// metadatos.
-func Leer(crudo []byte, soloCabeceras bool) (Correo, error) {
+// metadatos. El análisis del cuerpo está acotado (Max*) y respeta ctx: si se pasa de un límite
+// devuelve lo leído con Limite.
+func Leer(ctx context.Context, crudo []byte, soloCabeceras bool) (Correo, error) {
 	ent, err := message.Read(bytes.NewReader(crudo))
 	if err != nil && !message.IsUnknownCharset(err) && !message.IsUnknownEncoding(err) {
 		return Correo{}, err
@@ -69,10 +101,16 @@ func Leer(crudo []byte, soloCabeceras bool) (Correo, error) {
 		c.Fecha = &f
 	}
 	c.Automatico = automatico(h, c.Remitente)
-	if soloCabeceras {
+	c.Autenticacion = h.Values("Authentication-Results") // de arriba abajo
+	switch {
+	case soloCabeceras:
+		c.Limite = LimiteTamano
+		return c, nil
+	case delimitadores(crudo) > MaxDelimitadores:
+		c.Limite = LimiteMIMEAnidado
 		return c, nil
 	}
-	c.Texto, c.Adjuntos = cuerpo(crudo)
+	c.Texto, c.Adjuntos, c.Limite = cuerpo(ctx, crudo)
 	return c, nil
 }
 
@@ -104,51 +142,170 @@ func automatico(h mail.Header, remitente string) string {
 	return ""
 }
 
-// cuerpo recorre las partes: el primer text/plain gana; si no hay, el primer text/html pasado a
-// texto. Los adjuntos (y las partes que no son texto) quedan como metadatos.
-func cuerpo(crudo []byte) (string, []Adjunto) {
-	r, err := mail.CreateReader(bytes.NewReader(crudo))
-	if err != nil && !message.IsUnknownCharset(err) {
-		return "", nil
-	}
-	var plano, enHTML string
-	var adjuntos []Adjunto
-	for {
-		p, err := r.NextPart()
-		if errors.Is(err, io.EOF) || (err != nil && !message.IsUnknownCharset(err)) {
-			break
-		}
-		switch h := p.Header.(type) {
-		case *mail.InlineHeader:
-			t, _, _ := h.ContentType()
-			switch {
-			case t == "text/plain" && plano == "":
-				plano = leerTexto(p.Body)
-			case t == "text/html" && enHTML == "":
-				enHTML = HTMLATexto(leerTexto(p.Body))
-			case t != "text/plain" && t != "text/html":
-				adjuntos = append(adjuntos, adjunto(p.Body, "", t))
-			}
-		case *mail.AttachmentHeader:
-			nombre, _ := h.Filename()
-			t, _, _ := h.ContentType()
-			adjuntos = append(adjuntos, adjunto(p.Body, nombre, t))
-		}
-	}
-	texto := plano
-	if strings.TrimSpace(texto) == "" {
-		texto = enHTML
-	}
-	return LimpiarTexto(texto), adjuntos
+var (
+	marcaBoundary  = []byte("boundary=")
+	marcaMultipart = []byte("multipart/")
+)
+
+// delimitadores cuenta, sin analizar nada, las marcas de multipart del crudo.
+func delimitadores(crudo []byte) int {
+	minus := bytes.ToLower(crudo)
+	return bytes.Count(minus, marcaBoundary) + bytes.Count(minus, marcaMultipart)
 }
 
-func leerTexto(r io.Reader) string {
-	b, _ := io.ReadAll(io.LimitReader(r, MaxTextoParte))
+// errLimite corta el análisis cuando se leyó MaxCuerpoAnalizado.
+var errLimite = errors.New("correo: límite de bytes analizados")
+
+// lectorAcotado entrega como mucho n bytes y se corta si ctx se cancela.
+type lectorAcotado struct {
+	ctx context.Context
+	r   io.Reader
+	n   int64
+}
+
+func (l *lectorAcotado) Read(p []byte) (int, error) {
+	if err := l.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if l.n <= 0 {
+		return 0, errLimite
+	}
+	if int64(len(p)) > l.n {
+		p = p[:l.n]
+	}
+	n, err := l.r.Read(p)
+	l.n -= int64(n)
+	return n, err
+}
+
+// finCabeceras devuelve dónde empieza el cuerpo (tras la primera línea vacía).
+func finCabeceras(crudo []byte) int {
+	i, j := bytes.Index(crudo, []byte("\r\n\r\n")), bytes.Index(crudo, []byte("\n\n"))
+	switch {
+	case i >= 0 && (j < 0 || i < j):
+		return i + 4
+	case j >= 0:
+		return j + 2
+	}
+	return len(crudo)
+}
+
+// recorrido junta lo leído del cuerpo y cuenta partes.
+type recorrido struct {
+	ctx           context.Context
+	plano, enHTML string
+	adjuntos      []Adjunto
+	partes        int
+	limite        string
+}
+
+// cuerpo recorre las partes (acotado: ver Max*): el primer text/plain gana; si no hay, el
+// primer text/html pasado a texto. Los adjuntos (y las partes que no son texto) quedan como
+// metadatos. limite dice si el recorrido se cortó.
+func cuerpo(ctx context.Context, crudo []byte) (string, []Adjunto, string) {
+	l := &lectorAcotado{ctx: ctx, r: bytes.NewReader(crudo), n: int64(finCabeceras(crudo)) + MaxCuerpoAnalizado}
+	ent, err := message.Read(l)
+	r := &recorrido{ctx: ctx}
+	if err != nil && !message.IsUnknownCharset(err) && !message.IsUnknownEncoding(err) {
+		r.cortar(err)
+	} else {
+		r.entidad(ent, 0)
+	}
+	texto := r.plano
+	if strings.TrimSpace(texto) == "" {
+		texto = r.enHTML
+	}
+	return LimpiarTexto(texto), r.adjuntos, r.limite
+}
+
+// cortar anota por qué se detuvo el recorrido (el primer motivo gana). Un error de formato
+// que no es un límite solo detiene la lectura (como antes).
+func (r *recorrido) cortar(err error) {
+	if r.limite != "" {
+		return
+	}
+	switch {
+	case r.ctx.Err() != nil:
+		r.limite = LimiteTiempo
+	case errors.Is(err, errLimite):
+		r.limite = LimiteBytes
+	}
+}
+
+func (r *recorrido) detenido() bool {
+	if r.limite == "" && r.ctx.Err() != nil {
+		r.limite = LimiteTiempo
+	}
+	return r.limite != ""
+}
+
+// entidad visita una parte: multipart (hasta MaxProfundidad) o una hoja.
+func (r *recorrido) entidad(e *message.Entity, profundidad int) bool {
+	if r.detenido() {
+		return false
+	}
+	r.partes++
+	if r.partes > MaxPartes {
+		r.limite = LimitePartes
+		return false
+	}
+	mr := e.MultipartReader()
+	if mr == nil {
+		r.hoja(e)
+		return !r.detenido()
+	}
+	if profundidad >= MaxProfundidad {
+		r.limite = LimiteProfundidad
+		return false
+	}
+	for {
+		p, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		if err != nil && !message.IsUnknownCharset(err) && !message.IsUnknownEncoding(err) {
+			r.cortar(err)
+			return false
+		}
+		if !r.entidad(p, profundidad+1) {
+			return false
+		}
+	}
+}
+
+// hoja clasifica una parte sin hijos como lo hace mail.Reader: inline si lo dice o si es
+// texto sin «attachment»; si no, adjunto.
+func (r *recorrido) hoja(e *message.Entity) {
+	t, _, _ := e.Header.ContentType()
+	disp, _, _ := e.Header.ContentDisposition()
+	if disp == "inline" || (disp != "attachment" && strings.HasPrefix(t, "text/")) {
+		switch {
+		case t == "text/plain" && r.plano == "":
+			r.plano = r.leerTexto(e.Body)
+		case t == "text/html" && r.enHTML == "":
+			r.enHTML = HTMLATexto(r.leerTexto(e.Body))
+		case t != "text/plain" && t != "text/html":
+			r.adjuntos = append(r.adjuntos, r.adjunto(e.Body, "", t))
+		}
+		return
+	}
+	nombre, _ := (&mail.AttachmentHeader{Header: e.Header}).Filename()
+	r.adjuntos = append(r.adjuntos, r.adjunto(e.Body, nombre, t))
+}
+
+func (r *recorrido) leerTexto(cuerpo io.Reader) string {
+	b, err := io.ReadAll(io.LimitReader(cuerpo, MaxTextoParte))
+	if err != nil {
+		r.cortar(err)
+	}
 	return strings.ToValidUTF8(string(b), "�")
 }
 
-func adjunto(r io.Reader, nombre, tipo string) Adjunto {
-	n, _ := io.Copy(io.Discard, r)
+func (r *recorrido) adjunto(cuerpo io.Reader, nombre, tipo string) Adjunto {
+	n, err := io.Copy(io.Discard, cuerpo)
+	if err != nil {
+		r.cortar(err)
+	}
 	if tipo == "" {
 		tipo = "application/octet-stream"
 	}

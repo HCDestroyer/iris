@@ -27,7 +27,9 @@ type Saliente struct {
 }
 
 // Componer arma el mensaje RFC 5322 (texto plano UTF-8, quoted-printable). Las cabeceras se
-// codifican (RFC 2047) y no admiten saltos de línea: no hay inyección de cabeceras.
+// codifican (RFC 2047) y no admiten saltos de línea: no hay inyección de cabeceras. No lleva
+// Auto-Submitted: la respuesta la escribió un agente (RFC 3834 la reserva a lo automático, y
+// con ella el cliente de correo del destinatario la trataría como autorespuesta).
 func Componer(s Saliente) []byte {
 	var b bytes.Buffer
 	cab := func(k, v string) { b.WriteString(k + ": " + v + "\r\n") }
@@ -48,7 +50,6 @@ func Componer(s Saliente) []byte {
 		}
 		cab("References", strings.Join(ids, " "))
 	}
-	cab("Auto-Submitted", "auto-replied") // RFC 3834: que los contestadores automáticos no respondan
 	cab("MIME-Version", "1.0")
 	cab("Content-Type", "text/plain; charset=utf-8")
 	cab("Content-Transfer-Encoding", "quoted-printable")

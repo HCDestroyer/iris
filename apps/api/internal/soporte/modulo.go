@@ -51,6 +51,15 @@ type ConfigCorreo struct {
 	// TamanoMax (IRIS_CORREO_TAMANO_MAX, bytes): un correo más grande solo se importa con sus
 	// cabeceras (10 MiB por defecto).
 	TamanoMax int64
+	// PlazoPrueba: tiempo total de buzones.probar (IMAP + SMTP; 20 s por defecto).
+	PlazoPrueba time.Duration
+}
+
+func (c ConfigCorreo) plazoPrueba() time.Duration {
+	if c.PlazoPrueba <= 0 {
+		return 20 * time.Second
+	}
+	return c.PlazoPrueba
 }
 
 func (c ConfigCorreo) tamanoMax() int64 {
@@ -91,7 +100,7 @@ type Modulo struct {
 	DesactivarBuzon *auditoria.Caso[EntradaCambiarBuzon, Buzon]
 	VerBuzon        *auditoria.Caso[EntradaVerBuzon, Buzon]
 	ListarBuzones   *auditoria.Caso[EntradaListarBuzones, nucleo.Pagina[Buzon]]
-	ProbarBuzon     *auditoria.Caso[EntradaVerBuzon, ResultadoPrueba]
+	ProbarBuzon     *ProbadorBuzon
 
 	// Internos del worker (actor sistema).
 	ProgramarLecturas *auditoria.Caso[EntradaProgramarLecturas, int]

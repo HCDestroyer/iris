@@ -19,9 +19,12 @@ import (
 )
 
 // Salida mínima por correo: cuando un agente responde (ticket.respondido) en un ticket de origen
-// correo, se encola el envío por el SMTP del buzón del que llegó el último correo del cliente,
-// con el número en el asunto y In-Reply-To/References al correo del cliente.
+// correo, se encola el envío por el SMTP del buzón del que llegó el último correo del contacto,
+// con el número en el asunto y In-Reply-To/References a ese correo.
 //
+//   - El destinatario es siempre el contacto del ticket (contacto_correo), nunca «el último
+//     remitente»: quien escribe al hilo sin ser el contacto verificado queda como nota interna
+//     (correo_procesar.go) y nunca recibe las respuestas. No se agregan otros destinatarios.
 //   - El consumidor es idempotente: una fila por mensaje (correos_salientes.mensaje_id único);
 //     un evento repetido no encola otro envío.
 //   - El Message-ID se fija al encolar: si el proceso cae entre el envío y la marca, el
@@ -73,9 +76,13 @@ func (m *Modulo) nuevoEncolarRespuesta() *auditoria.Caso[EntradaEncolarRespuesta
 			if msj.TicketID != tk.ID || !msj.Publico || msj.AutorTipo != "usuario" {
 				return nada("no_es_respuesta_de_agente")
 			}
-			ult, err := q.UltimoCorreoDeTicket(ctx, &tk.ID)
+			contacto := normalizarCorreo(derefStr(tk.ContactoCorreo))
+			if contacto == "" {
+				return nada("sin_contacto")
+			}
+			ult, err := q.UltimoCorreoDelContacto(ctx, soportebd.UltimoCorreoDelContactoParams{TicketID: &tk.ID, Contacto: contacto})
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nada("sin_correo_del_cliente")
+				return nada("sin_correo_del_contacto")
 			}
 			if err != nil {
 				return ResultadoEncolarRespuesta{}, err
@@ -99,7 +106,7 @@ func (m *Modulo) nuevoEncolarRespuesta() *auditoria.Caso[EntradaEncolarRespuesta
 				BuzonID: b.ID, EmpresaID: tk.EmpresaID, TicketID: tk.ID, MensajeID: msj.ID,
 				MessageID:    fmt.Sprintf("iris.%s.%s@%s", strings.ToLower(tk.Numero), uuid.NewString(), dominio),
 				InReplyTo:    &ult.MessageID,
-				Destinatario: ult.Remitente, Asunto: correo.Recortar(asunto, 250),
+				Destinatario: contacto, Asunto: correo.Recortar(asunto, 250),
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nada("ya_encolado") // el evento llegó dos veces

@@ -38,6 +38,13 @@
             "format": "date-time",
             "type": "string"
           },
+          "authservId": {
+            "description": "authserv-id de Authentication-Results del servidor de correo de confianza; null = ningún remitente queda verificado",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "categoriaId": {
             "description": "Categoría de los tickets nuevos",
             "format": "int64",
@@ -113,6 +120,7 @@
           "imap",
           "categoriaId",
           "prioridad",
+          "authservId",
           "activo",
           "ultimaLecturaEn",
           "ultimoError",
@@ -388,12 +396,17 @@
               "string",
               "null"
             ]
+          },
+          "verificado": {
+            "description": "false = el ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM); mostrarlo como no verificado",
+            "type": "boolean"
           }
         },
         "required": [
           "nombre",
           "telefono",
-          "correo"
+          "correo",
+          "verificado"
         ],
         "type": "object"
       },
@@ -728,6 +741,11 @@
       "EntradaCrearBuzon": {
         "additionalProperties": false,
         "properties": {
+          "authservId": {
+            "description": "authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera",
+            "maxLength": 253,
+            "type": "string"
+          },
           "categoriaId": {
             "format": "int64",
             "minimum": 1,
@@ -988,6 +1006,11 @@
       "EntradaEditarBuzon": {
         "additionalProperties": false,
         "properties": {
+          "authservId": {
+            "description": "authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera",
+            "maxLength": 253,
+            "type": "string"
+          },
           "categoriaId": {
             "format": "int64",
             "minimum": 1,
@@ -3264,7 +3287,7 @@
         "x-permiso": "buzones.ver"
       },
       "post": {
-        "description": "Permiso: `buzones.crear`. Nace inactivo. Solo TLS (`tls` o `starttls`). Las contraseñas se guardan cifradas (IRIS_CLAVE_CIFRADO; sin ella, 422 `cifrado_no_configurado`) y nunca se devuelven. Un host que es una IP interna da 422 `destino_no_permitido`. Emite `buzon.creado`.",
+        "description": "Permiso: `buzones.crear`. Nace inactivo. Solo TLS (`tls` o `starttls`). Las contraseñas se guardan cifradas (IRIS_CLAVE_CIFRADO; sin ella, 422 `cifrado_no_configurado`) y nunca se devuelven. Un host que es una IP interna da 422 `destino_no_permitido`. `authservId` es el authserv-id de Authentication-Results del servidor de correo de confianza: sin él ningún remitente queda verificado y las respuestas a tickets entran como nota interna. Exige el permiso con alcance global (si no, 403). Emite `buzon.creado`.",
         "operationId": "crearBuzon",
         "parameters": [
           {
@@ -3450,7 +3473,7 @@
     },
     "/api/v1/buzones/{id}/activar": {
       "post": {
-        "description": "Permiso: `buzones.activar`. La primera lectura toma solo los correos no leídos. Emite `buzon.activado`.",
+        "description": "Permiso: `buzones.activar`. La primera lectura toma solo los correos no leídos. Exige el permiso con alcance global (si no, 403). Emite `buzon.activado`.",
         "operationId": "activarBuzon",
         "parameters": [
           {
@@ -3573,7 +3596,7 @@
     },
     "/api/v1/buzones/{id}/desactivar": {
       "post": {
-        "description": "Permiso: `buzones.desactivar`. Emite `buzon.desactivado`.",
+        "description": "Permiso: `buzones.desactivar`. Exige el permiso con alcance global (si no, 403). Emite `buzon.desactivado`.",
         "operationId": "desactivarBuzon",
         "parameters": [
           {
@@ -3696,7 +3719,7 @@
     },
     "/api/v1/buzones/{id}/editar": {
       "post": {
-        "description": "Permiso: `buzones.editar`. Reemplaza los datos editables (con `version`). Una contraseña omitida se conserva, salvo que cambie el host, el puerto, el TLS o el usuario: entonces es obligatoria (la guardada no viaja a otro servidor). Cambiar servidor, usuario o carpeta reinicia la lectura (solo los no leídos). Emite `buzon.actualizado`.",
+        "description": "Permiso: `buzones.editar`. Reemplaza los datos editables (con `version`). Una contraseña omitida se conserva, salvo que cambie el host, el puerto, el TLS o el usuario: entonces es obligatoria (la guardada no viaja a otro servidor). Cambiar servidor, usuario o carpeta reinicia la lectura (solo los no leídos). Exige el permiso con alcance global (si no, 403). Emite `buzon.actualizado`.",
         "operationId": "editarBuzon",
         "parameters": [
           {
@@ -3819,7 +3842,7 @@
     },
     "/api/v1/buzones/{id}/probar": {
       "post": {
-        "description": "Permiso: `buzones.editar`. Conecta con TLS, inicia sesión y abre la carpeta (IMAP); con SMTP, negocia TLS y se autentica sin enviar nada. Responde 200 con el resultado de cada uno: `ok` o un `codigo` y `detalle` resumidos (nunca la contraseña ni la respuesta cruda del servidor).",
+        "description": "Permiso: `buzones.editar`. Conecta con TLS, inicia sesión y abre la carpeta (IMAP); con SMTP, negocia TLS y se autentica sin enviar nada. Responde 200 con el resultado de cada uno: `ok` o un `codigo` y `detalle` resumidos (nunca la contraseña ni la respuesta cruda del servidor). Plazo total de 20 s; la red corre fuera de toda transacción. Exige `buzones.editar` con alcance global (si no, 403).",
         "operationId": "probarBuzon",
         "parameters": [
           {

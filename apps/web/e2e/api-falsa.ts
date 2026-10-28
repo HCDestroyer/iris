@@ -405,7 +405,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                     prioridad: entrada.prioridad ?? "media",
                     categoriaId: entrada.categoriaId ?? null,
                     clienteId: entrada.clienteId ?? null,
-                    contacto: { nombre: entrada.contacto?.nombre ?? null, telefono: entrada.contacto?.telefono ?? null, correo: entrada.contacto?.correo ?? null },
+                    contacto: { nombre: entrada.contacto?.nombre ?? null, telefono: entrada.contacto?.telefono ?? null, correo: entrada.contacto?.correo ?? null, verificado: true },
                     estado: "nuevo",
                     asignadoA: null,
                     version: 1,

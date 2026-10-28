@@ -314,6 +314,7 @@ type SoporteBuzon struct {
 	Version               int32
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	AuthservID            *string
 }
 
 type SoporteCalendario struct {
@@ -375,6 +376,9 @@ type SoporteCorreosEntrante struct {
 	ProcesadoEn     *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	Verificado      bool
+	Autenticacion   *string
+	Limite          *string
 }
 
 type SoporteCorreosSaliente struct {
@@ -465,6 +469,7 @@ type SoporteTicket struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	Idempotencia       *string
+	ContactoVerificado bool
 }
 
 type SoporteTicketEvento struct {

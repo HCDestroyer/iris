@@ -54,12 +54,12 @@ ticket de siempre (`ticket.creado`, `ticket.estado_cambiado` al reanudar o reabr
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `correo.recibido` | `correo_id`, `buzon_id`, `estado` (`procesado` \| `ignorado` \| `error`), `resultado` (`ticket_creado` \| `respuesta` \| null), `ticket_id` (o null), `mensaje_id` (o null), `motivo` (o null: `automatico: …`, `remitente_propio` o el código de la regla que impidió crear) | El worker procesó un correo leído del buzón (una vez por correo: deduplicado por `Message-ID` y buzón). |
+| `correo.recibido` | `correo_id`, `buzon_id`, `estado` (`procesado` \| `ignorado` \| `error`), `resultado` (`ticket_creado` \| `respuesta` \| `nota_interna` \| null), `ticket_id` (o null), `mensaje_id` (o null), `motivo` (o null: `automatico: …`, `remitente_propio`, `remitente_no_es_contacto` / `remitente_no_verificado` con `nota_interna`, o el código de la regla que impidió crear) | El worker procesó un correo leído del buzón (una vez por correo: deduplicado por `Message-ID` y buzón). |
 | `buzon.creado` | `buzon_id`, `correo` | `buzones.crear` (nace inactivo). Nunca lleva contraseñas. |
 | `buzon.actualizado` | `buzon_id` | `buzones.editar`. |
 | `buzon.activado` / `buzon.desactivado` | `buzon_id` | `buzones.activar` / `buzones.desactivar`. |
 
 Consume `ticket.respondido` (suscriptor `soporte.correo_saliente`, idempotente por `mensaje_id`):
 si el ticket es de origen `correo` y el mensaje es público de un agente, encola el envío por el
-SMTP del buzón.
+SMTP del buzón, siempre al contacto del ticket.
 

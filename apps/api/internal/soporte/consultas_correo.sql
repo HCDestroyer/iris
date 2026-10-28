@@ -6,10 +6,11 @@
 -- Las contraseñas se fijan después (FijarContrasenasBuzon): van cifradas y atadas al id.
 INSERT INTO soporte.buzones (
     empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_carpeta,
-    imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, categoria_id, prioridad
+    imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, categoria_id, prioridad, authserv_id
 ) VALUES (
     @empresa_id, @nombre, @correo, @imap_host, @imap_puerto, @imap_tls, @imap_usuario, @imap_carpeta,
-    @imap_carpeta_procesados, @smtp_host, @smtp_puerto, @smtp_tls, @smtp_usuario, @categoria_id, @prioridad
+    @imap_carpeta_procesados, @smtp_host, @smtp_puerto, @smtp_tls, @smtp_usuario, @categoria_id, @prioridad,
+    sqlc.narg(authserv_id)
 )
 RETURNING *;
 
@@ -33,6 +34,7 @@ UPDATE soporte.buzones SET
     imap_carpeta = @imap_carpeta, imap_carpeta_procesados = @imap_carpeta_procesados,
     smtp_host = @smtp_host, smtp_puerto = @smtp_puerto, smtp_tls = @smtp_tls, smtp_usuario = @smtp_usuario,
     smtp_contrasena = @smtp_contrasena, categoria_id = @categoria_id, prioridad = @prioridad,
+    authserv_id = sqlc.narg(authserv_id),
     uid_validity = CASE WHEN @reiniciar_cursor::boolean THEN NULL ELSE uid_validity END,
     ultimo_uid = CASE WHEN @reiniciar_cursor::boolean THEN 0 ELSE ultimo_uid END,
     version = version + 1, updated_at = now()
@@ -76,10 +78,11 @@ UPDATE soporte.buzones SET ultimo_error = @ultimo_error, ultima_lectura_en = @ah
 -- 0 filas (pgx.ErrNoRows) = el Message-ID ya estaba en el buzón (duplicado).
 INSERT INTO soporte.correos_entrantes (
     buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to,
-    referencias, cuerpo, adjuntos, automatico, truncado, fecha
+    referencias, cuerpo, adjuntos, automatico, truncado, fecha, verificado, autenticacion, limite
 ) VALUES (
     @buzon_id, @empresa_id, @message_id, @uid_validity, @uid, @remitente, @remitente_nombre, @asunto,
-    sqlc.narg(in_reply_to), @referencias, @cuerpo, @adjuntos, sqlc.narg(automatico), @truncado, sqlc.narg(fecha)
+    sqlc.narg(in_reply_to), @referencias, @cuerpo, @adjuntos, sqlc.narg(automatico), @truncado, sqlc.narg(fecha),
+    @verificado, sqlc.narg(autenticacion), sqlc.narg(limite)
 )
 ON CONFLICT (buzon_id, message_id) DO NOTHING
 RETURNING id;
@@ -123,14 +126,28 @@ INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo,
 VALUES (@ticket_id, @empresa_id, true, 'cliente', @autor_nombre, @canal, @cuerpo)
 RETURNING *;
 
+-- name: CrearNotaCorreo :one
+-- Correo que llegó a un hilo de ticket de un remitente que no es el contacto o no está
+-- verificado: nota interna (autor sistema), nunca mensaje público.
+INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_nombre, canal, cuerpo)
+VALUES (@ticket_id, @empresa_id, false, 'sistema', @autor_nombre, 'correo', @cuerpo)
+RETURNING *;
+
+-- name: MarcarContactoNoVerificado :exec
+-- El ticket nació de un correo cuyo From no se pudo verificar (lo muestra el panel).
+UPDATE soporte.tickets SET contacto_verificado = false WHERE id = @id;
+
 -- Correos salientes ------------------------------------------------------------
 
 -- name: MensajePorID :one
 SELECT * FROM soporte.ticket_mensajes WHERE id = @id;
 
--- name: UltimoCorreoDeTicket :one
--- El último correo del cliente ligado al ticket: buzón, destinatario e hilo de la respuesta.
-SELECT * FROM soporte.correos_entrantes WHERE ticket_id = @ticket_id ORDER BY id DESC LIMIT 1;
+-- name: UltimoCorreoDelContacto :one
+-- El último correo del contacto del ticket que entró como mensaje del cliente (ticket creado o
+-- respuesta): buzón e hilo de la respuesta. Nunca uno de otro remitente (notas internas).
+SELECT * FROM soporte.correos_entrantes
+WHERE ticket_id = @ticket_id AND resultado IN ('ticket_creado', 'respuesta') AND lower(remitente) = lower(@contacto::text)
+ORDER BY id DESC LIMIT 1;
 
 -- name: CrearCorreoSaliente :one
 -- 0 filas (pgx.ErrNoRows) = ese mensaje ya se encoló (el evento llegó dos veces).

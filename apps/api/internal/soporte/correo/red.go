@@ -98,6 +98,16 @@ func (o Opciones) tlsConfig(host string) *tls.Config {
 	return &tls.Config{ServerName: host, RootCAs: o.Raices, MinVersion: tls.VersionTLS12}
 }
 
+// limite es el plazo de la conexión: ahora + Timeout, sin pasar el plazo de ctx (una prueba
+// con plazo total no se renueva por paso).
+func (o Opciones) limite(ctx context.Context) time.Time {
+	l := time.Now().Add(o.timeout())
+	if d, ok := ctx.Deadline(); ok && d.Before(l) {
+		return d
+	}
+	return l
+}
+
 // conectar abre la conexión TCP (con la protección SSRF) y la deja con un plazo total. Con TLS
 // implícito, hace el apretón de manos.
 func (o Opciones) conectar(ctx context.Context, s Servidor) (net.Conn, error) {
@@ -107,7 +117,7 @@ func (o Opciones) conectar(ctx context.Context, s Servidor) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := conn.SetDeadline(time.Now().Add(o.timeout())); err != nil {
+	if err := conn.SetDeadline(o.limite(ctx)); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}

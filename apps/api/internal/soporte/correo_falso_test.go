@@ -266,15 +266,25 @@ func moduloCorreo(t *testing.T, raices *x509.CertPool) *soporte.Modulo {
 // moduloCorreoCon: como moduloCorreo con las redes internas permitidas dadas (nil = producción).
 func moduloCorreoCon(t *testing.T, raices *x509.CertPool, redes []netip.Prefix) *soporte.Modulo {
 	t.Helper()
+	return moduloCorreoAjustado(t, raices, redes, nil)
+}
+
+// moduloCorreoAjustado: como moduloCorreoCon, con un ajuste a la configuración.
+func moduloCorreoAjustado(t *testing.T, raices *x509.CertPool, redes []netip.Prefix, ajustar func(*soporte.Config)) *soporte.Modulo {
+	t.Helper()
 	clave := make([]byte, 32)
 	_, _ = rand.Read(clave)
 	cif, err := nucleo.NuevoCifrador(base64.StdEncoding.EncodeToString(clave))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return soporte.Nuevo(soporte.Config{Cifrador: cif, Correo: soporte.ConfigCorreo{Red: correo.Opciones{
+	cfg := soporte.Config{Cifrador: cif, Correo: soporte.ConfigCorreo{Red: correo.Opciones{
 		RedesPermitidas: redes, Raices: raices, Timeout: 10 * time.Second,
-	}}})
+	}}}
+	if ajustar != nil {
+		ajustar(&cfg)
+	}
+	return soporte.Nuevo(cfg)
 }
 
 func puerto(p int) int32 { return int32(p) }

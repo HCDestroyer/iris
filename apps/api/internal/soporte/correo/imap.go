@@ -16,6 +16,8 @@ type SesionIMAP struct {
 	c       *imapclient.Client
 	conn    net.Conn
 	timeout time.Duration
+	ctx     context.Context
+	parar   func() bool // deja de vigilar ctx
 }
 
 // Carpeta es el estado de la carpeta seleccionada.
@@ -47,31 +49,58 @@ func AbrirIMAP(ctx context.Context, op Opciones, s Servidor, carpeta string) (*S
 	} else {
 		c = imapclient.New(conn, opciones)
 	}
-	ses := &SesionIMAP{c: c, conn: conn, timeout: op.timeout()}
+	ses := &SesionIMAP{c: c, conn: conn, timeout: op.timeout(), ctx: ctx}
+	// Si ctx se cancela, la conexión se cierra (el cliente IMAP no recibe ctx).
+	ses.parar = context.AfterFunc(ctx, func() { _ = conn.Close() })
 	if err := c.WaitGreeting(); err != nil {
 		ses.Cerrar()
-		return nil, Carpeta{}, Resumir(err)
+		return nil, Carpeta{}, resumirCtx(ctx, err)
 	}
 	if err := c.Login(s.Usuario, s.Contrasena).Wait(); err != nil {
 		ses.Cerrar()
+		if ctx.Err() != nil {
+			return nil, Carpeta{}, resumirCtx(ctx, err)
+		}
 		return nil, Carpeta{}, nuevoError("autenticacion", "El servidor rechazó el usuario o la contraseña", err)
 	}
 	ses.plazo()
 	sel, err := c.Select(carpeta, nil).Wait()
 	if err != nil {
 		ses.Cerrar()
+		if ctx.Err() != nil {
+			return nil, Carpeta{}, resumirCtx(ctx, err)
+		}
 		return nil, Carpeta{}, nuevoError("carpeta", "No se pudo abrir la carpeta "+carpeta, err)
 	}
 	return ses, Carpeta{UIDValidity: sel.UIDValidity, UIDNext: uint32(sel.UIDNext)}, nil
 }
 
-// plazo renueva el tiempo máximo de la conexión para el siguiente comando.
-func (s *SesionIMAP) plazo() { _ = s.conn.SetDeadline(time.Now().Add(s.timeout)) }
+// resumirCtx: si el plazo (o la cancelación) de ctx cortó la conexión, es un error de conexión
+// por tiempo agotado; si no, Resumir.
+func resumirCtx(ctx context.Context, err error) *Error {
+	if ctx.Err() != nil {
+		return nuevoError("conexion", "No se pudo conectar con el servidor (rechazo o tiempo agotado)", err)
+	}
+	return Resumir(err)
+}
+
+// plazo renueva el tiempo máximo de la conexión para el siguiente comando, sin pasar el plazo
+// de ctx (si lo tiene: p. ej. la prueba de un buzón tiene un plazo total).
+func (s *SesionIMAP) plazo() {
+	l := time.Now().Add(s.timeout)
+	if d, ok := s.ctx.Deadline(); ok && d.Before(l) {
+		l = d
+	}
+	_ = s.conn.SetDeadline(l)
+}
 
 // Cerrar termina la sesión (LOGOUT de cortesía).
 func (s *SesionIMAP) Cerrar() {
 	if s == nil || s.c == nil {
 		return
+	}
+	if s.parar != nil {
+		s.parar()
 	}
 	s.plazo()
 	_ = s.c.Logout().Wait()

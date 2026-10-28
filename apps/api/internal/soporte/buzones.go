@@ -50,6 +50,7 @@ type Buzon struct {
 	SMTP            *ServidorSMTP `json:"smtp,omitempty" doc:"Salida de respuestas por correo; ausente = sin salida"`
 	CategoriaID     *int64        `json:"categoriaId" nullable:"true" doc:"Categoría de los tickets nuevos"`
 	Prioridad       string        `json:"prioridad" enum:"baja,media,alta,critica" doc:"Prioridad de los tickets nuevos"`
+	AuthservID      *string       `json:"authservId" nullable:"true" doc:"authserv-id de Authentication-Results del servidor de correo de confianza; null = ningún remitente queda verificado"`
 	Activo          bool          `json:"activo"`
 	UltimaLecturaEn *time.Time    `json:"ultimaLecturaEn" nullable:"true"`
 	UltimoError     *string       `json:"ultimoError" nullable:"true" doc:"Último error de lectura (resumido, sin credenciales)"`
@@ -65,7 +66,7 @@ func aBuzon(f soportebd.SoporteBuzon) Buzon {
 			Host: f.ImapHost, Puerto: f.ImapPuerto, TLS: f.ImapTls, Usuario: f.ImapUsuario,
 			Carpeta: f.ImapCarpeta, CarpetaProcesados: f.ImapCarpetaProcesados,
 		},
-		CategoriaID: f.CategoriaID, Prioridad: f.Prioridad, Activo: f.Activo,
+		CategoriaID: f.CategoriaID, Prioridad: f.Prioridad, AuthservID: f.AuthservID, Activo: f.Activo,
 		UltimaLecturaEn: f.UltimaLecturaEn, UltimoError: f.UltimoError, Version: f.Version,
 		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 	}
@@ -103,6 +104,7 @@ type DatosBuzon struct {
 	SMTP        *EntradaSMTP `json:"smtp,omitempty" doc:"Sin smtp, las respuestas de los agentes no salen por correo"`
 	CategoriaID *int64       `json:"categoriaId,omitempty" minimum:"1"`
 	Prioridad   string       `json:"prioridad,omitempty" enum:"baja,media,alta,critica" doc:"media por defecto"`
+	AuthservID  *string      `json:"authservId,omitempty" maxLength:"253" doc:"authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera"`
 }
 
 // EntradaCrearBuzon es la entrada de buzones.crear. El buzón nace inactivo.
@@ -152,6 +154,7 @@ type datosValidos struct {
 	imap                      EntradaIMAP
 	smtp                      *EntradaSMTP
 	categoriaID               *int64
+	authservID                *string
 }
 
 func campo(nombre, mensaje, regla string) *nucleo.Problema {
@@ -226,6 +229,15 @@ func (m *Modulo) validarBuzon(ctx context.Context, q *soportebd.Queries, d Datos
 			s.Contrasena = nil
 		}
 		v.smtp = &s
+	}
+	if d.AuthservID != nil {
+		a := strings.ToLower(strings.TrimSpace(*d.AuthservID))
+		if strings.ContainsAny(a, " \t\r\n;()\"") || len(a) > 253 {
+			return v, campo("authservId", "authserv-id inválido (un nombre, sin espacios ni «;»)", "authserv_id")
+		}
+		if a != "" {
+			v.authservID = &a
+		}
 	}
 	if d.CategoriaID != nil {
 		c, err := q.CategoriaPorID(ctx, *d.CategoriaID)
@@ -317,6 +329,9 @@ func (m *Modulo) nuevoCrearBuzon() *auditoria.Caso[EntradaCrearBuzon, Buzon] {
 		Accion:  "buzones.crear",
 		Permiso: nucleo.PermBuzonesCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearBuzon) (Buzon, error) {
+			if err := exigirGlobal(ctx, nucleo.PermBuzonesCrear); err != nil {
+				return Buzon{}, err
+			}
 			q := soportebd.New(t)
 			if m.cfg.Cifrador == nil {
 				return Buzon{}, sinCifrado()
@@ -340,6 +355,7 @@ func (m *Modulo) nuevoCrearBuzon() *auditoria.Caso[EntradaCrearBuzon, Buzon] {
 				EmpresaID: empresa, Nombre: v.nombre, Correo: v.correo, ImapHost: v.imap.Host, ImapPuerto: v.imap.Puerto,
 				ImapTls: v.imap.TLS, ImapUsuario: v.imap.Usuario, ImapCarpeta: v.imap.Carpeta,
 				ImapCarpetaProcesados: v.imap.CarpetaProcesados, CategoriaID: v.categoriaID, Prioridad: v.prioridad,
+				AuthservID: v.authservID,
 			}
 			if v.smtp != nil {
 				p.SmtpHost, p.SmtpPuerto, p.SmtpTls, p.SmtpUsuario = &v.smtp.Host, &v.smtp.Puerto, &v.smtp.TLS, v.smtp.Usuario
@@ -374,6 +390,9 @@ func (m *Modulo) nuevoEditarBuzon() *auditoria.Caso[EntradaEditarBuzon, Buzon] {
 		Accion:  "buzones.editar",
 		Permiso: nucleo.PermBuzonesEditar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEditarBuzon) (Buzon, error) {
+			if err := exigirGlobal(ctx, nucleo.PermBuzonesEditar); err != nil {
+				return Buzon{}, err
+			}
 			q := soportebd.New(t)
 			antes, err := tomarBuzon(ctx, t, q, in.ID, &in.Version)
 			if err != nil {
@@ -387,7 +406,7 @@ func (m *Modulo) nuevoEditarBuzon() *auditoria.Caso[EntradaEditarBuzon, Buzon] {
 				ID: antes.ID, Version: antes.Version, Nombre: v.nombre, Correo: v.correo, ImapHost: v.imap.Host,
 				ImapPuerto: v.imap.Puerto, ImapTls: v.imap.TLS, ImapUsuario: v.imap.Usuario, ImapContrasena: antes.ImapContrasena,
 				ImapCarpeta: v.imap.Carpeta, ImapCarpetaProcesados: v.imap.CarpetaProcesados,
-				CategoriaID: v.categoriaID, Prioridad: v.prioridad,
+				CategoriaID: v.categoriaID, Prioridad: v.prioridad, AuthservID: v.authservID,
 				ReiniciarCursor: antes.ImapHost != v.imap.Host || antes.ImapUsuario != v.imap.Usuario ||
 					antes.ImapCarpeta != v.imap.Carpeta || antes.ImapPuerto != v.imap.Puerto,
 			}
@@ -456,6 +475,9 @@ func (m *Modulo) nuevoCambiarBuzon(activo bool) *auditoria.Caso[EntradaCambiarBu
 		Accion:  accion,
 		Permiso: permiso,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambiarBuzon) (Buzon, error) {
+			if err := exigirGlobal(ctx, permiso); err != nil {
+				return Buzon{}, err
+			}
 			q := soportebd.New(t)
 			antes, err := tomarBuzon(ctx, t, q, in.ID, &in.Version)
 			if err != nil {
@@ -553,40 +575,122 @@ func prueba(err error) PruebaServidor {
 	return PruebaServidor{Codigo: &r.Codigo, Detalle: &r.Detalle}
 }
 
-func (m *Modulo) nuevoProbarBuzon() *auditoria.Caso[EntradaVerBuzon, ResultadoPrueba] {
-	return auditoria.Nuevo(auditoria.Caso[EntradaVerBuzon, ResultadoPrueba]{
+// Probar un buzón son tres pasos para no tener una transacción abierta durante la red:
+//
+//  1. buzones.probar (preparar): transacción corta que verifica permiso (global), empresa y lee
+//     y descifra las credenciales. No deja fila de auditoría por sí sola.
+//  2. La prueba de red, fuera de toda transacción, con un plazo total (PlazoPrueba, 20 s) que no se
+//     renueva por paso: IMAP y SMTP comparten el mismo plazo.
+//  3. buzones.probar (registrar): transacción corta que audita el resultado.
+
+// pruebaPreparada: credenciales descifradas (solo en memoria; nunca se serializan).
+type pruebaPreparada struct {
+	buzon   soportebd.SoporteBuzon
+	imap    correo.Servidor
+	smtp    *correo.Servidor
+	cifrado error
+}
+
+// EntradaRegistrarPrueba es lo que se audita de una prueba (sin credenciales).
+type EntradaRegistrarPrueba struct {
+	ID        int64           `json:"id"`
+	Resultado ResultadoPrueba `json:"resultado"`
+}
+
+// ProbadorBuzon ejecuta buzones.probar (ver arriba).
+type ProbadorBuzon struct {
+	m         *Modulo
+	preparar  *auditoria.Caso[EntradaVerBuzon, pruebaPreparada]
+	registrar *auditoria.Caso[EntradaRegistrarPrueba, struct{}]
+}
+
+func (m *Modulo) nuevoProbarBuzon() *ProbadorBuzon {
+	p := &ProbadorBuzon{m: m}
+	p.preparar = auditoria.Nuevo(auditoria.Caso[EntradaVerBuzon, pruebaPreparada]{
 		Accion:  "buzones.probar",
 		Permiso: nucleo.PermBuzonesEditar,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerBuzon) (ResultadoPrueba, error) {
+		// La fila la deja registrar, con el resultado (los errores sí se auditan aquí).
+		AuditarExito: func(pruebaPreparada) bool { return false },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerBuzon) (pruebaPreparada, error) {
+			if err := exigirGlobal(ctx, nucleo.PermBuzonesEditar); err != nil {
+				return pruebaPreparada{}, err
+			}
 			// Sin FOR UPDATE: la prueba no cambia el buzón y no debe bloquear la lectura.
 			t.FijarEntidad("buzon", in.ID)
 			f, err := soportebd.New(t).BuzonPorID(ctx, in.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return ResultadoPrueba{}, nucleo.NoEncontrado("El buzón no existe")
+				return pruebaPreparada{}, nucleo.NoEncontrado("El buzón no existe")
 			}
 			if err != nil {
-				return ResultadoPrueba{}, err
+				return pruebaPreparada{}, err
 			}
 			if todas, emp := filtroEmpresa(ctx); !todas && !mismoID(f.EmpresaID, emp) {
-				return ResultadoPrueba{}, nucleo.NoEncontrado("El buzón no existe")
+				return pruebaPreparada{}, nucleo.NoEncontrado("El buzón no existe")
 			}
 			t.FijarEmpresa(deref(f.EmpresaID))
-			imapSrv, smtpSrv, err := m.servidores(f)
-			if err != nil {
-				return ResultadoPrueba{IMAP: prueba(err)}, nil
-			}
-			var r ResultadoPrueba
-			ses, _, err := correo.AbrirIMAP(ctx, m.cfg.Correo.Red, imapSrv, f.ImapCarpeta)
-			ses.Cerrar()
-			r.IMAP = prueba(err)
-			if smtpSrv != nil {
-				s := prueba(correo.ProbarSMTP(ctx, m.cfg.Correo.Red, *smtpSrv))
-				r.SMTP = &s
-			}
-			t.Anotar(map[string]any{"imap_ok": r.IMAP.OK, "imap_codigo": r.IMAP.Codigo, "smtp": r.SMTP})
+			r := pruebaPreparada{buzon: f}
+			r.imap, r.smtp, r.cifrado = m.servidores(f)
 			return r, nil
 		},
 	})
+	p.registrar = auditoria.Nuevo(auditoria.Caso[EntradaRegistrarPrueba, struct{}]{
+		Accion:  "buzones.probar",
+		Permiso: nucleo.PermBuzonesEditar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRegistrarPrueba) (struct{}, error) {
+			t.FijarEntidad("buzon", in.ID)
+			f, err := soportebd.New(t).BuzonPorID(ctx, in.ID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			t.FijarEmpresa(deref(f.EmpresaID))
+			t.Anotar(map[string]any{"imap_ok": in.Resultado.IMAP.OK, "imap_codigo": in.Resultado.IMAP.Codigo, "smtp": in.Resultado.SMTP})
+			return struct{}{}, nil
+		},
+	})
+	return p
+}
+
+// Ejecutar prueba la conexión IMAP (y SMTP) del buzón: preparar, red con plazo total y
+// registrar (ver arriba).
+func (p *ProbadorBuzon) Ejecutar(ctx context.Context, in EntradaVerBuzon) (ResultadoPrueba, error) {
+	prep, err := p.preparar.Ejecutar(ctx, in)
+	if err != nil {
+		return ResultadoPrueba{}, err
+	}
+	var r ResultadoPrueba
+	if prep.cifrado != nil {
+		r.IMAP = prueba(prep.cifrado)
+	} else {
+		r = p.m.probarRed(ctx, prep)
+	}
+	if _, err := p.registrar.Ejecutar(ctx, EntradaRegistrarPrueba{ID: prep.buzon.ID, Resultado: r}); err != nil {
+		return ResultadoPrueba{}, err
+	}
+	return r, nil
+}
+
+// probarRed corre la prueba de red fuera de la transacción, con PlazoPrueba en total.
+func (m *Modulo) probarRed(ctx context.Context, prep pruebaPreparada) ResultadoPrueba {
+	ctx, cancelar := context.WithTimeout(ctx, m.cfg.Correo.plazoPrueba())
+	defer cancelar()
+	var r ResultadoPrueba
+	ses, _, err := correo.AbrirIMAP(ctx, m.cfg.Correo.Red, prep.imap, prep.buzon.ImapCarpeta)
+	ses.Cerrar()
+	r.IMAP = prueba(err)
+	if prep.smtp != nil {
+		s := prueba(correo.ProbarSMTP(ctx, m.cfg.Correo.Red, *prep.smtp))
+		r.SMTP = &s
+	}
+	return r
+}
+
+// exigirGlobal: administrar buzones (y probarlos, que conecta con las credenciales) exige el
+// permiso sin límite de zona ni cuadrilla: un buzón es de toda la empresa.
+func exigirGlobal(ctx context.Context, permiso nucleo.Permiso) error {
+	if !contexto.PermisosDe(ctx).TieneGlobal(string(permiso)) {
+		return nucleo.Prohibido(fmt.Sprintf("El permiso %s debe tener alcance global (sin zona ni cuadrilla)", permiso))
+	}
+	return nil
 }
 
 // esSistema: las acciones internas del correo (lectura, proceso y envío) solo las corre el

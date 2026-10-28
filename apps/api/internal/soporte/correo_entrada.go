@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -22,7 +23,12 @@ import (
 //     pendiente hasta ahora»); la primera vez (o si cambió UIDVALIDITY), solo los no leídos, para
 //     no importar el historial del buzón.
 //  3. Cada correo se guarda en soporte.correos_entrantes (deduplicado por Message-ID y buzón) y
-//     en la misma transacción avanza ultimo_uid: tras una caída se reanuda desde ahí.
+//     en la misma transacción avanza ultimo_uid: tras una caída se reanuda desde ahí. El análisis
+//     MIME está acotado (correo.Max*: delimitadores, partes, profundidad y bytes) y tiene plazo
+//     (plazoLectura): si se pasa, el correo se guarda igual con truncado = true y limite = el
+//     motivo, para que el cursor avance y un correo hostil no trabe el buzón.
+//     Al guardarlo se verifica el remitente con Authentication-Results del authserv_id del
+//     buzón (correo.Verificar): verificado y autenticacion.
 //  4. Solo después de guardarlo se marca leído (o se mueve) en el servidor.
 //  5. Al final encola soporte.procesar_correos del buzón, que los convierte en tickets.
 
@@ -31,6 +37,8 @@ const (
 	maxAsuntoCorreo = 500
 	maxCuerpoCorreo = 20000
 	loteLectura     = 200
+	// plazoLectura: tiempo máximo para analizar un correo ya descargado.
+	plazoLectura = 10 * time.Second
 )
 
 // EntradaRegistrarCorreo guarda un correo leído (acción interna del worker).
@@ -95,6 +103,7 @@ func (m *Modulo) nuevoRegistrarCorreo() *auditoria.Caso[EntradaRegistrarCorreo, 
 			if c.InReplyTo != "" {
 				inReplyTo = ptr(correo.Recortar(c.InReplyTo, 900))
 			}
+			verificado, resumen := correo.Verificar(c.Autenticacion, derefStr(b.AuthservID), c.Remitente)
 			refs := noNulo(c.Referencias)
 			if len(refs) > 50 {
 				refs = refs[len(refs)-50:]
@@ -104,7 +113,8 @@ func (m *Modulo) nuevoRegistrarCorreo() *auditoria.Caso[EntradaRegistrarCorreo, 
 				Uid: int64(in.UID), Remitente: correo.Recortar(c.Remitente, 254), RemitenteNombre: correo.Recortar(c.RemitenteNombre, 200),
 				Asunto: correo.Recortar(c.Asunto, maxAsuntoCorreo), InReplyTo: inReplyTo, Referencias: refs,
 				Cuerpo: correo.Recortar(c.Texto, maxCuerpoCorreo), Adjuntos: adjuntos, Automatico: strPtr(c.Automatico),
-				Truncado: in.Truncado, Fecha: c.Fecha,
+				Truncado: in.Truncado || c.Limite != "", Fecha: c.Fecha, Verificado: verificado,
+				Autenticacion: strPtr(correo.Recortar(resumen, 200)), Limite: strPtr(c.Limite),
 			})
 			duplicado := errors.Is(err, pgx.ErrNoRows)
 			if err != nil && !duplicado {
@@ -228,13 +238,15 @@ func (m *Modulo) LeerBuzon(ctx context.Context, buzonID int64) (ResultadoLectura
 		if crudo == nil {
 			continue
 		}
-		c, err := correo.Leer(crudo, truncado)
+		lctx, cancelar := context.WithTimeout(ctx, plazoLectura)
+		c, err := correo.Leer(lctx, crudo, truncado)
+		cancelar()
 		if err != nil {
 			c = correo.Correo{Asunto: "(correo ilegible)", Automatico: "ilegible"}
 		}
 		r, err := m.RegistrarCorreo.Ejecutar(ctx, EntradaRegistrarCorreo{
 			BuzonID: b.ID, UIDValidity: carpeta.UIDValidity, UID: uid, MessageID: c.MessageID,
-			Remitente: c.Remitente, Truncado: truncado, AvanzarCursor: !primera, Correo: c,
+			Remitente: c.Remitente, Truncado: truncado || c.Limite != "", AvanzarCursor: !primera, Correo: c,
 		})
 		if err != nil {
 			return fallar(err)

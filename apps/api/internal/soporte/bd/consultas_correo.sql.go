@@ -28,7 +28,7 @@ func (q *Queries) AvanzarCursorBuzon(ctx context.Context, arg AvanzarCursorBuzon
 }
 
 const buzonPorID = `-- name: BuzonPorID :one
-SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at FROM soporte.buzones WHERE id = $1
+SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id FROM soporte.buzones WHERE id = $1
 `
 
 func (q *Queries) BuzonPorID(ctx context.Context, id int64) (SoporteBuzon, error) {
@@ -61,12 +61,13 @@ func (q *Queries) BuzonPorID(ctx context.Context, id int64) (SoporteBuzon, error
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
 
 const buzonPorIDParaActualizar = `-- name: BuzonPorIDParaActualizar :one
-SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at FROM soporte.buzones WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id FROM soporte.buzones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) BuzonPorIDParaActualizar(ctx context.Context, id int64) (SoporteBuzon, error) {
@@ -99,6 +100,7 @@ func (q *Queries) BuzonPorIDParaActualizar(ctx context.Context, id int64) (Sopor
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
@@ -130,7 +132,7 @@ func (q *Queries) BuzonesActivos(ctx context.Context) ([]int64, error) {
 const cambiarActivoBuzon = `-- name: CambiarActivoBuzon :one
 UPDATE soporte.buzones SET activo = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id
 `
 
 type CambiarActivoBuzonParams struct {
@@ -169,6 +171,7 @@ func (q *Queries) CambiarActivoBuzon(ctx context.Context, arg CambiarActivoBuzon
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
@@ -230,7 +233,7 @@ func (q *Queries) CerrarLecturaBuzon(ctx context.Context, arg CerrarLecturaBuzon
 }
 
 const correoEntranteParaProcesar = `-- name: CorreoEntranteParaProcesar :one
-SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at FROM soporte.correos_entrantes WHERE id = $1 FOR UPDATE
+SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at, verificado, autenticacion, limite FROM soporte.correos_entrantes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CorreoEntranteParaProcesar(ctx context.Context, id int64) (SoporteCorreosEntrante, error) {
@@ -261,12 +264,15 @@ func (q *Queries) CorreoEntranteParaProcesar(ctx context.Context, id int64) (Sop
 		&i.ProcesadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verificado,
+		&i.Autenticacion,
+		&i.Limite,
 	)
 	return i, err
 }
 
 const correoEntrantePorID = `-- name: CorreoEntrantePorID :one
-SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at FROM soporte.correos_entrantes WHERE id = $1
+SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at, verificado, autenticacion, limite FROM soporte.correos_entrantes WHERE id = $1
 `
 
 func (q *Queries) CorreoEntrantePorID(ctx context.Context, id int64) (SoporteCorreosEntrante, error) {
@@ -297,6 +303,9 @@ func (q *Queries) CorreoEntrantePorID(ctx context.Context, id int64) (SoporteCor
 		&i.ProcesadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verificado,
+		&i.Autenticacion,
+		&i.Limite,
 	)
 	return i, err
 }
@@ -389,12 +398,13 @@ const crearBuzon = `-- name: CrearBuzon :one
 
 INSERT INTO soporte.buzones (
     empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_carpeta,
-    imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, categoria_id, prioridad
+    imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, categoria_id, prioridad, authserv_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13, $14, $15
+    $9, $10, $11, $12, $13, $14, $15,
+    $16
 )
-RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id
 `
 
 type CrearBuzonParams struct {
@@ -413,6 +423,7 @@ type CrearBuzonParams struct {
 	SmtpUsuario           *string
 	CategoriaID           *int64
 	Prioridad             string
+	AuthservID            *string
 }
 
 // Entrada por correo (IMAP) y salida por SMTP. Ver correo.go.
@@ -435,6 +446,7 @@ func (q *Queries) CrearBuzon(ctx context.Context, arg CrearBuzonParams) (Soporte
 		arg.SmtpUsuario,
 		arg.CategoriaID,
 		arg.Prioridad,
+		arg.AuthservID,
 	)
 	var i SoporteBuzon
 	err := row.Scan(
@@ -464,6 +476,7 @@ func (q *Queries) CrearBuzon(ctx context.Context, arg CrearBuzonParams) (Soporte
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
@@ -563,6 +576,47 @@ func (q *Queries) CrearMensajeCliente(ctx context.Context, arg CrearMensajeClien
 	return i, err
 }
 
+const crearNotaCorreo = `-- name: CrearNotaCorreo :one
+INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_nombre, canal, cuerpo)
+VALUES ($1, $2, false, 'sistema', $3, 'correo', $4)
+RETURNING id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia
+`
+
+type CrearNotaCorreoParams struct {
+	TicketID    int64
+	EmpresaID   *int64
+	AutorNombre string
+	Cuerpo      string
+}
+
+// Correo que llegó a un hilo de ticket de un remitente que no es el contacto o no está
+// verificado: nota interna (autor sistema), nunca mensaje público.
+func (q *Queries) CrearNotaCorreo(ctx context.Context, arg CrearNotaCorreoParams) (SoporteTicketMensaje, error) {
+	row := q.db.QueryRow(ctx, crearNotaCorreo,
+		arg.TicketID,
+		arg.EmpresaID,
+		arg.AutorNombre,
+		arg.Cuerpo,
+	)
+	var i SoporteTicketMensaje
+	err := row.Scan(
+		&i.ID,
+		&i.TicketID,
+		&i.EmpresaID,
+		&i.Publico,
+		&i.AutorTipo,
+		&i.AutorID,
+		&i.AutorNombre,
+		&i.Canal,
+		&i.Cuerpo,
+		&i.Adjuntos,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Idempotencia,
+	)
+	return i, err
+}
+
 const errorLecturaBuzon = `-- name: ErrorLecturaBuzon :exec
 UPDATE soporte.buzones SET ultimo_error = $1, ultima_lectura_en = $2 WHERE id = $3
 `
@@ -596,7 +650,7 @@ func (q *Queries) FalloCorreoSaliente(ctx context.Context, arg FalloCorreoSalien
 const fijarContrasenasBuzon = `-- name: FijarContrasenasBuzon :one
 UPDATE soporte.buzones SET imap_contrasena = $1, smtp_contrasena = $2
 WHERE id = $3
-RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id
 `
 
 type FijarContrasenasBuzonParams struct {
@@ -635,6 +689,7 @@ func (q *Queries) FijarContrasenasBuzon(ctx context.Context, arg FijarContrasena
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
@@ -646,11 +701,12 @@ UPDATE soporte.buzones SET
     imap_carpeta = $8, imap_carpeta_procesados = $9,
     smtp_host = $10, smtp_puerto = $11, smtp_tls = $12, smtp_usuario = $13,
     smtp_contrasena = $14, categoria_id = $15, prioridad = $16,
-    uid_validity = CASE WHEN $17::boolean THEN NULL ELSE uid_validity END,
-    ultimo_uid = CASE WHEN $17::boolean THEN 0 ELSE ultimo_uid END,
+    authserv_id = $17,
+    uid_validity = CASE WHEN $18::boolean THEN NULL ELSE uid_validity END,
+    ultimo_uid = CASE WHEN $18::boolean THEN 0 ELSE ultimo_uid END,
     version = version + 1, updated_at = now()
-WHERE id = $18 AND version = $19
-RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at
+WHERE id = $19 AND version = $20
+RETURNING id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id
 `
 
 type GuardarBuzonParams struct {
@@ -670,6 +726,7 @@ type GuardarBuzonParams struct {
 	SmtpContrasena        []byte
 	CategoriaID           *int64
 	Prioridad             string
+	AuthservID            *string
 	ReiniciarCursor       bool
 	ID                    int64
 	Version               int32
@@ -695,6 +752,7 @@ func (q *Queries) GuardarBuzon(ctx context.Context, arg GuardarBuzonParams) (Sop
 		arg.SmtpContrasena,
 		arg.CategoriaID,
 		arg.Prioridad,
+		arg.AuthservID,
 		arg.ReiniciarCursor,
 		arg.ID,
 		arg.Version,
@@ -727,6 +785,7 @@ func (q *Queries) GuardarBuzon(ctx context.Context, arg GuardarBuzonParams) (Sop
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthservID,
 	)
 	return i, err
 }
@@ -743,7 +802,7 @@ func (q *Queries) HayCorreosPendientes(ctx context.Context, buzonID int64) (bool
 }
 
 const listarBuzones = `-- name: ListarBuzones :many
-SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at FROM soporte.buzones
+SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id FROM soporte.buzones
 WHERE id > $1
   AND (($2::bigint IS NULL AND empresa_id IS NULL) OR empresa_id = $2)
 ORDER BY id
@@ -792,6 +851,7 @@ func (q *Queries) ListarBuzones(ctx context.Context, arg ListarBuzonesParams) ([
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AuthservID,
 		); err != nil {
 			return nil, err
 		}
@@ -801,6 +861,16 @@ func (q *Queries) ListarBuzones(ctx context.Context, arg ListarBuzonesParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const marcarContactoNoVerificado = `-- name: MarcarContactoNoVerificado :exec
+UPDATE soporte.tickets SET contacto_verificado = false WHERE id = $1
+`
+
+// El ticket nació de un correo cuyo From no se pudo verificar (lo muestra el panel).
+func (q *Queries) MarcarContactoNoVerificado(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, marcarContactoNoVerificado, id)
+	return err
 }
 
 const marcarCorreoEnviado = `-- name: MarcarCorreoEnviado :exec
@@ -850,10 +920,11 @@ const registrarCorreoEntrante = `-- name: RegistrarCorreoEntrante :one
 
 INSERT INTO soporte.correos_entrantes (
     buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to,
-    referencias, cuerpo, adjuntos, automatico, truncado, fecha
+    referencias, cuerpo, adjuntos, automatico, truncado, fecha, verificado, autenticacion, limite
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13, $14, $15
+    $9, $10, $11, $12, $13, $14, $15,
+    $16, $17, $18
 )
 ON CONFLICT (buzon_id, message_id) DO NOTHING
 RETURNING id
@@ -875,6 +946,9 @@ type RegistrarCorreoEntranteParams struct {
 	Automatico      *string
 	Truncado        bool
 	Fecha           *time.Time
+	Verificado      bool
+	Autenticacion   *string
+	Limite          *string
 }
 
 // Correos entrantes ------------------------------------------------------------
@@ -896,6 +970,9 @@ func (q *Queries) RegistrarCorreoEntrante(ctx context.Context, arg RegistrarCorr
 		arg.Automatico,
 		arg.Truncado,
 		arg.Fecha,
+		arg.Verificado,
+		arg.Autenticacion,
+		arg.Limite,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -929,7 +1006,7 @@ func (q *Queries) TicketDeHilo(ctx context.Context, arg TicketDeHiloParams) (int
 }
 
 const ticketPorNumero = `-- name: TicketPorNumero :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia FROM soporte.tickets WHERE numero = $1
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets WHERE numero = $1
 `
 
 func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTicket, error) {
@@ -973,17 +1050,26 @@ func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTi
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Idempotencia,
+		&i.ContactoVerificado,
 	)
 	return i, err
 }
 
-const ultimoCorreoDeTicket = `-- name: UltimoCorreoDeTicket :one
-SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at FROM soporte.correos_entrantes WHERE ticket_id = $1 ORDER BY id DESC LIMIT 1
+const ultimoCorreoDelContacto = `-- name: UltimoCorreoDelContacto :one
+SELECT id, buzon_id, empresa_id, message_id, uid_validity, uid, remitente, remitente_nombre, asunto, in_reply_to, referencias, cuerpo, adjuntos, automatico, truncado, fecha, estado, resultado, motivo, ticket_id, mensaje_id, procesado_en, created_at, updated_at, verificado, autenticacion, limite FROM soporte.correos_entrantes
+WHERE ticket_id = $1 AND resultado IN ('ticket_creado', 'respuesta') AND lower(remitente) = lower($2::text)
+ORDER BY id DESC LIMIT 1
 `
 
-// El último correo del cliente ligado al ticket: buzón, destinatario e hilo de la respuesta.
-func (q *Queries) UltimoCorreoDeTicket(ctx context.Context, ticketID *int64) (SoporteCorreosEntrante, error) {
-	row := q.db.QueryRow(ctx, ultimoCorreoDeTicket, ticketID)
+type UltimoCorreoDelContactoParams struct {
+	TicketID *int64
+	Contacto string
+}
+
+// El último correo del contacto del ticket que entró como mensaje del cliente (ticket creado o
+// respuesta): buzón e hilo de la respuesta. Nunca uno de otro remitente (notas internas).
+func (q *Queries) UltimoCorreoDelContacto(ctx context.Context, arg UltimoCorreoDelContactoParams) (SoporteCorreosEntrante, error) {
+	row := q.db.QueryRow(ctx, ultimoCorreoDelContacto, arg.TicketID, arg.Contacto)
 	var i SoporteCorreosEntrante
 	err := row.Scan(
 		&i.ID,
@@ -1010,6 +1096,9 @@ func (q *Queries) UltimoCorreoDeTicket(ctx context.Context, ticketID *int64) (So
 		&i.ProcesadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Verificado,
+		&i.Autenticacion,
+		&i.Limite,
 	)
 	return i, err
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
 	"strings"
 
@@ -23,15 +24,23 @@ import (
 //   - Autorespuestas y rebotes (Auto-Submitted, Precedence bulk/junk/list/auto_reply,
 //     X-Autoreply, MAILER-DAEMON, multipart/report, Return-Path <>) y correos del propio buzón:
 //     ignorado.
-//   - Respuesta a un ticket existente si In-Reply-To/References apuntan a un correo de ese hilo
-//     (una respuesta que enviamos o un correo del cliente ya ligado) o si el asunto trae el número
-//     ([TK-000123]) y el remitente es el contacto del ticket. El ticket debe ser de la misma
-//     empresa del buzón (si no, se trata como correo nuevo). Se agrega como mensaje público del
-//     cliente y: en_espera → abierto (reanuda), resuelto → abierto (reabre). Si el ticket se
-//     fusionó, va al destino; si está cerrado, se abre uno nuevo que lo menciona.
+//   - Ticket existente si In-Reply-To/References apuntan a un correo de ese hilo (una respuesta
+//     que enviamos o un correo ya ligado) o si el asunto trae el número ([TK-000123]) y el
+//     remitente es el contacto del ticket. El ticket debe ser de la misma empresa del buzón (si
+//     no, se trata como correo nuevo). Si se fusionó, va al destino; si está cerrado, se abre uno
+//     nuevo que lo menciona.
+//   - En ese ticket (el destino, tras una fusión), solo el contacto del ticket (dirección
+//     normalizada) con el remitente verificado (Authentication-Results del authserv_id del
+//     buzón: ver correo.Verificar) entra como mensaje público del cliente y cambia el estado:
+//     en_espera → abierto (reanuda), resuelto → abierto (reabre). Cualquier otro (un tercero en
+//     CC, un reenvío, un From falsificado o sin verificar) queda como nota interna «correo de X
+//     no verificado / no es el contacto»: no cambia estado, ni contacto, ni destinatario de las
+//     respuestas (que siempre es el contacto: correo_salida.go).
 //   - Si no: ticket nuevo con origen correo, empresa, categoría y prioridad del buzón, y el
 //     remitente como contacto (sin conector con lectura por correo en Argos no se identifica al
-//     cliente: queda el contacto a mano).
+//     cliente: queda el contacto a mano). Si el remitente no está verificado, el ticket queda
+//     con contacto_verificado = false (el panel lo muestra).
+//   - Un correo truncado (tamaño o límites MIME: limite) entra igual con una nota que lo dice.
 //   - Una regla de negocio que impide crear (p. ej. el buzón quedó sin empresa al registrar
 //     empresas) deja el correo en error con el motivo; un error de base se reintenta.
 
@@ -116,6 +125,9 @@ func (m *Modulo) procesarCorreo(ctx context.Context, t *auditoria.Tx, q *soporte
 		return ResultadoProcesarCorreo{}, err
 	}
 	if ticket != nil {
+		if motivo := remitenteNoAutorizado(*ticket, e); motivo != "" {
+			return m.notaDelCorreo(ctx, t, q, *ticket, e, motivo)
+		}
 		return m.respuestaDelCliente(ctx, t, q, *ticket, e)
 	}
 	return m.ticketDesdeCorreo(ctx, t, q, b, e, cerrado)
@@ -144,7 +156,7 @@ func (m *Modulo) ticketDelCorreo(ctx context.Context, q *soportebd.Queries, b so
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return nil, "", err
 			}
-			if err == nil && f.ContactoCorreo != nil && strings.EqualFold(*f.ContactoCorreo, e.Remitente) {
+			if err == nil && esContacto(f, e.Remitente) {
 				id = f.ID
 			}
 		}
@@ -181,7 +193,7 @@ func textoDelCorreo(e soportebd.SoporteCorreosEntrante, sinCita bool) string {
 		cuerpo = correo.QuitarCita(cuerpo)
 	}
 	if e.Truncado {
-		cuerpo = "(El correo superó el tamaño máximo y no se importó su contenido; revísalo en el buzón.)"
+		cuerpo = notaTruncado(derefStr(e.Limite)) + "\n\n" + cuerpo
 	}
 	var adjuntos []correo.Adjunto
 	_ = json.Unmarshal(e.Adjuntos, &adjuntos)
@@ -200,6 +212,70 @@ func textoDelCorreo(e soportebd.SoporteCorreosEntrante, sinCita bool) string {
 		cuerpo = "(Correo sin texto)"
 	}
 	return correo.Recortar(strings.TrimSpace(cuerpo), maxCuerpoCorreo)
+}
+
+// notaTruncado explica por qué el correo no se importó completo.
+func notaTruncado(limite string) string {
+	switch limite {
+	case correo.LimiteMIMEAnidado, correo.LimitePartes, correo.LimiteProfundidad:
+		return "(El correo tiene una estructura MIME demasiado compleja (" + limite + ") y no se importó completo; revísalo en el buzón.)"
+	case correo.LimiteBytes:
+		return "(El correo es demasiado grande para analizarlo completo; se importó solo el principio. Revísalo en el buzón.)"
+	case correo.LimiteTiempo:
+		return "(El análisis del correo superó el tiempo máximo y no se importó completo; revísalo en el buzón.)"
+	}
+	return "(El correo superó el tamaño máximo y no se importó su contenido; revísalo en el buzón.)"
+}
+
+// normalizarCorreo deja una dirección comparable: sin nombre ni <>, sin espacios y en
+// minúsculas. Vacío si no es una dirección.
+func normalizarCorreo(s string) string {
+	s = strings.TrimSpace(s)
+	if d, err := mail.ParseAddress(s); err == nil {
+		s = d.Address
+	}
+	s = strings.ToLower(strings.TrimSpace(s))
+	if !strings.Contains(s, "@") {
+		return ""
+	}
+	return s
+}
+
+// esContacto: el remitente es el contacto del ticket (dirección normalizada).
+func esContacto(f soportebd.SoporteTicket, remitente string) bool {
+	c := normalizarCorreo(derefStr(f.ContactoCorreo))
+	return c != "" && c == normalizarCorreo(remitente)
+}
+
+// remitenteNoAutorizado dice por qué el correo no puede actuar como el cliente en el ticket
+// (vacío = sí puede): debe ser el contacto y estar verificado.
+func remitenteNoAutorizado(f soportebd.SoporteTicket, e soportebd.SoporteCorreosEntrante) string {
+	if !esContacto(f, e.Remitente) {
+		return "remitente_no_es_contacto"
+	}
+	if !e.Verificado {
+		return "remitente_no_verificado"
+	}
+	return ""
+}
+
+// notaDelCorreo guarda el correo como nota interna del ticket: no cambia estado, contacto ni
+// destinatarios, y no emite ticket.respondido (no es un mensaje del cliente).
+func (m *Modulo) notaDelCorreo(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, f soportebd.SoporteTicket, e soportebd.SoporteCorreosEntrante, motivo string) (ResultadoProcesarCorreo, error) {
+	t.FijarEmpresa(deref(f.EmpresaID))
+	porque := "no es el contacto del ticket"
+	if motivo == "remitente_no_verificado" {
+		porque = "no verificado (el servidor de correo no autenticó el remitente)"
+	}
+	cuerpo := correo.Recortar("Correo de "+e.Remitente+" "+porque+": se guarda como nota interna, no cambia el estado "+
+		"y no recibe las respuestas.\n\n"+textoDelCorreo(e, true), maxCuerpoCorreo)
+	msj, err := q.CrearNotaCorreo(ctx, soportebd.CrearNotaCorreoParams{
+		TicketID: f.ID, EmpresaID: f.EmpresaID, AutorNombre: autorDelCorreo(e), Cuerpo: cuerpo,
+	})
+	if err != nil {
+		return ResultadoProcesarCorreo{}, err
+	}
+	return ResultadoProcesarCorreo{Estado: "procesado", Resultado: ptr("nota_interna"), TicketID: &f.ID, MensajeID: &msj.ID, Motivo: &motivo}, nil
 }
 
 func autorDelCorreo(e soportebd.SoporteCorreosEntrante) string {
@@ -265,6 +341,12 @@ func (m *Modulo) ticketDesdeCorreo(ctx context.Context, t *auditoria.Tx, q *sopo
 	})
 	if err != nil {
 		return ResultadoProcesarCorreo{}, err
+	}
+	if !e.Verificado {
+		// Puede entrar sin verificar (es un ticket nuevo: no toca a nadie más), pero marcado.
+		if err := q.MarcarContactoNoVerificado(ctx, tk.ID); err != nil {
+			return ResultadoProcesarCorreo{}, err
+		}
 	}
 	cuerpo := textoDelCorreo(e, false)
 	if cerrado != "" {
