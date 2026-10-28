@@ -41,7 +41,11 @@ func TestIPCliente(t *testing.T) {
 		{"IPv6 y puerto", "10.1.1.1:5000", []string{"[2001:db8::1]:443"}, panel, "2001:db8::1"},
 		{"entrada mal formada corta", "10.1.1.1:5000", []string{"203.0.113.7, basura"}, panel, "10.1.1.1"},
 		{"sin XFF queda el proxy", "10.1.1.1:5000", nil, panel, "10.1.1.1"},
-		{"todos confiables: el de más a la izquierda", "10.1.1.1:5000", []string{"10.2.2.2"}, panel, "10.2.2.2"},
+		// Regresión (revisión, hallazgo 8): si todo XFF es confiable no se toma lo de más a la
+		// izquierda (lo pudo escribir el cliente si es una IP de la red confiable).
+		{"todos confiables: la del socket", "10.1.1.1:5000", []string{"10.2.2.2"}, panel, "10.1.1.1"},
+		{"todos confiables, varios saltos: la del socket", "10.1.1.1:5000", []string{"10.9.9.9, 172.16.0.5"}, panel, "10.1.1.1"},
+		{"mal formada tras uno confiable: la del socket", "10.1.1.1:5000", []string{"basura, 10.2.2.2"}, panel, "10.1.1.1"},
 	}
 	for _, c := range casos {
 		if got := servidor.IPCliente(c.remoto, c.xff, c.confiables); got != c.esperada {

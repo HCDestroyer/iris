@@ -15,8 +15,9 @@ import (
 // IPCliente devuelve la IP del cliente. Si remoteAddr no es de un proxy confiable, es esa. Si lo
 // es, recorre X-Forwarded-For de derecha a izquierda (cada proxy agrega a la derecha la IP de
 // quien le habló) y devuelve la primera que no es de un proxy confiable: lo que está más a la
-// izquierda lo escribió el cliente y no se cree. Una entrada mal formada corta el recorrido
-// (se queda la última IP confiable vista).
+// izquierda lo escribió el cliente y no se cree. Si no aparece ninguna no confiable (todas lo
+// son, una entrada mal formada corta el recorrido o no hay XFF), devuelve la IP del socket:
+// nunca una IP de la red confiable que pudo escribir el propio cliente.
 func IPCliente(remoteAddr string, xff []string, confiables []netip.Prefix) string {
 	host := remoteAddr
 	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
@@ -34,18 +35,16 @@ func IPCliente(remoteAddr string, xff []string, confiables []netip.Prefix) strin
 			}
 		}
 	}
-	actual := ip.Unmap()
 	for i := len(saltos) - 1; i >= 0; i-- {
 		siguiente, err := parsearSalto(saltos[i])
 		if err != nil {
 			break
 		}
-		actual = siguiente
 		if !esConfiable(siguiente, confiables) {
-			break
+			return siguiente.String()
 		}
 	}
-	return actual.String()
+	return ip.Unmap().String()
 }
 
 // parsearSalto acepta "1.2.3.4", "1.2.3.4:5678", "2001:db8::1" y "[2001:db8::1]:443".
