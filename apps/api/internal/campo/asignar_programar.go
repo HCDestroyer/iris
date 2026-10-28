@@ -3,6 +3,7 @@ package campo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,7 +80,7 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 				case in.TecnicoID == nil && antes.Estado != EstadoPendiente:
 					// Sin técnico no hay programación que sostener: se libera la cita.
 					despues.Estado, despues.EnCaminoEn = EstadoPendiente, nil
-					if err := agenda.QuitarCita(ctx, t, antes.ID); err != nil {
+					if err := m.cfg.Agenda.QuitarCita(ctx, t, antes.ID, fmt.Sprintf("La orden %s quedó sin técnico", antes.Numero)); err != nil {
 						return antes, "", err
 					}
 				case antes.Estado == EstadoEnCamino:

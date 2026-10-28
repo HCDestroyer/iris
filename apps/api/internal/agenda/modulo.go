@@ -22,6 +22,7 @@ func init() {
 	nucleo.RegistrarTablaConEmpresa("agenda.zonas")
 	nucleo.RegistrarTablaConEmpresa("agenda.cuadrillas")
 	nucleo.RegistrarTablaConEmpresa("agenda.citas")
+	nucleo.RegistrarTablaConEmpresa("agenda.rutas")
 }
 
 // Config del módulo.
@@ -30,6 +31,9 @@ type Config struct {
 	Reloj func() time.Time
 	// ZonaHoraria de los turnos y del día de la capacidad (America/Guatemala por defecto).
 	ZonaHoraria *time.Location
+	// Enrutador da tiempos, distancias y trazos por calles (OSRM, OSRMDesdeEntorno). nil = sin
+	// OSRM: las rutas se proponen en línea recta (haversine) y lo dicen (degradada).
+	Enrutador Enrutador
 }
 
 // Modulo reúne los casos de uso de agenda.
@@ -63,6 +67,13 @@ type Modulo struct {
 
 	Asignables *auditoria.Caso[EntradaAsignables, RespuestaAsignables]
 	Calendario *auditoria.Caso[EntradaCalendario, Calendario]
+
+	// Rutas del día (ruta_casos.go). Proponer se llama con ProponerRuta (OSRM fuera de la
+	// transacción).
+	Proponer    *auditoria.Caso[EntradaProponerRuta, RutaDetalle]
+	Publicar    *auditoria.Caso[EntradaPublicarRuta, RutaDetalle]
+	VerRuta     *auditoria.Caso[EntradaVerRuta, RutaDetalle]
+	ListarRutas *auditoria.Caso[EntradaListarRutas, nucleo.Pagina[Ruta]]
 }
 
 // Nuevo arma el módulo.
@@ -102,6 +113,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.AnularAusencia = m.nuevoAnularAusencia()
 	m.Asignables = m.nuevoAsignables()
 	m.Calendario = m.nuevoCalendario()
+	m.Proponer = m.nuevoProponerRuta()
+	m.Publicar = m.nuevoPublicarRuta()
+	m.VerRuta = m.nuevoVerRuta()
+	m.ListarRutas = m.nuevoListarRutas()
 	return m
 }
 
