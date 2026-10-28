@@ -7,18 +7,23 @@ import { CircleCheck, CircleX } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { esquemaFallar, type DatosFallar } from "@/lib/campo/esquemas";
-import { obtenerPosicion } from "@/lib/campo/gps";
 import { faltantesCierre } from "@/lib/campo/reglas";
 import { MOTIVOS_FALLA } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
+import { useUbicacion } from "./ubicacion";
 
-const conPosicion = async () => {
-    const p = await obtenerPosicion();
-    return p ? { lat: p.lat, lon: p.lon } : {};
-};
+/** GPS del cierre o de la falla si el permiso ya está dado (no pregunta dentro del diálogo). */
+function useConPosicion() {
+    const { posicionSiPermitida } = useUbicacion();
+    return async () => {
+        const p = await posicionSiPermitida();
+        return p ? { lat: p.lat, lon: p.lon } : {};
+    };
+}
 
 export function CerrarOrden({ orden }: { orden: OrdenVista }) {
     const { motor, ejecutar } = useCampo();
+    const conPosicion = useConPosicion();
     const [abierto, setAbierto] = useState(false);
     const [resultado, setResultado] = useState<"exitosa" | "parcial">("exitosa");
     const [enviando, setEnviando] = useState(false);
@@ -83,6 +88,7 @@ export function CerrarOrden({ orden }: { orden: OrdenVista }) {
 
 export function FallarOrden({ orden }: { orden: OrdenVista }) {
     const { motor, ejecutar } = useCampo();
+    const conPosicion = useConPosicion();
     const [abierto, setAbierto] = useState(false);
     const form = useForm<DatosFallar>({ resolver: zodResolver(esquemaFallar), defaultValues: { motivoFalla: undefined, detalle: "" } });
     const enviar = form.handleSubmit(async (d) => {

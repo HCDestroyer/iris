@@ -212,6 +212,24 @@ export function cubreFaltante(adjunto: Pick<AdjuntoLocal, "id" | "tipo" | "clave
     return clave === undefined || clave === adjunto.claveChecklist;
 }
 
+/** Hora de la cita de una orden (ms): la de la agenda (`cita.inicio`) o, sin ella, `programadaInicio`. */
+export function inicioCita(orden: Pick<OrdenCampo, "cita" | "programadaInicio">): number | null {
+    const iso = orden.cita?.inicio ?? orden.programadaInicio ?? null;
+    const ms = iso ? Date.parse(iso) : Number.NaN;
+    return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Orden de «Mis órdenes de hoy»: primero las de la ruta publicada en su orden (`ruta.ordenIds`,
+ * paradas del paquete), luego por hora de cita (las sin cita al final) y por número.
+ */
+export function compararOrdenesDelDia(paradas: ReadonlyMap<number, number>) {
+    const parada = (o: Pick<OrdenCampo, "id">) => paradas.get(o.id) ?? Number.MAX_SAFE_INTEGER;
+    const cita = (o: Pick<OrdenCampo, "cita" | "programadaInicio">) => inicioCita(o) ?? Number.MAX_SAFE_INTEGER;
+    return (a: Pick<OrdenCampo, "id" | "numero" | "cita" | "programadaInicio">, b: Pick<OrdenCampo, "id" | "numero" | "cita" | "programadaInicio">) =>
+        parada(a) - parada(b) || cita(a) - cita(b) || a.numero.localeCompare(b.numero);
+}
+
 export class MotorSync {
     private readonly almacen: Almacen;
     private readonly transporte: Transporte;
@@ -1256,10 +1274,7 @@ export class MotorSync {
                 subidasPendientes: porSubir.filter((a) => a.ordenId === orden.id).length,
             };
         });
-        const clave = (o: OrdenVista) => posiciones.get(o.id) ?? Number.MAX_SAFE_INTEGER;
-        // Orden de ruta si hay ruta publicada; si no, por cita (inicio programado) y número.
-        const cita = (o: OrdenVista) => o.programadaInicio ?? "9999";
-        ordenes.sort((a, b) => clave(a) - clave(b) || cita(a).localeCompare(cita(b)) || a.numero.localeCompare(b.numero));
+        ordenes.sort(compararOrdenesDelDia(posiciones));
         const bodegaDe = (id: number) => this.ordenes.get(id)?.base.bodegaId ?? null;
         return {
             conexion: this.conexion,

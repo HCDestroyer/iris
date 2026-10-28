@@ -59,6 +59,24 @@ se inyectan.
   `min(5 min, 2 s·2ⁿ)` con jitter (mitad fija, mitad al azar). Una acción nueva no acorta esa
   espera; `establecerConexion(true)` o `reintentarAhora()` sí. Un 401/403 deja
   `conexion: "sin_sesion"` (y un problema de empresa, `"sin_empresa"`) y no acelera.
+- **Orden del día** (`compararOrdenesDelDia`): primero la ruta publicada (`ruta.ordenIds` del
+  paquete, en su orden), luego la hora de la cita de la agenda (`cita.inicio`, o
+  `programadaInicio` sin cita; las sin hora al final) y el número.
+- **Ubicación en vivo** (`ColaPosiciones`, aparte del motor): cola de puntos GPS en la misma base
+  (tabla `posiciones` de Dexie v3, clave = hora del punto en ms) y envío en lote a
+  `POST /campo/posiciones` (`crearTransportePosicionesApi`, `X-Iris-Canal: campo`, mismo
+  `dispositivoId` y la misma `verificarIdentidad` que el motor). `agregar` normaliza el punto
+  (6 decimales; sin rumbo `NaN`, velocidad > 150 m/s ni precisión > 100 km), lo guarda primero e
+  ignora una hora repetida o de más de 24 h. Tope de 1500 puntos (≈ 25 h a uno por minuto): se
+  descartan los más viejos. Lotes de hasta 500, en orden, a lo sumo 6 por minuto (el límite de la
+  API); un 429 se espera según `Retry-After` (segundos o fecha HTTP; 30 s si falta) sin descartar
+  nada, y ni `reintentarAhora` ni un punto nuevo lo acortan. Lo que la API contesta con 200
+  (aceptado, duplicado o descartado por `vieja`/`futura`/`frecuencia`) sale de la cola; un 422
+  borra ese lote y lo deja visible (`ultimoError`, `descartadas.invalida`); red y 5xx esperan con
+  espera exponencial; 401/403 (`requiere_sesion_campo`, sesión de otra persona) detiene el bucle
+  con la cola intacta (`detenida`: hay que volver a entrar); otro 4xx que no se arregla solo (400,
+  403 de empresa, 404, 413…) deja el envío en pausa (`pausada`) hasta `reintentarAhora`.
+  `detener()` cierra la cola (`cerrada`): `agregar` devuelve `false` hasta `iniciar()`. Estado para React con `suscribir` / `obtenerEstado` (`EstadoPosiciones`).
 
 ## Uso (React)
 
@@ -89,12 +107,13 @@ await motor.registrar("orden.llegar", orden.id, { lat, lon, precision });
 | Archivo | Qué es |
 | --- | --- |
 | `motor.ts` | `MotorSync`: cola, lotes, conflictos, paquete, cambios, subidas, bucle y estado |
+| `posiciones.ts` | `ColaPosiciones`: ubicación en vivo (cola, tope, límite por minuto, `Retry-After`) |
 | `aplicar.ts` | Aplicación optimista pura y regla del checklist |
 | `contrato.ts` | Alias de `@iris/contratos` (`Schema<"OrdenCampo">`…) y `DatosPorTipo` derivado de las entradas de cada acción |
 | `almacen.ts`, `almacen-memoria.ts`, `almacen-dexie.ts` | Persistencia: interfaz, memoria (pruebas) e IndexedDB (`@iris/sync/dexie`) |
 | `transporte.ts`, `http.ts` | Interfaces `Transporte` y `Subidor` y su implementación con el cliente `openapi-fetch` (lote, paquete, cambios, alta y tus 1.0) |
 | `reloj.ts`, `uuid7.ts` | Reloj inyectable, espera exponencial con jitter y UUID v7 monótono |
-| `pruebas/` | `@iris/sync/pruebas`: reloj manual, transporte y subidor falsos, fábricas |
+| `pruebas/` | `@iris/sync/pruebas`: reloj manual, transporte y subidor falsos, `TransportePosicionesFalso` (6 lotes/min, 429, duplicadas), fábricas |
 
 Nada del cable se declara a mano: si cambia el OpenAPI, `tsc` marca lo que hay que adaptar. El
 modelo local (`modelo.ts`: operación, orden, adjunto y meta guardados) sí es propio del teléfono.
@@ -119,5 +138,7 @@ del §3, desfase de reloj, espera exponencial con reloj manual, paquete, cambios
 caducidad, subida con corte y reanudación, cerrar esperando adjuntos, Dexie sobre
 `fake-indexeddb`; `motor-contrato.test.ts` (forma de I2/I1: `bloqueada_por_rechazo`,
 `dispositivo_ajeno`, tope de bytes, claves de `faltan_adjuntos`, alta con `claveChecklist`,
-`offset_distinto`, adjunto rechazado) y `http.test.ts` (transporte real con respuestas tipadas
-del OpenAPI).
+`offset_distinto`, adjunto rechazado), `posiciones.test.ts` (persistir antes de enviar, sin
+señal y reinicio, 6 lotes por minuto sin llegar al 429, 429 con `Retry-After`, tope, 24 h, 422,
+bucle con espera y sesión, aislamiento por usuario y empresa en IndexedDB y migración a v3) y
+`http.test.ts` (transporte real con respuestas tipadas del OpenAPI).

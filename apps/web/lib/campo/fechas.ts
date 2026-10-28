@@ -20,3 +20,10 @@ export function diaLargo(fecha: string): string {
     const ms = Date.parse(`${fecha}T12:00:00-06:00`);
     return Number.isNaN(ms) ? fecha : largo.format(ms);
 }
+
+/** «08:00–10:00»: ventana de llegada acordada con el cliente (o `undefined` si la cita no tiene). */
+export function ventanaCita(cita: { ventanaInicio: string | null; ventanaFin: string | null } | undefined): string | undefined {
+    const inicio = horaCorta(cita?.ventanaInicio);
+    const fin = horaCorta(cita?.ventanaFin);
+    return inicio && fin ? `${inicio}–${fin}` : inicio ? `desde ${inicio}` : fin ? `hasta ${fin}` : undefined;
+}

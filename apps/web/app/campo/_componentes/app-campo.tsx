@@ -2,9 +2,10 @@
 
 import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
 import { abrirMotor, type MotorAbierto } from "@/lib/campo/motor";
+import { dependenciasNavegador, olvidarTurno, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import {
     cerrarSesionApi,
     cierrePendiente,
@@ -23,6 +24,7 @@ import {
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { Pantallas } from "./pantallas";
+import { FinDeTurnoPorOrdenes, ProveedorUbicacion } from "./ubicacion";
 
 type Arranque =
     | { fase: "cargando" }
@@ -228,6 +230,7 @@ function ConMotor({
         // Entró otra persona: se detiene y se desmonta sin enviar nada; su base queda intacta.
         const ajena = () => {
             actual?.motor.detener();
+            actual?.posiciones.detener();
             alSesionAjena(sesion.nombre);
         };
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena)
@@ -237,6 +240,7 @@ function ConMotor({
                     setAbierto(m);
                 } else {
                     m.motor.detener();
+                    m.posiciones.detener();
                     m.almacen.cerrar();
                 }
             })
@@ -244,19 +248,32 @@ function ConMotor({
         return () => {
             vivo = false;
             actual?.motor.detener();
+            actual?.posiciones.detener();
             actual?.almacen.cerrar();
         };
     }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena]);
+
+    // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
+    const rastreador = useMemo(
+        () => (abierto ? new RastreadorUbicacion(abierto.posiciones, dependenciasNavegador(sesion.usuarioId)) : null),
+        [abierto, sesion.usuarioId],
+    );
 
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
             if (!abierto) {
                 return;
             }
-            const { motor, almacen } = abierto;
+            const { motor, posiciones, almacen } = abierto;
+            // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
+            // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
+            rastreador?.terminarTurno();
             motor.detener();
+            posiciones.detener();
+            // El turno es de esta persona: el próximo que entre en el teléfono empieza fuera de turno.
+            olvidarTurno(sesion.usuarioId);
             if (conservarPendientes) {
-                // Solo la cola y los adjuntos pendientes; nada que se pueda ver sin entrar.
+                // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
             } else {
                 await almacen.borrar();
@@ -271,7 +288,7 @@ function ConMotor({
                 alCerrarSesion(true);
             }
         },
-        [abierto, sesion.usuarioId, alCerrarSesion],
+        [abierto, rastreador, sesion.usuarioId, alCerrarSesion],
     );
 
     if (error) {
@@ -298,7 +315,7 @@ function ConMotor({
             </Centro>
         );
     }
-    if (!abierto) {
+    if (!abierto || !rastreador) {
         return (
             <Centro>
                 <MarcaIris />
@@ -307,8 +324,11 @@ function ConMotor({
         );
     }
     return (
-        <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-        </ProveedorCampo>
+        <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
+            <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
+                <FinDeTurnoPorOrdenes />
+                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+            </ProveedorCampo>
+        </ProveedorUbicacion>
     );
 }
