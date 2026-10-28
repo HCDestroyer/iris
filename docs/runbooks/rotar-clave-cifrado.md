@@ -9,6 +9,11 @@ base. La leen la **API y el worker** (los dos deben tener siempre la misma).
 | Token de Argos (`atk_…`) / Horus (`hf_pat_…`) y secreto de su webhook | `integracion.conectores.token_cifrado`, `secreto_webhook_cifrado` | `conector:<id>:token` y `conector:<id>:secreto_webhook` |
 | Contraseñas IMAP y SMTP de los buzones | `soporte.buzones.imap_contrasena`, `smtp_contrasena` | `soporte.buzon:<id>:imap\|smtp` |
 
+Además, de `IRIS_CLAVE_CIFRADO` se **deriva** (HKDF, etiqueta `iris:idempotencia`) la clave HMAC
+con que la API guarda el hash de cada petición con `Idempotency-Key` (`nucleo.idempotencia`; el
+cuerpo puede llevar contraseñas y nunca se guarda como hash plano). No hay nada que re-cifrar:
+las filas viven 24 h. Ver «Idempotencia durante la rotación».
+
 No dependen de la clave: contraseñas de usuarios (argon2id), sesiones, tokens `iris_pat_`, tickets
 del portal y códigos de conexión (hashes), ni el resto de los datos. La lista vive en
 `apps/api/internal/nucleo/clave`, y una prueba exige que toda columna `bytea` nueva quede
@@ -59,7 +64,8 @@ respaldo de la base sin la clave, no hace falta: sin la clave los secretos no se
 6. Rota: la misma orden sin `--simular`. Termina con `Re-cifrados: N`. Si responde
    `cifrados_ilegibles`, no escribió nada: ver «Ilegibles».
 7. Comprueba: córrela otra vez con `--simular`. Todas las columnas deben tener `rotadas` en 0.
-8. Quita `IRIS_CLAVE_CIFRADO_ANTERIOR` del `.env` de api y worker y reinícialos (paso 4).
+8. Quita `IRIS_CLAVE_CIFRADO_ANTERIOR` del `.env` de api y worker y reinícialos (paso 4),
+   idealmente 24 h después de rotar (ver «Idempotencia durante la rotación»).
    Mientras siga puesta, api y worker lo recuerdan al arrancar con un `WARN` en el log
    («IRIS_CLAVE_CIFRADO_ANTERIOR está puesta…»): no la dejes, porque la clave vieja seguiría
    abriendo lo que quede cifrado con ella.
@@ -69,6 +75,20 @@ respaldo de la base sin la clave, no hace falta: sin la clave los secretos no se
     - Cambia las contraseñas de los buzones en el servidor de correo y reescríbelas en Iris
       (Administración → Buzones → Editar, y «Probar»).
     - Si se sospecha que alguien leyó los TOTP, reinicia el MFA de los usuarios (abajo).
+
+## Idempotencia durante la rotación
+
+- Con `IRIS_CLAVE_CIFRADO_ANTERIOR` puesta, la API compara también las filas guardadas con la
+  clave anterior: una petición repetida con la misma `Idempotency-Key` recibe la respuesta
+  guardada, como siempre. Las filas nuevas van con la clave nueva.
+- Si se quita la anterior antes de que venzan (24 h), una petición repetida con una clave de
+  idempotencia de antes de la rotación responde **422 `idempotencia_no_verificable`**: el
+  servidor no puede saber si el cuerpo es el mismo, y ejecutarla otra vez podría repetir la acción
+  (lo que la idempotencia evita). El cliente revisa si la operación ya se hizo y, si no, la repite
+  con otra `Idempotency-Key`. Para no ver ese 422, deja la anterior al menos 24 h tras rotar (el
+  `WARN` del arranque lo recuerda) o acéptalo en el corte.
+- Sin `IRIS_CLAVE_CIFRADO` (solo desarrollo) la clave es aleatoria por proceso: tras reiniciar,
+  una clave repetida da el mismo 422.
 
 ## Ilegibles
 
