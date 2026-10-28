@@ -16,6 +16,7 @@ import {
     lineaVacia,
     PROSPECTO_VACIO,
 } from "./esquemas";
+import { accionesVisibles } from "./acciones";
 import { FILTROS_VACIOS, filtrosDesdeUrl, hayFiltros, queryDe, textoConteo, urlDe, vistaDesdeUrl } from "./filtros";
 import { circulo, geojsonCobertura } from "./mapa";
 import { requisitosGanar, textoDistancia, textoEvento, textoMonto, textoMotivo, type Cobertura } from "./presentacion";
@@ -182,5 +183,22 @@ describe("presentación", () => {
             ["cotizacion", false, "Sin cotización"],
             ["contrato", false, "Sin contrato"],
         ]);
+    });
+});
+
+describe("botones del prospecto", () => {
+    const acciones = { contactar: true, evaluar: true, cotizar: false, aceptar: false, contratar: false, firmar: false, ganar: false, confirmaObra: false, perder: true, reabrir: false };
+    const todos = () => true;
+
+    it("salen de `acciones` cruzadas con los permisos de /yo", () => {
+        expect(accionesVisibles({ acciones, estado: "nuevo" }, todos)).toEqual(["contactar", "asignar", "perder"]);
+        expect(accionesVisibles({ acciones, estado: "nuevo" }, (p) => p.includes("prospectos.perder"))).toEqual(["perder"]);
+    });
+
+    it("«Asignar vendedor» no se ofrece en un prospecto ganado ni perdido", () => {
+        const cerrado = { ...acciones, contactar: false, perder: false };
+        expect(accionesVisibles({ acciones: cerrado, estado: "ganado" }, todos)).toEqual([]);
+        expect(accionesVisibles({ acciones: { ...cerrado, reabrir: true }, estado: "perdido" }, todos)).toEqual(["reabrir"]);
+        expect(accionesVisibles({ acciones: cerrado, estado: "contrato" }, todos)).toEqual(["asignar"]);
     });
 });

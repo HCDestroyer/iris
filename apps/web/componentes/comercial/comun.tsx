@@ -94,9 +94,11 @@ export function useEnvio() {
     const [error, setError] = useState<unknown>(null);
     const [enviando, setEnviando] = useState(false);
 
+    /** Con `lanzar`, el error se relanza (para quien lo muestra por su cuenta) en vez de quedar en `error`. */
     async function enviar<R, T extends FieldValues = FieldValues>(
         peticion: (clave: string) => Promise<R>,
         campos?: { nombres: readonly Path<T>[]; setError: UseFormSetError<T> },
+        opciones: { lanzar?: boolean } = {},
     ): Promise<R | undefined> {
         setError(null);
         setEnviando(true);
@@ -106,6 +108,7 @@ export function useEnvio() {
             return r;
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);
+            if (opciones.lanzar) throw e;
             if (!(campos && erroresACampos(e, campos.nombres, campos.setError))) {
                 setError(e);
             }

@@ -216,7 +216,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
         ...d,
     });
     esc.contratos.push(
-        contrato({ id: 52, prospectoId: 5, cotizacionId: 51 }),
+        contrato({ id: 52, prospectoId: 5, cotizacionId: 51, pdf: doc("no_generado") }),
         contrato({ id: 102, prospectoId: 10, cotizacionId: 101, estado: "firmado", firmanteNombre: "Iván Toj", firmadoEn: ahora, firmadoPor: 1, pdfFirmado: doc() }),
         contrato({ id: 62, prospectoId: 6, cotizacionId: 61, estado: "firmado", firmanteNombre: "Fernando Paz", firmadoEn: ahora, firmadoPor: 1, pdfFirmado: doc() }),
     );

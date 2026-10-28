@@ -59,8 +59,13 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
         if (r) await recargar();
     }
 
+    const envioPdf = useEnvio();
     async function regenerarPdf(cot: Cotizacion) {
-        await resolver(api().POST("/api/v1/cotizaciones/{id}/pdf", { params: { path: { id: cot.id } } }));
+        await envioPdf.enviar(
+            (clave) => resolver(api().POST("/api/v1/cotizaciones/{id}/pdf", { params: { path: { id: cot.id }, header: { "Idempotency-Key": clave } } })),
+            undefined,
+            { lanzar: true },
+        );
         await recargar();
     }
 

@@ -10,40 +10,24 @@ import { AvisoAccion, useEnvio } from "@/componentes/comercial/comun";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
+import { accionesVisibles, type AccionProspecto } from "@/lib/comercial/acciones";
 import { ErrorApi } from "@/lib/api/errores";
 import { esquemaPerder, esquemaReabrir, type DatosPerder, type DatosReabrir } from "@/lib/comercial/esquemas";
 import { requisitosGanar, type Cobertura, type ProspectoDetalle } from "@/lib/comercial/presentacion";
 import { useLectura } from "@/lib/lectura";
-import type { Permiso } from "@/lib/menu";
 import { useSesion } from "@/lib/sesion";
 
-type Accion = "contactar" | "asignar" | "ganar" | "perder" | "reabrir";
+type Accion = AccionProspecto;
 
-type Def = { etiqueta: string; icono: LucideIcon; permiso: Permiso; titulo: string };
+type Def = { etiqueta: string; icono: LucideIcon; titulo: string };
 
 const ACCIONES: Record<Accion, Def> = {
-    contactar: { etiqueta: "Marcar contactado", icono: PhoneCall, permiso: "prospectos.contactar", titulo: "Marcar como contactado" },
-    asignar: { etiqueta: "Asignar vendedor", icono: UserRoundPlus, permiso: "prospectos.asignar", titulo: "Asignar vendedor" },
-    ganar: { etiqueta: "Ganar", icono: Trophy, permiso: "prospectos.ganar", titulo: "Ganar el prospecto" },
-    perder: { etiqueta: "Perder", icono: CircleX, permiso: "prospectos.perder", titulo: "Marcar como perdido" },
-    reabrir: { etiqueta: "Reabrir", icono: RotateCcw, permiso: "prospectos.reabrir", titulo: "Reabrir el prospecto" },
+    contactar: { etiqueta: "Marcar contactado", icono: PhoneCall, titulo: "Marcar como contactado" },
+    asignar: { etiqueta: "Asignar vendedor", icono: UserRoundPlus, titulo: "Asignar vendedor" },
+    ganar: { etiqueta: "Ganar", icono: Trophy, titulo: "Ganar el prospecto" },
+    perder: { etiqueta: "Perder", icono: CircleX, titulo: "Marcar como perdido" },
+    reabrir: { etiqueta: "Reabrir", icono: RotateCcw, titulo: "Reabrir el prospecto" },
 };
-
-/**
- * Qué botones van: los que la API marca en `acciones` (estado del embudo) y, de esos, los que el
- * usuario tiene en sus permisos de `GET /yo`. Asignar no está en `acciones` (pedido a I2): va con
- * el permiso solo.
- */
-export function accionesVisibles(d: Pick<ProspectoDetalle, "acciones">, puede: (p: readonly Permiso[]) => boolean): Accion[] {
-    const a = d.acciones;
-    const lista: Accion[] = [];
-    if (a.ganar && puede([ACCIONES.ganar.permiso])) lista.push("ganar");
-    if (a.contactar && puede([ACCIONES.contactar.permiso])) lista.push("contactar");
-    if (puede([ACCIONES.asignar.permiso])) lista.push("asignar");
-    if (a.reabrir && puede([ACCIONES.reabrir.permiso])) lista.push("reabrir");
-    if (a.perder && puede([ACCIONES.perder.permiso])) lista.push("perder");
-    return lista;
-}
 
 type Props = { detalle: ProspectoDetalle; usuarios: readonly Usuario[] | null; recargar: () => Promise<void> };
 

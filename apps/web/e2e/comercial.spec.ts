@@ -398,6 +398,36 @@ test.describe("del prospecto al cliente", () => {
         await expect(page.getByTestId("historial").getByText("Prospecto creado")).toBeVisible();
     });
 
+    test("«Asignar vendedor» no aparece en un prospecto ganado ni perdido", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/comercial/1");
+        await expect(page.getByRole("button", { name: "Asignar vendedor" })).toBeVisible();
+        for (const [id, nombre] of [
+            [6, "Fernando Paz"],
+            [7, "Gloria Ríos"],
+        ] as const) {
+            await page.goto(`/comercial/${id}`);
+            await expect(page.getByRole("heading", { name: nombre })).toBeVisible();
+            await expect(page.getByRole("button", { name: "Asignar vendedor" })).toHaveCount(0);
+        }
+        await expect(page.getByRole("button", { name: "Reabrir" })).toBeVisible();
+    });
+
+    test("«Generar PDF» del contrato manda Idempotency-Key y luego permite descargarlo", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/comercial/5");
+        const contrato = page.getByTestId("contrato");
+        await expect(contrato.getByText("El PDF no se pudo guardar.")).toBeVisible();
+        await contrato.getByRole("button", { name: "Generar PDF" }).click();
+        await expect(contrato.getByRole("button", { name: "Descargar borrador" })).toBeVisible();
+        const envio = posts(api, "/contratos/52/pdf");
+        expect(envio).toHaveLength(1);
+        expect(envio[0]?.idempotencia).toBeTruthy();
+        expect(api.mutaciones).toContainEqual({ metodo: "POST", ruta: "/api/v1/contratos/52/pdf", csrf: CSRF });
+    });
+
     test("descargar el PDF de la cotización con la sesión", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);

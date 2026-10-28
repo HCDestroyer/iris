@@ -54,8 +54,13 @@ export function TarjetaContrato({ detalle, recargar }: Props) {
         if (r) await recargar();
     }
 
+    const envioPdf = useEnvio();
     async function regenerarPdf(contrato: Contrato) {
-        await resolver(api().POST("/api/v1/contratos/{id}/pdf", { params: { path: { id: contrato.id } } }));
+        await envioPdf.enviar(
+            (clave) => resolver(api().POST("/api/v1/contratos/{id}/pdf", { params: { path: { id: contrato.id }, header: { "Idempotency-Key": clave } } })),
+            undefined,
+            { lanzar: true },
+        );
         await recargar();
     }
 
