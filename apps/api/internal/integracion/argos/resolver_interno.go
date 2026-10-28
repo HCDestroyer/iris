@@ -111,3 +111,42 @@ func (m *Modulo) EmpresaDeRouter(ctx context.Context, routerID int64) (*int64, e
 	}
 	return &f.EmpresaID, nil
 }
+
+// ClienteValidado es lo que Argos dice de un cliente (para validar el acceso al portal).
+// Validado = false si no se pudo preguntar (Motivo: conector_argos_apagado,
+// argos_no_disponible, argos_rechazo, sin_empresa_en_argos).
+type ClienteValidado struct {
+	Validado  bool
+	Existe    bool
+	EmpresaID int64
+	Motivo    string
+}
+
+// ValidarCliente lee el cliente en Argos (GET /clientes/:id), sin HTTP de Iris ni permisos de
+// usuario: quien lo llama audita el resultado. Solo devuelve error si falla la base.
+func (m *Modulo) ValidarCliente(ctx context.Context, clienteID int64) (ClienteValidado, error) {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return ClienteValidado{}, nucleo.ErrSinBD
+	}
+	c, err := m.conectorActivo(ctx, bd)
+	var p *nucleo.Problema
+	if errors.As(err, &p) && p.Codigo() == "conector_apagado" {
+		return ClienteValidado{Motivo: MotivoConectorApagado}, nil
+	}
+	if err != nil {
+		return ClienteValidado{}, err
+	}
+	cl, err := m.clienteDe(c).ObtenerCliente(ctx, clienteID)
+	switch {
+	case err == nil && cl.EmpresaID == 0:
+		return ClienteValidado{Motivo: "sin_empresa_en_argos"}, nil
+	case err == nil:
+		return ClienteValidado{Validado: true, Existe: true, EmpresaID: cl.EmpresaID}, nil
+	case EsNoEncontrado(err):
+		return ClienteValidado{Validado: true}, nil
+	case EsCaido(err):
+		return ClienteValidado{Motivo: MotivoArgosNoDisponible}, nil
+	}
+	return ClienteValidado{Motivo: MotivoArgosRechazo}, nil
+}

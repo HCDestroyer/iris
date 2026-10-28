@@ -38,6 +38,10 @@ type Config struct {
 	BaseURL string
 	// DuracionSesionPortal: vida absoluta de una sesión del portal (2 h).
 	DuracionSesionPortal time.Duration
+	// ValidarCliente lee en Argos un cliente que Iris no conoce al emitir un acceso al portal
+	// (cmd/iris lo cablea con el conector Argos). nil = no se valida (se audita
+	// cliente_validado=false).
+	ValidarCliente ValidadorCliente
 	// VigenciaAccesoPortal: vida del ticket de acceso (60 s, un solo uso).
 	VigenciaAccesoPortal time.Duration
 	// PortalTope: canjes fallidos del portal (de todos, no por IP) por PortalVentanaTope a partir
@@ -83,7 +87,7 @@ type Modulo struct {
 	RevocarToken *auditoria.Caso[EntradaRevocarToken, TokenAPI]
 	ListarTokens *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]
 
-	EmitirAccesoPortal  *auditoria.Caso[EntradaEmitirAccesoPortal, AccesoPortalEmitido]
+	EmitirAccesoPortal  *EmitirAccesoPortal
 	EntrarPortal        *auditoria.Caso[EntradaEntrarPortal, SesionPortal]
 	ObtenerSesionPortal *auditoria.Caso[struct{}, SesionPortalActual]
 	CerrarSesionPortal  *auditoria.Caso[struct{}, struct{}]

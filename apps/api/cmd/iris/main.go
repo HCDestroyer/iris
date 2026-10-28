@@ -103,14 +103,27 @@ func cifrador(cfg config.Config) (*nucleo.Cifrador, error) {
 }
 
 func modulo(cfg config.Config) (*identidad.Modulo, error) {
+	return moduloConArgos(cfg, nil)
+}
+
+// moduloConArgos arma identidad; con el conector Argos, el portal valida en Argos los clientes
+// que Iris no conoce al emitir un acceso.
+func moduloConArgos(cfg config.Config, a *argos.Modulo) (*identidad.Modulo, error) {
 	c, err := cifrador(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return identidad.Nuevo(identidad.Config{
+	icfg := identidad.Config{
 		DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c,
 		BaseURL: cfg.BaseURL, DuracionSesionPortal: cfg.DuracionSesionPortal,
-	}), nil
+	}
+	if a != nil {
+		icfg.ValidarCliente = func(ctx context.Context, clienteID int64) (identidad.ValidacionCliente, error) {
+			v, err := a.ValidarCliente(ctx, clienteID)
+			return identidad.ValidacionCliente{Validado: v.Validado, Existe: v.Existe, EmpresaID: v.EmpresaID, Motivo: v.Motivo}, err
+		}
+	}
+	return identidad.Nuevo(icfg), nil
 }
 
 // configArgos arma la configuración del conector Argos desde el entorno.
@@ -140,10 +153,6 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
 		return fmt.Errorf("sincronizar permisos (¿corriste `iris migrar`?): %w", err)
 	}
-	id, err := modulo(cfg)
-	if err != nil {
-		return err
-	}
 	if cfg.ClaveCifrado == "" {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: el MFA (TOTP) y los conectores quedan deshabilitados")
 	}
@@ -160,6 +169,10 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	acfg.Encolar = integracion.Encolar(cola)
 	conectorArgos := argos.Nuevo(acfg)
+	id, err := moduloConArgos(cfg, conectorArgos)
+	if err != nil {
+		return err
+	}
 	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
 	if err != nil {
 		return err
@@ -294,7 +307,11 @@ func accesoPortal(ctx context.Context, cfg config.Config, args []string) error {
 	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
 		return err
 	}
-	id, err := modulo(cfg)
+	acfg, err := configArgos(cfg)
+	if err != nil {
+		return err
+	}
+	id, err := moduloConArgos(cfg, argos.Nuevo(acfg))
 	if err != nil {
 		return err
 	}

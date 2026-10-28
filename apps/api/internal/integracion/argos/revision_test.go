@@ -345,3 +345,25 @@ func TestRechazoDeArgosResumido(t *testing.T) {
 		t.Fatalf("detail: %q", d)
 	}
 }
+
+// ValidarCliente (acceso al portal): existe y su empresa; 404; Argos caído o apagado = no
+// validado, con el motivo.
+func TestValidarClienteParaElPortal(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := pruebas.ContextoSistema(e.pool)
+	if v, err := e.mod.ValidarCliente(ctx, 71); err != nil || v.Validado || v.Motivo != argos.MotivoConectorApagado {
+		t.Fatalf("apagado: %+v %v", v, err)
+	}
+	_, _, _ = e.conectado()
+	e.sembrarClienteEn(71, 2, "Fabiola")
+	if v, err := e.mod.ValidarCliente(ctx, 71); err != nil || !v.Validado || !v.Existe || v.EmpresaID != 2 {
+		t.Fatalf("existe: %+v %v", v, err)
+	}
+	if v, err := e.mod.ValidarCliente(ctx, 999); err != nil || !v.Validado || v.Existe {
+		t.Fatalf("no existe: %+v %v", v, err)
+	}
+	e.argos.con(func() { e.argos.caido = true })
+	if v, err := e.mod.ValidarCliente(ctx, 71); err != nil || v.Validado || v.Motivo != argos.MotivoArgosNoDisponible {
+		t.Fatalf("caído: %+v %v", v, err)
+	}
+}

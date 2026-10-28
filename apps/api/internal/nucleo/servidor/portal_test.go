@@ -495,3 +495,50 @@ func TestSesionDelPanelNoDeclaraCanalPortal(t *testing.T) {
 		t.Fatalf("campo: %s", c)
 	}
 }
+
+// Regresión (revisión): si Iris no conoce al cliente, al emitir se lee en Argos (debe existir y
+// ser de la empresa); si no se pudo validar, se emite y queda cliente_validado=false en la
+// auditoría. Con instantánea no se pregunta a Argos.
+func TestPortalValidaClienteEnArgos(t *testing.T) {
+	llamadas := 0
+	argosDice := map[int64]identidad.ValidacionCliente{
+		90: {Validado: true, Existe: true, EmpresaID: 1},
+		91: {Validado: true, Existe: true, EmpresaID: 2},
+		92: {Validado: true},
+		93: {Motivo: "conector_argos_apagado"},
+	}
+	e := entornoPortal(t, identidad.Config{CookieSegura: false, ValidarCliente: func(_ context.Context, id int64) (identidad.ValidacionCliente, error) {
+		llamadas++
+		return argosDice[id], nil
+	}})
+	argos := e.argos(nucleo.PermPortalEmitir)
+	validacion := func() string {
+		var v string
+		if err := pruebas.Pool(t).QueryRow(context.Background(),
+			`SELECT coalesce(entrada->'auditoria'->>'cliente_validado', '') || ':' || coalesce(entrada->'auditoria'->>'validacion', '')
+			   FROM auditoria.acciones WHERE accion = 'portal.emitir' AND resultado = 'ok' ORDER BY id DESC LIMIT 1`).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	emitir(t, argos, 90, 1)
+	if v := validacion(); v != "true:argos" {
+		t.Fatalf("validado en Argos: %s", v)
+	}
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 91, "empresaId": 1}).problema(t, 422, "empresa_no_coincide")
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 92, "empresaId": 1}).problema(t, 422, "cliente_no_existe")
+	emitir(t, argos, 93, 1)
+	if v := validacion(); v != "false:conector_argos_apagado" {
+		t.Fatalf("sin validar: %s", v)
+	}
+	// Con instantánea: no se pregunta a Argos.
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		`INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (88, 1, 'Conocido', now())`); err != nil {
+		t.Fatal(err)
+	}
+	antes := llamadas
+	emitir(t, argos, 88, 1)
+	if llamadas != antes || validacion() != "true:instantanea" {
+		t.Fatalf("con instantánea: llamadas %d → %d, %s", antes, llamadas, validacion())
+	}
+}

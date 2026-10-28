@@ -33,7 +33,7 @@ func (m *Modulo) registrarPortal(api huma.API) {
 		"Emitir un acceso al portal de soporte para un cliente de Argos", nucleo.PermPortalEmitir, http.StatusCreated, http.StatusConflict)
 	emitir.Tags = []string{etiquetaPortal}
 	emitir.Security = []map[string][]string{{"bearer": {}}}
-	emitir.Description += " Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente y es de otra empresa, 422 `empresa_no_coincide`. " + descNoRepetible
+	emitir.Description += " Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. " + descNoRepetible
 	huma.Register(api, emitir, func(ctx context.Context, in *conClave[EntradaEmitirAccesoPortal]) (*cuerpo[AccesoPortalEmitido], error) {
 		v, err := m.EmitirAccesoPortal.Ejecutar(ctx, in.Body)
 		return responderSecreto(ctx, v, err)

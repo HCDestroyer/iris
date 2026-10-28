@@ -80,25 +80,93 @@ type AccesoPortalEmitido struct {
 	ExpiraEn time.Time `json:"expiraEn"`
 }
 
-func nuevoEmitirAccesoPortal(cfg Config) *auditoria.Caso[EntradaEmitirAccesoPortal, AccesoPortalEmitido] {
-	return auditoria.Nuevo(auditoria.Caso[EntradaEmitirAccesoPortal, AccesoPortalEmitido]{
-		Accion: "portal.emitir", Permiso: nucleo.PermPortalEmitir,
-		// La empresa no es la activa de la petición: es la del cliente, que se valida contra las
-		// del actor (una integración puede operar en varias sin mandar X-Iris-Empresa).
-		SinEmpresa: true,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEmitirAccesoPortal) (AccesoPortalEmitido, error) {
+// ValidacionCliente es lo que Argos dice de un cliente (Config.ValidarCliente). Validado =
+// false: no se pudo preguntar (Motivo dice por qué).
+type ValidacionCliente struct {
+	Validado  bool
+	Existe    bool
+	EmpresaID int64
+	Motivo    string
+}
+
+// ValidadorCliente lee un cliente en Argos (lo cablea cmd/iris con el conector Argos). Solo
+// devuelve error si falla la base.
+type ValidadorCliente func(ctx context.Context, clienteID int64) (ValidacionCliente, error)
+
+type entradaEmitirFinal struct {
+	EntradaEmitirAccesoPortal
+	conocido   bool
+	validacion *ValidacionCliente
+}
+
+// EmitirAccesoPortal (portal.emitir) en dos fases, sin transacción abierta durante la llamada a
+// Argos: un caso corto verifica el permiso y la empresa y mira la instantánea de Argos; si Iris
+// no conoce al cliente y hay validador, se lee el cliente en Argos (debe existir y ser de la
+// empresa); el segundo caso emite el ticket y audita cliente_validado (false si no se pudo
+// validar: conector apagado, Argos caído).
+type EmitirAccesoPortal struct {
+	cfg    Config
+	previo *auditoria.Caso[EntradaEmitirAccesoPortal, bool]
+	final  *auditoria.Caso[entradaEmitirFinal, AccesoPortalEmitido]
+}
+
+// clienteConocido: si Iris ya conoce al cliente (instantánea de Argos), debe ser de esa empresa.
+func clienteConocido(ctx context.Context, q *identidadbd.Queries, in EntradaEmitirAccesoPortal) (bool, error) {
+	e, err := q.EmpresaDeClienteArgos(ctx, in.ClienteID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	case e != in.EmpresaID:
+		return true, empresaNoCoincide()
+	}
+	return true, nil
+}
+
+func empresaNoCoincide() *nucleo.Problema {
+	return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente es de otra empresa según Argos")
+}
+
+func nuevoEmitirAccesoPortal(cfg Config) *EmitirAccesoPortal {
+	k := &EmitirAccesoPortal{cfg: cfg}
+	// La empresa no es la activa de la petición: es la del cliente, que se valida contra las del
+	// actor (una integración puede operar en varias sin mandar X-Iris-Empresa).
+	k.previo = auditoria.Nuevo(auditoria.Caso[EntradaEmitirAccesoPortal, bool]{
+		Accion: "portal.emitir", Permiso: nucleo.PermPortalEmitir, SinEmpresa: true,
+		AuditarExito: func(bool) bool { return false },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEmitirAccesoPortal) (bool, error) {
+			q := identidadbd.New(t)
+			t.FijarEmpresa(in.EmpresaID)
+			t.Anotar(map[string]any{"cliente_id": in.ClienteID})
+			if err := empresaParaEmitir(ctx, q, in.EmpresaID); err != nil {
+				return false, err
+			}
+			return clienteConocido(ctx, q, in)
+		},
+	})
+	k.final = auditoria.Nuevo(auditoria.Caso[entradaEmitirFinal, AccesoPortalEmitido]{
+		Accion: "portal.emitir", Permiso: nucleo.PermPortalEmitir, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaEmitirFinal) (AccesoPortalEmitido, error) {
 			q := identidadbd.New(t)
 			t.FijarEmpresa(in.EmpresaID)
 			t.Anotar(map[string]any{"cliente_id": in.ClienteID})
 			if err := empresaParaEmitir(ctx, q, in.EmpresaID); err != nil {
 				return AccesoPortalEmitido{}, err
 			}
-			// Si Iris ya conoce al cliente (instantánea de Argos), debe ser de esa empresa.
-			switch e, err := q.EmpresaDeClienteArgos(ctx, in.ClienteID); {
-			case err == nil && e != in.EmpresaID:
-				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("empresa_no_coincide", "El cliente es de otra empresa según Argos")
-			case err != nil && !errors.Is(err, pgx.ErrNoRows):
-				return AccesoPortalEmitido{}, err
+			switch v := in.validacion; {
+			case in.conocido:
+				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "instantanea"})
+			case v != nil && v.Validado && !v.Existe:
+				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("cliente_no_existe", "Argos no tiene ese cliente")
+			case v != nil && v.Validado && v.EmpresaID != in.EmpresaID:
+				return AccesoPortalEmitido{}, empresaNoCoincide()
+			case v != nil && v.Validado:
+				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "argos"})
+			case v != nil:
+				t.Anotar(map[string]any{"cliente_validado": false, "validacion": v.Motivo})
+			default:
+				t.Anotar(map[string]any{"cliente_validado": false, "validacion": "sin_validador"})
 			}
 			ticket, err := NuevoSecreto()
 			if err != nil {
@@ -123,6 +191,24 @@ func nuevoEmitirAccesoPortal(cfg Config) *auditoria.Caso[EntradaEmitirAccesoPort
 			return AccesoPortalEmitido{URL: cfg.BaseURL + "/soporte/entrar#" + ticket, ExpiraEn: f.ExpiraEn}, nil
 		},
 	})
+	return k
+}
+
+// Ejecutar emite el acceso.
+func (k *EmitirAccesoPortal) Ejecutar(ctx context.Context, in EntradaEmitirAccesoPortal) (AccesoPortalEmitido, error) {
+	conocido, err := k.previo.Ejecutar(ctx, in)
+	if err != nil {
+		return AccesoPortalEmitido{}, err
+	}
+	f := entradaEmitirFinal{EntradaEmitirAccesoPortal: in, conocido: conocido}
+	if !conocido && k.cfg.ValidarCliente != nil {
+		v, err := k.cfg.ValidarCliente(ctx, in.ClienteID)
+		if err != nil {
+			return AccesoPortalEmitido{}, err
+		}
+		f.validacion = &v
+	}
+	return k.final.Ejecutar(ctx, f)
 }
 
 // empresaParaEmitir: un usuario, token o integración solo emite para una empresa en que opera
