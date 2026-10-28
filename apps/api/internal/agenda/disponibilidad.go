@@ -28,9 +28,9 @@ type Franja struct {
 
 // Ocupacion: una cita del técnico ese día.
 type Ocupacion struct {
-	OrdenID int64     `json:"ordenId"`
+	OrdenID int64     `json:"ordenId" doc:"0 si la orden es de otra empresa"`
 	Numero  string    `json:"numero" doc:"Vacío si la orden es de otra empresa"`
-	Estado  string    `json:"estado"`
+	Estado  string    `json:"estado" doc:"Estado de la orden; «ocupado» si es de otra empresa"`
 	Inicio  time.Time `json:"inicio"`
 	Fin     time.Time `json:"fin"`
 }
@@ -205,11 +205,12 @@ func (m *Modulo) nuevoAsignables() *auditoria.Caso[EntradaAsignables, RespuestaA
 						continue
 					}
 					propias = append(propias, o)
-					numero := o.Numero
+					oc := Ocupacion{OrdenID: o.OrdenID, Numero: o.Numero, Estado: o.Estado, Inicio: o.Inicio, Fin: o.Fin}
 					if !todas && !mismoID(o.EmpresaID, empresa) {
-						numero = ""
+						// De otra empresa: solo que está ocupado y su horario.
+						oc.OrdenID, oc.Numero, oc.Estado = 0, "", "ocupado"
 					}
-					a.Ocupado = append(a.Ocupado, Ocupacion{OrdenID: o.OrdenID, Numero: numero, Estado: o.Estado, Inicio: o.Inicio, Fin: o.Fin})
+					a.Ocupado = append(a.Ocupado, oc)
 					if o.Estado != "cerrada" {
 						ocupado = append(ocupado, intervalo{o.Inicio, o.Fin})
 					}

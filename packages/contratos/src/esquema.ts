@@ -2656,8 +2656,12 @@ export interface components {
             fin: string;
             /** Format: date-time */
             inicio: string;
+            /** @description Vacío si la orden es de otra empresa */
             numero: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 si la orden es de otra empresa (solo el horario)
+             */
             ordenId: number;
         };
         CitaOrden: {
@@ -4026,6 +4030,7 @@ export interface components {
             respuestaMin: number;
         };
         Ocupacion: {
+            /** @description Estado de la orden; «ocupado» si es de otra empresa */
             estado: string;
             /** Format: date-time */
             fin: string;
@@ -4033,7 +4038,10 @@ export interface components {
             inicio: string;
             /** @description Vacío si la orden es de otra empresa */
             numero: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 si la orden es de otra empresa
+             */
             ordenId: number;
         };
         OperacionLote: {

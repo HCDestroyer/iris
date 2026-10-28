@@ -15,7 +15,9 @@ publicación de rutas (OSRM) llega en la PR siguiente.
   renombradas o de otra empresa; las que salen del catálogo de Argos se desactivan (solo si Iris
   tiene el catálogo de esa empresa). Una zona que llega por un dato de Argos antes que el catálogo
   se copia al vuelo como «Zona N» (`ZonaDeArgos`).
-- **Cuadrillas** con las zonas que atienden (sin zonas = todas) y capacidad propia.
+- **Cuadrillas** con las zonas que atienden y capacidad propia. Una cuadrilla sin zonas atiende
+  todas para el filtro `zonaId` de asignables, pero **no** la cubre un alcance por zona (falla
+  cerrado: sus técnicos, fichas y posiciones solo los ve el alcance global o el de esa cuadrilla).
 - **Técnicos**: una ficha por usuario (la persona: sus turnos, ausencias y citas valen en todas
   sus empresas) con cuadrilla, bodega de Argos, habilidades, base y `activo`. Solo personas activas
   con `ordenes.ver_propias` u `ordenes.ver` que operen en la empresa activa.
@@ -41,8 +43,15 @@ publicación de rutas (OSRM) llega en la PR siguiente.
 - **Permisos** `agenda.*` (uno por acción). Zonas y cuadrillas: el permiso sin límite de alcance
   (403 si no). Técnicos: alcance por cuadrilla (o por las zonas que atiende su cuadrilla); fuera de
   lo visible, 404; visible sin alcance para la acción, 403 `fuera_de_alcance`.
-- **Empresa activa:** zonas y cuadrillas con `empresa_id` null son de todas; si no, de la activa.
-  Técnicos: los usuarios que operan en la empresa activa. `agenda.zonas`, `agenda.cuadrillas` y
+- **Empresa activa:** zonas y cuadrillas con `empresa_id` null se ven desde todas las empresas,
+  pero solo las modifica quien tiene `empresas.todas` sin límite (o en modo sin conector) y, con
+  empresas registradas, no se pueden usar en tickets ni órdenes (422): un admin global les asigna
+  empresa o las reemplaza. Una cuadrilla cubre por alcance solo si es de la empresa activa.
+  Técnicos: los usuarios que operan en la empresa activa; la **ficha** (datos, turnos, capacidad,
+  ausencias) se modifica solo desde la empresa de su cuadrilla —sin cuadrilla, o de otra empresa,
+  hace falta `empresas.todas`— y el `detalle` de sus ausencias solo lo ve esa empresa. En
+  asignables, una cita de otra empresa sale como `ordenId: 0`, `estado: ocupado` (solo el
+  horario). `agenda.zonas`, `agenda.cuadrillas` y
   `agenda.citas` se registran para la adopción.
 
 ## Para soporte y campo
@@ -51,7 +60,10 @@ publicación de rutas (OSRM) llega en la PR siguiente.
 `ZonaDeArgos` (zona de un dato de Argos: la copia si falta), `ValidarCuadrilla`, `ReservarCita`,
 `QuitarCita`, `CitasDeOrdenes`. `soporte.tickets` y `campo.ordenes` tienen llave foránea de
 `zona_id` y `cuadrilla_id` al catálogo (migración `20261028175434`: los valores huérfanos se
-conservan como zona o cuadrilla «migrada» con el mismo id; ver el comentario de la migración).
+conservan como zona o cuadrilla «migrada» con el mismo id. Si la usan varias empresas nace sin
+empresa e **inactiva**: las filas que ya la referencian siguen válidas (la FK no mira `activa`),
+pero no se usa en datos nuevos hasta que un admin global (`empresas.todas`) le asigne empresa —hoy
+por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemplace).
 
 ## Eventos
 

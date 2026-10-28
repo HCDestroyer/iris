@@ -59,18 +59,20 @@ func TestMigracionLlavesConHuerfanos(t *testing.T) {
 
 	exec(up)
 
+	// 880003 la usan dos empresas: sin empresa e inactiva (un admin global le asigna empresa).
 	for id, esperado := range map[int64]string{
-		880001: "31|argos|Centro (Argos)", 880002: "31|migrada|Zona 880002", 880003: "-|migrada|Zona 880003", 880004: "-|migrada|Zona 880004",
+		880001: "31|argos|Centro (Argos)|true", 880002: "31|migrada|Zona 880002|true", 880003: "-|migrada|Zona 880003|false",
+		880004: "-|migrada|Zona 880004|true",
 	} {
-		if got := uno(`SELECT coalesce(empresa_id::text, '-') || '|' || origen || '|' || nombre FROM agenda.zonas WHERE id = $1`, id); got != esperado {
+		if got := uno(`SELECT coalesce(empresa_id::text, '-') || '|' || origen || '|' || nombre || '|' || activa FROM agenda.zonas WHERE id = $1`, id); got != esperado {
 			t.Fatalf("zona %d: %s (esperaba %s)", id, got, esperado)
 		}
 	}
 	// 880010 la usan la empresa 31 (ticket) y la 32 (orden): sin empresa; 880011 solo la 31.
-	if got := uno(`SELECT coalesce(empresa_id::text, '-') || '|' || nombre FROM agenda.cuadrillas WHERE id = 880010`); got != "-|Cuadrilla 880010 (migrada)" {
+	if got := uno(`SELECT coalesce(empresa_id::text, '-') || '|' || nombre || '|' || activa FROM agenda.cuadrillas WHERE id = 880010`); got != "-|Cuadrilla 880010 (migrada)|false" {
 		t.Fatalf("cuadrilla 880010: %s", got)
 	}
-	if got := uno(`SELECT coalesce(empresa_id::text, '-') FROM agenda.cuadrillas WHERE id = 880011`); got != "31" {
+	if got := uno(`SELECT coalesce(empresa_id::text, '-') || '|' || activa FROM agenda.cuadrillas WHERE id = 880011`); got != "31|true" {
 		t.Fatalf("cuadrilla 880011: %s", got)
 	}
 	// La identidad sigue después de los ids conservados.

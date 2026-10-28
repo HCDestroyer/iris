@@ -937,6 +937,17 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) (Agend
 	return i, err
 }
 
+const hayEmpresas = `-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas)
+`
+
+func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, hayEmpresas)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listarAusencias = `-- name: ListarAusencias :many
 SELECT id, tecnico_id, inicio, fin, motivo, detalle, creada_por, anulada_en, anulada_por, version, created_at, updated_at FROM agenda.ausencias
 WHERE tecnico_id = $1 AND fin > $2 AND inicio < $3
@@ -1042,38 +1053,40 @@ WHERE ($1::bigint IS NULL OR t.id > $1)
                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
   AND ($4::boolean
-       OR t.cuadrilla_id = ANY($5::bigint[])
-       OR (t.cuadrilla_id IS NOT NULL AND cardinality($6::bigint[]) > 0
-           AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
-                OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id
-                           AND cz.zona_id = ANY($6::bigint[])))))
-  AND ($7::bigint IS NULL OR t.cuadrilla_id = $7)
-  AND ($8::bigint IS NULL OR t.usuario_id = $8)
-  AND ($9::boolean IS NULL OR (t.activo AND u.activo) = $9)
-  AND ($10::text IS NULL OR $10::text = ANY(t.habilidades))
-  AND ($11::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM agenda.cuadrillas c
+                  WHERE c.id = t.cuadrilla_id
+                    AND (c.empresa_id = $3 OR (c.empresa_id IS NULL AND $5::boolean))
+                    AND (c.id = ANY($6::bigint[])
+                         OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                                    WHERE cz.cuadrilla_id = c.id AND cz.zona_id = ANY($7::bigint[])))))
+  AND ($8::bigint IS NULL OR t.cuadrilla_id = $8)
+  AND ($9::bigint IS NULL OR t.usuario_id = $9)
+  AND ($10::boolean IS NULL OR (t.activo AND u.activo) = $10)
+  AND ($11::text IS NULL OR $11::text = ANY(t.habilidades))
+  AND ($12::bigint IS NULL
        OR t.cuadrilla_id IS NULL
        OR NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
-       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = $11))
-  AND ($12::text IS NULL OR u.nombre ILIKE '%' || $12 || '%' OR u.correo ILIKE '%' || $12 || '%')
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = $12))
+  AND ($13::text IS NULL OR u.nombre ILIKE '%' || $13 || '%' OR u.correo ILIKE '%' || $13 || '%')
 ORDER BY t.id
-LIMIT $13
+LIMIT $14
 `
 
 type ListarTecnicosParams struct {
-	DespuesDe     *int64
-	TodasEmpresas bool
-	EmpresaID     *int64
-	AlcanceGlobal bool
-	Cuadrillas    []int64
-	Zonas         []int64
-	CuadrillaID   *int64
-	UsuarioID     *int64
-	Activo        *bool
-	Habilidad     *string
-	ZonaID        *int64
-	Q             *string
-	Limite        int32
+	DespuesDe      *int64
+	TodasEmpresas  bool
+	EmpresaID      *int64
+	AlcanceGlobal  bool
+	CuadrillaComun bool
+	Cuadrillas     []int64
+	Zonas          []int64
+	CuadrillaID    *int64
+	UsuarioID      *int64
+	Activo         *bool
+	Habilidad      *string
+	ZonaID         *int64
+	Q              *string
+	Limite         int32
 }
 
 type ListarTecnicosRow struct {
@@ -1094,13 +1107,16 @@ type ListarTecnicosRow struct {
 }
 
 // Fichas visibles: el usuario opera en la empresa (asignada o empresas.todas global; sin
-// conector, todos) y el alcance del actor cubre su cuadrilla (o sus zonas).
+// conector, todos) y el alcance del actor cubre su cuadrilla, que es de la empresa activa (o
+// sin empresa si cuadrilla_comun): la cuadrilla está en el alcance o atiende una de sus zonas.
+// Falla cerrado: una cuadrilla sin zonas no la ve quien tiene alcance por zona.
 func (q *Queries) ListarTecnicos(ctx context.Context, arg ListarTecnicosParams) ([]ListarTecnicosRow, error) {
 	rows, err := q.db.Query(ctx, listarTecnicos,
 		arg.DespuesDe,
 		arg.TodasEmpresas,
 		arg.EmpresaID,
 		arg.AlcanceGlobal,
+		arg.CuadrillaComun,
 		arg.Cuadrillas,
 		arg.Zonas,
 		arg.CuadrillaID,

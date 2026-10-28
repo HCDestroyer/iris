@@ -892,9 +892,11 @@
             "type": "string"
           },
           "numero": {
+            "description": "Vacío si la orden es de otra empresa",
             "type": "string"
           },
           "ordenId": {
+            "description": "0 si la orden es de otra empresa (solo el horario)",
             "format": "int64",
             "type": "integer"
           }
@@ -4638,6 +4640,7 @@
         "additionalProperties": false,
         "properties": {
           "estado": {
+            "description": "Estado de la orden; «ocupado» si es de otra empresa",
             "type": "string"
           },
           "fin": {
@@ -4653,6 +4656,7 @@
             "type": "string"
           },
           "ordenId": {
+            "description": "0 si la orden es de otra empresa",
             "format": "int64",
             "type": "integer"
           }

@@ -184,6 +184,9 @@ func tomarCuadrilla(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, i
 		return f, err
 	}
 	t.FijarEmpresa(deref(f.EmpresaID))
+	if err := exigirModificable(ctx, f.EmpresaID); err != nil {
+		return f, err
+	}
 	return f, nucleo.ExigirVersion(version, f.Version, "cuadrilla", id)
 }
 

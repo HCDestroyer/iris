@@ -175,6 +175,9 @@ func tomarZona(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, id int
 		return f, err
 	}
 	t.FijarEmpresa(deref(f.EmpresaID))
+	if err := exigirModificable(ctx, f.EmpresaID); err != nil {
+		return f, err
+	}
 	return f, nucleo.ExigirVersion(version, f.Version, "zona", id)
 }
 
@@ -302,8 +305,8 @@ func CuadrillaInvalida(campo string) *nucleo.Problema {
 }
 
 // ValidarZona: una zona que indicó una persona o integración para un ticket u orden de esa
-// empresa (null = sin conector). Debe estar en el catálogo, activa y ser de esa empresa (o de
-// todas). Si Iris todavía no la copió pero está en la instantánea de Argos de esa empresa, la
+// empresa (null = sin conector). Debe estar en el catálogo, activa y ser de esa empresa; una
+// zona sin empresa solo sirve mientras no haya empresas registradas. Si Iris todavía no la copió pero está en la instantánea de Argos de esa empresa, la
 // copia (espejo) y la acepta. Si no, 422 en campo.
 func ValidarZona(ctx context.Context, db agendabd.DBTX, campo string, zonaID int64, empresa *int64) error {
 	q := agendabd.New(db)
@@ -321,7 +324,11 @@ func ValidarZona(ctx context.Context, db agendabd.DBTX, campo string, zonaID int
 	if err != nil {
 		return err
 	}
-	if !z.Activa || !mismaEmpresa(z.EmpresaID, empresa) {
+	ok, err := sirveA(ctx, q, z.EmpresaID, empresa)
+	if err != nil {
+		return err
+	}
+	if !z.Activa || !ok {
 		return ZonaInvalida(campo)
 	}
 	return nil
@@ -338,8 +345,8 @@ func ZonaDeArgos(ctx context.Context, db agendabd.DBTX, zonaID *int64, empresa *
 	q := agendabd.New(db)
 	z, err := q.ZonaPorID(ctx, *zonaID)
 	if err == nil {
-		if !mismaEmpresa(z.EmpresaID, empresa) {
-			return nil, nil
+		if ok, err := sirveA(ctx, q, z.EmpresaID, empresa); err != nil || !ok {
+			return nil, err
 		}
 		return zonaID, nil
 	}
@@ -371,11 +378,23 @@ func asegurar(ctx context.Context, q *agendabd.Queries, id int64, empresa *int64
 	return q.AsegurarZonaArgos(ctx, agendabd.AsegurarZonaArgosParams{ID: id, EmpresaID: empresa, Nombre: nombre, SincronizadoEn: sinc})
 }
 
-// ValidarCuadrilla: la cuadrilla existe, está activa y es de la empresa (o de todas).
+// ValidarCuadrilla: la cuadrilla existe, está activa y es de la empresa (sin empresa, solo
+// mientras no haya empresas registradas).
 func ValidarCuadrilla(ctx context.Context, db agendabd.DBTX, campo string, cuadrillaID int64, empresa *int64) error {
-	c, err := agendabd.New(db).CuadrillaPorID(ctx, cuadrillaID)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!c.Activa || !mismaEmpresa(c.EmpresaID, empresa))) {
+	q := agendabd.New(db)
+	c, err := q.CuadrillaPorID(ctx, cuadrillaID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return CuadrillaInvalida(campo)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	ok, err := sirveA(ctx, q, c.EmpresaID, empresa)
+	if err != nil {
+		return err
+	}
+	if !c.Activa || !ok {
+		return CuadrillaInvalida(campo)
+	}
+	return nil
 }

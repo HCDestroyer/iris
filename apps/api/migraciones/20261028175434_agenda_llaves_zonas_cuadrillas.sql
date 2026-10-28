@@ -7,19 +7,23 @@
 --     alcance de nucleo.usuarios_roles que no está en el catálogo) NO se borran ni se ponen en
 --     null (el alcance de los usuarios depende de ellos): se crea una zona «Zona <id>» (origen
 --     migrada) o una cuadrilla «Cuadrilla <id> (migrada)» con el mismo id. Su empresa es la
---     única empresa de los tickets y órdenes que la usan; si son de varias (o ninguna), null.
---     Quedan activas para no romper nada; administración las renombra o desactiva. Si después
---     Argos trae una zona con ese id, el espejo la toma (origen argos).
+--     única empresa de los tickets y órdenes que la usan (o null si ninguno la usa: solo
+--     alcances). Si la usan varias empresas (o una empresa y datos sin empresa) nace con empresa
+--     null e INACTIVA: no se puede usar en datos nuevos ni la modifica nadie más que un admin
+--     global (empresas.todas), que le asigna empresa o la reemplaza. Las filas que ya la
+--     referencian no cambian (la llave foránea no mira «activa»). Si después Argos trae una zona
+--     con ese id, el espejo la toma (origen argos; sigue inactiva hasta que la activen).
 INSERT INTO agenda.zonas (id, empresa_id, origen, nombre, sincronizado_en)
 SELECT id, empresa_id, 'argos', coalesce(nullif(left(btrim(nombre), 120), ''), 'Zona ' || id), sincronizado_en
 FROM integracion.argos_zonas
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO agenda.zonas (id, empresa_id, origen, nombre)
+INSERT INTO agenda.zonas (id, empresa_id, origen, nombre, activa)
 SELECT u.id,
        (CASE WHEN cardinality(array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol)) = 1
              THEN (array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol))[1] END),
-       'migrada', 'Zona ' || u.id
+       'migrada', 'Zona ' || u.id,
+       coalesce(cardinality(array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol)), 0) <= 1
 FROM (
     SELECT zona_id AS id, empresa_id, false AS rol FROM soporte.tickets WHERE zona_id IS NOT NULL
     UNION ALL
@@ -30,11 +34,12 @@ FROM (
 WHERE NOT EXISTS (SELECT 1 FROM agenda.zonas z WHERE z.id = u.id)
 GROUP BY u.id;
 
-INSERT INTO agenda.cuadrillas (id, empresa_id, nombre)
+INSERT INTO agenda.cuadrillas (id, empresa_id, nombre, activa)
 SELECT u.id,
        (CASE WHEN cardinality(array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol)) = 1
              THEN (array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol))[1] END),
-       'Cuadrilla ' || u.id || ' (migrada)'
+       'Cuadrilla ' || u.id || ' (migrada)',
+       coalesce(cardinality(array_agg(DISTINCT u.empresa_id) FILTER (WHERE NOT u.rol)), 0) <= 1
 FROM (
     SELECT cuadrilla_id AS id, empresa_id, false AS rol FROM soporte.tickets WHERE cuadrilla_id IS NOT NULL
     UNION ALL

@@ -31,8 +31,8 @@ type EntradaAnularAusencia struct {
 
 // CitaEnConflicto: una cita viva del técnico que cae en la ausencia (hay que reprogramarla).
 type CitaEnConflicto struct {
-	OrdenID int64     `json:"ordenId"`
-	Numero  string    `json:"numero"`
+	OrdenID int64     `json:"ordenId" doc:"0 si la orden es de otra empresa (solo el horario)"`
+	Numero  string    `json:"numero" doc:"Vacío si la orden es de otra empresa"`
 	Inicio  time.Time `json:"inicio"`
 	Fin     time.Time `json:"fin"`
 }
@@ -84,11 +84,11 @@ func (m *Modulo) nuevoRegistrarAusencia() *auditoria.Caso[EntradaRegistrarAusenc
 			salida := RespuestaAusencia{Ausencia: aAusencia(f), CitasEnConflicto: []CitaEnConflicto{}}
 			_, empresa := filtroEmpresa(ctx)
 			for _, c := range conflictos {
-				numero := c.Numero
+				cc := CitaEnConflicto{OrdenID: c.OrdenID, Numero: c.Numero, Inicio: c.Inicio, Fin: c.Fin}
 				if todas, _ := filtroEmpresa(ctx); !todas && !mismoID(c.EmpresaID, empresa) {
-					numero = "" // de otra empresa: solo el horario
+					cc.OrdenID, cc.Numero = 0, "" // de otra empresa: solo el horario
 				}
-				salida.CitasEnConflicto = append(salida.CitasEnConflicto, CitaEnConflicto{OrdenID: c.OrdenID, Numero: numero, Inicio: c.Inicio, Fin: c.Fin})
+				salida.CitasEnConflicto = append(salida.CitasEnConflicto, cc)
 			}
 			if len(salida.CitasEnConflicto) > 0 {
 				t.Anotar(map[string]any{"citas_en_conflicto": len(salida.CitasEnConflicto)})

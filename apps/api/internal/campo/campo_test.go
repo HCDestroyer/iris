@@ -156,6 +156,15 @@ func conAgenda(t *testing.T, usuario int64) {
 	}
 }
 
+// zonaDe deja en el catálogo una zona de la empresa.
+func zonaDe(t *testing.T, id, empresa int64) {
+	t.Helper()
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		"INSERT INTO agenda.zonas (id, empresa_id, origen, nombre) VALUES ($1::bigint, $2, 'local', 'Zona ' || $1::bigint::text) ON CONFLICT (id) DO UPDATE SET empresa_id = $2, activa = true", id, empresa); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // asegurarZona deja la zona en el catálogo de agenda (sin empresa: de todas).
 func asegurarZona(t *testing.T, id int64) {
 	t.Helper()

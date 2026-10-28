@@ -15,6 +15,9 @@ FROM nucleo.usuarios_roles ur
 JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = @usuario_id AND rp.permiso = ANY(@permisos::text[]);
 
+-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas);
+
 -- Zonas ---------------------------------------------------------------------------
 
 -- name: ZonaPorID :one
@@ -132,7 +135,9 @@ RETURNING *;
 
 -- name: ListarTecnicos :many
 -- Fichas visibles: el usuario opera en la empresa (asignada o empresas.todas global; sin
--- conector, todos) y el alcance del actor cubre su cuadrilla (o sus zonas).
+-- conector, todos) y el alcance del actor cubre su cuadrilla, que es de la empresa activa (o
+-- sin empresa si cuadrilla_comun): la cuadrilla está en el alcance o atiende una de sus zonas.
+-- Falla cerrado: una cuadrilla sin zonas no la ve quien tiene alcance por zona.
 SELECT t.*, u.nombre, u.correo, u.activo AS usuario_activo
 FROM agenda.tecnicos t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
@@ -144,11 +149,12 @@ WHERE (sqlc.narg(despues_de)::bigint IS NULL OR t.id > sqlc.narg(despues_de))
                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
   AND (@alcance_global::boolean
-       OR t.cuadrilla_id = ANY(@cuadrillas::bigint[])
-       OR (t.cuadrilla_id IS NOT NULL AND cardinality(@zonas::bigint[]) > 0
-           AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
-                OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id
-                           AND cz.zona_id = ANY(@zonas::bigint[])))))
+       OR EXISTS (SELECT 1 FROM agenda.cuadrillas c
+                  WHERE c.id = t.cuadrilla_id
+                    AND (c.empresa_id = sqlc.narg(empresa_id) OR (c.empresa_id IS NULL AND @cuadrilla_comun::boolean))
+                    AND (c.id = ANY(@cuadrillas::bigint[])
+                         OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                                    WHERE cz.cuadrilla_id = c.id AND cz.zona_id = ANY(@zonas::bigint[])))))
   AND (sqlc.narg(cuadrilla_id)::bigint IS NULL OR t.cuadrilla_id = sqlc.narg(cuadrilla_id))
   AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
   AND (sqlc.narg(activo)::boolean IS NULL OR (t.activo AND u.activo) = sqlc.narg(activo))

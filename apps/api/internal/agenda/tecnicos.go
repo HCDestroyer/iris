@@ -174,9 +174,17 @@ func (m *Modulo) detallesDe(ctx context.Context, q *agendabd.Queries, fs []agend
 				d.Capacidad = append(d.Capacidad, aCapacidad(c, tipos))
 			}
 		}
+		propia, err := fichaDeLaEmpresa(ctx, q, f)
+		if err != nil {
+			return nil, err
+		}
 		for _, a := range aus {
 			if a.TecnicoID == f.ID {
-				d.Ausencias = append(d.Ausencias, aAusencia(a))
+				au := aAusencia(a)
+				if !propia {
+					au.Detalle = "" // el detalle solo lo ve la empresa de la ficha
+				}
+				d.Ausencias = append(d.Ausencias, au)
 			}
 		}
 		salida = append(salida, d)
@@ -259,7 +267,7 @@ func (m *Modulo) paramsTecnicos(ctx context.Context, permiso nucleo.Permiso) age
 	todas, id := filtroEmpresa(ctx)
 	a := alcanceDe(ctx, permiso)
 	return agendabd.ListarTecnicosParams{TodasEmpresas: todas, EmpresaID: id, AlcanceGlobal: a.global,
-		Zonas: a.zonas, Cuadrillas: a.cuadrillas, Limite: 1000}
+		Zonas: a.zonas, Cuadrillas: a.cuadrillas, CuadrillaComun: comun(ctx), Limite: 1000}
 }
 
 // tomarTecnico: la ficha (con candado si para actualizar), visible en la empresa activa (el
@@ -304,10 +312,27 @@ func (m *Modulo) tomarTecnico(ctx context.Context, t *auditoria.Tx, q *agendabd.
 		}
 		return f, fueraDeAlcance(fmt.Sprintf("Tu permiso %s no cubre la cuadrilla de este técnico", permiso))
 	}
+	// Ficha, turnos, capacidad y ausencias se modifican solo desde la empresa de su cuadrilla.
+	if permiso != nucleo.PermAgendaVer {
+		if err := exigirFichaDeLaEmpresa(ctx, q, f); err != nil {
+			return f, err
+		}
+	}
 	if version != nil {
 		return f, nucleo.ExigirVersion(*version, f.Version, "tecnico", id)
 	}
 	return f, nil
+}
+
+func exigirFichaDeLaEmpresa(ctx context.Context, q *agendabd.Queries, f agendabd.AgendaTecnico) error {
+	ok, err := fichaDeLaEmpresa(ctx, q, f)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nucleo.Prohibido("La ficha se modifica desde la empresa de su cuadrilla; sin cuadrilla de tu empresa hace falta empresas.todas")
+	}
+	return nil
 }
 
 func (m *Modulo) nuevoVerTecnico() *auditoria.Caso[EntradaVerTecnico, TecnicoDetalle] {
@@ -401,6 +426,9 @@ func (m *Modulo) nuevoCrearTecnico() *auditoria.Caso[EntradaCrearTecnico, Tecnic
 			if err != nil {
 				return TecnicoDetalle{}, err
 			}
+			if err := exigirFichaDeLaEmpresa(ctx, q, agendabd.AgendaTecnico{CuadrillaID: in.CuadrillaID}); err != nil {
+				return TecnicoDetalle{}, err
+			}
 			f, err := q.CrearTecnico(ctx, agendabd.CrearTecnicoParams{UsuarioID: u.ID, CuadrillaID: in.CuadrillaID, BodegaID: in.BodegaID,
 				Habilidades: habilidades, BaseLat: in.BaseLat, BaseLon: in.BaseLon})
 			var pg *pgconn.PgError
@@ -448,6 +476,9 @@ func (m *Modulo) nuevoEditarTecnico() *auditoria.Caso[EntradaEditarTecnico, Tecn
 			}
 			despues := antes
 			despues.CuadrillaID, despues.BodegaID, despues.Habilidades = in.CuadrillaID, in.BodegaID, habilidades
+			if err := exigirFichaDeLaEmpresa(ctx, q, despues); err != nil {
+				return TecnicoDetalle{}, err
+			}
 			despues.BaseLat, despues.BaseLon = in.BaseLat, in.BaseLon
 			campos := []string{}
 			if !mismoID(antes.CuadrillaID, despues.CuadrillaID) {
