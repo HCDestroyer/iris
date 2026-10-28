@@ -10,5 +10,6 @@ ALTER TABLE nucleo.idempotencia
 DELETE FROM nucleo.idempotencia WHERE expira_en < now();
 
 -- +goose Down
-DELETE FROM nucleo.idempotencia WHERE hash_formato = 1;
+-- Las filas HMAC se conservan: el código anterior no las reconoce (compara SHA-256 plano) y
+-- responde 422 ante un reintento, en vez de repetir la acción. Vencen solas en 24 h.
 ALTER TABLE nucleo.idempotencia DROP COLUMN hash_clave_id, DROP COLUMN hash_formato;
