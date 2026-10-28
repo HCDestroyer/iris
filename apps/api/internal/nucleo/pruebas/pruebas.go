@@ -9,7 +9,7 @@
 //	}
 //
 // La base se toma de IRIS_DB_URL (por defecto
-// postgres://argosisp:argosisp@localhost:5432/iris_test_i1) o, si está IRIS_DB, de ese nombre
+// postgres://iris:iris@localhost:5432/iris_test_i1) o, si está IRIS_DB, de ese nombre
 // en el mismo servidor. Por seguridad el nombre debe empezar con iris_test.
 //
 // Cada paquete de pruebas BORRA y recrea la base, la migra (goose + River) y siembra permisos
@@ -40,7 +40,7 @@ import (
 )
 
 // URLPorDefecto apunta al Postgres compartido de desarrollo.
-const URLPorDefecto = "postgres://argosisp:argosisp@localhost:5432/iris_test_i1?sslmode=disable"
+const URLPorDefecto = "postgres://iris:iris@localhost:5432/iris_test_i1?sslmode=disable"
 
 var pool *pgxpool.Pool
 

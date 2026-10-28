@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
@@ -174,7 +175,7 @@ func TestRelayConRiver(t *testing.T) {
 		_ = cliente.Stop(parar)
 	}()
 	go integracion.EscucharOutbox(ctx, pool, cliente, nil)
-	time.Sleep(300 * time.Millisecond) // que el LISTEN quede activo
+	esperarListen(t, pool)
 
 	// El COMMIT dispara NOTIFY → job de River → relay.
 	if _, err := emitir.Ejecutar(pruebas.ContextoSistema(pool), "prueba.river"); err != nil {
@@ -187,4 +188,25 @@ func TestRelayConRiver(t *testing.T) {
 	if r.cantidad() != 1 {
 		t.Fatalf("River no entregó el evento (entregas=%d)", r.cantidad())
 	}
+}
+
+// esperarListen espera a que alguna conexión haya ejecutado el LISTEN del outbox: un NOTIFY
+// anterior se perdería. Una espera fija no basta con -race.
+func esperarListen(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	limite := time.Now().Add(15 * time.Second)
+	for time.Now().Before(limite) {
+		var n int
+		err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND query = $1`,
+			"LISTEN "+integracion.CanalNotificacion).Scan(&n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("el LISTEN del outbox no quedó activo")
 }
