@@ -186,6 +186,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	nucleo.AvisarClaveAnterior(log, acfg.Cifrador)
 	cola, err := integracion.NuevoClienteInsercion(pool, migraciones.EsquemaRiver, log)
 	if err != nil {
 		return err

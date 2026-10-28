@@ -1,10 +1,13 @@
 package nucleo_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -174,5 +177,26 @@ func TestCifradorConClaveAnterior(t *testing.T) {
 	}
 	if c, err := nucleo.NuevoCifrador(nueva, ""); err != nil || c.TieneAnterior() {
 		t.Fatal("anterior vacía se ignora")
+	}
+}
+
+// API y worker avisan al arrancar mientras IRIS_CLAVE_CIFRADO_ANTERIOR esté puesta.
+func TestAvisoClaveAnterior(t *testing.T) {
+	clave := func() string {
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		return base64.StdEncoding.EncodeToString(b)
+	}
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	nueva := clave()
+	solo, _ := nucleo.NuevoCifrador(nueva)
+	if nucleo.AvisarClaveAnterior(log, solo) || nucleo.AvisarClaveAnterior(log, nil) || buf.Len() != 0 {
+		t.Fatalf("sin anterior no avisa: %s", buf.String())
+	}
+	transicion, _ := nucleo.NuevoCifrador(nueva, clave())
+	if !nucleo.AvisarClaveAnterior(log, transicion) || !strings.Contains(buf.String(), `"level":"WARN"`) ||
+		!strings.Contains(buf.String(), "quítala") {
+		t.Fatalf("con anterior avisa: %s", buf.String())
 	}
 }

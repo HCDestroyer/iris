@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 // Cifrador cifra secretos en reposo (TOTP, credenciales de conectores, contraseñas de buzones)
@@ -19,6 +20,20 @@ import (
 type Cifrador struct {
 	aead       cipher.AEAD
 	anteriores []cipher.AEAD
+}
+
+// AvisoClaveAnterior es el aviso (slog.Warn) que dan la API y el worker al arrancar con
+// IRIS_CLAVE_CIFRADO_ANTERIOR: es solo para la transición y hay que quitarla tras rotar.
+const AvisoClaveAnterior = "IRIS_CLAVE_CIFRADO_ANTERIOR está puesta: se descifra también con la clave anterior. Tras `iris clave rotar` (y comprobar con --simular que no queda nada por rotar), quítala de api y worker y reinícialos"
+
+// AvisarClaveAnterior registra AvisoClaveAnterior si el cifrador conoce una clave anterior
+// (rotación en curso). La llaman cmd/iris (servir) y cmd/worker al arrancar.
+func AvisarClaveAnterior(log *slog.Logger, c *Cifrador) bool {
+	if c == nil || !c.TieneAnterior() {
+		return false
+	}
+	log.Warn(AvisoClaveAnterior)
+	return true
 }
 
 // ErrDescifrar: el valor no se pudo descifrar con ninguna de las claves conocidas (otra clave,
