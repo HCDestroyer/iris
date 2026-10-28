@@ -24,8 +24,8 @@ GOOSE_VERSION ?= v3.26.0
 SQLC          ?= go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 GOOSE         ?= go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 GOLANGCI_LINT ?= golangci-lint
-# Comando que imprime el OpenAPI 3.1 de la API por stdout (lo implementa I1 en cmd/iris).
-OPENAPI_CMD   ?= go run ./cmd/iris openapi
+# Comando que imprime el OpenAPI 3.1 de la API por stdout (cmd/openapi de I1).
+OPENAPI_CMD   ?= go run ./cmd/openapi -salida -
 MIGRACIONES   ?= migraciones
 
 HAY_API := $(wildcard $(API_DIR)/go.mod)
@@ -127,7 +127,7 @@ test-ts: ## pnpm test
 
 # --- Generación -------------------------------------------------------------------------------
 
-.PHONY: openapi sqlc migrar contratos
+.PHONY: openapi sqlc migrar migracion contratos
 openapi: ## Escribe packages/contratos/openapi.json desde apps/api
 	$(requiere_api)
 	@tmp="$$(mktemp)"; \
@@ -142,11 +142,15 @@ sqlc: ## sqlc generate en apps/api
 	$(requiere_api)
 	cd $(API_DIR) && $(SQLC) generate
 
-migrar: ## goose up sobre IRIS_DB_URL con apps/api/migraciones
+migrar: ## Migraciones (goose, embebidas) y sincronización de permisos sobre IRIS_DB_URL
 	$(requiere_api)
 	$(requiere_db)
-	@[ -d "$(API_DIR)/$(MIGRACIONES)" ] || { echo "ERROR: falta $(API_DIR)/$(MIGRACIONES)" >&2; exit 1; }
-	cd $(API_DIR) && $(GOOSE) -dir $(MIGRACIONES) postgres "$$IRIS_DB_URL" up
+	cd $(API_DIR) && go run ./cmd/iris migrar
+
+migracion: ## Crea una migración con marca de tiempo real: make migracion NOMBRE=soporte_tickets
+	$(requiere_api)
+	@[ -n "$(NOMBRE)" ] || { echo "uso: make migracion NOMBRE=<nombre>" >&2; exit 1; }
+	cd $(API_DIR) && $(GOOSE) -dir $(MIGRACIONES) create $(NOMBRE) sql
 
 contratos: ## make openapi (si existe apps/api) + pnpm contratos:build
 ifneq ($(HAY_API),)
