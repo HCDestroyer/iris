@@ -47,7 +47,22 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
   cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por
   alcance explicado.
-- **Usuarios** (`/usuarios`): lista de solo lectura con paginación por cursor.
+- **Usuarios** (`/usuarios`): lista con paginación por cursor y **«Reiniciar MFA»**
+  (`usuarios.reiniciar_mfa`, solo sobre otro usuario con MFA activo): motivo, contraseña temporal
+  (generada en el navegador con `crypto.getRandomValues`, copiar, «entrégala en persona o por
+  teléfono; no se vuelve a mostrar») y «Revocar también sus tokens» marcada; `version` +
+  `Idempotency-Key`, 409 → «Recargar» (relee con `GET /usuarios?q=`), 404 → «ya no está en tu
+  alcance» + recargar la lista, 403 y 422 (`mfa_no_configurado`, `reinicio_mfa_propio`) explicados.
+- **Cuenta propia** (`lib/cuenta`, `componentes/cuenta`): menú del usuario en la barra superior
+  (cambiar contraseña, configurar la verificación en dos pasos, cerrar sesión).
+  `/cambiar-contrasena` (fuera del layout del panel) es la pantalla obligatoria con contraseña
+  temporal: se llega desde el login (`usuario.cambioContrasenaRequerido`), desde `GET /yo` o desde
+  cualquier 403 `cambio_contrasena_requerido` (el cliente lo avisa al panel); solo deja cambiarla
+  (`POST /yo/contrasena`, zod: 12+ runas, distinta y confirmada; 422 por campo) o salir, y luego
+  vuelve a `siguiente` (también `/campo`) ofreciendo el MFA. 429 `demasiados_intentos` → «vuelve a
+  entrar en N min» e «Ir a iniciar sesión» (la API ya cerró la sesión). `/cuenta/mfa`: QR del
+  `otpauth://` (dibujado en el navegador con `uqr`) y la clave en grupos, `POST /yo/mfa` y
+  `/yo/mfa/activar`.
 - **Cliente HTTP** (`lib/api/cliente.ts`): `openapi-fetch` de `@iris/contratos`, cookies,
   `X-CSRF-Token` (cookie `iris_csrf`) en todo método que cambia estado y `X-Iris-Empresa`; los
   arreglos de la query van separados por coma (`estado=nuevo,abierto`); errores problem+json →
