@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import {
     Aviso,
     Boton,
+    Dialogo,
     Esqueleto,
     EstadoVacio,
     InsigniaEstado,
@@ -15,13 +16,16 @@ import {
     TablaTitulo,
     Tarjeta,
 } from "@iris/ui";
-import { Bot, ChevronDown, RotateCw, ShieldCheck, ShieldOff, User, UserCheck, Users, UserX } from "lucide-react";
+import { Bot, ChevronDown, RotateCcw, RotateCw, ShieldCheck, ShieldOff, User, UserCheck, Users, UserX } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
+import { puedeReiniciarMfa } from "@/lib/cuenta/sesion";
 import { useLectura } from "@/lib/lectura";
+import { useSesion } from "@/lib/sesion";
+import { DialogoReiniciarMfa } from "./reiniciar-mfa";
 
 type Usuario = Schema<"Usuario">;
 type Pagina = Schema<"PaginaUsuario">;
@@ -68,6 +72,20 @@ function Mfa({ u }: { u: Usuario }) {
     );
 }
 
+/** «Reiniciar MFA» de la fila: solo con el permiso, sobre otro usuario y con MFA activo. */
+function BotonReiniciar({ u, alAbrir }: { u: Usuario; alAbrir: (u: Usuario) => void }) {
+    const { yo, permisos } = useSesion();
+    if (!puedeReiniciarMfa(permisos, yo.usuario.id, u)) {
+        return null;
+    }
+    return (
+        <Boton variante="contorno" tamano="sm" onClick={() => alAbrir(u)} aria-label={`Reiniciar MFA de ${u.nombre}`}>
+            <RotateCcw />
+            Reiniciar MFA
+        </Boton>
+    );
+}
+
 function Activo({ u }: { u: Usuario }) {
     return u.activo ? (
         <InsigniaEstado tono="neutral" icono={UserCheck} texto="Activo" />
@@ -81,6 +99,12 @@ export function ListaUsuarios() {
     const [extra, setExtra] = useState<{ usuarios: Usuario[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
+    const { permisos } = useSesion();
+    const conAcciones = permisos.includes("usuarios.reiniciar_mfa");
+    // Lo que devolvieron las acciones (versión y MFA nuevos) sobre lo leído.
+    const [cambios, setCambios] = useState<Record<number, Usuario>>({});
+    const [reinicio, setReinicio] = useState<Usuario | null>(null);
+    const actualizar = (u: Usuario) => setCambios((c) => ({ ...c, [u.id]: u }));
 
     const encabezado = <EncabezadoPagina titulo="Usuarios" descripcion="Personas e integraciones con acceso a Iris." />;
 
@@ -115,7 +139,14 @@ export function ListaUsuarios() {
         );
     }
 
-    const usuarios = [...(primera.datos.data ?? []), ...(extra?.usuarios ?? [])];
+    const usuarios = [...(primera.datos.data ?? []), ...(extra?.usuarios ?? [])].map((u) => cambios[u.id] ?? u);
+
+    function recargarLista() {
+        setReinicio(null);
+        setExtra(null);
+        setCambios({});
+        primera.reintentar();
+    }
     const siguiente = extra ? extra.cursor : primera.datos.nextCursor;
 
     async function cargarMas() {
@@ -163,6 +194,9 @@ export function ListaUsuarios() {
                                 <Activo u={u} />
                             </div>
                             <p className="text-sm text-muted-foreground">{textoRoles(u)}</p>
+                            <div className="empty:hidden">
+                                <BotonReiniciar u={u} alAbrir={setReinicio} />
+                            </div>
                         </li>
                     ))}
                 </ul>
@@ -176,6 +210,11 @@ export function ListaUsuarios() {
                                 <TablaTitulo>Roles</TablaTitulo>
                                 <TablaTitulo>MFA</TablaTitulo>
                                 <TablaTitulo>Estado</TablaTitulo>
+                                {conAcciones ? (
+                                    <TablaTitulo>
+                                        <span className="sr-only">Acciones</span>
+                                    </TablaTitulo>
+                                ) : null}
                             </TablaFila>
                         </TablaEncabezado>
                         <TablaCuerpo>
@@ -197,6 +236,11 @@ export function ListaUsuarios() {
                                     <TablaCelda>
                                         <Activo u={u} />
                                     </TablaCelda>
+                                    {conAcciones ? (
+                                        <TablaCelda className="text-right">
+                                            <BotonReiniciar u={u} alAbrir={setReinicio} />
+                                        </TablaCelda>
+                                    ) : null}
                                 </TablaFila>
                             ))}
                         </TablaCuerpo>
@@ -227,6 +271,18 @@ export function ListaUsuarios() {
                     <p className="text-sm text-muted-foreground">No hay más usuarios.</p>
                 )}
             </div>
+            <Dialogo open={reinicio !== null} onOpenChange={(abierto) => (abierto ? undefined : setReinicio(null))}>
+                {reinicio ? (
+                    <DialogoReiniciarMfa
+                        key={reinicio.id}
+                        usuario={reinicio}
+                        alReiniciar={actualizar}
+                        alRecargar={actualizar}
+                        alRecargarLista={recargarLista}
+                        alCerrar={() => setReinicio(null)}
+                    />
+                ) : null}
+            </Dialogo>
         </>
     );
 }
