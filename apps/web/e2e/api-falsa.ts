@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
+import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiOrdenes } from "./api-ordenes";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
@@ -84,6 +85,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_BUZONES,
     "adjuntos.ver",
     "agenda.ver",
+    "campo.ver_posiciones",
     "integraciones.reintentar",
     "integraciones.ver_pendientes",
     ...PERMISOS_ORDENES,
@@ -108,9 +110,9 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "tickets.ver", "usuarios.ver"],
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
@@ -146,6 +148,11 @@ export type OpcionesApi = {
     enlaces?: Schema<"EnlacesExternos">;
     /** Buzones iniciales (por defecto, `buzonesIniciales`). */
     buzones?: Schema<"Buzon">[];
+    /**
+     * Escenario del despacho: coordenadas, la cita de Jorge con ventana (OT-000040), Rosa ausente,
+     * los tres técnicos asignables y las reglas de la agenda al programar (422).
+     */
+    despacho?: boolean;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -169,6 +176,8 @@ export type ApiFalsa = {
     cambiarVersionOrden: (ordenId: number) => void;
     /** El worker tocó el pendiente: sube su versión (el próximo reintento con la vieja da 409). */
     cambiarVersionPendiente: (pendienteId: number) => void;
+    /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
+    agenda: ApiAgenda["escenario"];
 };
 
 const OPERATIVAS = [
@@ -180,6 +189,9 @@ const OPERATIVAS = [
     "/api/v1/ordenes",
     "/api/v1/adjuntos",
     "/api/v1/integraciones/pendientes",
+    "/api/v1/agenda",
+    "/api/v1/tecnicos",
+    "/api/v1/campo/posiciones",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -215,7 +227,14 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let siguienteTicket = 1000;
     let buzones: Schema<"Buzon">[] | undefined = opciones.buzones;
     let siguienteBuzon = 100;
-    const ordenes = apiOrdenes(empresas.map((e) => e.id));
+    // La agenda valida contra las órdenes: se crean juntas (solo con `despacho` se aplican sus reglas).
+    const enlace: { agenda?: ApiAgenda } = {};
+    const ordenes = apiOrdenes(
+        empresas.map((e) => e.id),
+        opciones.despacho ? { tecnicos: [3, 11, 12], validarCita: (o, e, accion) => enlace.agenda?.validarCita(o, e, accion) } : {},
+    );
+    const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
+    enlace.agenda = agenda;
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -504,6 +523,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 
+        if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
+            return;
+        }
+
         if (
             await ordenes.manejar({
                 route,
@@ -636,6 +659,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             fallos.set(ruta, n);
         },
         ordenes: ordenes.escenario,
+        agenda: agenda.escenario,
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

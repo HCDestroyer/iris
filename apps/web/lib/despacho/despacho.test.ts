@@ -1,0 +1,259 @@
+import type { Schema } from "@iris/contratos";
+import { describe, expect, it } from "vitest";
+import { ausenciasDelDia, citasDelDia, filasDeTecnicos, horarioDelDia, minutosEnFraccion, nombreDe, tramoEnHorario, type CitaAgenda, type Tecnico } from "./calendario";
+import { diaDesdeIso, esDia, etiquetaDia, horaDe, hoyGuatemala, inicioSemana, isoDesdeDia, minutosEnDia, rangoUtc, sumarDias, textoAntiguedad } from "./fechas";
+import { accionMover, comprobarDestino, entradaAsignar, entradaProgramar, esquemaMover, movibleDeCita, sePuedeMover, valoresIniciales, type Asignable } from "./mover";
+import { antiguedadAhora, frescura, iniciales, textoPosicion } from "./posiciones";
+import { compararRutas, paradasReales, RUTAS_EN_CONTRATO, type ParadaPropuesta, type ParadaReal } from "./rutas";
+
+const cita = (p: Partial<CitaAgenda>): CitaAgenda => ({
+    ordenId: 3,
+    numero: "OT-000003",
+    tipo: "retiro",
+    estado: "programada",
+    ordenVersion: 3,
+    tecnicoId: 3,
+    inicio: "2026-10-28T16:00:00Z",
+    fin: "2026-10-28T17:00:00Z",
+    ventanaInicio: null,
+    ventanaFin: null,
+    zonaId: 4,
+    cuadrillaId: 1,
+    direccion: "Colonia El Prado",
+    lat: null,
+    lon: null,
+    clienteId: null,
+    servicioId: null,
+    ...p,
+});
+
+const tecnico = (p: Partial<Tecnico> & Pick<Tecnico, "id" | "usuarioId" | "nombre">): Tecnico => ({
+    activo: true,
+    actualizadoEn: "2026-10-01T00:00:00Z",
+    creadoEn: "2026-10-01T00:00:00Z",
+    baseLat: null,
+    baseLon: null,
+    bodegaId: null,
+    correo: "x@iris.test",
+    cuadrillaId: 1,
+    habilidades: [],
+    version: 1,
+    ...p,
+});
+
+describe("fechas de Guatemala", () => {
+    it("el día de Guatemala va de 06:00 UTC a 06:00 UTC", () => {
+        expect(rangoUtc("2026-10-28", 1)).toEqual({ desde: "2026-10-28T06:00:00Z", hasta: "2026-10-29T06:00:00Z" });
+        expect(rangoUtc("2026-10-26", 7)).toEqual({ desde: "2026-10-26T06:00:00Z", hasta: "2026-11-02T06:00:00Z" });
+        expect(diaDesdeIso("2026-10-29T05:59:00Z")).toBe("2026-10-28");
+        expect(diaDesdeIso("2026-10-29T06:00:00Z")).toBe("2026-10-29");
+        expect(hoyGuatemala(Date.parse("2026-10-29T03:00:00Z"))).toBe("2026-10-28");
+    });
+
+    it("semana desde el lunes, sumar días entre meses y validar días", () => {
+        expect(inicioSemana("2026-10-28")).toBe("2026-10-26");
+        expect(inicioSemana("2026-11-01")).toBe("2026-10-26");
+        expect(inicioSemana("2026-10-26")).toBe("2026-10-26");
+        expect(sumarDias("2026-10-31", 1)).toBe("2026-11-01");
+        expect(esDia("2026-02-30")).toBe(false);
+        expect(esDia("2026-10-28")).toBe(true);
+    });
+
+    it("horas y minutos del día en Guatemala", () => {
+        expect(horaDe("2026-10-28T16:30:00Z")).toBe("10:30");
+        expect(minutosEnDia("2026-10-28T16:30:00Z", "2026-10-28")).toBe(630);
+        expect(isoDesdeDia("2026-10-28", 630)).toBe("2026-10-28T16:30:00Z");
+        expect(etiquetaDia("2026-10-28")).toBe("mié 28/10");
+    });
+
+    it("antigüedad legible", () => {
+        expect(textoAntiguedad(42)).toBe("hace 42 s");
+        expect(textoAntiguedad(185)).toBe("hace 3 min");
+        expect(textoAntiguedad(2 * 3600 + 5 * 60)).toBe("hace 2 h 5 min");
+        expect(textoAntiguedad(3 * 86400)).toBe("hace 3 días");
+    });
+});
+
+describe("calendario", () => {
+    it("filas: técnicos activos por nombre y, al final, los que tienen citas sin ficha en el filtro", () => {
+        const filas = filasDeTecnicos(
+            [tecnico({ id: 2, usuarioId: 11, nombre: "Jorge Méndez" }), tecnico({ id: 1, usuarioId: 3, nombre: "Lucía Ramírez" }), tecnico({ id: 3, usuarioId: 12, nombre: "Inactivo", activo: false })],
+            [cita({ tecnicoId: 3 }), cita({ ordenId: 9, tecnicoId: 40, cuadrillaId: 7 })],
+            [],
+        );
+        expect(filas.map((f) => [f.usuarioId, f.nombre, f.sinFicha])).toEqual([
+            [11, "Jorge Méndez", false],
+            [3, "Lucía Ramírez", false],
+            [40, "Técnico 40", true],
+        ]);
+    });
+
+    it("citas y ausencias del día del técnico", () => {
+        const citas = [cita({ ordenId: 5, inicio: "2026-10-28T19:00:00Z", fin: "2026-10-28T20:00:00Z" }), cita({}), cita({ ordenId: 6, inicio: "2026-10-29T16:00:00Z", fin: "2026-10-29T17:00:00Z" })];
+        expect(citasDelDia(citas, 3, "2026-10-28").map((c) => c.ordenId)).toEqual([3, 5]);
+        const aus = [{ id: 1, tecnicoId: 3, fichaId: 1, motivo: "vacaciones", inicio: "2026-10-27T06:00:00Z", fin: "2026-10-29T06:00:00Z" }];
+        expect(ausenciasDelDia(aus, 3, "2026-10-28")).toHaveLength(1);
+        expect(ausenciasDelDia(aus, 3, "2026-10-29")).toHaveLength(0);
+        expect(ausenciasDelDia(aus, 11, "2026-10-28")).toHaveLength(0);
+    });
+
+    it("horario base 06–20 que se amplía con citas y ventanas, y tramos en %", () => {
+        expect(horarioDelDia([], "2026-10-28")).toEqual({ desde: 360, hasta: 1200 });
+        const h = horarioDelDia([cita({ inicio: "2026-10-28T11:30:00Z", fin: "2026-10-28T12:30:00Z", ventanaFin: "2026-10-29T03:10:00Z" })], "2026-10-28");
+        expect(h).toEqual({ desde: 300, hasta: 1320 });
+        const t = tramoEnHorario("2026-10-28T13:00:00Z", "2026-10-28T14:00:00Z", "2026-10-28", { desde: 360, hasta: 1200 });
+        expect(t?.izquierda).toBeCloseTo(((420 - 360) / 840) * 100);
+        expect(t?.ancho).toBeCloseTo((60 / 840) * 100);
+        expect(tramoEnHorario("2026-10-28T08:00:00Z", "2026-10-28T09:00:00Z", "2026-10-28", { desde: 360, hasta: 1200 })).toBeNull();
+    });
+
+    it("soltar en la línea redondea a 15 minutos dentro del horario", () => {
+        const h = { desde: 360, hasta: 1200 };
+        expect(minutosEnFraccion(0.5, h)).toBe(780);
+        expect(minutosEnFraccion(0.506, h)).toBe(780);
+        expect(minutosEnFraccion(-1, h)).toBe(360);
+        expect(minutosEnFraccion(2, h)).toBe(1185);
+    });
+
+    it("nombres del catálogo o «Zona N»", () => {
+        expect(nombreDe([{ id: 4, nombre: "Centro" }], 4, "Zona")).toBe("Centro");
+        expect(nombreDe([], 9, "Zona")).toBe("Zona 9");
+        expect(nombreDe(undefined, null, "Zona")).toBeUndefined();
+    });
+});
+
+describe("mover una orden", () => {
+    it("elige la acción explícita por estado y por si lleva hora", () => {
+        expect(accionMover("pendiente", true)).toBe("programar");
+        expect(accionMover("programada", true)).toBe("reprogramar");
+        expect(accionMover("en_camino", true)).toBe("reprogramar");
+        expect(accionMover("fallida", true)).toBe("reprogramar");
+        expect(accionMover("pendiente", false)).toBe("asignar");
+        expect(accionMover("fallida", false)).toBeNull();
+        expect(accionMover("en_sitio", true)).toBeNull();
+        expect(accionMover("cerrada", true)).toBeNull();
+        expect(sePuedeMover("fallida", (p) => p.includes("ordenes.asignar"))).toBe(false);
+        expect(sePuedeMover("fallida", (p) => p.includes("ordenes.reprogramar"))).toBe(true);
+        expect(sePuedeMover("en_camino", (p) => p.includes("ordenes.asignar"))).toBe(true);
+        expect(sePuedeMover("en_sitio", () => true)).toBe(false);
+    });
+
+    it("reprogramar exige motivo y conserva la duración de la cita", () => {
+        const m = movibleDeCita(cita({ inicio: "2026-10-28T16:00:00Z", fin: "2026-10-28T17:30:00Z" }));
+        const esquema = esquemaMover(m);
+        const sinMotivo = esquema.safeParse({ tecnicoId: "11", soloAsignar: false, fecha: "2026-10-29", hora: "09:00", motivo: "" });
+        expect(sinMotivo.success).toBe(false);
+        expect(sinMotivo.error?.issues.map((i) => i.path.join("."))).toEqual(["motivo"]);
+        const ok = esquema.parse({ tecnicoId: "11", soloAsignar: false, fecha: "2026-10-29", hora: "09:00", motivo: " Cliente pidió mañana " });
+        expect(ok).toEqual({ accion: "reprogramar", tecnicoId: 11, inicio: "2026-10-29T15:00:00Z", fin: "2026-10-29T16:30:00Z", motivo: "Cliente pidió mañana" });
+        if (ok.accion !== "asignar") {
+            expect(entradaProgramar(ok, 3)).toEqual({ version: 3, inicio: "2026-10-29T15:00:00Z", fin: "2026-10-29T16:30:00Z", tecnicoId: 11, motivo: "Cliente pidió mañana" });
+        }
+    });
+
+    it("programar una pendiente sin fin (lo calcula la API) y validar día, hora y técnico", () => {
+        const m = { ...movibleDeCita(cita({})), estado: "pendiente" as const, inicio: null, fin: null };
+        const esquema = esquemaMover(m);
+        expect(esquema.parse({ tecnicoId: "3", soloAsignar: false, fecha: "2026-10-28", hora: "14:15", motivo: "" })).toEqual({
+            accion: "programar",
+            tecnicoId: 3,
+            inicio: "2026-10-28T20:15:00Z",
+            fin: undefined,
+            motivo: undefined,
+        });
+        const mal = esquema.safeParse({ tecnicoId: "", soloAsignar: false, fecha: "2026-13-01", hora: "25:00", motivo: "" });
+        expect(mal.error?.issues.map((i) => i.path.join(".")).sort()).toEqual(["fecha", "hora", "tecnicoId"]);
+        expect(esquema.parse({ tecnicoId: "3", soloAsignar: true, fecha: "", hora: "", motivo: "" })).toEqual({ accion: "asignar", tecnicoId: 3 });
+        expect(entradaAsignar(3, 7, null)).toEqual({ version: 7, tecnicoId: 3 });
+        expect(entradaAsignar(3, 7, 2)).toEqual({ version: 7, tecnicoId: 3, cuadrillaId: 2 });
+    });
+
+    it("valores iniciales: del destino del arrastre o de la cita actual", () => {
+        const m = movibleDeCita(cita({}));
+        expect(valoresIniciales(m, undefined, "2026-10-30")).toEqual({ tecnicoId: "3", soloAsignar: false, fecha: "2026-10-28", hora: "10:00", motivo: "" });
+        expect(valoresIniciales(m, { tecnicoId: 11, dia: "2026-10-29", minutos: 13 * 60 + 45 }, "2026-10-30")).toMatchObject({ tecnicoId: "11", fecha: "2026-10-29", hora: "13:45" });
+        expect(valoresIniciales(m, { tecnicoId: 11, dia: null, minutos: null }, "2026-10-30")).toMatchObject({ tecnicoId: "11", soloAsignar: true });
+    });
+
+    const asignable = (p: Partial<Asignable>): Asignable => ({
+        tecnicoId: 1,
+        usuarioId: 11,
+        nombre: "Jorge Méndez",
+        cuadrillaId: 1,
+        habilidades: [],
+        disponible: true,
+        motivo: null,
+        minutosLibres: 240,
+        turnos: [{ inicio: "2026-10-28T14:00:00Z", fin: "2026-10-29T00:00:00Z" }],
+        ausencias: [],
+        ocupado: [],
+        libres: [
+            { inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T16:00:00Z" },
+            { inicio: "2026-10-28T20:00:00Z", fin: "2026-10-29T00:00:00Z" },
+        ],
+        capacidad: [],
+        ...p,
+    });
+
+    it("comprueba el destino contra asignables: fuera de lista, no disponible, hueco y ventana", () => {
+        const m = movibleDeCita(cita({ inicio: "2026-10-28T16:00:00Z", fin: "2026-10-28T17:00:00Z", ventanaInicio: "2026-10-28T14:00:00Z", ventanaFin: "2026-10-28T16:00:00Z" }));
+        expect(comprobarDestino(m, undefined, { inicio: "2026-10-28T14:00:00Z", duracionTipo: 60 })[0]?.tono).toBe("error");
+        const ausente = comprobarDestino(m, asignable({ disponible: false, motivo: "ausente" }), { inicio: "2026-10-28T14:00:00Z", duracionTipo: 60 });
+        expect(ausente).toEqual([{ tono: "error", texto: "Jorge Méndez: Está ausente ese día." }]);
+        expect(comprobarDestino(m, asignable({}), { inicio: "2026-10-28T14:30:00Z", duracionTipo: 60 })).toEqual([{ tono: "success", texto: "Jorge Méndez tiene libre ese horario (60 min)." }]);
+        const choca = comprobarDestino(m, asignable({}), { inicio: "2026-10-28T15:30:00Z", duracionTipo: 60 });
+        expect(choca[0]).toEqual({ tono: "error", texto: "Ese horario no está libre para Jorge Méndez (60 min). Libre: 08:00–10:00 y 14:00–18:00." });
+        const fueraVentana = comprobarDestino(m, asignable({}), { inicio: "2026-10-28T20:30:00Z", duracionTipo: 60 });
+        expect(fueraVentana.map((c) => c.tono)).toEqual(["success", "warning"]);
+        expect(fueraVentana[1]?.texto).toContain("08:00–10:00");
+        expect(comprobarDestino(m, asignable({ disponible: false, motivo: "ausente" }), { inicio: null, duracionTipo: 60 })[0]?.tono).toBe("success");
+    });
+});
+
+describe("posiciones en vivo", () => {
+    it("antigüedad = la de la API + lo que pasó desde la lectura; frescura y texto", () => {
+        expect(antiguedadAhora({ antiguedadSeg: 40 }, 1_000_000, 1_030_000)).toBe(70);
+        expect(antiguedadAhora({ antiguedadSeg: 40 }, 1_000_000, 900_000)).toBe(40);
+        expect(frescura(180)).toBe("en_vivo");
+        expect(frescura(181)).toBe("retrasada");
+        expect(frescura(901)).toBe("sin_senal");
+        expect(textoPosicion(70)).toBe("En vivo · hace 1 min");
+        expect(textoPosicion(2 * 3600)).toBe("Sin señal reciente · hace 2 h");
+        expect(iniciales("Lucía  Ramírez Pérez")).toBe("LP");
+        expect(iniciales("Jorge")).toBe("J");
+    });
+});
+
+describe("ruta propuesta frente a la real", () => {
+    it("la API de rutas aún no está en el contrato", () => {
+        expect(RUTAS_EN_CONTRATO).toBe(false);
+    });
+
+    const orden = (id: number, enSitioEn: string | null) => ({ id, numero: `OT-${id}`, enSitioEn, lat: 14.6, lon: -90.5 }) as unknown as Schema<"Orden">;
+
+    it("paradas reales por hora de llegada", () => {
+        const reales = paradasReales([orden(5, "2026-10-28T19:10:00Z"), orden(3, null), orden(4, "2026-10-28T17:00:00Z")]);
+        expect(reales.map((r) => [r.ordenId, r.posicion])).toEqual([
+            [4, 1],
+            [5, 2],
+        ]);
+    });
+
+    it("sin propuesta no se calcula desvío", () => {
+        const reales: ParadaReal[] = [{ ordenId: 4, numero: "OT-4", posicion: 1, llegadaEn: "x", lat: null, lon: null }];
+        expect(compararRutas(null, reales)).toEqual([{ ordenId: 4, numero: "OT-4", propuesta: null, real: 1, resultado: "sin_propuesta" }]);
+    });
+
+    it("compara parada por parada: en orden, antes, después, sin visitar y fuera de la propuesta", () => {
+        const p = (ordenId: number, posicion: number): ParadaPropuesta => ({ ordenId, numero: `OT-${ordenId}`, posicion, llegadaEstimada: null, lat: null, lon: null });
+        const r = (ordenId: number, posicion: number): ParadaReal => ({ ordenId, numero: `OT-${ordenId}`, posicion, llegadaEn: "x", lat: null, lon: null });
+        const filas = compararRutas([p(1, 1), p(2, 2), p(3, 3), p(4, 4)], [r(1, 1), r(9, 2), r(3, 3), r(2, 4)]);
+        expect(filas.map((f) => [f.ordenId, f.resultado])).toEqual([
+            [1, "en_orden"],
+            [2, "despues"],
+            [3, "antes"],
+            [4, "sin_visitar"],
+            [9, "fuera_de_propuesta"],
+        ]);
+    });
+});

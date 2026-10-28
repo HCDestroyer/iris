@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
-import { Proximamente } from "@/componentes/proximamente";
+import { RequierePermiso } from "@/componentes/requiere-permiso";
+import { PantallaAgenda } from "./agenda";
 
 export const metadata: Metadata = { title: "Agenda" };
 
 export default function Pagina() {
-    return <Proximamente href="/agenda" descripcion="El calendario por técnico y zona llega en la fase 3." />;
+    return (
+        <RequierePermiso permisos={["agenda.ver"]}>
+            <PantallaAgenda />
+        </RequierePermiso>
+    );
 }
