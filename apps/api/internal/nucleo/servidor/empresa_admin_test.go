@@ -75,7 +75,7 @@ func TestTokenLimitadoNoTomaUsuarioDeOtraEmpresa(t *testing.T) {
 	bot := tokenDe(t, e, admin, "usuarios.editar", "usuarios.ver", "roles.ver", "permisos.ver", "clientes.ver")
 
 	nueva := "otra-contrasena-larga-999"
-	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/editar", idB), map[string]any{"version": 1, "contrasena": nueva}).problema(t, 403, "prohibido")
+	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/editar", idB), map[string]any{"version": 1, "contrasena": nueva}).problema(t, 404, "no_encontrado") // fuera de su alcance: como inexistente
 	if r := e.cliente().pedir(http.MethodPost, "/api/v1/sesion", map[string]any{"correo": correoB, "contrasena": nueva}); r.status == 200 {
 		t.Fatal("entró con la contraseña que puso el token")
 	}
@@ -109,11 +109,12 @@ func TestAdministrarSoloUsuariosDeEmpresasPropias(t *testing.T) {
 		t.Fatalf("editar a A: %d %s", r.status, r.crudo)
 	}
 	// B (102), AB (101 y 102), sin empresas y admin global: no, ni siquiera el nombre o roles.
+	// Están fuera de su alcance: 404, como si no existieran (no se revela ni su versión).
 	for _, id := range []int64{idB, idAB, idNadie, idGlobal} {
-		editar(id, map[string]any{"nombre": "x"}).problema(t, 403, "prohibido")
-		editar(id, map[string]any{"contrasena": "contrasena-nueva-123"}).problema(t, 403, "prohibido")
-		editar(id, map[string]any{"roles": []map[string]any{{"rol": "lectura"}, {"rol": "tecnico"}}}).problema(t, 403, "prohibido")
-		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/desactivar", id), map[string]any{"version": 1, "motivo": "x"}).problema(t, 403, "prohibido")
+		editar(id, map[string]any{"nombre": "x"}).problema(t, 404, "no_encontrado")
+		editar(id, map[string]any{"contrasena": "contrasena-nueva-123"}).problema(t, 404, "no_encontrado")
+		editar(id, map[string]any{"roles": []map[string]any{{"rol": "lectura"}, {"rol": "tecnico"}}}).problema(t, 404, "no_encontrado")
+		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/desactivar", id), map[string]any{"version": 1, "motivo": "x"}).problema(t, 404, "no_encontrado")
 	}
 	// Empresas: a B no se le asigna 101 (opera en 102); a quien no tiene empresas tampoco; a AB
 	// no se le quita 101.

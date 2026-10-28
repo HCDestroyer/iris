@@ -73,6 +73,8 @@ type Modulo struct {
 	ObtenerYo     *auditoria.Caso[struct{}, Yo]
 	ConfigurarMFA *auditoria.Caso[struct{}, MFAConfigurado]
 	ActivarMFA    *auditoria.Caso[EntradaActivarMFA, Usuario]
+	// CambiarContrasena: el propio usuario (sesión), obligatorio tras una contraseña temporal.
+	CambiarContrasena *auditoria.Caso[EntradaCambiarContrasena, Usuario]
 
 	ListarRoles    *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]
 	ListarPermisos *auditoria.Caso[struct{}, nucleo.Pagina[PermisoInfo]]
@@ -138,6 +140,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ObtenerYo = nuevoObtenerYo()
 	m.ConfigurarMFA = nuevoConfigurarMFA(cfg)
 	m.ActivarMFA = nuevoActivarMFA(cfg)
+	m.CambiarContrasena = nuevoCambiarContrasena()
 	m.ListarRoles = nuevoListarRoles()
 	m.ListarPermisos = nuevoListarPermisos()
 	m.ListarEmpresas = nuevoListarEmpresas()

@@ -2162,7 +2162,7 @@ export interface paths {
         put?: never;
         /**
          * Desactivar un usuario
-         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
          */
         post: operations["desactivarUsuario"];
         delete?: never;
@@ -2182,7 +2182,7 @@ export interface paths {
         put?: never;
         /**
          * Editar un usuario
-         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
          */
         post: operations["editarUsuario"];
         delete?: never;
@@ -2222,7 +2222,7 @@ export interface paths {
         put?: never;
         /**
          * Reiniciar el MFA de otro usuario
-         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar) y cierra sus sesiones; sus tokens siguen valiendo. El usuario entra con su contraseña y vuelve a configurar el MFA. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
         delete?: never;
@@ -2245,6 +2245,26 @@ export interface paths {
         get: operations["obtenerYo"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/yo/contrasena": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar la contraseña propia
+         * @description Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`.
+         */
+        post: operations["cambiarContrasenaPropia"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2963,6 +2983,12 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaCambiarContrasena: {
+            /** @description Contraseña actual (la temporal, si la hay) */
+            actual: string;
+            /** @description Nueva contraseña: mínimo 12 caracteres y distinta de la actual */
+            nueva: string;
+        };
         EntradaCambioConector: {
             motivo?: string;
             /**
@@ -3660,8 +3686,12 @@ export interface components {
             motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
         };
         EntradaReiniciarMFA: {
+            /** @description Contraseña temporal (mínimo 12 caracteres, distinta de la actual) que el administrador entrega al usuario fuera de banda. Reemplaza la actual; al entrar con ella, el usuario debe cambiarla antes de cualquier otra cosa. Nunca se audita ni va en eventos */
+            contrasenaTemporal: string;
             /** @description Por qué se reinicia (queda en la auditoría y en el evento) */
             motivo: string;
+            /** @description Revoca también sus tokens iris_pat_ (true por omisión; emite token.revocado por cada uno) */
+            revocarTokens?: boolean;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -5236,6 +5266,8 @@ export interface components {
             activo: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido) */
+            cambioContrasenaRequerido?: boolean;
             correo: string;
             /** Format: date-time */
             creadoEn: string;
@@ -14416,6 +14448,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Yo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiarContrasenaPropia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarContrasena"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
                 };
             };
             /** @description Unauthorized */

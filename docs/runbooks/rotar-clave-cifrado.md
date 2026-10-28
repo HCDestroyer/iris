@@ -60,6 +60,9 @@ respaldo de la base sin la clave, no hace falta: sin la clave los secretos no se
    `cifrados_ilegibles`, no escribió nada: ver «Ilegibles».
 7. Comprueba: córrela otra vez con `--simular`. Todas las columnas deben tener `rotadas` en 0.
 8. Quita `IRIS_CLAVE_CIFRADO_ANTERIOR` del `.env` de api y worker y reinícialos (paso 4).
+   Mientras siga puesta, api y worker lo recuerdan al arrancar con un `WARN` en el log
+   («IRIS_CLAVE_CIFRADO_ANTERIOR está puesta…»): no la dejes, porque la clave vieja seguiría
+   abriendo lo que quede cifrado con ella.
 9. Si la clave se filtró, los secretos que protegía pudieron leerse:
     - Revoca del lado de Argos y Horus los tokens que Iris tenía y reconecta cada conector (enlace
       nuevo, `POST /api/v1/integraciones/<sistema>/conexion/enlaces`).
@@ -82,14 +85,20 @@ Si la clave anterior se perdió, todo lo de la tabla es ilegible: aplica lo ante
 
 ## Reinicio de MFA por un administrador
 
-`POST /api/v1/usuarios/{id}/reiniciar-mfa { version, motivo }` (permiso `usuarios.reiniciar_mfa`,
-rol `admin`):
+`POST /api/v1/usuarios/{id}/reiniciar-mfa { version, motivo, contrasenaTemporal, revocarTokens? }`
+(permiso `usuarios.reiniciar_mfa`, rol `admin`):
 
-- Borra el secreto TOTP (activo o a medio configurar) y cierra todas las sesiones del usuario. Sus
-  tokens `iris_pat_` siguen valiendo.
-- El usuario entra solo con su contraseña y vuelve a configurar el MFA.
-- Queda auditado y emite `usuario.mfa_reiniciado`.
-- No sirve para el propio usuario (lo hace otro admin) y respeta el alcance por empresas, como
-  editar o desactivar.
+- Borra el secreto TOTP (activo o a medio configurar) y **reemplaza la contraseña** por
+  `contrasenaTemporal` (12 caracteres o más, distinta de la actual). Entrégasela al usuario
+  **fuera de banda** (en persona o por teléfono, nunca por el mismo correo que pudo verse
+  comprometido). La temporal nunca va a la auditoría ni a los eventos.
+- Cierra todas sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens `iris_pat_`.
+- Al entrar con la temporal, el usuario **debe cambiarla** (`POST /api/v1/yo/contrasena`) antes de
+  cualquier otra cosa, incluido configurar el MFA: el resto responde 403
+  `cambio_contrasena_requerido`. Así, quien tenga la contraseña vieja (phishing) ya no entra y no
+  puede quedarse con el segundo factor.
+- Queda auditado y emite `usuario.mfa_reiniciado` (y `token.revocado` por cada token).
+- No sirve para el propio usuario (lo hace otro admin) y respeta el alcance por empresas: un
+  usuario fuera de tu alcance responde 404, como si no existiera.
 
 Iris no tiene códigos de respaldo del MFA: el reinicio es la vía para quien perdió el teléfono.

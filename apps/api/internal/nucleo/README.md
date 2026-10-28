@@ -33,7 +33,8 @@ guardan: repetir la clave da 409 `idempotencia_no_repetible`. Una clave abandona
 
 **Eventos que emite** (`identidad`, con `empresa_id` null): `usuario.creado`,
 `usuario.actualizado`, `usuario.desactivado`, `usuario.mfa_reiniciado` (`POST /usuarios/{id}/reiniciar-mfa`,
-solo admin, nunca el propio), `token.creado`, `token.revocado`; y, con la
+solo admin, nunca el propio: borra el TOTP, pone una contraseña temporal que hay que cambiar con
+`POST /yo/contrasena` antes de cualquier otra cosa, cierra sesiones y revoca tokens), `token.creado`, `token.revocado`; y, con la
 empresa afectada, `empresa.creada`, `empresa.actualizada`, `usuario.empresa_asignada`,
 `usuario.empresa_quitada`, `empresa.datos_adoptados` (payloads en `.claude/integration/contratos/eventos.md`). El portal no
 emite eventos (como el inicio de sesión del panel): sus accesos y sesiones quedan en

@@ -166,6 +166,9 @@ type Sesion struct {
 	ID           int64
 	UsuarioID    int64
 	MFAPendiente bool
+	// CambioContrasena: el usuario tiene una contraseña temporal y la sesión solo puede
+	// cambiarla, ver /yo o cerrarse (lo corta identidad.Middleware).
+	CambioContrasena bool
 }
 
 type clave int

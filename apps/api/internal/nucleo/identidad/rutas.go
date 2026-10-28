@@ -156,6 +156,13 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ActivarMFA.Ejecutar(ctx, in.Body))
 		})
 
+	cambiar := operacion("cambiarContrasenaPropia", http.MethodPost, RutaCambiarContrasena, "Cambiar la contraseña propia", "", http.StatusOK)
+	cambiar.Description = "Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`."
+	huma.Register(api, cambiar,
+		func(ctx context.Context, in *conClave[EntradaCambiarContrasena]) (*cuerpo[Usuario], error) {
+			return responder(m.CambiarContrasena.Ejecutar(ctx, in.Body))
+		})
+
 	// Usuarios --------------------------------------------------------------------------
 	listarUsuarios := operacion("listarUsuarios", http.MethodGet, "/api/v1/usuarios", "Listar usuarios", nucleo.PermUsuariosVer, http.StatusOK)
 	listarUsuarios.Description += " " + descPorEmpresa
@@ -170,7 +177,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	editarUsuario := operacion("editarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/editar", "Editar un usuario", nucleo.PermUsuariosEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	editarUsuario.Description += " " + descAdminPorEmpresa
+	editarUsuario.Description += " " + descAdminPorEmpresa + " Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión)."
 	huma.Register(api, editarUsuario,
 		func(ctx context.Context, in *conID[EntradaEditarUsuario]) (*cuerpo[Usuario], error) {
 			e := in.Body
@@ -179,7 +186,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	desactivarUsuario := operacion("desactivarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/desactivar", "Desactivar un usuario", nucleo.PermUsuariosDesactivar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	desactivarUsuario.Description += " " + descAdminPorEmpresa
+	desactivarUsuario.Description += " " + descAdminPorEmpresa + " Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión)."
 	huma.Register(api, desactivarUsuario,
 		func(ctx context.Context, in *conID[EntradaDesactivarUsuario]) (*cuerpo[Usuario], error) {
 			e := in.Body
@@ -188,7 +195,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	reiniciarMFA := operacion("reiniciarMFAUsuario", http.MethodPost, "/api/v1/usuarios/{id}/reiniciar-mfa", "Reiniciar el MFA de otro usuario", nucleo.PermUsuariosReiniciarMFA, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar) y cierra sus sesiones; sus tokens siguen valiendo. El usuario entra con su contraseña y vuelve a configurar el MFA. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
+	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
 	huma.Register(api, reiniciarMFA,
 		func(ctx context.Context, in *conID[EntradaReiniciarMFA]) (*cuerpo[Usuario], error) {
 			e := in.Body
