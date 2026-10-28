@@ -9,11 +9,24 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   `mfa_bloqueado`). `middleware.ts` manda a `/entrar?siguiente=…` si no hay cookie `iris_sesion`;
   el layout del panel lee `GET /api/v1/yo` y un 401 también vuelve al inicio de sesión.
 - **Menú por permisos** (`lib/menu.ts`): nombres exactos del enum `Permiso` del OpenAPI. Los
-  módulos sin permiso en el contrato (tickets, órdenes, agenda, despacho, comercial) se ven como
+  módulos sin permiso en el contrato (órdenes, agenda, despacho, comercial) se ven como
   «Próximamente» y un `satisfies` hace fallar `typecheck` cuando el permiso aparezca.
+- **Empresa activa** (`lib/empresa.ts`, `componentes/selector-empresa.tsx`): selector en la barra
+  superior (varias empresas), nombre (una) o nada (sin conector). La elegida se guarda en
+  `localStorage` (`iris-empresa`) y va en `X-Iris-Empresa`; cambiarla relee `/yo` y remonta la
+  pantalla. 422 `empresa_requerida` → elegir; 403 `empresa_no_permitida` → se olvida y se vuelve
+  a elegir; 403 `sin_empresa` → estado vacío. `/usuarios` y `/administracion/*` no exigen empresa.
+  Con `hayDatosSinEmpresa`, aviso y `/administracion/datos-sin-empresa` (adopción con confirmación).
+- **Tickets** (`/tickets`, `/tickets/[id]`): bandeja (tabla / tarjetas en teléfono) con filtros,
+  vistas guardadas en `localStorage`, cursor «Cargar más» y SLA visible (`lib/tickets/sla.ts`);
+  detalle con conversación (notas internas solo con `tickets.ver_notas`), historial, ficha de
+  Argos (`stale`, `conector_apagado`) y acciones explícitas (diálogos con `react-hook-form` + zod
+  espejo de la API, `version` + `Idempotency-Key`, 409 → «Recargar»); alta rápida con búsqueda de
+  cliente en Argos o contacto a mano.
 - **Usuarios** (`/usuarios`): lista de solo lectura con paginación por cursor.
-- **Cliente HTTP** (`lib/api/cliente.ts`): `openapi-fetch` de `@iris/contratos`, cookies y
-  `X-CSRF-Token` (cookie `iris_csrf`) en todo método que cambia estado; errores problem+json →
+- **Cliente HTTP** (`lib/api/cliente.ts`): `openapi-fetch` de `@iris/contratos`, cookies,
+  `X-CSRF-Token` (cookie `iris_csrf`) en todo método que cambia estado y `X-Iris-Empresa`; los
+  arreglos de la query van separados por coma (`estado=nuevo,abierto`); errores problem+json →
   `ErrorApi` (`codigo`, `estado`, `errores[]`, `reintentarEn`).
 - **Proxy** (`app/api/[...ruta]/route.ts`): `/api/*` → `IRIS_API_URL/api/*` en tiempo de
   ejecución, así las cookies son del mismo origen y la imagen sirve en cualquier entorno.
