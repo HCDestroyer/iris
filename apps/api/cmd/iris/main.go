@@ -189,7 +189,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	adj := adjuntos.Nuevo(adjuntos.Config{Almacen: almacen, TamanoMax: cfg.AdjuntosTamanoMax, MIMEPermitidos: cfg.AdjuntosMIME})
+	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
 	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
@@ -226,6 +226,15 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer cancelar()
 	log.Info("apagando iris")
 	return srv.Shutdown(apagar)
+}
+
+// configAdjuntos arma la configuración del módulo de adjuntos desde el entorno.
+func configAdjuntos(cfg config.Config, almacen adjuntos.Almacen) adjuntos.Config {
+	return adjuntos.Config{
+		Almacen: almacen, TamanoMax: cfg.AdjuntosTamanoMax, MIMEPermitidos: cfg.AdjuntosMIME,
+		MaxEnCursoUsuario: cfg.AdjuntosMaxEnCursoUsuario, MaxBytesUsuario: cfg.AdjuntosMaxBytesUsuario,
+		MaxEnCursoEntidad: cfg.AdjuntosMaxEnCursoEntidad, Abandono: cfg.AdjuntosAbandono,
+	}
 }
 
 // almacenAdjuntos arma el almacenamiento de adjuntos: S3 compatible (IRIS_S3_*, MinIO en dev)

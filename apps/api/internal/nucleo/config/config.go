@@ -65,6 +65,13 @@ type Config struct {
 	AdjuntosDir       string
 	AdjuntosTamanoMax int64
 	AdjuntosMIME      []string
+	//  IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO (50), IRIS_ADJUNTOS_MAX_BYTES_USUARIO (524288000),
+	//  IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD (30): cuotas de subidas sin terminar (429).
+	//  IRIS_ADJUNTOS_ABANDONO (48h): sin actividad por más de esto, la subida se rechaza.
+	AdjuntosMaxEnCursoUsuario int
+	AdjuntosMaxBytesUsuario   int64
+	AdjuntosMaxEnCursoEntidad int
+	AdjuntosAbandono          time.Duration
 	// IRIS_S3_*: almacenamiento S3 compatible (MinIO en dev), el mismo del docker-compose.
 	S3Endpoint, S3Region, S3Bucket, S3AccessKey, S3SecretKey string
 	S3EstiloRuta                                             bool
@@ -205,6 +212,35 @@ func (c *Config) cargarAdjuntos() []string {
 			}
 			c.AdjuntosMIME = append(c.AdjuntosMIME, m)
 		}
+	}
+	c.AdjuntosMaxEnCursoUsuario, c.AdjuntosMaxBytesUsuario, c.AdjuntosMaxEnCursoEntidad = 50, 500<<20, 30
+	c.AdjuntosAbandono = 48 * time.Hour
+	for nombre, destino := range map[string]*int64{"IRIS_ADJUNTOS_MAX_BYTES_USUARIO": &c.AdjuntosMaxBytesUsuario} {
+		if v := os.Getenv(nombre); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				errs = append(errs, nombre+" inválido: "+v)
+			}
+			*destino = n
+		}
+	}
+	for nombre, destino := range map[string]*int{
+		"IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO": &c.AdjuntosMaxEnCursoUsuario, "IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD": &c.AdjuntosMaxEnCursoEntidad,
+	} {
+		if v := os.Getenv(nombre); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				errs = append(errs, nombre+" inválido: "+v)
+			}
+			*destino = n
+		}
+	}
+	if v := os.Getenv("IRIS_ADJUNTOS_ABANDONO"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			errs = append(errs, "IRIS_ADJUNTOS_ABANDONO inválido: "+v)
+		}
+		c.AdjuntosAbandono = d
 	}
 	if v := os.Getenv("IRIS_S3_PATH_STYLE"); v != "" {
 		b, err := strconv.ParseBool(v)

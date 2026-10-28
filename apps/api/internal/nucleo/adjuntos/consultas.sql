@@ -57,3 +57,26 @@ SELECT tipo, coalesce(clave_checklist, '')::text AS clave_checklist, count(*)::b
 FROM nucleo.adjuntos
 WHERE entidad = @entidad AND entidad_id = @entidad_id AND estado = 'completo'
 GROUP BY tipo, clave_checklist;
+
+-- name: EnCursoDeUsuario :one
+-- Cuota: adjuntos sin terminar de un usuario y sus bytes declarados.
+SELECT count(*)::bigint AS total, coalesce(sum(tamano), 0)::bigint AS bytes
+FROM nucleo.adjuntos
+WHERE subido_por = @subido_por AND estado IN ('pendiente', 'subiendo');
+
+-- name: EnCursoDeEntidad :one
+SELECT count(*)::bigint FROM nucleo.adjuntos
+WHERE entidad = @entidad AND entidad_id = @entidad_id AND estado IN ('pendiente', 'subiendo');
+
+-- name: AdjuntosAbandonados :many
+-- Sin actividad (alta o última parte) desde antes de @antes.
+SELECT id FROM nucleo.adjuntos
+WHERE estado IN ('pendiente', 'subiendo') AND updated_at < @antes
+ORDER BY updated_at
+LIMIT @limite;
+
+-- name: AbandonarAdjunto :one
+UPDATE nucleo.adjuntos
+SET estado = 'rechazado', motivo_rechazo = 'abandonado', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'subiendo') AND updated_at < @antes
+RETURNING *;

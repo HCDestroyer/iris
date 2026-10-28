@@ -100,6 +100,14 @@ func nuevoRegistrar(m *Modulo) *auditoria.Caso[EntradaRegistrar, Registrado] {
 				subidoPor = &a.ID
 			}
 			q := adjuntosbd.New(t)
+			if _, err := q.AdjuntoPorID(ctx, in.ID); errors.Is(err, pgx.ErrNoRows) {
+				// Alta nueva: cuotas de subidas sin terminar (repetir un alta no cuenta).
+				if err := m.verificarCuota(ctx, t, subidoPor, in); err != nil {
+					return Registrado{}, err
+				}
+			} else if err != nil {
+				return Registrado{}, err
+			}
 			fila, err := q.InsertarAdjunto(ctx, adjuntosbd.InsertarAdjuntoParams{
 				ID: in.ID, EmpresaID: empresaID, Entidad: in.Entidad, EntidadID: in.EntidadID, Tipo: in.Tipo,
 				ClaveChecklist: in.ClaveChecklist, Mime: mime, Tamano: in.Tamano, Sha256: sha,
@@ -131,6 +139,40 @@ func nuevoRegistrar(m *Modulo) *auditoria.Caso[EntradaRegistrar, Registrado] {
 			return Registrado{Adjunto: a, Nuevo: true}, t.Emitir(EventoRegistrado, eventoDe(a))
 		},
 	})
+}
+
+// DemasiadasSubidas es el 429 de las cuotas del alta.
+func DemasiadasSubidas(detalle string) *nucleo.Problema {
+	return nucleo.DemasiadosIntentos("demasiadas_subidas", detalle+"; termina o descarta las subidas pendientes", time.Minute)
+}
+
+// verificarCuota: subidas sin terminar por usuario (cantidad y bytes) y por entidad. Un candado
+// por usuario (transaccional) evita que dos altas simultáneas pasen la cuota a la vez.
+func (m *Modulo) verificarCuota(ctx context.Context, t *auditoria.Tx, subidoPor *int64, in EntradaRegistrar) error {
+	q := adjuntosbd.New(t)
+	if subidoPor != nil {
+		if _, err := t.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('adjuntos:usuario:' || $1::bigint::text, 0))", *subidoPor); err != nil {
+			return err
+		}
+		c, err := q.EnCursoDeUsuario(ctx, subidoPor)
+		if err != nil {
+			return err
+		}
+		if c.Total >= int64(m.cfg.MaxEnCursoUsuario) {
+			return DemasiadasSubidas(fmt.Sprintf("Tienes %d adjuntos sin terminar de subir (máximo %d)", c.Total, m.cfg.MaxEnCursoUsuario))
+		}
+		if c.Bytes+in.Tamano > m.cfg.MaxBytesUsuario {
+			return DemasiadasSubidas(fmt.Sprintf("Tus subidas sin terminar suman %d bytes (máximo %d)", c.Bytes+in.Tamano, m.cfg.MaxBytesUsuario))
+		}
+	}
+	n, err := q.EnCursoDeEntidad(ctx, adjuntosbd.EnCursoDeEntidadParams{Entidad: in.Entidad, EntidadID: in.EntidadID})
+	if err != nil {
+		return err
+	}
+	if n >= int64(m.cfg.MaxEnCursoEntidad) {
+		return DemasiadasSubidas(fmt.Sprintf("La %s %s tiene %d adjuntos sin terminar (máximo %d)", in.Entidad, in.EntidadID, n, m.cfg.MaxEnCursoEntidad))
+	}
+	return nil
 }
 
 func utc(t *time.Time) *time.Time {

@@ -12,6 +12,48 @@ import (
 	"github.com/google/uuid"
 )
 
+const abandonarAdjunto = `-- name: AbandonarAdjunto :one
+UPDATE nucleo.adjuntos
+SET estado = 'rechazado', motivo_rechazo = 'abandonado', version = version + 1, updated_at = now()
+WHERE id = $1 AND estado IN ('pendiente', 'subiendo') AND updated_at < $2
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+`
+
+type AbandonarAdjuntoParams struct {
+	ID    uuid.UUID
+	Antes time.Time
+}
+
+func (q *Queries) AbandonarAdjunto(ctx context.Context, arg AbandonarAdjuntoParams) (NucleoAdjunto, error) {
+	row := q.db.QueryRow(ctx, abandonarAdjunto, arg.ID, arg.Antes)
+	var i NucleoAdjunto
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Tipo,
+		&i.ClaveChecklist,
+		&i.Mime,
+		&i.Tamano,
+		&i.Sha256,
+		&i.Recibido,
+		&i.Estado,
+		&i.MotivoRechazo,
+		&i.Lat,
+		&i.Lon,
+		&i.TomadoEn,
+		&i.SubidoPor,
+		&i.Almacenamiento,
+		&i.Clave,
+		&i.CompletadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const adjuntoPorID = `-- name: AdjuntoPorID :one
 SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at FROM nucleo.adjuntos WHERE id = $1
 `
@@ -78,6 +120,39 @@ func (q *Queries) AdjuntoPorIDParaActualizar(ctx context.Context, id uuid.UUID) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const adjuntosAbandonados = `-- name: AdjuntosAbandonados :many
+SELECT id FROM nucleo.adjuntos
+WHERE estado IN ('pendiente', 'subiendo') AND updated_at < $1
+ORDER BY updated_at
+LIMIT $2
+`
+
+type AdjuntosAbandonadosParams struct {
+	Antes  time.Time
+	Limite int32
+}
+
+// Sin actividad (alta o última parte) desde antes de @antes.
+func (q *Queries) AdjuntosAbandonados(ctx context.Context, arg AdjuntosAbandonadosParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, adjuntosAbandonados, arg.Antes, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const adjuntosDeEntidad = `-- name: AdjuntosDeEntidad :many
@@ -245,6 +320,42 @@ func (q *Queries) ContarCompletos(ctx context.Context, arg ContarCompletosParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const enCursoDeEntidad = `-- name: EnCursoDeEntidad :one
+SELECT count(*)::bigint FROM nucleo.adjuntos
+WHERE entidad = $1 AND entidad_id = $2 AND estado IN ('pendiente', 'subiendo')
+`
+
+type EnCursoDeEntidadParams struct {
+	Entidad   string
+	EntidadID string
+}
+
+func (q *Queries) EnCursoDeEntidad(ctx context.Context, arg EnCursoDeEntidadParams) (int64, error) {
+	row := q.db.QueryRow(ctx, enCursoDeEntidad, arg.Entidad, arg.EntidadID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const enCursoDeUsuario = `-- name: EnCursoDeUsuario :one
+SELECT count(*)::bigint AS total, coalesce(sum(tamano), 0)::bigint AS bytes
+FROM nucleo.adjuntos
+WHERE subido_por = $1 AND estado IN ('pendiente', 'subiendo')
+`
+
+type EnCursoDeUsuarioRow struct {
+	Total int64
+	Bytes int64
+}
+
+// Cuota: adjuntos sin terminar de un usuario y sus bytes declarados.
+func (q *Queries) EnCursoDeUsuario(ctx context.Context, subidoPor *int64) (EnCursoDeUsuarioRow, error) {
+	row := q.db.QueryRow(ctx, enCursoDeUsuario, subidoPor)
+	var i EnCursoDeUsuarioRow
+	err := row.Scan(&i.Total, &i.Bytes)
+	return i, err
 }
 
 const insertarAdjunto = `-- name: InsertarAdjunto :one

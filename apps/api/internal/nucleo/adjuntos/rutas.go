@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -110,6 +111,10 @@ func (m *Modulo) RegistrarRutas(api huma.API) {
 		}
 		return &huma.StreamResponse{Body: func(hctx huma.Context) {
 			defer func() { _ = rc.Close() }()
+			// 25 MiB por una red lenta tardan más que el WriteTimeout del servidor (60 s).
+			if _, w := humachi.Unwrap(hctx); w != nil {
+				_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(m.cfg.TiempoDescarga))
+			}
 			EscribirCabecerasDescarga(hctx.SetHeader, a)
 			hctx.SetStatus(http.StatusOK)
 			if _, err := io.Copy(hctx.BodyWriter(), io.LimitReader(rc, a.Tamano)); err != nil {

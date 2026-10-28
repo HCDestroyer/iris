@@ -14,7 +14,14 @@ porque lo usan varios módulos: cada uno registra su entidad.
   llegan (un corte no pierde lo recibido y cualquier réplica de la API retoma). Al completar:
   tamaño, SHA-256 y firma del contenido (imágenes y PDF por `http.DetectContentType`; SVG debe ser
   XML con `<svg`; nunca HTML) → almacenamiento → `completo`. Si no coincide → `rechazado`.
-- `GET /api/v1/adjuntos/{id}` (`adjuntos.ver`, auditado): descarga con `nosniff`, CSP `sandbox`,
+- Cuotas en el alta (429 `demasiadas_subidas` con `Retry-After`): subidas sin terminar por
+  usuario (`IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO`, 50) y sus bytes declarados
+  (`IRIS_ADJUNTOS_MAX_BYTES_USUARIO`, 500 MiB), y por entidad (`IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD`,
+  30). Repetir un alta no cuenta.
+- Job `nucleo.adjuntos_abandonados` (worker, cada hora, único): lo que sigue `pendiente`/`subiendo`
+  sin actividad más de `IRIS_ADJUNTOS_ABANDONO` (48 h) pasa a `rechazado` con motivo
+  `abandonado` y se borran sus partes.
+- `GET /api/v1/adjuntos/{id}` (`adjuntos.ver`, auditado; plazo de escritura de 10 min): descarga con `nosniff`, CSP `sandbox`,
   `inline` solo para JPEG/PNG/WebP/GIF verificados y `attachment` para lo demás (SVG, PDF).
 - `GET /api/v1/adjuntos?entidad=&entidadId=` (`adjuntos.ver`): lista.
 - Almacenamiento: `Disco` (local, sin path traversal) o `S3` (PUT/GET/DELETE con firma AWS SigV4

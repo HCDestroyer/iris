@@ -153,6 +153,21 @@ type Config struct {
 	// TiempoSubida: plazo de lectura de un PATCH (10 min; el servidor corta a los 60 s por
 	// defecto y una foto por 2G tarda más).
 	TiempoSubida time.Duration
+	// TiempoDescarga: plazo de escritura de una descarga (10 min), por la misma razón.
+	TiempoDescarga time.Duration
+	// Cuotas de subidas sin terminar (pendiente o subiendo), verificadas en el alta; al pasarse,
+	// 429 demasiadas_subidas. Por usuario: cantidad (IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO, 50) y
+	// bytes declarados (IRIS_ADJUNTOS_MAX_BYTES_USUARIO, 500 MiB); por entidad: cantidad
+	// (IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD, 30).
+	MaxEnCursoUsuario int
+	MaxBytesUsuario   int64
+	MaxEnCursoEntidad int
+	// Abandono (IRIS_ADJUNTOS_ABANDONO, 48 h): un adjunto sin terminar y sin actividad (alta o
+	// última parte) por más de esto pasa a rechazado con motivo «abandonado» y se borran sus
+	// partes (job periódico de River en cmd/worker).
+	Abandono time.Duration
+	// Reloj (pruebas). time.Now por defecto.
+	Reloj func() time.Time
 }
 
 // MIMEPorDefecto: fotos, firmas (SVG o PNG) y documentos PDF.
@@ -172,6 +187,7 @@ type Modulo struct {
 	rechazar       *auditoria.Caso[entradaRechazar, Adjunto]
 	Descargar      *auditoria.Caso[EntradaDescargar, Adjunto]
 	Listar         *auditoria.Caso[EntradaListar, nucleo.Pagina[Adjunto]]
+	abandonar      *auditoria.Caso[entradaAbandonar, bool]
 }
 
 // Nuevo arma el módulo.
@@ -191,6 +207,24 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.TiempoSubida <= 0 {
 		cfg.TiempoSubida = 10 * time.Minute
 	}
+	if cfg.TiempoDescarga <= 0 {
+		cfg.TiempoDescarga = 10 * time.Minute
+	}
+	if cfg.MaxEnCursoUsuario <= 0 {
+		cfg.MaxEnCursoUsuario = 50
+	}
+	if cfg.MaxBytesUsuario <= 0 {
+		cfg.MaxBytesUsuario = 500 << 20
+	}
+	if cfg.MaxEnCursoEntidad <= 0 {
+		cfg.MaxEnCursoEntidad = 30
+	}
+	if cfg.Abandono <= 0 {
+		cfg.Abandono = 48 * time.Hour
+	}
+	if cfg.Reloj == nil {
+		cfg.Reloj = time.Now
+	}
 	m := &Modulo{cfg: cfg}
 	m.Registrar = nuevoRegistrar(m)
 	m.consultar = nuevoConsultar(m)
@@ -199,6 +233,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.rechazar = nuevoRechazar(m)
 	m.Descargar = nuevoDescargar(m)
 	m.Listar = nuevoListar(m)
+	m.abandonar = nuevoAbandonar(m)
 	return m
 }
 

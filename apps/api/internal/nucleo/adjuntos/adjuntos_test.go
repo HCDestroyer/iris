@@ -72,6 +72,7 @@ type entorno struct {
 	ident  *identidad.Modulo
 	mod    *adjuntos.Modulo
 	api    *httptest.Server
+	h      http.Handler
 }
 
 func nuevoEntorno(t *testing.T, cfg adjuntos.Config) *entorno {
@@ -104,7 +105,7 @@ func nuevoEntorno(t *testing.T, cfg adjuntos.Config) *entorno {
 	muEnt.Lock()
 	entidadesP[o1], entidadesP[o2] = 1, 2
 	muEnt.Unlock()
-	return &entorno{o1: o1, o2: o2, t: t, pool: pool, ident: ident, mod: mod, api: api}
+	return &entorno{o1: o1, o2: o2, t: t, pool: pool, ident: ident, mod: mod, api: api, h: h}
 }
 
 type clienteHTTP struct {
@@ -632,5 +633,133 @@ func TestS3CaidoPermiteReintentarElCierre(t *testing.T) {
 	}
 	if n := e.contar("SELECT count(*) FROM nucleo.adjuntos WHERE id = $1 AND estado = 'completo'", id); n != 1 {
 		t.Fatal("debía completarse")
+	}
+}
+
+// Revisión PR #14 ---------------------------------------------------------------------------
+
+func TestCuotasDeSubidasEnCurso(t *testing.T) {
+	e := nuevoEntorno(t, adjuntos.Config{MaxEnCursoUsuario: 2, MaxEnCursoEntidad: 2, MaxBytesUsuario: 1 << 20})
+	tec := e.usuario("tecnico", 1)
+	foto := imagenPNG(t, 6)
+	a1, a2 := alta(e.o1, "foto", "image/png", foto), alta(e.o1, "foto", "image/png", foto)
+	tec.json(http.MethodPost, "/api/v1/adjuntos", a1)
+	tec.json(http.MethodPost, "/api/v1/adjuntos", a2)
+	r := tec.json(http.MethodPost, "/api/v1/adjuntos", alta(e.o1, "foto", "image/png", foto))
+	r.problema(t, 429, "demasiadas_subidas")
+	if r.h.Get("Retry-After") == "" {
+		t.Fatal("falta Retry-After")
+	}
+	// Repetir un alta existente no cuenta contra la cuota.
+	if r := tec.json(http.MethodPost, "/api/v1/adjuntos", a1); r.status != 200 {
+		t.Fatalf("alta repetida: %d %s", r.status, r.crudo)
+	}
+	// Terminar una libera el cupo.
+	tec.patch(idDe(t, a1), 0, foto)
+	if r := tec.json(http.MethodPost, "/api/v1/adjuntos", alta(e.o1, "foto", "image/png", foto)); r.status != 201 {
+		t.Fatalf("tras completar: %d %s", r.status, r.crudo)
+	}
+	// Por entidad: otro técnico ya no puede abrir una 3.ª subida en curso en esa orden.
+	otro := e.usuario("tecnico", 1)
+	otro.json(http.MethodPost, "/api/v1/adjuntos", alta(e.o1, "foto", "image/png", foto)).problema(t, 429, "demasiadas_subidas")
+	// Por bytes declarados.
+	e2 := nuevoEntorno(t, adjuntos.Config{MaxBytesUsuario: 1000})
+	tec2 := e2.usuario("tecnico", 1)
+	if r := tec2.json(http.MethodPost, "/api/v1/adjuntos", alta(e2.o1, "documento", "application/pdf", make([]byte, 600))); r.status != 201 {
+		t.Fatalf("primera: %d", r.status)
+	}
+	tec2.json(http.MethodPost, "/api/v1/adjuntos", alta(e2.o1, "documento", "application/pdf", make([]byte, 600))).problema(t, 429, "demasiadas_subidas")
+}
+
+func TestPurgaDeSubidasAbandonadas(t *testing.T) {
+	e := nuevoEntorno(t, adjuntos.Config{Segmento: 100})
+	tec := e.usuario("tecnico", 1)
+	foto := imagenPNG(t, 12)
+	a, b := alta(e.o1, "foto", "image/png", foto), alta(e.o1, "foto", "image/png", foto)
+	tec.json(http.MethodPost, "/api/v1/adjuntos", a)
+	tec.json(http.MethodPost, "/api/v1/adjuntos", b)
+	tec.patch(idDe(t, a), 0, foto[:300])
+	tec.patch(idDe(t, b), 0, foto) // completo: no se toca
+	ctx := pruebas.ContextoSistema(e.pool)
+	// Con el reloj de ahora no hay nada abandonado de este entorno.
+	if _, err := e.mod.PurgarAbandonados(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.contar("SELECT count(*) FROM nucleo.adjuntos WHERE id = $1 AND estado = 'subiendo'", idDe(t, a)); n != 1 {
+		t.Fatal("una subida reciente no se purga")
+	}
+	futuro := adjuntos.Nuevo(adjuntos.Config{Abandono: 48 * time.Hour, Reloj: func() time.Time { return time.Now().Add(49 * time.Hour) }})
+	if n, err := futuro.PurgarAbandonados(ctx); err != nil || n < 1 {
+		t.Fatalf("purga: %d %v", n, err)
+	}
+	if n := e.contar("SELECT count(*) FROM nucleo.adjuntos WHERE id = $1 AND estado = 'rechazado' AND motivo_rechazo = 'abandonado'", idDe(t, a)); n != 1 {
+		t.Fatal("debía quedar rechazado por abandono")
+	}
+	if n := e.contar("SELECT count(*) FROM nucleo.adjuntos_partes WHERE adjunto_id = $1", idDe(t, a)); n != 0 {
+		t.Fatal("las partes debían borrarse")
+	}
+	if n := e.contar("SELECT count(*) FROM nucleo.adjuntos WHERE id = $1 AND estado = 'completo'", idDe(t, b)); n != 1 {
+		t.Fatal("un completo no se toca")
+	}
+	if n := e.contar("SELECT count(*) FROM integracion.outbox WHERE evento = 'adjunto.rechazado' AND payload->>'adjunto_id' = $1 AND payload->>'motivo' = 'abandonado'", idDe(t, a).String()); n != 1 {
+		t.Fatal("falta adjunto.rechazado (abandonado)")
+	}
+	if h := tec.head(idDe(t, a)); h.status != 410 {
+		t.Fatalf("head de un abandonado: %d", h.status)
+	}
+}
+
+// lento entrega el contenido de a 1000 bytes con una pausa (una red lenta).
+type lento struct {
+	adjuntos.Almacen
+}
+
+type lectorLento struct{ io.ReadCloser }
+
+func (l lectorLento) Read(p []byte) (int, error) {
+	time.Sleep(200 * time.Millisecond)
+	return l.ReadCloser.Read(p[:min(len(p), 1000)])
+}
+
+func (l lento) Abrir(ctx context.Context, clave string) (io.ReadCloser, error) {
+	rc, err := l.Almacen.Abrir(ctx, clave)
+	if err != nil {
+		return nil, err
+	}
+	return lectorLento{rc}, nil
+}
+
+func TestDescargaLentaNoSeCortaPorElWriteTimeout(t *testing.T) {
+	d, err := adjuntos.NuevoDisco(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := nuevoEntorno(t, adjuntos.Config{Almacen: lento{d}})
+	// Servidor con WriteTimeout corto (en producción, 60 s).
+	srv := httptest.NewUnstartedServer(e.h)
+	srv.Config.WriteTimeout = time.Second
+	srv.Start()
+	t.Cleanup(srv.Close)
+	tec := e.usuario("tecnico", 1)
+	tec.base = srv.URL
+	foto := imagenPNG(t, 40) // ~6 KB por 400 ms de pausa → más de 1 s
+	if len(foto) < 3000 {
+		t.Fatalf("foto chica: %d", len(foto))
+	}
+	a := alta(e.o1, "foto", "image/png", foto)
+	tec.json(http.MethodPost, "/api/v1/adjuntos", a)
+	if p := tec.patch(idDe(t, a), 0, foto); p.status != 204 {
+		t.Fatalf("patch: %d %s", p.status, p.crudo)
+	}
+	inicio := time.Now()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+adjuntos.RutaDescarga(idDe(t, a)), nil)
+	res, err := tec.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cuerpo, err := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if err != nil || !bytes.Equal(cuerpo, foto) || time.Since(inicio) < time.Second {
+		t.Fatalf("descarga lenta cortada: %d de %d bytes en %s (%v)", len(cuerpo), len(foto), time.Since(inicio), err)
 	}
 }
