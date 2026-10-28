@@ -3,6 +3,7 @@
 import Dexie, { type DexieOptions, type Table } from "dexie";
 import type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 import { META_INICIAL, type AdjuntoLocal, type MetaSync, type OperacionLocal, type OrdenLocal } from "./modelo";
+import type { AlmacenPosiciones, CambiosPosiciones, PosicionLocal } from "./posiciones";
 
 interface FilaMeta {
     clave: keyof MetaSync;
@@ -20,6 +21,7 @@ class BaseSync extends Dexie {
     adjuntos!: Table<AdjuntoLocal, string>;
     bytes!: Table<FilaBytes, string>;
     meta!: Table<FilaMeta, string>;
+    posiciones!: Table<PosicionLocal, number>;
 
     constructor(nombre: string, opciones?: DexieOptions) {
         super(nombre, opciones);
@@ -45,6 +47,15 @@ class BaseSync extends Dexie {
                 await tx.table("ordenes").clear();
                 await tx.table("meta").bulkDelete(["cursor", "fecha", "existencias", "ruta"]);
             });
+        // Versión 3: cola de la ubicación en vivo (clave = hora del punto en ms).
+        this.version(3).stores({
+            operaciones: "id, secuencia, ordenId",
+            ordenes: "id",
+            adjuntos: "id, ordenId",
+            bytes: "id",
+            meta: "clave",
+            posiciones: "ms",
+        });
     }
 }
 
@@ -64,7 +75,7 @@ export interface OpcionesAlmacenDexie {
     dexie?: DexieOptions;
 }
 
-export class AlmacenDexie implements Almacen {
+export class AlmacenDexie implements Almacen, AlmacenPosiciones {
     private readonly db: BaseSync;
 
     constructor(opciones: OpcionesAlmacenDexie) {
@@ -104,6 +115,16 @@ export class AlmacenDexie implements Almacen {
     async leerBytes(id: string): Promise<Uint8Array | null> {
         const fila = await this.db.bytes.get(id);
         return fila ? fila.datos : null;
+    }
+
+    async cargarPosiciones(): Promise<PosicionLocal[]> {
+        return this.db.posiciones.orderBy("ms").toArray();
+    }
+
+    async escribirPosiciones(cambios: CambiosPosiciones): Promise<void> {
+        await this.db.transaction("rw", this.db.posiciones, async () => {
+            await aplicar(this.db.posiciones, cambios);
+        });
     }
 
     /** Cierra la conexión (al salir de la sesión). */

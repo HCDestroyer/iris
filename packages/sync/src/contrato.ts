@@ -24,6 +24,12 @@ export type ExistenciasBodega = Schema<"ExistenciasBodega">;
 export type Existencia = Schema<"Existencia">;
 export type RutaCampo = Schema<"RutaCampo">;
 export type Cambios = Schema<"Cambios">;
+export type CitaOrden = Schema<"CitaOrden">;
+
+/** Ubicación en vivo del técnico (`POST /campo/posiciones`, I2). */
+export type EntradaPosiciones = Schema<"EntradaPosiciones">;
+export type PuntoPosicion = Schema<"PuntoPosicion">;
+export type RespuestaPosiciones = Schema<"RespuestaPosiciones">;
 export type CambioOrden = Schema<"CambioOrden">;
 
 export type EntradaLote = Schema<"EntradaLote">;

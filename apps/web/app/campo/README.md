@@ -26,7 +26,9 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     pendientes, sin datos del servidor, y la app no los muestra sin entrar. Sin señal no navega a
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
-- **Mis órdenes del día** en orden de ruta (sin ruta: por cita), estado con icono + texto + color,
+- **Mis órdenes del día** en orden de ruta publicada (`ruta.ordenIds` del paquete, cuando I2 la
+  publique) y, sin ruta, por la hora de la cita de la agenda (`cita.inicio`) con la ventana de
+  llegada acordada («Llegada acordada 07:30–09:00»); estado con icono + texto + color,
   y la barra de conexión con «N pendientes por enviar» → vista *Por enviar* (cola, archivos,
   rechazos con «Descartar» / «Rehacer», cierres esperando archivos por `faltan_adjuntos`).
 - **Detalle:** cliente, llamar, «Cómo llegar» (app de mapas con las coordenadas), servicio,
@@ -35,6 +37,20 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   de la bodega de la orden, equipos (instalar/retirar según el tipo, escáner o a mano), firma
   (SVG a la API y PNG como adjunto), cerrar o «No se pudo» con motivo. Lo que no vale para el
   estado o el tipo no se muestra (`lib/campo/reglas.ts`).
+- **Ubicación en vivo** (`lib/campo/ubicacion.ts`, `_componentes/ubicacion.tsx`): en turno y con
+  la app abierta, un punto por minuto (`getCurrentPosition` sin caché) a la `ColaPosiciones` de
+  `@iris/sync` (misma base del usuario y la empresa; sin señal se acumula y sale en lotes al
+  volver, respetando 6 lotes/min y `Retry-After`). «En turno» lo marca el técnico («Iniciar
+  turno» / «Terminar turno» en el indicador) o empieza solo con «En camino» o «Llegué»; dura hasta
+  terminarlo o hasta que cambia el día en Guatemala, y cerrar sesión lo olvida. El permiso del
+  navegador se pide solo tras la explicación «¿Compartir tu ubicación?» («Permitir ubicación» /
+  «Ahora no»); fotos y cierre nunca preguntan (usan el GPS solo si ya hay permiso). Indicador
+  discreto bajo la barra de conexión (icono + texto + color): «Ubicación activa», «Sin permiso»,
+  «Sin señal GPS», «Buscando GPS…», «Sin GPS», «Fuera de turno», y «Pendientes de enviar: n»; al
+  tocarlo, el panel con último envío, la espera del servidor y los errores con «Reintentar».
+- **«En camino»:** `orden.iniciar_camino` (con GPS si hay permiso) a la cola sin conexión, e inicia
+  el turno. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
+  `.claude/integration/i4.md`).
 - **Service worker** (Serwist, `app/sw.ts`, alcance `/campo`): precachea el shell y los estáticos;
   nunca toca `/api`. Manifest «Iris Campo» en `/campo/manifest.webmanifest`.
 
@@ -44,11 +60,14 @@ EXIF, compresión, GPS).
 ## Eventos
 
 No emite ni consume eventos: habla con la API (`/campo/paquete`, `/campo/cambios`, `/sync/lote`,
-`/adjuntos`); los eventos los emite campo (I2) al aplicar cada operación.
+`/adjuntos`, `/campo/posiciones`); los eventos los emite campo (I2) al aplicar cada operación. Las
+posiciones no son acciones: no emiten eventos ni se auditan por fila.
 
 ## Pruebas
 
-Vitest (`lib/campo/*.test.ts`) y Playwright (`e2e/campo.spec.ts`, teléfono claro y oscuro, con
+Vitest (`lib/campo/*.test.ts`, con `ubicacion.test.ts`: turno, permiso, lectura por minuto y día) y Playwright (`e2e/campo.spec.ts`, teléfono claro y oscuro, con
 `context.setOffline`; `e2e/campo-sesiones.spec.ts`: dos técnicos en el mismo navegador, cerrar
-sesión con y sin pendientes, abrir sin señal; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
+sesión con y sin pendientes, abrir sin señal; `e2e/campo-ubicacion.spec.ts`: explicación antes del
+permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta, 429 con
+`Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
 con `IRIS_E2E_API_REAL=1 IRIS_E2E_TECNICO=<correo>:<contraseña>`).

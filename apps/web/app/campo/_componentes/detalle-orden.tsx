@@ -4,8 +4,8 @@ import type { OrdenVista } from "@iris/sync";
 import { Aviso, Boton, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { ArrowLeft, FileQuestion, MapPin, MapPinCheck, Navigation, Phone, Route } from "lucide-react";
 import { useState } from "react";
-import { horaCorta } from "@/lib/campo/fechas";
-import { enlaceComoLlegar, obtenerPosicion } from "@/lib/campo/gps";
+import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
+import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { Checklist } from "./checklist";
@@ -17,6 +17,7 @@ import { FotosOrden } from "./fotos";
 import { InsigniaOrden } from "./insignias";
 import { Materiales } from "./materiales";
 import { Notas } from "./notas";
+import { useUbicacion } from "./ubicacion";
 
 export function DetalleOrden({ id }: { id: number }) {
     const { navegar } = useCampo();
@@ -36,6 +37,9 @@ export function DetalleOrden({ id }: { id: number }) {
         );
     }
     const acciones = accionesDe(orden);
+    const inicio = orden.cita?.inicio ?? orden.programadaInicio;
+    const fin = orden.cita?.fin ?? orden.programadaFin;
+    const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
 
     return (
@@ -50,7 +54,8 @@ export function DetalleOrden({ id }: { id: number }) {
                 </div>
                 <p className="text-sm text-muted-foreground">
                     {TIPOS_ORDEN[orden.tipo]}
-                    {orden.programadaInicio ? ` · cita ${horaCorta(orden.programadaInicio)}${orden.programadaFin ? `–${horaCorta(orden.programadaFin)}` : ""}` : ""}
+                    {inicio ? ` · cita ${horaCorta(inicio)}${fin ? `–${horaCorta(fin)}` : ""}` : ""}
+                    {ventana ? ` · llegada acordada ${ventana}` : ""}
                 </p>
             </header>
 
@@ -184,16 +189,22 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
 
 function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: boolean; llegar: boolean }) {
     const { motor, ejecutar } = useCampo();
+    const ubicacion = useUbicacion();
     const [ocupado, setOcupado] = useState<null | "camino" | "llegar">(null);
     const correr = async (cual: "camino" | "llegar") => {
         setOcupado(cual);
-        // Con GPS si el técnico lo permite; sin él, la acción se registra igual.
-        const p = await obtenerPosicion();
+        // Con GPS si el técnico lo permite (explicado antes de que el teléfono pregunte); sin él,
+        // la acción se registra igual en la cola sin conexión.
+        const p = await ubicacion.posicionParaAccion();
         const datos = p ? { lat: p.lat, lon: p.lon, precision: p.precision } : {};
-        await ejecutar(
+        const guardada = await ejecutar(
             () => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos),
             cual === "camino" ? (p ? "En camino, con ubicación" : "En camino, sin ubicación") : p ? "Llegada registrada con ubicación" : "Llegada registrada sin ubicación",
         );
+        if (guardada) {
+            // Salir hacia el cliente o llegar es estar en turno: empieza la ubicación en vivo.
+            await ubicacion.iniciarTurno({ explicar: false });
+        }
         setOcupado(null);
     };
     return (

@@ -2,15 +2,18 @@
 
 import type { OrdenVista } from "@iris/sync";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado } from "@iris/ui";
-import { CalendarX, ChevronRight, CloudUpload, MapPin, RefreshCw, TriangleAlert, UserX } from "lucide-react";
+import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, RefreshCw, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent } from "react";
-import { diaLargo, horaCorta, hoyEnGuatemala } from "@/lib/campo/fechas";
+import { diaLargo, horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { urlDeVista, useCampo } from "./contexto";
 import { InsigniaOrden } from "./insignias";
 import type { CargaPaquete } from "./pantallas";
 
-/** Mis órdenes del día en orden de ruta (sin ruta: por cita y número), con su estado. */
+/**
+ * Mis órdenes del día en orden de ruta publicada (`ruta.ordenIds` del paquete, cuando I2 la
+ * publique) y, sin ruta, por la hora de la cita de la agenda (el orden lo da `@iris/sync`).
+ */
 export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; bajarPaquete: () => Promise<void> }) {
     const { estado } = useCampo();
     const fecha = estado.fecha ?? hoyEnGuatemala();
@@ -93,7 +96,8 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
 
 function TarjetaOrden({ orden, posicion }: { orden: OrdenVista; posicion: number | null }) {
     const { navegar } = useCampo();
-    const hora = horaCorta(orden.programadaInicio);
+    const hora = horaCorta(orden.cita?.inicio ?? orden.programadaInicio);
+    const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
     const abrir = (e: MouseEvent<HTMLAnchorElement>) => {
         e.preventDefault();
@@ -122,6 +126,12 @@ function TarjetaOrden({ orden, posicion }: { orden: OrdenVista; posicion: number
                     </div>
                     <p className="truncate text-base font-semibold">{nombre}</p>
                     <p className="text-sm text-muted-foreground">{TIPOS_ORDEN[orden.tipo]}</p>
+                    {ventana ? (
+                        <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Clock aria-hidden className="size-3.5 shrink-0" />
+                            Llegada acordada {ventana}
+                        </p>
+                    ) : null}
                     {orden.direccion ? (
                         <p className="flex items-start gap-1 text-sm text-muted-foreground">
                             <MapPin aria-hidden className="mt-0.5 size-3.5 shrink-0" />

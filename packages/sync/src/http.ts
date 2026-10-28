@@ -5,6 +5,7 @@
 import type { ClienteIris } from "@iris/contratos";
 import type { Problema } from "./contrato";
 import { ErrorTransporte } from "./errores";
+import type { TransportePosiciones } from "./posiciones";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 
 export const CABECERA_CANAL = "X-Iris-Canal";
@@ -60,6 +61,16 @@ export function crearTransporteApi(cliente: ClienteIris): Transporte {
                 cliente.GET("/api/v1/campo/cambios", { params: { query: { cursor } }, headers: CANAL }),
             );
             return conHora(datos, respuesta);
+        },
+    };
+}
+
+/** `POST /campo/posiciones` (ubicación en vivo) con el cliente de la API. */
+export function crearTransportePosicionesApi(cliente: ClienteIris): TransportePosiciones {
+    return {
+        async enviarPosiciones(entrada) {
+            const { datos, respuesta } = await resolver(cliente.POST("/api/v1/campo/posiciones", { body: entrada, headers: CANAL }));
+            return conHora(datos, respuesta, datos.servidorEn);
         },
     };
 }

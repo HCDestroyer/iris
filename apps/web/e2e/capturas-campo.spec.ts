@@ -29,6 +29,9 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     const telefono = info.project.name.startsWith("telefono");
     const nombre = (que: string) => path.join(carpeta, `campo-${que}-${info.project.name}.png`);
     await conSesionTecnico(context, baseURL ?? "");
+    // Con el permiso de ubicación ya dado: el indicador muestra «Ubicación activa».
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 14.6407, longitude: -90.5133, accuracy: 12 });
     const api = await simularApiCampo(page);
     api.rechazar((op) => op.tipo === "orden.iniciar_camino" && op.ordenId === 103, {
         type: "urn:iris:problema:orden_cancelada",

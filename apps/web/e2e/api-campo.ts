@@ -25,6 +25,8 @@ export interface OpcionesCampo {
     ordenes?: OrdenCampo[];
     /** Requisitos de fotos del servidor (código de ítem) además de los del checklist del paquete. */
     fotosExigidas?: string[];
+    /** Ruta publicada del técnico en el paquete (`RutaCampo`; hoy la API no la manda). */
+    ruta?: Schema<"RutaCampo">;
 }
 
 export interface ApiCampo {
@@ -43,6 +45,19 @@ export interface ApiCampo {
     rechazar: (cuando: (op: OperacionLote) => boolean, problema: Problema) => void;
     /** Cambio del lado del servidor que llega por GET /campo/cambios. */
     cambiar: (cambio: Schema<"CambioOrden">) => void;
+    /** Lotes de POST /campo/posiciones que respondieron 200. */
+    posiciones: Schema<"EntradaPosiciones">[];
+    /** Hora (ms) de cada POST /campo/posiciones (también los 429). */
+    intentosPosiciones: number[];
+    /** Respuesta de cada lote aceptado. */
+    respuestasPosiciones: Schema<"RespuestaPosiciones">[];
+    /** Las próximas `veces` peticiones de posiciones responden 429 con `Retry-After` (segundos). */
+    limitarPosiciones: (veces: number, retryAfter?: number) => void;
+}
+
+/** Abre la explicación previa al permiso de ubicación y responde «Ahora no» (sin GPS). */
+export async function declinarUbicacion(page: Page) {
+    await page.getByRole("dialog", { name: "¿Compartir tu ubicación?" }).getByRole("button", { name: "Ahora no" }).click();
 }
 
 const ESTADO_TRAS: Partial<Record<OperacionLote["tipo"], OrdenCampo["estado"]>> = {
@@ -87,6 +102,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
     const pendientesRechazo: { cuando: (op: OperacionLote) => boolean; problema: Problema }[] = [];
     const cambiosPendientes: Schema<"CambioOrden">[] = [];
     let cursor = 1;
+    const limite429 = { veces: 0, retryAfter: 20 };
+    /** Horas ya guardadas por técnico (misma hora = duplicada, como la API). */
+    const guardadas = new Map<string, Set<number>>();
     const api: ApiCampo = {
         sinRed: false,
         pausarSubidas: false,
@@ -98,6 +116,13 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         subidas: new Map(),
         rechazar: (cuando, p) => pendientesRechazo.push({ cuando, problema: p }),
         cambiar: (c) => cambiosPendientes.push(c),
+        posiciones: [],
+        intentosPosiciones: [],
+        respuestasPosiciones: [],
+        limitarPosiciones: (veces, retryAfter = 20) => {
+            limite429.veces = veces;
+            limite429.retryAfter = retryAfter;
+        },
     };
 
     const completo = (ordenId: number, tipo: string, clave?: string) =>
@@ -266,6 +291,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                     .filter((o) => o.tecnicoId === usuario.id && !["cerrada", "fallida", "cancelada"].includes(o.estado))
                     .map((o) => structuredClone(o)),
                 existencias: existenciasDelTecnico(),
+                ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
             };
             return json(route, paquete);
         }
@@ -345,6 +371,43 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const cuerpo = req.postDataBuffer();
             s.recibido = Math.min(s.entrada.tamano, s.recibido + (cuerpo?.byteLength ?? 0));
             return route.fulfill({ status: 204, headers: { "Upload-Offset": String(s.recibido), "Tus-Resumable": "1.0.0" } });
+        }
+        if (ruta === "/api/v1/campo/posiciones" && metodo === "POST") {
+            // Como I2: solo la sesión de la app de campo; 6 lotes por minuto; misma hora = duplicada;
+            // más de 24 h = descartada (vieja).
+            if (h["x-iris-canal"] !== "campo") {
+                return error(route, problema("requiere_sesion_campo", 403, "Requiere la sesión de la app de campo"));
+            }
+            const ahora = Date.now();
+            api.intentosPosiciones.push(ahora);
+            const enElMinuto = api.intentosPosiciones.filter((t) => t > ahora - 60_000).length;
+            if (limite429.veces > 0 || enElMinuto > 6) {
+                limite429.veces = Math.max(0, limite429.veces - 1);
+                return error(route, problema("demasiadas_posiciones", 429, "Demasiados lotes de posiciones"), { "Retry-After": String(limite429.retryAfter) });
+            }
+            const entrada = req.postDataJSON() as Schema<"EntradaPosiciones">;
+            const puntos = entrada.puntos ?? [];
+            if (puntos.length < 1 || puntos.length > 500) {
+                return error(route, problema("validacion", 422, "Entre 1 y 500 puntos"));
+            }
+            const suyas = guardadas.get(usuario.correo) ?? new Set<number>();
+            guardadas.set(usuario.correo, suyas);
+            const r: Schema<"RespuestaPosiciones"> = { aceptadas: 0, duplicadas: 0, descartadas: 0, motivos: {}, servidorEn: new Date(ahora).toISOString(), desfaseMs: 0 };
+            for (const p of puntos) {
+                const ms = Date.parse(p.registradaEn);
+                if (ms < ahora - 24 * 60 * 60_000) {
+                    r.descartadas += 1;
+                    r.motivos.vieja = (r.motivos.vieja ?? 0) + 1;
+                } else if (suyas.has(ms)) {
+                    r.duplicadas += 1;
+                } else {
+                    suyas.add(ms);
+                    r.aceptadas += 1;
+                }
+            }
+            api.posiciones.push(entrada);
+            api.respuestasPosiciones.push(r);
+            return json(route, r);
         }
         if (ruta === "/api/v1/sesion" && metodo === "DELETE") {
             return route.fulfill({ status: 204 });

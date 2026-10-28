@@ -502,6 +502,32 @@ describe("paquete del día y cambios", () => {
         expect(motor.obtenerEstado().ordenes.map((o) => o.id).sort()).toEqual([1, 3]);
     });
 
+    it("sin ruta ordena por la hora de la cita de la agenda (las sin cita al final); con ruta, por sus paradas", async () => {
+        const { motor, transporte } = await montar();
+        const cita = (inicio: string) => ({ tecnicoId: 5, inicio, fin: inicio, ventanaInicio: null, ventanaFin: null });
+        const ordenes = [
+            // La cita de la agenda manda sobre `programadaInicio`, y se compara la hora real (no el texto).
+            ordenDePrueba(1, { programadaInicio: "2026-10-28T13:00:00Z", cita: cita("2026-10-28T11:00:00-06:00") }),
+            ordenDePrueba(2, { programadaInicio: "2026-10-28T16:00:00Z", cita: cita("2026-10-28T16:00:00Z") }),
+            ordenDePrueba(3, { programadaInicio: null }),
+            ordenDePrueba(4, { programadaInicio: "2026-10-28T15:30:00Z" }),
+        ];
+        transporte.paquete = (fecha) => ({ fecha, servidorEn: "2026-10-28T12:00:00Z", ordenes, existencias: { disponible: false, motivo: "sin_conector", bodegas: [] }, cursor: "d1" });
+        await motor.cargarPaquete(FECHA);
+        expect(motor.obtenerEstado().ordenes.map((o) => o.id)).toEqual([4, 2, 1, 3]);
+
+        transporte.paquete = (fecha) => ({
+            fecha,
+            servidorEn: "2026-10-28T12:00:00Z",
+            ordenes,
+            existencias: { disponible: false, motivo: "sin_conector", bodegas: [] },
+            ruta: { id: 9, ordenIds: [3, 1] },
+            cursor: "d2",
+        });
+        await motor.cargarPaquete(FECHA);
+        expect(motor.obtenerEstado().ordenes.map((o) => o.id)).toEqual([3, 1, 4, 2]);
+    });
+
     it("pide cambios por cursor, página por página, y guarda el último cursor", async () => {
         const { motor, transporte, almacen } = await montar();
         const paginas: Record<string, ReturnType<typeof transporte.cambios>> = {

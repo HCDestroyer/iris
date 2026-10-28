@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
-import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
+import { conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -216,6 +216,8 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     await abrirCampo(page);
     await page.getByRole("link", { name: /OT-000102/ }).click();
     await page.getByRole("button", { name: "En camino" }).click();
+    // Sin permiso de ubicación: la acción se registra igual, sin GPS.
+    await declinarUbicacion(page);
     await page.getByLabel("Nueva nota").fill("Cliente pide llegar después de las 3");
     await page.getByRole("button", { name: "Agregar nota" }).click();
 
@@ -248,6 +250,7 @@ test("faltan_adjuntos: el cierre espera hasta que termina de subir la foto", asy
     await abrirCampo(page);
     await page.getByRole("link", { name: /OT-000102/ }).click();
     await page.getByRole("button", { name: "Llegué" }).click();
+    await declinarUbicacion(page);
     await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
 
     api.pausarSubidas = true;

@@ -33,6 +33,8 @@ async function firmar(page: Page) {
 test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API real", async ({ page, context }, info) => {
     test.skip(info.project.name !== "telefono-claro", "Una sola pasada (cambia datos reales).");
     test.setTimeout(180_000);
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 14.6407, longitude: -90.5133, accuracy: 12 });
     await page.goto("/campo");
     await expect(page).toHaveURL(/\/entrar\?siguiente=%2Fcampo/);
     await entrar(page, correo, contrasena);
@@ -123,4 +125,48 @@ test("dos técnicos en el mismo navegador contra la API real: la cola de A no sa
     const orden2 = await a.evaluate(async () => (await fetch("/api/v1/ordenes/2")).json());
     expect(orden2.notas.map((n: { texto: string; autorNombre: string }) => n.texto)).toEqual(["Nota de A sin señal"]);
     await context.close();
+});
+
+test("ubicación en vivo contra la API real: el lote llega, reenviar es seguro y el límite responde 429 con Retry-After", async ({ page, context }, info) => {
+    test.skip(info.project.name !== "telefono-claro", "Una sola pasada (cambia datos reales).");
+    test.setTimeout(120_000);
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 14.6407, longitude: -90.5133, accuracy: 12 });
+    await page.goto("/campo");
+    await entrar(page, correo, contrasena);
+    await expect(page.getByRole("heading", { name: "Mis órdenes de hoy" })).toBeVisible();
+
+    const indicador = page.getByTestId("indicador-ubicacion");
+    const respuesta = page.waitForResponse((r) => r.url().endsWith("/api/v1/campo/posiciones") && r.request().method() === "POST");
+    if ((await indicador.textContent())?.includes("Fuera de turno")) {
+        await indicador.click();
+        await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
+    }
+    const r = await respuesta;
+    expect(r.status()).toBe(200);
+    const cuerpo = (await r.json()) as { aceptadas: number; duplicadas: number; descartadas: number };
+    expect(cuerpo.aceptadas + cuerpo.duplicadas + cuerpo.descartadas).toBeGreaterThanOrEqual(1);
+    await expect(indicador).toHaveText("Ubicación activa");
+
+    // El mismo punto otra vez = duplicada; luego, hasta pasar el límite por minuto: 429 con Retry-After.
+    const rafaga = await page.evaluate(async () => {
+        const csrf = decodeURIComponent(/(?:^|;\s*)iris_csrf=([^;]+)/.exec(document.cookie)?.[1] ?? "");
+        const punto = { lat: 14.6407, lon: -90.5133, registradaEn: new Date(Date.now() - 3_600_000).toISOString() };
+        const salida: { status: number; retryAfter: string | null; duplicadas?: number }[] = [];
+        for (let i = 0; i < 8; i += 1) {
+            const res = await fetch("/api/v1/campo/posiciones", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Iris-Canal": "campo", "X-CSRF-Token": csrf },
+                body: JSON.stringify({ puntos: [punto] }),
+            });
+            const json = (await res.json()) as { duplicadas?: number };
+            salida.push({ status: res.status, retryAfter: res.headers.get("Retry-After"), duplicadas: json.duplicadas });
+        }
+        return salida;
+    });
+    const ok = rafaga.filter((x) => x.status === 200);
+    expect(ok.length).toBeGreaterThanOrEqual(1);
+    expect(ok.slice(1).every((x) => x.duplicadas === 1)).toBe(true);
+    const limitado = rafaga.find((x) => x.status === 429);
+    expect(limitado?.retryAfter).toMatch(/^\d+$/);
 });
