@@ -32,6 +32,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -228,6 +229,11 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
+	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
+	// (pendientes hacia Argos y orden de instalación en campo).
+	comercial.RegistrarAdjuntos()
+	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
+		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola)})
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
@@ -248,6 +254,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			pend.Registrar,
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
+			com.Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})

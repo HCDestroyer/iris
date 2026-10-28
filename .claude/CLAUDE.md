@@ -161,8 +161,13 @@ Una tarea está terminada solo si:
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
-| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
-| `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |
+| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
+| `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
+| `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, completa), cliente_id, servicio_id (o null), orden_id (o null) |
+| `factibilidad.evaluada` | comercial | prospecto_id, factibilidad_id, resultado (viable, no_viable, requiere_obra, indeterminado), motor, motivo (o null), router_id/caja (o null), distancia_m |
+| `factibilidad.umbrales_cambiados` | comercial | empresa_id, viable_m, obra_m |
+| `cotizacion.creada` / `cotizacion.aceptada` | comercial | cotizacion_id, prospecto_id, numero; revision, plan_id, total_mensual, total_unico, moneda, reemplaza_id (creada) |
+| `contrato.creado` / `contrato.firmado` / `contrato.anulado` | comercial | contrato_id, prospecto_id; cotizacion_id (creado); adjunto_id, sha256 (firmado); de, motivo (anulado) |
 | `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
 | `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |

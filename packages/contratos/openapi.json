@@ -19,6 +19,127 @@
         ],
         "type": "object"
       },
+      "AccionesDisponible": {
+        "additionalProperties": false,
+        "properties": {
+          "aceptar": {
+            "type": "boolean"
+          },
+          "confirmaObra": {
+            "description": "Ganar exige confirmarObra (factibilidad requiere_obra)",
+            "type": "boolean"
+          },
+          "contactar": {
+            "type": "boolean"
+          },
+          "contratar": {
+            "type": "boolean"
+          },
+          "cotizar": {
+            "type": "boolean"
+          },
+          "evaluar": {
+            "type": "boolean"
+          },
+          "firmar": {
+            "type": "boolean"
+          },
+          "ganar": {
+            "type": "boolean"
+          },
+          "perder": {
+            "type": "boolean"
+          },
+          "reabrir": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contactar",
+          "evaluar",
+          "cotizar",
+          "aceptar",
+          "contratar",
+          "firmar",
+          "ganar",
+          "confirmaObra",
+          "perder",
+          "reabrir"
+        ],
+        "type": "object"
+      },
+      "Actividad": {
+        "additionalProperties": false,
+        "properties": {
+          "autorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ocurridaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "prospectoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "proximaAccion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proximaFecha": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resultado": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "llamada",
+              "visita",
+              "nota",
+              "mensaje"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prospectoId",
+          "tipo",
+          "descripcion",
+          "resultado",
+          "ocurridaEn",
+          "proximaAccion",
+          "proximaFecha",
+          "autorId",
+          "creadoEn"
+        ],
+        "type": "object"
+      },
       "Adjunto": {
         "additionalProperties": false,
         "properties": {
@@ -193,6 +314,81 @@
           "itemId",
           "descripcion",
           "ocurridoEn"
+        ],
+        "type": "object"
+      },
+      "Alta": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteArgosId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "El alta no pudo avanzar y necesita revisión manual (no se reintenta sola)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "esperando_cliente",
+              "esperando_servicio",
+              "completa"
+            ],
+            "type": "string"
+          },
+          "modo": {
+            "description": "local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes",
+            "enum": [
+              "local",
+              "argos"
+            ],
+            "type": "string"
+          },
+          "ordenId": {
+            "description": "Orden de instalación (al completarse el alta)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ordenNumero": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routerId": {
+            "description": "Router de Argos del servicio",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "servicioArgosId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "modo",
+          "estado",
+          "clienteArgosId",
+          "servicioArgosId",
+          "ordenId",
+          "ordenNumero",
+          "routerId",
+          "error"
         ],
         "type": "object"
       },
@@ -1105,6 +1301,46 @@
         ],
         "type": "object"
       },
+      "Cobertura": {
+        "additionalProperties": false,
+        "properties": {
+          "disponible": {
+            "description": "false = no hay datos para dibujar cobertura (motivo); nunca suponer «sin cobertura»",
+            "type": "boolean"
+          },
+          "motivo": {
+            "description": "sin_conector, conector_apagado, sin_empresa, sin_instantanea, sin_routers_con_coordenadas",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motor": {
+            "description": "distancia (fase 6: ozmap)",
+            "type": "string"
+          },
+          "routers": {
+            "items": {
+              "$ref": "#/components/schemas/RouterCobertura"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "umbrales": {
+            "$ref": "#/components/schemas/Umbrales"
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "motor",
+          "umbrales",
+          "routers"
+        ],
+        "type": "object"
+      },
       "Comodato": {
         "additionalProperties": false,
         "properties": {
@@ -1337,6 +1573,233 @@
         ],
         "type": "object"
       },
+      "Contrato": {
+        "additionalProperties": false,
+        "properties": {
+          "cotizacionId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "borrador",
+              "firmado",
+              "anulado"
+            ],
+            "type": "string"
+          },
+          "firmadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firmadoPor": {
+            "description": "Usuario de Iris que registró la firma",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "firmanteDocumento": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firmanteNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivoAnulacion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "CTR-000001",
+            "type": "string"
+          },
+          "pdf": {
+            "$ref": "#/components/schemas/DocumentoPDF",
+            "description": "El borrador para leer antes de firmar"
+          },
+          "pdfFirmado": {
+            "$ref": "#/components/schemas/DocumentoPDF",
+            "description": "El PDF firmado (su SHA-256 queda en la auditoría)"
+          },
+          "plantilla": {
+            "type": "string"
+          },
+          "prospectoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "prospectoId",
+          "cotizacionId",
+          "plantilla",
+          "estado",
+          "firmanteNombre",
+          "firmanteDocumento",
+          "firmadoEn",
+          "firmadoPor",
+          "motivoAnulacion",
+          "creadoEn",
+          "version"
+        ],
+        "type": "object"
+      },
+      "Cotizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "aceptadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aceptadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "creadoPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "vigente",
+              "aceptada",
+              "reemplazada"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lineas": {
+            "items": {
+              "$ref": "#/components/schemas/LineaCotizacion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "moneda": {
+            "type": "string"
+          },
+          "notas": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "COT-000001",
+            "type": "string"
+          },
+          "pdf": {
+            "$ref": "#/components/schemas/DocumentoPDF"
+          },
+          "planId": {
+            "description": "Plan de Argos de la línea de plan",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reemplazadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "revision": {
+            "description": "1, 2, 3… (una nueva reemplaza la anterior sin borrarla)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalMensual": {
+            "description": "Decimal (2 cifras)",
+            "type": "string"
+          },
+          "totalUnico": {
+            "description": "Decimal (2 cifras): instalación, equipos y otros, menos descuentos únicos",
+            "type": "string"
+          },
+          "vencida": {
+            "description": "vigente y pasada su vigencia (no se puede aceptar)",
+            "type": "boolean"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "vigenteHasta": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "prospectoId",
+          "revision",
+          "estado",
+          "vencida",
+          "moneda",
+          "totalMensual",
+          "totalUnico",
+          "vigenteHasta",
+          "planId",
+          "notas",
+          "lineas",
+          "reemplazadaPor",
+          "aceptadaEn",
+          "aceptadaPor",
+          "creadoPor",
+          "creadoEn",
+          "version"
+        ],
+        "type": "object"
+      },
       "Cuadrilla": {
         "additionalProperties": false,
         "properties": {
@@ -1461,6 +1924,42 @@
         ],
         "type": "object"
       },
+      "DocumentoPDF": {
+        "additionalProperties": false,
+        "properties": {
+          "adjuntoId": {
+            "type": "string"
+          },
+          "estado": {
+            "description": "no_generado: no se pudo guardar; POST …/pdf lo vuelve a generar",
+            "enum": [
+              "pendiente",
+              "subiendo",
+              "completo",
+              "rechazado",
+              "no_generado"
+            ],
+            "type": "string"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "urlDescarga": {
+            "description": "GET (adjuntos.ver)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adjuntoId",
+          "estado",
+          "sha256",
+          "urlDescarga"
+        ],
+        "type": "object"
+      },
       "Empresa": {
         "additionalProperties": false,
         "properties": {
@@ -1582,6 +2081,21 @@
         },
         "type": "object"
       },
+      "EntradaAceptarCotizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Versión de la cotización",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaActivarMFA": {
         "additionalProperties": false,
         "properties": {
@@ -1593,6 +2107,50 @@
         },
         "required": [
           "codigo"
+        ],
+        "type": "object"
+      },
+      "EntradaActividad": {
+        "additionalProperties": false,
+        "properties": {
+          "descripcion": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ocurridaEn": {
+            "description": "Cuándo pasó (por defecto ahora; no en el futuro)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "proximaAccion": {
+            "description": "Qué sigue (llamar de nuevo, visita…)",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "proximaFecha": {
+            "description": "Cuándo; exige proximaAccion",
+            "format": "date-time",
+            "type": "string"
+          },
+          "resultado": {
+            "description": "Contestó, no contestó, interesado…",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "llamada",
+              "visita",
+              "nota",
+              "mensaje"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "descripcion"
         ],
         "type": "object"
       },
@@ -1658,6 +2216,26 @@
           },
           "version": {
             "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaAsignarProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "vendedorId": {
+            "description": "Ausente = sin vendedor",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
             "format": "int32",
             "minimum": 1,
             "type": "integer"
@@ -2006,6 +2584,63 @@
         ],
         "type": "object"
       },
+      "EntradaCrearContrato": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Versión del prospecto",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearCotizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "lineas": {
+            "description": "Exactamente una línea de plan",
+            "items": {
+              "$ref": "#/components/schemas/EntradaLinea"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "moneda": {
+            "description": "GTQ por defecto",
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "notas": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión del prospecto",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "vigenteHasta": {
+            "description": "Por defecto 15 días; hasta 180",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "lineas"
+        ],
+        "type": "object"
+      },
       "EntradaCrearCuadrilla": {
         "additionalProperties": false,
         "properties": {
@@ -2151,6 +2786,101 @@
         },
         "required": [
           "tipo"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "correo": {
+            "format": "email",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "direccion": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "documento": {
+            "description": "NIT o DPI",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos: la activa (otra: 422 empresa_no_coincide); solo el sistema la elige aquí",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "minLength": 2,
+            "type": "string"
+          },
+          "notas": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "origen": {
+            "description": "Por defecto panel (desde el panel) u otro; argos solo la integración de Argos o el sistema",
+            "enum": [
+              "panel",
+              "web",
+              "referido",
+              "argos",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "origenDetalle": {
+            "description": "Quién lo refirió, campaña…",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "planInteresId": {
+            "description": "Plan de Argos que le interesa",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "planInteresNombre": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "telefono": {
+            "description": "Hasta 30 (lo que acepta Argos)",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "vendedorId": {
+            "description": "Responsable de ventas; exige prospectos.asignar",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "zonaId": {
+            "description": "Zona (Argos o local). Con alcance por zona, obligatoria y tuya",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nombre",
+          "direccion"
         ],
         "type": "object"
       },
@@ -2560,6 +3290,80 @@
         ],
         "type": "object"
       },
+      "EntradaEditarProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "correo": {
+            "format": "email",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "direccion": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "documento": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "lat": {
+            "description": "Cambiar las coordenadas obliga a evaluar de nuevo la factibilidad antes de ganar",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "minLength": 2,
+            "type": "string"
+          },
+          "notas": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "origenDetalle": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "planInteresId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "planInteresNombre": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "telefono": {
+            "description": "Hasta 30 (lo que acepta Argos)",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "zonaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaEditarTecnico": {
         "additionalProperties": false,
         "properties": {
@@ -2803,6 +3607,71 @@
         ],
         "type": "object"
       },
+      "EntradaFactibilidad": {
+        "additionalProperties": false,
+        "properties": {
+          "notas": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión del prospecto",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaFactibilidadManual": {
+        "additionalProperties": false,
+        "properties": {
+          "caja": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "motivoAnulacion": {
+            "description": "Obligatorio si hay una evaluación automática no_viable sobre las mismas coordenadas: la manual la anula",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "notas": {
+            "description": "Qué se vio en la visita (al menos 20 caracteres)",
+            "maxLength": 2000,
+            "minLength": 20,
+            "type": "string"
+          },
+          "resultado": {
+            "enum": [
+              "viable",
+              "no_viable",
+              "requiere_obra"
+            ],
+            "type": "string"
+          },
+          "routerId": {
+            "description": "Router de Argos desde donde se atiende (de la empresa del prospecto); viaja a Argos en POST /servicios",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión del prospecto",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "resultado",
+          "notas"
+        ],
+        "type": "object"
+      },
       "EntradaFallarOrden": {
         "additionalProperties": false,
         "properties": {
@@ -2903,6 +3772,51 @@
         ],
         "type": "object"
       },
+      "EntradaFirmar": {
+        "additionalProperties": false,
+        "properties": {
+          "firmanteDocumento": {
+            "description": "DPI o NIT de quien firma",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "firmanteNombre": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "svg": {
+            "description": "Firma en SVG: \u003csvg width=\"…\" height=\"…\"\u003e con \u003cpath d=\"…\"\u003e (comandos M, L, C, Q, H, V, Z; como jSignature o un pad de firma)",
+            "maxLength": 200000,
+            "minLength": 10,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión del contrato",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "firmanteNombre",
+          "svg"
+        ],
+        "type": "object"
+      },
       "EntradaFusionarTickets": {
         "additionalProperties": false,
         "properties": {
@@ -2926,6 +3840,30 @@
         "required": [
           "version",
           "destinoId"
+        ],
+        "type": "object"
+      },
+      "EntradaGanar": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmarObra": {
+            "description": "Obligatorio (true) si la factibilidad es requiere_obra",
+            "type": "boolean"
+          },
+          "routerId": {
+            "description": "Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -2995,6 +3933,56 @@
         "required": [
           "correo",
           "contrasena"
+        ],
+        "type": "object"
+      },
+      "EntradaLinea": {
+        "additionalProperties": false,
+        "properties": {
+          "cantidad": {
+            "description": "Por defecto 1",
+            "pattern": "^[0-9]{1,8}(\\.[0-9]{1,2})?$",
+            "type": "string"
+          },
+          "descripcion": {
+            "description": "En la línea de plan con conector sale de Argos",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "planId": {
+            "description": "Plan de Argos (obligatorio en la línea de plan con conector; sin conector no va)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "precioUnitario": {
+            "description": "En la línea de plan con conector sale de Argos (si Argos no publica el precio, va aquí). En un descuento, el monto a restar",
+            "pattern": "^[0-9]{1,12}(\\.[0-9]{1,2})?$",
+            "type": "string"
+          },
+          "productoId": {
+            "description": "Producto de Argos (equipo, instalación), opcional",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "recurrente": {
+            "description": "Mensual: el plan siempre; equipo, descuento y otro pueden serlo (por defecto, único)",
+            "type": "boolean"
+          },
+          "tipo": {
+            "enum": [
+              "plan",
+              "instalacion",
+              "equipo",
+              "descuento",
+              "otro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo"
         ],
         "type": "object"
       },
@@ -3105,6 +4093,27 @@
         },
         "required": [
           "cuerpo"
+        ],
+        "type": "object"
+      },
+      "EntradaPerder": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "description": "Por qué se perdió (precio, sin cobertura, competencia…)",
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivo"
         ],
         "type": "object"
       },
@@ -3645,6 +4654,24 @@
         ],
         "type": "object"
       },
+      "EntradaTransicion": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaURLPublica": {
         "additionalProperties": false,
         "properties": {
@@ -3666,6 +4693,36 @@
         "required": [
           "version",
           "urlPublica"
+        ],
+        "type": "object"
+      },
+      "EntradaUmbrales": {
+        "additionalProperties": false,
+        "properties": {
+          "obraM": {
+            "description": "Mayor o igual que viableM",
+            "format": "int32",
+            "maximum": 50000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión leída (0 si eran los por defecto)",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "viableM": {
+            "format": "int32",
+            "maximum": 50000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "viableM",
+          "obraM"
         ],
         "type": "object"
       },
@@ -4026,6 +5083,67 @@
         ],
         "type": "object"
       },
+      "EventoProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "actorTipo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "datos": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "de": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tipo": {
+            "description": "creado, estado, asignado, factibilidad, cotizacion, contrato, alta…",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tipo",
+          "de",
+          "a",
+          "motivo",
+          "datos",
+          "actorTipo",
+          "actorId",
+          "creadoEn"
+        ],
+        "type": "object"
+      },
       "EventoTicket": {
         "additionalProperties": false,
         "properties": {
@@ -4186,6 +5304,149 @@
         "required": [
           "bodegaId",
           "lineas"
+        ],
+        "type": "object"
+      },
+      "Factibilidad": {
+        "additionalProperties": false,
+        "properties": {
+          "anulaId": {
+            "description": "Manual que anula esta evaluación automática no_viable",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "caja": {
+            "description": "Caja sugerida (fase 6, OZmap)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "distanciaM": {
+            "description": "Distancia en línea recta al router, en metros",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "evaluadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "description": "Coordenadas evaluadas (las del prospecto en ese momento)",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoAnulacion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motor": {
+            "description": "distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6)",
+            "type": "string"
+          },
+          "notas": {
+            "type": "string"
+          },
+          "obraM": {
+            "description": "Umbral aplicado: requiere obra hasta estos metros",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "resultado": {
+            "description": "indeterminado: no hay datos para decidir (motivo); nunca se inventa",
+            "enum": [
+              "viable",
+              "no_viable",
+              "requiere_obra",
+              "indeterminado"
+            ],
+            "type": "string"
+          },
+          "routerId": {
+            "description": "Router sugerido (Argos)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "routerNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "viableM": {
+            "description": "Umbral aplicado: viable hasta estos metros",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "prospectoId",
+          "resultado",
+          "motor",
+          "motivo",
+          "lat",
+          "lon",
+          "routerId",
+          "routerNombre",
+          "caja",
+          "distanciaM",
+          "viableM",
+          "obraM",
+          "notas",
+          "anulaId",
+          "motivoAnulacion",
+          "evaluadaPor",
+          "creadoEn"
         ],
         "type": "object"
       },
@@ -4507,6 +5768,70 @@
           "obligatorio",
           "unidad",
           "posicion"
+        ],
+        "type": "object"
+      },
+      "LineaCotizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "cantidad": {
+            "description": "Decimal (2 cifras)",
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "planId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "posicion": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "precioUnitario": {
+            "description": "Decimal (2 cifras)",
+            "type": "string"
+          },
+          "productoId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recurrente": {
+            "description": "Mensual (plan) o único",
+            "type": "boolean"
+          },
+          "tipo": {
+            "enum": [
+              "plan",
+              "instalacion",
+              "equipo",
+              "descuento",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "total": {
+            "description": "Decimal (2 cifras); negativo en los descuentos",
+            "type": "string"
+          }
+        },
+        "required": [
+          "posicion",
+          "tipo",
+          "planId",
+          "productoId",
+          "descripcion",
+          "cantidad",
+          "precioUnitario",
+          "recurrente",
+          "total"
         ],
         "type": "object"
       },
@@ -5800,6 +7125,32 @@
         ],
         "type": "object"
       },
+      "PaginaActividad": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Actividad"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaAdjunto": {
         "additionalProperties": false,
         "properties": {
@@ -5910,6 +7261,32 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/Conector"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaCotizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Cotizacion"
             },
             "type": [
               "array",
@@ -6144,6 +7521,32 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/PermisoInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Prospecto"
             },
             "type": [
               "array",
@@ -6867,6 +8270,51 @@
         ],
         "type": "object"
       },
+      "PendienteArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "description": "pendiente, en_curso, hecho, fallido_negocio, agotado, bloqueado",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "intentos": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operacion": {
+            "description": "crear_cliente, crear_servicio",
+            "type": "string"
+          },
+          "ultimoError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Para POST /integraciones/pendientes/{id}/reintentar",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "operacion",
+          "idempotencyKey",
+          "estado",
+          "intentos",
+          "ultimoError",
+          "version"
+        ],
+        "type": "object"
+      },
       "Permiso": {
         "description": "Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.",
         "enum": [
@@ -6899,11 +8347,18 @@
           "campo.ver_posiciones",
           "clientes.estado_cuenta",
           "clientes.ver",
+          "contratos.crear",
+          "contratos.firmar",
+          "cotizaciones.aceptar",
+          "cotizaciones.crear",
           "empresas.adoptar",
           "empresas.crear",
           "empresas.editar",
           "empresas.todas",
           "empresas.ver",
+          "factibilidad.configurar",
+          "factibilidad.evaluar",
+          "factibilidad.registrar_manual",
           "integraciones.activar",
           "integraciones.conectar",
           "integraciones.desactivar",
@@ -6925,6 +8380,15 @@
           "ordenes.ver_propias",
           "permisos.ver",
           "portal.emitir",
+          "prospectos.asignar",
+          "prospectos.contactar",
+          "prospectos.crear",
+          "prospectos.editar",
+          "prospectos.ganar",
+          "prospectos.perder",
+          "prospectos.reabrir",
+          "prospectos.registrar_actividad",
+          "prospectos.ver",
           "roles.ver",
           "rutas.proponer",
           "rutas.publicar",
@@ -6969,6 +8433,66 @@
         "required": [
           "codigo",
           "descripcion"
+        ],
+        "type": "object"
+      },
+      "PlanComercial": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "precio": {
+            "description": "Mensualidad (decimal, 2 cifras); null si Argos no la publica",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "precio",
+          "activo"
+        ],
+        "type": "object"
+      },
+      "PlanesDisponibles": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PlanComercial"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "disponible": {
+            "description": "false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo)",
+            "type": "boolean"
+          },
+          "motivo": {
+            "description": "sin_conector, conector_apagado, argos_no_disponible…",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "data"
         ],
         "type": "object"
       },
@@ -7157,6 +8681,412 @@
           "accion",
           "en",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "Prospecto": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "alta": {
+            "$ref": "#/components/schemas/Alta",
+            "description": "Alta del cliente (solo ganado)"
+          },
+          "correo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "documento": {
+            "description": "NIT o DPI",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "description": "Empresa en Argos (null sin conector)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "nuevo",
+              "contactado",
+              "factibilidad",
+              "cotizado",
+              "contrato",
+              "ganado",
+              "perdido"
+            ],
+            "type": "string"
+          },
+          "ganadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "motivoPerdida": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "notas": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "PR-000001",
+            "type": "string"
+          },
+          "obraConfirmada": {
+            "description": "Se ganó con factibilidad requiere_obra confirmada",
+            "type": "boolean"
+          },
+          "origen": {
+            "enum": [
+              "panel",
+              "web",
+              "referido",
+              "argos",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "origenDetalle": {
+            "description": "Quién lo refirió, campaña…",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "perdidoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planInteresId": {
+            "description": "Plan de Argos que le interesa",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "planInteresNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "telefono": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vendedorId": {
+            "description": "Responsable de ventas (usuario de Iris)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "empresaId",
+          "origen",
+          "origenDetalle",
+          "nombre",
+          "documento",
+          "telefono",
+          "correo",
+          "direccion",
+          "lat",
+          "lon",
+          "zonaId",
+          "planInteresId",
+          "planInteresNombre",
+          "vendedorId",
+          "estado",
+          "notas",
+          "motivoPerdida",
+          "perdidoEn",
+          "ganadoEn",
+          "obraConfirmada",
+          "creadoEn",
+          "actualizadoEn",
+          "version"
+        ],
+        "type": "object"
+      },
+      "ProspectoDetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "acciones": {
+            "$ref": "#/components/schemas/AccionesDisponible",
+            "description": "Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "alta": {
+            "$ref": "#/components/schemas/Alta",
+            "description": "Alta del cliente (solo ganado)"
+          },
+          "contrato": {
+            "$ref": "#/components/schemas/Contrato",
+            "description": "El borrador o firmado"
+          },
+          "correo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cotizacion": {
+            "$ref": "#/components/schemas/Cotizacion",
+            "description": "La vigente o aceptada"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "documento": {
+            "description": "NIT o DPI",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "description": "Empresa en Argos (null sin conector)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "nuevo",
+              "contactado",
+              "factibilidad",
+              "cotizado",
+              "contrato",
+              "ganado",
+              "perdido"
+            ],
+            "type": "string"
+          },
+          "factibilidad": {
+            "$ref": "#/components/schemas/Factibilidad",
+            "description": "La última evaluación"
+          },
+          "ganadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "motivoPerdida": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "notas": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "PR-000001",
+            "type": "string"
+          },
+          "obraConfirmada": {
+            "description": "Se ganó con factibilidad requiere_obra confirmada",
+            "type": "boolean"
+          },
+          "origen": {
+            "enum": [
+              "panel",
+              "web",
+              "referido",
+              "argos",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "origenDetalle": {
+            "description": "Quién lo refirió, campaña…",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendientes": {
+            "description": "Acciones en Argos del alta (POST /clientes y POST /servicios)",
+            "items": {
+              "$ref": "#/components/schemas/PendienteArgos"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "perdidoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planInteresId": {
+            "description": "Plan de Argos que le interesa",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "planInteresNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "telefono": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vendedorId": {
+            "description": "Responsable de ventas (usuario de Iris)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "pendientes",
+          "acciones",
+          "id",
+          "numero",
+          "empresaId",
+          "origen",
+          "origenDetalle",
+          "nombre",
+          "documento",
+          "telefono",
+          "correo",
+          "direccion",
+          "lat",
+          "lon",
+          "zonaId",
+          "planInteresId",
+          "planInteresNombre",
+          "vendedorId",
+          "estado",
+          "notas",
+          "motivoPerdida",
+          "perdidoEn",
+          "ganadoEn",
+          "obraConfirmada",
+          "creadoEn",
+          "actualizadoEn",
+          "version"
         ],
         "type": "object"
       },
@@ -7680,6 +9610,46 @@
           "sistema",
           "permisos",
           "version"
+        ],
+        "type": "object"
+      },
+      "RouterCobertura": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "sincronizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "zonaId",
+          "lat",
+          "lon",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -9406,6 +11376,45 @@
         "required": [
           "servidorEn",
           "data"
+        ],
+        "type": "object"
+      },
+      "Umbrales": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "obraM": {
+            "description": "Requiere obra hasta estos metros; más lejos, no viable",
+            "format": "int32",
+            "type": "integer"
+          },
+          "porDefecto": {
+            "description": "La empresa no tiene los suyos: son los de Iris",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Versión de los de la empresa (0 si son los por defecto)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "viableM": {
+            "description": "Viable hasta estos metros del router más cercano",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "empresaId",
+          "viableM",
+          "obraM",
+          "porDefecto",
+          "version"
         ],
         "type": "object"
       },
@@ -12127,6 +14136,1002 @@
           "clientes"
         ],
         "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/comercial/cobertura": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`. Routers con coordenadas de la instantánea de Argos y los umbrales (círculos viable y requiere obra).",
+        "operationId": "coberturaComercial",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cobertura"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cobertura para el mapa",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      }
+    },
+    "/api/v1/comercial/planes": {
+      "get": {
+        "description": "Permiso: `cotizaciones.crear`. GET /planes?activo=true[\u0026router_id=] de Argos por el conector (los planes son de toda la instalación). disponible = false con motivo si no se pueden leer.",
+        "operationId": "planesComerciales",
+        "parameters": [
+          {
+            "description": "Router sugerido por la factibilidad: solo los planes que ofrece",
+            "explode": false,
+            "in": "query",
+            "name": "routerId",
+            "schema": {
+              "description": "Router sugerido por la factibilidad: solo los planes que ofrece",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanesDisponibles"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Planes de Argos para cotizar",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "cotizaciones.crear"
+      }
+    },
+    "/api/v1/comercial/umbrales": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "verUmbrales",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Umbrales"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Umbrales de la factibilidad de la empresa",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      },
+      "post": {
+        "description": "Permiso: `factibilidad.configurar`. Sin límite de zona. Emite `factibilidad.umbrales_cambiados`.",
+        "operationId": "fijarUmbrales",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaUmbrales"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Umbrales"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar los umbrales de la empresa",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "factibilidad.configurar"
+      }
+    },
+    "/api/v1/contratos/{id}": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "verContrato",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contrato"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Contrato",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      }
+    },
+    "/api/v1/contratos/{id}/firmar": {
+      "post": {
+        "description": "Permiso: `contratos.firmar`. Firma capturada como imagen (SVG). Genera el PDF firmado como adjunto; su SHA-256 queda en la auditoría. Emite `contrato.firmado`.",
+        "operationId": "firmarContrato",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFirmar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contrato"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar la firma del cliente",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "contratos.firmar"
+      }
+    },
+    "/api/v1/contratos/{id}/pdf": {
+      "post": {
+        "description": "Permiso: `contratos.crear`. Si no quedó guardado.",
+        "operationId": "generarPdfContrato",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contrato"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Volver a generar el PDF borrador",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "contratos.crear"
+      }
+    },
+    "/api/v1/cotizaciones/{id}": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "verCotizacion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cotizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cotización",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      }
+    },
+    "/api/v1/cotizaciones/{id}/aceptar": {
+      "post": {
+        "description": "Permiso: `cotizaciones.aceptar`. La vigente y no vencida, con el prospecto en cotizado. Emite `cotizacion.aceptada`.",
+        "operationId": "aceptarCotizacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAceptarCotizacion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cotizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Aceptar la cotización",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "cotizaciones.aceptar"
+      }
+    },
+    "/api/v1/cotizaciones/{id}/pdf": {
+      "post": {
+        "description": "Permiso: `cotizaciones.crear`. Si no quedó guardado (pdf.estado ≠ completo). Mismos datos, mismo PDF.",
+        "operationId": "generarPdfCotizacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cotizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Volver a generar el PDF",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "cotizaciones.crear"
       }
     },
     "/api/v1/cuadrillas": {
@@ -18480,6 +21485,2023 @@
         "tags": [
           "portal"
         ]
+      }
+    },
+    "/api/v1/prospectos": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`. Cursor (id desc). Con alcance por zona: los de tus zonas y los tuyos (vendedor).",
+        "operationId": "listarProspectos",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido",
+            "explode": false,
+            "in": "query",
+            "name": "estado",
+            "schema": {
+              "description": "Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "origen",
+            "schema": {
+              "enum": [
+                "panel",
+                "web",
+                "referido",
+                "argos",
+                "otro",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "vendedorId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "sinVendedor",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Solo los que tienen lat/lon (mapa de prospectos)",
+            "explode": false,
+            "in": "query",
+            "name": "conCoordenadas",
+            "schema": {
+              "description": "Solo los que tienen lat/lon (mapa de prospectos)",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Busca en número, nombre, teléfono, correo y dirección",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Busca en número, nombre, teléfono, correo y dirección",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaProspecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Prospectos (embudo comercial)",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      },
+      "post": {
+        "description": "Permiso: `prospectos.crear`. Guarda la Idempotency-Key. Emite `prospecto.creado`.",
+        "operationId": "crearProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearProspecto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un prospecto",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.crear"
+      }
+    },
+    "/api/v1/prospectos/{id}": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`. Factibilidad vigente, cotización viva, contrato vivo, pendientes del alta en Argos y las acciones que corresponden.",
+        "operationId": "verProspecto",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Prospecto con su embudo",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      }
+    },
+    "/api/v1/prospectos/{id}/actividades": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "listarActividades",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaActividad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Actividades del prospecto",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      },
+      "post": {
+        "description": "Permiso: `prospectos.registrar_actividad`. Guarda la Idempotency-Key. Emite `prospecto.actividad_registrada`.",
+        "operationId": "registrarActividad",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaActividad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Actividad"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar una llamada, visita o nota",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.registrar_actividad"
+      }
+    },
+    "/api/v1/prospectos/{id}/asignar": {
+      "post": {
+        "description": "Permiso: `prospectos.asignar`. El vendedor ve el prospecto (prospectos.ver con alcance) y opera en su empresa. Emite `prospecto.asignado`.",
+        "operationId": "asignarProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAsignarProspecto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Asignar el vendedor",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.asignar"
+      }
+    },
+    "/api/v1/prospectos/{id}/contactar": {
+      "post": {
+        "description": "Permiso: `prospectos.contactar`. nuevo → contactado. Emite `prospecto.estado_cambiado`.",
+        "operationId": "contactarProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaTransicion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar contactado",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.contactar"
+      }
+    },
+    "/api/v1/prospectos/{id}/contrato": {
+      "post": {
+        "description": "Permiso: `contratos.crear`. Plantilla estandar_v1 con los datos del prospecto y la cotización aceptada; PDF borrador para leer. cotizado → contrato. Emite `contrato.creado`.",
+        "operationId": "crearContrato",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearContrato"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contrato"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Generar el contrato",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "contratos.crear"
+      }
+    },
+    "/api/v1/prospectos/{id}/cotizaciones": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "listarCotizaciones",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaCotizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cotizaciones del prospecto (todas las revisiones)",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      },
+      "post": {
+        "description": "Permiso: `cotizaciones.crear`. Exactamente una línea de plan (de Argos con conector). Reemplaza la vigente o aceptada sin borrarla y anula el contrato en borrador. Genera el PDF (adjunto). Guarda la Idempotency-Key. Emite `cotizacion.creada`.",
+        "operationId": "crearCotizacion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearCotizacion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cotizacion"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cotizar (o una revisión nueva)",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "cotizaciones.crear"
+      }
+    },
+    "/api/v1/prospectos/{id}/editar": {
+      "post": {
+        "description": "Permiso: `prospectos.editar`. Solo hasta cotizado. Emite `prospecto.actualizado`.",
+        "operationId": "editarProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarProspecto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar un prospecto",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.editar"
+      }
+    },
+    "/api/v1/prospectos/{id}/eventos": {
+      "get": {
+        "description": "Permiso: `prospectos.ver`.",
+        "operationId": "eventosProspecto",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EventoProspecto"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Historial del prospecto",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ver"
+      }
+    },
+    "/api/v1/prospectos/{id}/factibilidad": {
+      "post": {
+        "description": "Permiso: `factibilidad.evaluar`. Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa. Sin datos: indeterminado con motivo. Emite `factibilidad.evaluada`.",
+        "operationId": "evaluarFactibilidad",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFactibilidad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Factibilidad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Evaluar la factibilidad",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "factibilidad.evaluar"
+      }
+    },
+    "/api/v1/prospectos/{id}/factibilidad-manual": {
+      "post": {
+        "description": "Permiso: `factibilidad.registrar_manual`. Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.",
+        "operationId": "factibilidadManual",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFactibilidadManual"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Factibilidad"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar la factibilidad de una visita técnica",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "factibilidad.registrar_manual"
+      }
+    },
+    "/api/v1/prospectos/{id}/ganar": {
+      "post": {
+        "description": "Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`.",
+        "operationId": "ganarProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaGanar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ganar el prospecto",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.ganar"
+      }
+    },
+    "/api/v1/prospectos/{id}/perder": {
+      "post": {
+        "description": "Permiso: `prospectos.perder`. Con motivo; anula el contrato vivo. Emite `prospecto.perdido`.",
+        "operationId": "perderProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPerder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar perdido",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.perder"
+      }
+    },
+    "/api/v1/prospectos/{id}/reabrir": {
+      "post": {
+        "description": "Permiso: `prospectos.reabrir`. perdido → contactado.",
+        "operationId": "reabrirProspecto",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaTransicion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reabrir un prospecto perdido",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.reabrir"
       }
     },
     "/api/v1/roles": {

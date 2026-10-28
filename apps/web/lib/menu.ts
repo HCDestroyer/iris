@@ -27,17 +27,17 @@ export type EntradaMenu = {
 };
 
 /*
- * `despacho.ver` y `prospectos.ver` todavía no existen en el enum `Permiso` (pedidos a I2 en
+ * `despacho.ver` todavía no existe en el enum `Permiso` (pedido a I2 en
  * .claude/integration/i3.md). Despacho usa mientras tanto `agenda.ver`, el permiso real más
- * cercano (calendario y mover citas; el mapa en vivo pide además `campo.ver_posiciones`), y
- * Comercial sigue «Próximamente» para todos. Estas aserciones de tipos fallan en `pnpm typecheck`
- * en cuanto el permiso exista en el contrato, para pasar al permiso real en la misma PR que
- * regenera packages/contratos.
+ * cercano (calendario y mover citas; el mapa en vivo pide además `campo.ver_posiciones`). Esta
+ * aserción de tipos falla en `pnpm typecheck` en cuanto el permiso exista en el contrato, para
+ * pasar al permiso real en la misma PR que regenera packages/contratos. `prospectos.ver` ya existe
+ * (API comercial de I2): Comercial sigue «Próximamente» hasta que I3 haga el embudo y la pase a
+ * `permisos: ["prospectos.ver"]`.
  */
 type AunNoExiste<P extends string> = P extends Permiso ? false : true;
 export const permisosPendientes = {
     "despacho.ver": true satisfies AunNoExiste<"despacho.ver">,
-    "prospectos.ver": true satisfies AunNoExiste<"prospectos.ver">,
 } as const;
 
 export const MENU: readonly EntradaMenu[] = [
