@@ -53,6 +53,9 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				return antes, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, antes)
+			if err := noPausada(antes, "cerrarla"); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "cerrar", EstadoEnSitio); err != nil {
 				return antes, "", err
 			}
@@ -112,16 +115,11 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 		})
 }
 
-// requisitosDeCierre: checklist obligatorio completo, equipos coherentes con el tipo
-// (instalación: al menos uno instalado; retiro: al menos uno retirado, con su condición) y la
-// firma si la plantilla la pide.
+// requisitosDeCierre: los obligatorios de todos los formularios de la orden (uno por uno),
+// equipos coherentes con el tipo (instalación: al menos uno instalado; retiro: al menos uno
+// retirado, con su condición) y la firma si algún formulario la pide.
 func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.ErrorCampo {
-	var errores []nucleo.ErrorCampo
-	for _, it := range d.Checklist {
-		if it.Obligatorio && it.Valor == nil {
-			errores = append(errores, nucleo.ErrorCampo{Field: "checklist." + it.Codigo, Message: "Falta: " + it.Etiqueta, Rule: "obligatorio"})
-		}
-	}
+	errores := requisitosFormularios(d)
 	instalados, retirados := 0, 0
 	for _, e := range d.Equipos {
 		switch e.Accion {
@@ -138,7 +136,7 @@ func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.E
 		errores = append(errores, nucleo.ErrorCampo{Field: "equipos.retirar", Message: "Registra al menos un equipo retirado con su condición", Rule: "equipo"})
 	}
 	if d.RequiereFirma && d.Firma == nil {
-		errores = append(errores, nucleo.ErrorCampo{Field: "firma", Message: "Falta la firma del cliente", Rule: "firma"})
+		errores = append(errores, nucleo.ErrorCampo{Field: "firma", Message: "Falta la firma del cliente (la pide " + formulariosConFirma(d) + ")", Rule: "firma"})
 	}
 	return errores
 }
@@ -194,15 +192,21 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 	}
 }
 
-// requisitosAdjuntos: una foto completa por ítem foto obligatorio del checklist (clave = su
-// código) y la firma si la plantilla la pide.
-func requisitosAdjuntos(d OrdenDetalle) []Requisito {
-	r := []Requisito{}
-	for _, it := range d.Checklist {
-		if it.Tipo == ItemFoto && it.Obligatorio {
-			r = append(r, Requisito{Tipo: "foto", ClaveChecklist: it.Codigo, Minimo: 1})
+// formulariosConFirma: los nombres de los formularios que piden la firma.
+func formulariosConFirma(d OrdenDetalle) string {
+	nombres := []string{}
+	for _, fo := range d.Formularios {
+		if fo.RequiereFirma {
+			nombres = append(nombres, "«"+fo.Nombre+"»")
 		}
 	}
+	return strings.Join(nombres, ", ")
+}
+
+// requisitosAdjuntos: una foto completa por ítem foto obligatorio de los formularios (clave =
+// su código) y la firma si algún formulario la pide.
+func requisitosAdjuntos(d OrdenDetalle) []Requisito {
+	r := fotosObligatorias(d)
 	if d.RequiereFirma {
 		r = append(r, Requisito{Tipo: "firma", Minimo: 1})
 	}

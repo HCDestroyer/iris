@@ -3,7 +3,7 @@
 import type { EstadoOrden, MotivoFalla, OrdenCampo, Problema, TipoOperacion, TipoOrden } from "@iris/sync";
 import { codigoProblema } from "@iris/sync";
 import type { Tono } from "@iris/ui";
-import { Ban, CalendarClock, CircleCheck, CircleDashed, CircleX, MapPinCheck, Navigation, type LucideIcon } from "lucide-react";
+import { Ban, CalendarClock, CircleCheck, CircleDashed, CirclePause, CircleX, MapPinCheck, Navigation, type LucideIcon } from "lucide-react";
 
 export type PresentacionEstado = { tono: Tono; icono: LucideIcon; texto: string };
 
@@ -12,6 +12,7 @@ export const ESTADOS: Record<EstadoOrden, PresentacionEstado> = {
     programada: { tono: "neutral", icono: CalendarClock, texto: "Programada" },
     en_camino: { tono: "info", icono: Navigation, texto: "En camino" },
     en_sitio: { tono: "info", icono: MapPinCheck, texto: "En sitio" },
+    pausada: { tono: "warning", icono: CirclePause, texto: "Pausada" },
     cerrada: { tono: "success", icono: CircleCheck, texto: "Cerrada" },
     fallida: { tono: "error", icono: CircleX, texto: "No realizada" },
     cancelada: { tono: "neutral", icono: Ban, texto: "Cancelada" },
@@ -50,6 +51,10 @@ export const OPERACIONES: Record<TipoOperacion, string> = {
     "adjunto.registrar": "Foto o archivo",
     "orden.cerrar": "Cierre de la orden",
     "orden.fallar": "Orden no realizada",
+    "orden.pausar": "Pausa",
+    "orden.reanudar": "Reanudación",
+    "orden.agregar_formulario": "Formulario agregado",
+    "orden.quitar_formulario": "Formulario quitado",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */

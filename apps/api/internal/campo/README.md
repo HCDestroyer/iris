@@ -7,16 +7,39 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 
 ## Qué hace
 
-- **Catálogo** (semilla, editable por SQL): `tipos_orden` (duración, plantilla por defecto,
-  `exige_instalar`/`exige_retirar`), `plantillas_checklist` (`requiere_firma`, `tipo_codigo`:
-  instalación de fibra o inalámbrica, visita técnica, retiro, cambio de equipo, mantenimiento) y
-  `plantilla_items` (`si_no`, `texto`, `numero`, `foto`, `medicion`; obligatorio). `GET /tipos-orden`.
+- **Catálogo:** `tipos_orden` (semilla, por SQL: duración, plantilla por defecto,
+  `exige_instalar`/`exige_retirar`) y **plantillas de formularios administrables**
+  (`plantillas.go`, abajo). `GET /tipos-orden` trae las plantillas activas visibles de cada tipo.
+- **Plantillas** (`plantillas_checklist` + `plantilla_versiones` + `plantilla_items`):
+  `GET /plantillas` · `GET /plantillas/{id}?numeroVersion=` (`plantillas.ver`), `POST /plantillas`,
+  `POST /plantillas/{id}/editar|activar|desactivar` (`plantillas.crear|editar|activar|desactivar`,
+  con el permiso global). Ítems `si_no`, `texto`, `numero`, `foto`, `medicion` y `seleccion` (con
+  `opciones`), en orden y con `obligatorio`; `requiereFirma` por plantilla; `tipo` opcional (null =
+  cualquier tipo). **Versiones:** editar reemplaza la definición y crea la versión N+1 si la
+  plantilla estuvo activa alguna vez (ya viajó en el catálogo de los teléfonos) o si la versión
+  está en alguna orden (las órdenes conservan la suya y lo respondido no cambia); solo un
+  borrador (`borrador: true` al crear; nunca activado) se reescribe. **Empresa:** una plantilla es de la empresa activa o común
+  (`comun`, empresa null; la semilla es común); con empresas registradas, las comunes solo las crea
+  o modifica quien puede tocar lo común (`empresas.todas` global, el sistema o sin conector; si no,
+  403). Una orden usa plantillas comunes o de su empresa. La plantilla por defecto de un tipo no se
+  desactiva (422 `plantilla_por_defecto`); desactivar no toca los formularios ya agregados.
+- **Formularios de la orden** (`orden_formularios`, `formularios.go`): al crear, la plantilla de la
+  orden (la del tipo o `plantillaId`) entra como primer formulario (origen `tipo`) en su versión
+  actual. Despacho agrega (`POST /ordenes/{id}/formularios`, `ordenes.asignar_formulario`) y quita
+  (`POST /ordenes/{id}/formularios/{fid}/quitar`, solo sin respuestas: 422
+  `formulario_con_respuestas`; el del tipo nunca: 422 `formulario_del_tipo`). El técnico solo fija
+  la versión actual o la vigente a la hora de la operación (otra: 422 `versionId`). El técnico agrega y quita (solo los suyos) sin señal con
+  `orden.agregar_formulario` / `orden.quitar_formulario` del lote (`ordenes.registrar`, orden propia
+  y abierta). Una plantilla una sola vez por orden (409 `formulario_duplicado`). Las marcas del
+  checklist quedan ligadas al formulario (`orden_checklist.formulario_id`); un ítem identifica su
+  formulario (por versión), y por `codigo` hace falta `formularioId` si se repite.
 - **Estados:** `pendiente → programada → en_camino → en_sitio → cerrada | fallida | cancelada`,
+  y `pausada` (desde en camino o en sitio; ver «Pausa»),
   con acciones explícitas `POST /api/v1/ordenes/{id}/<acción>` y permiso `ordenes.<acción>`:
   `asignar` (pendiente/programada/en_camino; sin técnico vuelve a pendiente, otro técnico en camino
   la deja programada; con técnico nuevo en una orden programada la agenda revalida la cita),
   `programar` (pendiente → programada, técnico + inicio; fin = inicio + duración del tipo; ventana
-  opcional), `reprogramar` (programada/en_camino/fallida → programada, con motivo). Programar y
+  opcional), `reprogramar` (programada/en_camino/pausada/fallida → programada, con motivo). Programar y
   reprogramar **delegan en agenda** (`agenda.ReservarCita`: turno, ausencia, solape, capacidad y
   ventana; 422 con el motivo) y es agenda quien emite `orden.programada`; la bodega por defecto
   del técnico nuevo sale de su ficha de agenda. Cancelar, reabrir o quitar el técnico liberan la
@@ -40,9 +63,22 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   de equipo (422 `equipo_no_admitido`). Con conector, lo retirado debe estar en el comodato del
   servicio (por unidad o serie; 422 `equipo_no_en_comodato`) y queda `validado`; sin conector o con
   Argos caído se acepta como no verificado (`equipos_validados: false` en `orden.cerrada`).
-- **Cierre:** checklist obligatorio, equipos del tipo (instalación ≥1 instalado; retiro ≥1
-  retirado con condición `buena|danada|perdido`; cambio de equipo ambos) y firma si la plantilla
-  la pide → si no, 422 `cierre_incompleto` con `errors[]` (`checklist.<código>`,
+- **Pausa** (`pausas.go`): `POST /ordenes/{id}/pausar { motivo, nota?, version }`
+  (`ordenes.pausar`; motivos `esperando_material`, `cliente_ausente`, `clima`, `acceso`, `otro` con
+  nota) desde en camino o en sitio, y `POST /ordenes/{id}/reanudar { version }` (`ordenes.reanudar`)
+  al estado de antes. Cada pausa queda en `orden_pausas` (inicio, fin, motivo, nota, quién la abrió
+  y la cerró, cómo terminó: `reanudada`, `cancelada` o `reprogramada`); el total de las terminadas
+  en `ordenes.pausada_seg` (`tiempoPausadoSeg`). Una pausa no empieza antes del fin de la anterior
+  (se ajusta con `aviso: pausa_ajustada`) y lo pausado nunca supera lo transcurrido desde que salió. Sigue abierta: conserva la cita (agenda: ocupa,
+  cuenta para la capacidad y sale `pausada` en el calendario), no sale del paquete ni de la ruta
+  (que no se marca desactualizada: la cita no se mueve) y admite evidencias. No se cierra, falla,
+  llega, sale ni reasigna sin reanudar (422 `orden_pausada`); cancelar y reprogramar cierran la
+  pausa. **Fallar desde pausada no se admite** (decisión: se reanuda y se falla en curso; así la
+  duración de la pausa queda cerrada y la falla la confirma el técnico en camino o en sitio).
+- **Cierre:** los obligatorios de **todos** los formularios, equipos del tipo (instalación ≥1
+  instalado; retiro ≥1 retirado con condición `buena|danada|perdido`; cambio de equipo ambos) y la
+  firma si algún formulario la pide → si no, 422 `cierre_incompleto` con `errors[]`
+  (`formularios.<id>.checklist.<código>` con «Falta: etiqueta (formulario)»,
   `equipos.instalar|retirar`, `firma`). Luego los adjuntos (interfaz `Adjuntos`, ver abajo) → 422
   `faltan_adjuntos` con `errors[].field = "adjuntos.<clave>"`.
 - **Desde un ticket:** `POST /ordenes` con `ticketId` (exige ver el ticket): hereda empresa,
@@ -82,16 +118,19 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 ## App de campo (contratos/sync.md; claves camelCase)
 
 - `GET /campo/paquete?fecha=YYYY-MM-DD` (`campo.sincronizar`): órdenes del técnico del actor
-  (pendientes, programadas hasta ese día —también atrasadas—, en camino y en sitio) con
-  checklist, notas, materiales, equipos, firma, adjuntos, instantánea de cliente y servicio y
+  (pendientes, programadas hasta ese día —también atrasadas—, en camino, en sitio y pausadas) con
+  sus formularios y el checklist de todos, sus pausas, notas, materiales, equipos, firma,
+  adjuntos, instantánea de cliente y servicio y
   `comodato` (`disponible`, `motivo`: `sin_conector|argos_no_disponible|sin_servicio`);
   `existencias` de sus bodegas (igual, `sin_bodega`); `cita` de la agenda (inicio, fin, ventana);
   `ruta` publicada del día (agenda: `ordenIds` y `paradas` con la llegada estimada, solo las
   órdenes del paquete; `desactualizada` si una cambió después) y `ordenes` en ese orden (las que
   no están en la ruta, después); `cursor` tomado
   antes de leer (puede repetir, nunca saltar). El inventario se lee de Argos fuera de la
-  transacción (interfaz `Inventario`, nil sin conector).
-- `GET /campo/cambios?cursor=&limit=`: trae además `ruta` (la publicada de hoy, como está ahora).
+  transacción (interfaz `Inventario`, nil sin conector). `plantillas`: el catálogo activo (comunes
+  y de la empresa, versión actual) para `orden.agregar_formulario`.
+- `GET /campo/cambios?cursor=&limit=`: trae además `ruta` (la publicada de hoy, como está ahora) y
+  `plantillas` (el catálogo como está ahora: reemplaza el del paquete).
   Feed por técnico (`campo.orden_cambios`, escrito con un
   candado por técnico para que sus ids sigan el orden de COMMIT). Una entrada por orden (`nueva`,
   `actualizada`, `reprogramada`, `cancelada`, `reasignada` sin `orden`), `cursor` y `hayMas`.
@@ -113,6 +152,9 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   - Un `dispositivoId` es de un usuario: el de otro da 409 `dispositivo_ajeno`. `campo.dispositivos` guarda plataforma, último contacto y desfase.
   - Material por encima de la existencia de la bodega (según Argos): se acepta con
     `aviso: existencia_insuficiente` y `excede_existencia` en `orden.cerrada`.
+  - `orden.pausar`, `orden.reanudar`, `orden.agregar_formulario` (id del formulario = id de la
+    operación; con la versión que vio el teléfono → `aviso: version_anterior`) y
+    `orden.quitar_formulario`; sus conflictos, en `contratos/sync.md` §3.
 
 ## Ubicación en vivo (`campo.posiciones`)
 
@@ -161,8 +203,10 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 ## Eventos
 
 - **Emite** (detalle en `contratos/eventos.md`): `orden.creada` (con `origen`), `orden.asignada`,
-  `orden.estado_cambiada`, `orden.cerrada` (con `cargo`). `orden.programada` lo emite agenda en la
-  misma transacción. Empresa del sobre = la de la orden.
+  `orden.estado_cambiada`, `orden.pausada`, `orden.reanudada`, `orden.formulario_agregado`,
+  `orden.formulario_quitado`, `orden.cerrada` (con `cargo`), y `plantilla.creada`,
+  `plantilla.actualizada`, `plantilla.activada`, `plantilla.desactivada`. `orden.programada` lo
+  emite agenda en la misma transacción. Empresa del sobre = la de la orden (o de la plantilla).
 - **Consume:** `argos.servicio_retirado` (orden de retiro automática).
 
 ## Desarrollo

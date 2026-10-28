@@ -135,6 +135,15 @@ func (q *Queries) BodegaDeTecnico(ctx context.Context, usuarioID int64) (*int64,
 	return bodega_id, err
 }
 
+const borrarItemsDeVersion = `-- name: BorrarItemsDeVersion :exec
+DELETE FROM campo.plantilla_items WHERE version_id = $1
+`
+
+func (q *Queries) BorrarItemsDeVersion(ctx context.Context, versionID int64) error {
+	_, err := q.db.Exec(ctx, borrarItemsDeVersion, versionID)
+	return err
+}
+
 const cambiosDesde = `-- name: CambiosDesde :many
 SELECT id, tecnico_id, orden_id, tipo, created_at, updated_at FROM campo.orden_cambios WHERE tecnico_id = $1 AND id > $2 ORDER BY id LIMIT $3
 `
@@ -221,8 +230,55 @@ func (q *Queries) CantidadUsada(ctx context.Context, arg CantidadUsadaParams) (p
 	return column_1, err
 }
 
+const cerrarPausa = `-- name: CerrarPausa :one
+UPDATE campo.orden_pausas SET fin = $1, cierre = $2, cerrada_por = $3,
+    canal_cierre = $4, operacion_cierre = $5, updated_at = now()
+WHERE id = $6 AND fin IS NULL
+RETURNING id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at
+`
+
+type CerrarPausaParams struct {
+	Fin             *time.Time
+	Cierre          *string
+	CerradaPor      *int64
+	CanalCierre     *string
+	OperacionCierre *uuid.UUID
+	ID              int64
+}
+
+func (q *Queries) CerrarPausa(ctx context.Context, arg CerrarPausaParams) (CampoOrdenPausa, error) {
+	row := q.db.QueryRow(ctx, cerrarPausa,
+		arg.Fin,
+		arg.Cierre,
+		arg.CerradaPor,
+		arg.CanalCierre,
+		arg.OperacionCierre,
+		arg.ID,
+	)
+	var i CampoOrdenPausa
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Motivo,
+		&i.Nota,
+		&i.DesdeEstado,
+		&i.Inicio,
+		&i.Fin,
+		&i.Cierre,
+		&i.PausadaPor,
+		&i.CerradaPor,
+		&i.Canal,
+		&i.CanalCierre,
+		&i.OperacionID,
+		&i.OperacionCierre,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const checklistDeOrdenes = `-- name: ChecklistDeOrdenes :many
-SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_checklist WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, item_id
+SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, formulario_id FROM campo.orden_checklist WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, item_id
 `
 
 func (q *Queries) ChecklistDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenChecklist, error) {
@@ -244,6 +300,7 @@ func (q *Queries) ChecklistDeOrdenes(ctx context.Context, ordenes []int64) ([]Ca
 			&i.OperacionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FormularioID,
 		); err != nil {
 			return nil, err
 		}
@@ -500,24 +557,77 @@ func (q *Queries) CrearEventoOrden(ctx context.Context, arg CrearEventoOrdenPara
 	return err
 }
 
+const crearFormulario = `-- name: CrearFormulario :one
+
+INSERT INTO campo.orden_formularios (id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at
+`
+
+type CrearFormularioParams struct {
+	ID          uuid.UUID
+	OrdenID     int64
+	PlantillaID int64
+	VersionID   int64
+	Origen      string
+	AgregadoPor *int64
+	AgregadoEn  time.Time
+	Canal       string
+	OperacionID *uuid.UUID
+}
+
+// Formularios de la orden ---------------------------------------------------------------
+func (q *Queries) CrearFormulario(ctx context.Context, arg CrearFormularioParams) (CampoOrdenFormulario, error) {
+	row := q.db.QueryRow(ctx, crearFormulario,
+		arg.ID,
+		arg.OrdenID,
+		arg.PlantillaID,
+		arg.VersionID,
+		arg.Origen,
+		arg.AgregadoPor,
+		arg.AgregadoEn,
+		arg.Canal,
+		arg.OperacionID,
+	)
+	var i CampoOrdenFormulario
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.PlantillaID,
+		&i.VersionID,
+		&i.Origen,
+		&i.AgregadoPor,
+		&i.AgregadoEn,
+		&i.Canal,
+		&i.OperacionID,
+		&i.QuitadoEn,
+		&i.QuitadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const crearHistorialChecklist = `-- name: CrearHistorialChecklist :exec
-INSERT INTO campo.orden_checklist_historial (orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO campo.orden_checklist_historial (formulario_id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type CrearHistorialChecklistParams struct {
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID *uuid.UUID
-	Vigente     bool
+	FormularioID uuid.UUID
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  *uuid.UUID
+	Vigente      bool
 }
 
 func (q *Queries) CrearHistorialChecklist(ctx context.Context, arg CrearHistorialChecklistParams) error {
 	_, err := q.db.Exec(ctx, crearHistorialChecklist,
+		arg.FormularioID,
 		arg.OrdenID,
 		arg.ItemID,
 		arg.Valor,
@@ -527,6 +637,24 @@ func (q *Queries) CrearHistorialChecklist(ctx context.Context, arg CrearHistoria
 		arg.OperacionID,
 		arg.Vigente,
 	)
+	return err
+}
+
+const crearItems = `-- name: CrearItems :exec
+INSERT INTO campo.plantilla_items (plantilla_id, version_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, opciones)
+SELECT $1, $2, i.posicion, i.codigo, i.etiqueta, i.tipo, i.obligatorio, i.unidad, i.opciones
+FROM jsonb_to_recordset($3::jsonb)
+     AS i (posicion integer, codigo text, etiqueta text, tipo text, obligatorio boolean, unidad text, opciones jsonb)
+`
+
+type CrearItemsParams struct {
+	PlantillaID int64
+	VersionID   int64
+	Items       []byte
+}
+
+func (q *Queries) CrearItems(ctx context.Context, arg CrearItemsParams) error {
+	_, err := q.db.Exec(ctx, crearItems, arg.PlantillaID, arg.VersionID, arg.Items)
 	return err
 }
 
@@ -642,7 +770,7 @@ INSERT INTO campo.ordenes (
     $9, $10, $11, $12, $13, $14, $15, $16,
     $17, $18, $19
 )
-RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen
+RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg
 `
 
 type CrearOrdenParams struct {
@@ -727,6 +855,154 @@ func (q *Queries) CrearOrden(ctx context.Context, arg CrearOrdenParams) (CampoOr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Origen,
+		&i.PausadaDesde,
+		&i.PausadaEn,
+		&i.PausadaSeg,
+	)
+	return i, err
+}
+
+const crearPausa = `-- name: CrearPausa :one
+
+INSERT INTO campo.orden_pausas (orden_id, motivo, nota, desde_estado, inicio, pausada_por, canal, operacion_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at
+`
+
+type CrearPausaParams struct {
+	OrdenID     int64
+	Motivo      string
+	Nota        *string
+	DesdeEstado string
+	Inicio      time.Time
+	PausadaPor  *int64
+	Canal       string
+	OperacionID *uuid.UUID
+}
+
+// Pausas ----------------------------------------------------------------------------------
+func (q *Queries) CrearPausa(ctx context.Context, arg CrearPausaParams) (CampoOrdenPausa, error) {
+	row := q.db.QueryRow(ctx, crearPausa,
+		arg.OrdenID,
+		arg.Motivo,
+		arg.Nota,
+		arg.DesdeEstado,
+		arg.Inicio,
+		arg.PausadaPor,
+		arg.Canal,
+		arg.OperacionID,
+	)
+	var i CampoOrdenPausa
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Motivo,
+		&i.Nota,
+		&i.DesdeEstado,
+		&i.Inicio,
+		&i.Fin,
+		&i.Cierre,
+		&i.PausadaPor,
+		&i.CerradaPor,
+		&i.Canal,
+		&i.CanalCierre,
+		&i.OperacionID,
+		&i.OperacionCierre,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const crearPlantilla = `-- name: CrearPlantilla :one
+INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por,
+                                        version_actual_id, activa, alguna_vez_activa)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
+        0, $8, $8)
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
+`
+
+type CrearPlantillaParams struct {
+	Codigo        string
+	Nombre        string
+	Descripcion   string
+	TipoCodigo    *string
+	RequiereFirma bool
+	EmpresaID     *int64
+	CreadoPor     *int64
+	Activa        bool
+}
+
+// Nace con una versión provisional (la 1 se crea enseguida y se fija con FijarVersionActual).
+func (q *Queries) CrearPlantilla(ctx context.Context, arg CrearPlantillaParams) (CampoPlantillasChecklist, error) {
+	row := q.db.QueryRow(ctx, crearPlantilla,
+		arg.Codigo,
+		arg.Nombre,
+		arg.Descripcion,
+		arg.TipoCodigo,
+		arg.RequiereFirma,
+		arg.EmpresaID,
+		arg.CreadoPor,
+		arg.Activa,
+	)
+	var i CampoPlantillasChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.TipoCodigo,
+		&i.RequiereFirma,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Cobrar,
+		&i.CargoProductoID,
+		&i.CargoMonto,
+		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
+	)
+	return i, err
+}
+
+const crearVersion = `-- name: CrearVersion :one
+INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por, created_at)
+VALUES ($1,
+        (SELECT coalesce(max(numero), 0) + 1 FROM campo.plantilla_versiones WHERE plantilla_id = $1),
+        $2, $3, $4, $5)
+RETURNING id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at
+`
+
+type CrearVersionParams struct {
+	PlantillaID   int64
+	Nombre        string
+	RequiereFirma bool
+	CreadaPor     *int64
+	CreadaEn      time.Time
+}
+
+func (q *Queries) CrearVersion(ctx context.Context, arg CrearVersionParams) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, crearVersion,
+		arg.PlantillaID,
+		arg.Nombre,
+		arg.RequiereFirma,
+		arg.CreadaPor,
+		arg.CreadaEn,
+	)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -809,6 +1085,17 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 	return items, nil
 }
 
+const esPlantillaDeTipo = `-- name: EsPlantillaDeTipo :one
+SELECT EXISTS (SELECT 1 FROM campo.tipos_orden WHERE plantilla_id = $1::bigint AND activo)
+`
+
+func (q *Queries) EsPlantillaDeTipo(ctx context.Context, plantillaID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, esPlantillaDeTipo, plantillaID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const fijarResultadoOperacion = `-- name: FijarResultadoOperacion :exec
 UPDATE campo.operaciones_sync SET resultado = $1, updated_at = now() WHERE id = $2
 `
@@ -821,6 +1108,63 @@ type FijarResultadoOperacionParams struct {
 func (q *Queries) FijarResultadoOperacion(ctx context.Context, arg FijarResultadoOperacionParams) error {
 	_, err := q.db.Exec(ctx, fijarResultadoOperacion, arg.Resultado, arg.ID)
 	return err
+}
+
+const fijarVersionActual = `-- name: FijarVersionActual :one
+UPDATE campo.plantillas_checklist SET version_actual_id = $1, nombre = $2, requiere_firma = $3,
+    updated_at = now()
+WHERE id = $4
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
+`
+
+type FijarVersionActualParams struct {
+	VersionID     int64
+	Nombre        string
+	RequiereFirma bool
+	ID            int64
+}
+
+func (q *Queries) FijarVersionActual(ctx context.Context, arg FijarVersionActualParams) (CampoPlantillasChecklist, error) {
+	row := q.db.QueryRow(ctx, fijarVersionActual,
+		arg.VersionID,
+		arg.Nombre,
+		arg.RequiereFirma,
+		arg.ID,
+	)
+	var i CampoPlantillasChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.TipoCodigo,
+		&i.RequiereFirma,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Cobrar,
+		&i.CargoProductoID,
+		&i.CargoMonto,
+		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
+	)
+	return i, err
+}
+
+const finUltimaPausa = `-- name: FinUltimaPausa :one
+SELECT coalesce(max(fin), 'epoch'::timestamptz)::timestamptz FROM campo.orden_pausas WHERE orden_id = $1 AND fin IS NOT NULL
+`
+
+// Fin de la última pausa terminada de la orden (piso de una pausa nueva).
+func (q *Queries) FinUltimaPausa(ctx context.Context, ordenID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, finUltimaPausa, ordenID)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const firmasDeOrdenes = `-- name: FirmasDeOrdenes :many
@@ -851,6 +1195,168 @@ func (q *Queries) FirmasDeOrdenes(ctx context.Context, ordenes []int64) ([]Campo
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.InvalidadaEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const formularioDeVersion = `-- name: FormularioDeVersion :one
+SELECT id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at FROM campo.orden_formularios
+WHERE orden_id = $1 AND version_id = $2
+ORDER BY (quitado_en IS NULL) DESC, quitado_en DESC
+LIMIT 1
+`
+
+type FormularioDeVersionParams struct {
+	OrdenID   int64
+	VersionID int64
+}
+
+// El formulario de la orden con esa versión (vigente primero; si no, el último quitado).
+func (q *Queries) FormularioDeVersion(ctx context.Context, arg FormularioDeVersionParams) (CampoOrdenFormulario, error) {
+	row := q.db.QueryRow(ctx, formularioDeVersion, arg.OrdenID, arg.VersionID)
+	var i CampoOrdenFormulario
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.PlantillaID,
+		&i.VersionID,
+		&i.Origen,
+		&i.AgregadoPor,
+		&i.AgregadoEn,
+		&i.Canal,
+		&i.OperacionID,
+		&i.QuitadoEn,
+		&i.QuitadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const formularioPorID = `-- name: FormularioPorID :one
+SELECT id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at FROM campo.orden_formularios WHERE id = $1
+`
+
+func (q *Queries) FormularioPorID(ctx context.Context, id uuid.UUID) (CampoOrdenFormulario, error) {
+	row := q.db.QueryRow(ctx, formularioPorID, id)
+	var i CampoOrdenFormulario
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.PlantillaID,
+		&i.VersionID,
+		&i.Origen,
+		&i.AgregadoPor,
+		&i.AgregadoEn,
+		&i.Canal,
+		&i.OperacionID,
+		&i.QuitadoEn,
+		&i.QuitadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const formularioVigenteDePlantilla = `-- name: FormularioVigenteDePlantilla :one
+SELECT id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at FROM campo.orden_formularios
+WHERE orden_id = $1 AND plantilla_id = $2 AND quitado_en IS NULL
+`
+
+type FormularioVigenteDePlantillaParams struct {
+	OrdenID     int64
+	PlantillaID int64
+}
+
+func (q *Queries) FormularioVigenteDePlantilla(ctx context.Context, arg FormularioVigenteDePlantillaParams) (CampoOrdenFormulario, error) {
+	row := q.db.QueryRow(ctx, formularioVigenteDePlantilla, arg.OrdenID, arg.PlantillaID)
+	var i CampoOrdenFormulario
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.PlantillaID,
+		&i.VersionID,
+		&i.Origen,
+		&i.AgregadoPor,
+		&i.AgregadoEn,
+		&i.Canal,
+		&i.OperacionID,
+		&i.QuitadoEn,
+		&i.QuitadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const formulariosConRespuestas = `-- name: FormulariosConRespuestas :many
+SELECT f.id FROM campo.orden_formularios f
+WHERE f.id = ANY($1::uuid[])
+  AND (EXISTS (SELECT 1 FROM campo.orden_checklist_historial h WHERE h.formulario_id = f.id)
+       OR EXISTS (SELECT 1 FROM campo.orden_adjuntos a
+                  JOIN campo.plantilla_items i ON i.id = a.item_id
+                  WHERE a.orden_id = f.orden_id AND i.version_id = f.version_id))
+`
+
+// Los que tienen alguna marca (aunque no sea la vigente) o un adjunto registrado en uno de sus
+// ítems: ya no se quitan.
+func (q *Queries) FormulariosConRespuestas(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, formulariosConRespuestas, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const formulariosDeOrdenes = `-- name: FormulariosDeOrdenes :many
+SELECT id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at FROM campo.orden_formularios
+WHERE orden_id = ANY($1::bigint[]) AND quitado_en IS NULL
+ORDER BY orden_id, agregado_en, created_at, id
+`
+
+// Los vigentes (no quitados), en el orden en que se agregaron.
+func (q *Queries) FormulariosDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenFormulario, error) {
+	rows, err := q.db.Query(ctx, formulariosDeOrdenes, ordenes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoOrdenFormulario
+	for rows.Next() {
+		var i CampoOrdenFormulario
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.PlantillaID,
+			&i.VersionID,
+			&i.Origen,
+			&i.AgregadoPor,
+			&i.AgregadoEn,
+			&i.Canal,
+			&i.OperacionID,
+			&i.QuitadoEn,
+			&i.QuitadoPor,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -958,25 +1464,27 @@ func (q *Queries) GuardarFirma(ctx context.Context, arg GuardarFirmaParams) (Cam
 }
 
 const guardarMarcaChecklist = `-- name: GuardarMarcaChecklist :exec
-INSERT INTO campo.orden_checklist (orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (orden_id, item_id) DO UPDATE SET
+INSERT INTO campo.orden_checklist (formulario_id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (formulario_id, item_id) DO UPDATE SET
     valor = EXCLUDED.valor, marcado_por = EXCLUDED.marcado_por, canal = EXCLUDED.canal,
     ocurrido_en = EXCLUDED.ocurrido_en, operacion_id = EXCLUDED.operacion_id, updated_at = now()
 `
 
 type GuardarMarcaChecklistParams struct {
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID *uuid.UUID
+	FormularioID uuid.UUID
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  *uuid.UUID
 }
 
 func (q *Queries) GuardarMarcaChecklist(ctx context.Context, arg GuardarMarcaChecklistParams) error {
 	_, err := q.db.Exec(ctx, guardarMarcaChecklist,
+		arg.FormularioID,
 		arg.OrdenID,
 		arg.ItemID,
 		arg.Valor,
@@ -994,9 +1502,10 @@ UPDATE campo.ordenes SET
     estado = $5, programada_inicio = $6, programada_fin = $7,
     en_camino_en = $8, en_sitio_en = $9, finalizada_en = $10,
     resultado = $11, motivo_falla = $12, motivo = $13,
+    pausada_desde = $14, pausada_en = $15, pausada_seg = $16,
     version = version + 1, updated_at = now()
-WHERE id = $14 AND version = $15
-RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen
+WHERE id = $17 AND version = $18
+RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg
 `
 
 type GuardarOrdenParams struct {
@@ -1013,6 +1522,9 @@ type GuardarOrdenParams struct {
 	Resultado        *string
 	MotivoFalla      *string
 	Motivo           *string
+	PausadaDesde     *string
+	PausadaEn        *time.Time
+	PausadaSeg       int64
 	ID               int64
 	Version          int32
 }
@@ -1034,6 +1546,9 @@ func (q *Queries) GuardarOrden(ctx context.Context, arg GuardarOrdenParams) (Cam
 		arg.Resultado,
 		arg.MotivoFalla,
 		arg.Motivo,
+		arg.PausadaDesde,
+		arg.PausadaEn,
+		arg.PausadaSeg,
 		arg.ID,
 		arg.Version,
 	)
@@ -1074,6 +1589,66 @@ func (q *Queries) GuardarOrden(ctx context.Context, arg GuardarOrdenParams) (Cam
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Origen,
+		&i.PausadaDesde,
+		&i.PausadaEn,
+		&i.PausadaSeg,
+	)
+	return i, err
+}
+
+const guardarPlantilla = `-- name: GuardarPlantilla :one
+UPDATE campo.plantillas_checklist SET nombre = $1, descripcion = $2, tipo_codigo = $3,
+    requiere_firma = $4, activa = $5, version_actual_id = $6,
+    alguna_vez_activa = alguna_vez_activa OR $5,
+    version = version + 1, updated_at = now()
+WHERE id = $7 AND version = $8
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
+`
+
+type GuardarPlantillaParams struct {
+	Nombre          string
+	Descripcion     string
+	TipoCodigo      *string
+	RequiereFirma   bool
+	Activa          bool
+	VersionActualID int64
+	ID              int64
+	Version         int32
+}
+
+// Datos de la plantilla (no versionados) y la versión actual. Con una versión vieja no actualiza
+// nada (409).
+func (q *Queries) GuardarPlantilla(ctx context.Context, arg GuardarPlantillaParams) (CampoPlantillasChecklist, error) {
+	row := q.db.QueryRow(ctx, guardarPlantilla,
+		arg.Nombre,
+		arg.Descripcion,
+		arg.TipoCodigo,
+		arg.RequiereFirma,
+		arg.Activa,
+		arg.VersionActualID,
+		arg.ID,
+		arg.Version,
+	)
+	var i CampoPlantillasChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.TipoCodigo,
+		&i.RequiereFirma,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Cobrar,
+		&i.CargoProductoID,
+		&i.CargoMonto,
+		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
@@ -1170,7 +1745,7 @@ func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
 }
 
 const historialChecklist = `-- name: HistorialChecklist :many
-SELECT id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente, created_at, updated_at FROM campo.orden_checklist_historial WHERE orden_id = $1 ORDER BY id
+SELECT id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente, created_at, updated_at, formulario_id FROM campo.orden_checklist_historial WHERE orden_id = $1 ORDER BY id
 `
 
 func (q *Queries) HistorialChecklist(ctx context.Context, ordenID int64) ([]CampoOrdenChecklistHistorial, error) {
@@ -1194,6 +1769,7 @@ func (q *Queries) HistorialChecklist(ctx context.Context, ordenID int64) ([]Camp
 			&i.Vigente,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FormularioID,
 		); err != nil {
 			return nil, err
 		}
@@ -1253,35 +1829,8 @@ func (q *Queries) InvalidarFirma(ctx context.Context, arg InvalidarFirmaParams) 
 	return result.RowsAffected(), nil
 }
 
-const itemPorCodigo = `-- name: ItemPorCodigo :one
-SELECT id, plantilla_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, created_at, updated_at FROM campo.plantilla_items WHERE plantilla_id = $1 AND codigo = $2
-`
-
-type ItemPorCodigoParams struct {
-	PlantillaID int64
-	Codigo      string
-}
-
-func (q *Queries) ItemPorCodigo(ctx context.Context, arg ItemPorCodigoParams) (CampoPlantillaItem, error) {
-	row := q.db.QueryRow(ctx, itemPorCodigo, arg.PlantillaID, arg.Codigo)
-	var i CampoPlantillaItem
-	err := row.Scan(
-		&i.ID,
-		&i.PlantillaID,
-		&i.Posicion,
-		&i.Codigo,
-		&i.Etiqueta,
-		&i.Tipo,
-		&i.Obligatorio,
-		&i.Unidad,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const itemPorID = `-- name: ItemPorID :one
-SELECT id, plantilla_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, created_at, updated_at FROM campo.plantilla_items WHERE id = $1
+SELECT id, plantilla_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, created_at, updated_at, version_id, opciones FROM campo.plantilla_items WHERE id = $1
 `
 
 func (q *Queries) ItemPorID(ctx context.Context, id int64) (CampoPlantillaItem, error) {
@@ -1298,16 +1847,18 @@ func (q *Queries) ItemPorID(ctx context.Context, id int64) (CampoPlantillaItem, 
 		&i.Unidad,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.VersionID,
+		&i.Opciones,
 	)
 	return i, err
 }
 
-const itemsDePlantillas = `-- name: ItemsDePlantillas :many
-SELECT id, plantilla_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, created_at, updated_at FROM campo.plantilla_items WHERE plantilla_id = ANY($1::bigint[]) ORDER BY plantilla_id, posicion, id
+const itemsDeVersiones = `-- name: ItemsDeVersiones :many
+SELECT id, plantilla_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, created_at, updated_at, version_id, opciones FROM campo.plantilla_items WHERE version_id = ANY($1::bigint[]) ORDER BY version_id, posicion, id
 `
 
-func (q *Queries) ItemsDePlantillas(ctx context.Context, plantillas []int64) ([]CampoPlantillaItem, error) {
-	rows, err := q.db.Query(ctx, itemsDePlantillas, plantillas)
+func (q *Queries) ItemsDeVersiones(ctx context.Context, versiones []int64) ([]CampoPlantillaItem, error) {
+	rows, err := q.db.Query(ctx, itemsDeVersiones, versiones)
 	if err != nil {
 		return nil, err
 	}
@@ -1326,6 +1877,8 @@ func (q *Queries) ItemsDePlantillas(ctx context.Context, plantillas []int64) ([]
 			&i.Unidad,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.VersionID,
+			&i.Opciones,
 		); err != nil {
 			return nil, err
 		}
@@ -1384,7 +1937,7 @@ func (q *Queries) ListarEventosOrden(ctx context.Context, arg ListarEventosOrden
 }
 
 const listarOrdenes = `-- name: ListarOrdenes :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes
 WHERE ($1::bigint IS NULL OR id < $1)
   AND ($2::boolean
        OR ($3::bigint IS NULL AND empresa_id IS NULL)
@@ -1504,44 +2057,9 @@ func (q *Queries) ListarOrdenes(ctx context.Context, arg ListarOrdenesParams) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Origen,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listarPlantillas = `-- name: ListarPlantillas :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion FROM campo.plantillas_checklist WHERE activa ORDER BY id
-`
-
-func (q *Queries) ListarPlantillas(ctx context.Context) ([]CampoPlantillasChecklist, error) {
-	rows, err := q.db.Query(ctx, listarPlantillas)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CampoPlantillasChecklist
-	for rows.Next() {
-		var i CampoPlantillasChecklist
-		if err := rows.Scan(
-			&i.ID,
-			&i.Codigo,
-			&i.Nombre,
-			&i.TipoCodigo,
-			&i.RequiereFirma,
-			&i.Activa,
-			&i.Version,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Cobrar,
-			&i.CargoProductoID,
-			&i.CargoMonto,
-			&i.CargoDescripcion,
+			&i.PausadaDesde,
+			&i.PausadaEn,
+			&i.PausadaSeg,
 		); err != nil {
 			return nil, err
 		}
@@ -1595,17 +2113,17 @@ func (q *Queries) ListarTipos(ctx context.Context) ([]CampoTiposOrden, error) {
 
 const marcaChecklist = `-- name: MarcaChecklist :one
 
-SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_checklist WHERE orden_id = $1 AND item_id = $2
+SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, formulario_id FROM campo.orden_checklist WHERE formulario_id = $1 AND item_id = $2
 `
 
 type MarcaChecklistParams struct {
-	OrdenID int64
-	ItemID  int64
+	FormularioID uuid.UUID
+	ItemID       int64
 }
 
 // Checklist -----------------------------------------------------------------------
 func (q *Queries) MarcaChecklist(ctx context.Context, arg MarcaChecklistParams) (CampoOrdenChecklist, error) {
-	row := q.db.QueryRow(ctx, marcaChecklist, arg.OrdenID, arg.ItemID)
+	row := q.db.QueryRow(ctx, marcaChecklist, arg.FormularioID, arg.ItemID)
 	var i CampoOrdenChecklist
 	err := row.Scan(
 		&i.OrdenID,
@@ -1617,6 +2135,7 @@ func (q *Queries) MarcaChecklist(ctx context.Context, arg MarcaChecklistParams) 
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FormularioID,
 	)
 	return i, err
 }
@@ -1803,7 +2322,7 @@ func (q *Queries) OperacionesPorIDs(ctx context.Context, ids []uuid.UUID) ([]Cam
 }
 
 const ordenPorID = `-- name: OrdenPorID :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes WHERE id = $1
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = $1
 `
 
 func (q *Queries) OrdenPorID(ctx context.Context, id int64) (CampoOrden, error) {
@@ -1845,12 +2364,15 @@ func (q *Queries) OrdenPorID(ctx context.Context, id int64) (CampoOrden, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Origen,
+		&i.PausadaDesde,
+		&i.PausadaEn,
+		&i.PausadaSeg,
 	)
 	return i, err
 }
 
 const ordenPorIDParaActualizar = `-- name: OrdenPorIDParaActualizar :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes WHERE id = $1 FOR UPDATE
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) OrdenPorIDParaActualizar(ctx context.Context, id int64) (CampoOrden, error) {
@@ -1892,12 +2414,15 @@ func (q *Queries) OrdenPorIDParaActualizar(ctx context.Context, id int64) (Campo
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Origen,
+		&i.PausadaDesde,
+		&i.PausadaEn,
+		&i.PausadaSeg,
 	)
 	return i, err
 }
 
 const ordenPorIdempotencia = `-- name: OrdenPorIdempotencia :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes WHERE idempotencia = $1
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE idempotencia = $1
 `
 
 func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string) (CampoOrden, error) {
@@ -1939,17 +2464,20 @@ func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Origen,
+		&i.PausadaDesde,
+		&i.PausadaEn,
+		&i.PausadaSeg,
 	)
 	return i, err
 }
 
 const ordenesDelPaquete = `-- name: OrdenesDelPaquete :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes
 WHERE tecnico_id = $1
   AND ($2::boolean
        OR ($3::bigint IS NULL AND empresa_id IS NULL)
        OR empresa_id = $3)
-  AND estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio')
+  AND estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
   AND (programada_inicio IS NULL OR programada_inicio < $4)
 ORDER BY programada_inicio NULLS LAST, id
 LIMIT 500
@@ -1963,7 +2491,8 @@ type OrdenesDelPaqueteParams struct {
 }
 
 // Órdenes vivas del técnico para el día (hora de Guatemala): las programadas hasta ese día
-// (también las atrasadas), las que ya están en camino o en sitio y las pendientes asignadas.
+// (también las atrasadas), las que ya están en camino, en sitio o pausadas y las pendientes
+// asignadas.
 func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaqueteParams) ([]CampoOrden, error) {
 	rows, err := q.db.Query(ctx, ordenesDelPaquete,
 		arg.TecnicoID,
@@ -2014,6 +2543,9 @@ func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaquetePa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Origen,
+			&i.PausadaDesde,
+			&i.PausadaEn,
+			&i.PausadaSeg,
 		); err != nil {
 			return nil, err
 		}
@@ -2026,7 +2558,7 @@ func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaquetePa
 }
 
 const ordenesPorIDs = `-- name: OrdenesPorIDs :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen FROM campo.ordenes WHERE id = ANY($1::bigint[]) ORDER BY id
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = ANY($1::bigint[]) ORDER BY id
 `
 
 func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden, error) {
@@ -2074,6 +2606,9 @@ func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Origen,
+			&i.PausadaDesde,
+			&i.PausadaEn,
+			&i.PausadaSeg,
 		); err != nil {
 			return nil, err
 		}
@@ -2085,33 +2620,95 @@ func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden,
 	return items, nil
 }
 
-const plantillaPorCodigo = `-- name: PlantillaPorCodigo :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion FROM campo.plantillas_checklist WHERE codigo = $1
+const pausaAbierta = `-- name: PausaAbierta :one
+SELECT id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at FROM campo.orden_pausas WHERE orden_id = $1 AND fin IS NULL
 `
 
-func (q *Queries) PlantillaPorCodigo(ctx context.Context, codigo string) (CampoPlantillasChecklist, error) {
-	row := q.db.QueryRow(ctx, plantillaPorCodigo, codigo)
-	var i CampoPlantillasChecklist
+func (q *Queries) PausaAbierta(ctx context.Context, ordenID int64) (CampoOrdenPausa, error) {
+	row := q.db.QueryRow(ctx, pausaAbierta, ordenID)
+	var i CampoOrdenPausa
 	err := row.Scan(
 		&i.ID,
-		&i.Codigo,
-		&i.Nombre,
-		&i.TipoCodigo,
-		&i.RequiereFirma,
-		&i.Activa,
-		&i.Version,
+		&i.OrdenID,
+		&i.Motivo,
+		&i.Nota,
+		&i.DesdeEstado,
+		&i.Inicio,
+		&i.Fin,
+		&i.Cierre,
+		&i.PausadaPor,
+		&i.CerradaPor,
+		&i.Canal,
+		&i.CanalCierre,
+		&i.OperacionID,
+		&i.OperacionCierre,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Cobrar,
-		&i.CargoProductoID,
-		&i.CargoMonto,
-		&i.CargoDescripcion,
 	)
 	return i, err
 }
 
+const pausadoDesde = `-- name: PausadoDesde :one
+SELECT coalesce(sum(extract(epoch FROM fin - inicio)), 0)::bigint FROM campo.orden_pausas
+WHERE orden_id = $1 AND fin IS NOT NULL AND inicio >= $2
+`
+
+type PausadoDesdeParams struct {
+	OrdenID int64
+	Desde   time.Time
+}
+
+// Segundos de las pausas terminadas que empezaron desde ese momento (la visita en curso).
+func (q *Queries) PausadoDesde(ctx context.Context, arg PausadoDesdeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, pausadoDesde, arg.OrdenID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const pausasDeOrdenes = `-- name: PausasDeOrdenes :many
+SELECT id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at FROM campo.orden_pausas WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, inicio, id
+`
+
+func (q *Queries) PausasDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenPausa, error) {
+	rows, err := q.db.Query(ctx, pausasDeOrdenes, ordenes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoOrdenPausa
+	for rows.Next() {
+		var i CampoOrdenPausa
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.Motivo,
+			&i.Nota,
+			&i.DesdeEstado,
+			&i.Inicio,
+			&i.Fin,
+			&i.Cierre,
+			&i.PausadaPor,
+			&i.CerradaPor,
+			&i.Canal,
+			&i.CanalCierre,
+			&i.OperacionID,
+			&i.OperacionCierre,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const plantillaPorID = `-- name: PlantillaPorID :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion FROM campo.plantillas_checklist WHERE id = $1
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1
 `
 
 func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
@@ -2131,8 +2728,183 @@ func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillas
 		&i.CargoProductoID,
 		&i.CargoMonto,
 		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
+}
+
+const plantillaPorIDCompartida = `-- name: PlantillaPorIDCompartida :one
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1 FOR SHARE
+`
+
+// Al agregar un formulario: la edición (FOR UPDATE) espera, así no reescribe una versión que
+// se acaba de empezar a usar.
+func (q *Queries) PlantillaPorIDCompartida(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
+	row := q.db.QueryRow(ctx, plantillaPorIDCompartida, id)
+	var i CampoPlantillasChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.TipoCodigo,
+		&i.RequiereFirma,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Cobrar,
+		&i.CargoProductoID,
+		&i.CargoMonto,
+		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
+	)
+	return i, err
+}
+
+const plantillaPorIDParaActualizar = `-- name: PlantillaPorIDParaActualizar :one
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) PlantillaPorIDParaActualizar(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
+	row := q.db.QueryRow(ctx, plantillaPorIDParaActualizar, id)
+	var i CampoPlantillasChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.TipoCodigo,
+		&i.RequiereFirma,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Cobrar,
+		&i.CargoProductoID,
+		&i.CargoMonto,
+		&i.CargoDescripcion,
+		&i.EmpresaID,
+		&i.Descripcion,
+		&i.CreadoPor,
+		&i.VersionActualID,
+		&i.AlgunaVezActiva,
+	)
+	return i, err
+}
+
+const plantillasPorIDs = `-- name: PlantillasPorIDs :many
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPlantillasChecklist, error) {
+	rows, err := q.db.Query(ctx, plantillasPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoPlantillasChecklist
+	for rows.Next() {
+		var i CampoPlantillasChecklist
+		if err := rows.Scan(
+			&i.ID,
+			&i.Codigo,
+			&i.Nombre,
+			&i.TipoCodigo,
+			&i.RequiereFirma,
+			&i.Activa,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Cobrar,
+			&i.CargoProductoID,
+			&i.CargoMonto,
+			&i.CargoDescripcion,
+			&i.EmpresaID,
+			&i.Descripcion,
+			&i.CreadoPor,
+			&i.VersionActualID,
+			&i.AlgunaVezActiva,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const plantillasVisibles = `-- name: PlantillasVisibles :many
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist
+WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
+  AND (NOT $3::boolean OR activa)
+  AND ($4::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = $4)
+  AND ($5::text IS NULL OR nombre ILIKE '%' || $5 || '%' OR codigo ILIKE '%' || $5 || '%')
+ORDER BY nombre, id
+LIMIT 500
+`
+
+type PlantillasVisiblesParams struct {
+	TodasEmpresas bool
+	EmpresaID     *int64
+	SoloActivas   bool
+	Tipo          *string
+	Q             *string
+}
+
+// Plantillas que ve la empresa: las comunes (empresa null) y las de la empresa (null = sin
+// conector: solo las comunes; todas = el sistema).
+func (q *Queries) PlantillasVisibles(ctx context.Context, arg PlantillasVisiblesParams) ([]CampoPlantillasChecklist, error) {
+	rows, err := q.db.Query(ctx, plantillasVisibles,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.SoloActivas,
+		arg.Tipo,
+		arg.Q,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoPlantillasChecklist
+	for rows.Next() {
+		var i CampoPlantillasChecklist
+		if err := rows.Scan(
+			&i.ID,
+			&i.Codigo,
+			&i.Nombre,
+			&i.TipoCodigo,
+			&i.RequiereFirma,
+			&i.Activa,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Cobrar,
+			&i.CargoProductoID,
+			&i.CargoMonto,
+			&i.CargoDescripcion,
+			&i.EmpresaID,
+			&i.Descripcion,
+			&i.CreadoPor,
+			&i.VersionActualID,
+			&i.AlgunaVezActiva,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const posicionesCercanas = `-- name: PosicionesCercanas :many
@@ -2191,6 +2963,39 @@ func (q *Queries) PurgarUltimasPosiciones(ctx context.Context, limite time.Time)
 	return result.RowsAffected(), nil
 }
 
+const quitarFormulario = `-- name: QuitarFormulario :one
+UPDATE campo.orden_formularios SET quitado_en = $1, quitado_por = $2, updated_at = now()
+WHERE id = $3 AND quitado_en IS NULL
+RETURNING id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id, quitado_en, quitado_por, created_at, updated_at
+`
+
+type QuitarFormularioParams struct {
+	QuitadoEn  *time.Time
+	QuitadoPor *int64
+	ID         uuid.UUID
+}
+
+func (q *Queries) QuitarFormulario(ctx context.Context, arg QuitarFormularioParams) (CampoOrdenFormulario, error) {
+	row := q.db.QueryRow(ctx, quitarFormulario, arg.QuitadoEn, arg.QuitadoPor, arg.ID)
+	var i CampoOrdenFormulario
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.PlantillaID,
+		&i.VersionID,
+		&i.Origen,
+		&i.AgregadoPor,
+		&i.AgregadoEn,
+		&i.Canal,
+		&i.OperacionID,
+		&i.QuitadoEn,
+		&i.QuitadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const reclamarOperacion = `-- name: ReclamarOperacion :execrows
 INSERT INTO campo.operaciones_sync (id, dispositivo_id, usuario_id, orden_id, tipo, estado, resultado,
                                     version_base, ocurrido_en_telefono, ocurrido_en)
@@ -2232,6 +3037,35 @@ func (q *Queries) ReclamarOperacion(ctx context.Context, arg ReclamarOperacionPa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const reescribirVersion = `-- name: ReescribirVersion :one
+UPDATE campo.plantilla_versiones SET nombre = $1, requiere_firma = $2, updated_at = now()
+WHERE id = $3
+RETURNING id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at
+`
+
+type ReescribirVersionParams struct {
+	Nombre        string
+	RequiereFirma bool
+	ID            int64
+}
+
+// Una versión sin uso se reescribe (sus ítems se reemplazan aparte).
+func (q *Queries) ReescribirVersion(ctx context.Context, arg ReescribirVersionParams) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, reescribirVersion, arg.Nombre, arg.RequiereFirma, arg.ID)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const registrarAdjunto = `-- name: RegistrarAdjunto :one
@@ -2593,4 +3427,173 @@ func (q *Queries) UsuarioAsignable(ctx context.Context, id int64) (UsuarioAsigna
 		&i.Activo,
 	)
 	return i, err
+}
+
+const versionEnUso = `-- name: VersionEnUso :one
+SELECT EXISTS (SELECT 1 FROM campo.orden_formularios WHERE version_id = $1)
+`
+
+// Algún formulario de una orden (vigente o quitado) usa la versión: ya no se reescribe.
+func (q *Queries) VersionEnUso(ctx context.Context, versionID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, versionEnUso, versionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const versionPorID = `-- name: VersionPorID :one
+SELECT id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at FROM campo.plantilla_versiones WHERE id = $1
+`
+
+func (q *Queries) VersionPorID(ctx context.Context, id int64) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, versionPorID, id)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const versionPorNumero = `-- name: VersionPorNumero :one
+SELECT id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at FROM campo.plantilla_versiones WHERE plantilla_id = $1 AND numero = $2
+`
+
+type VersionPorNumeroParams struct {
+	PlantillaID int64
+	Numero      int32
+}
+
+func (q *Queries) VersionPorNumero(ctx context.Context, arg VersionPorNumeroParams) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, versionPorNumero, arg.PlantillaID, arg.Numero)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const versionVigenteEn = `-- name: VersionVigenteEn :one
+SELECT id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at FROM campo.plantilla_versiones
+WHERE plantilla_id = $1 AND created_at <= $2
+ORDER BY numero DESC
+LIMIT 1
+`
+
+type VersionVigenteEnParams struct {
+	PlantillaID int64
+	Momento     time.Time
+}
+
+// La versión de la plantilla vigente en ese momento: la última creada hasta entonces.
+func (q *Queries) VersionVigenteEn(ctx context.Context, arg VersionVigenteEnParams) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, versionVigenteEn, arg.PlantillaID, arg.Momento)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const versionesDePlantilla = `-- name: VersionesDePlantilla :many
+SELECT v.id, v.plantilla_id, v.numero, v.nombre, v.requiere_firma, v.creada_por, v.created_at, v.updated_at, (SELECT count(*) FROM campo.orden_formularios f WHERE f.version_id = v.id)::bigint AS formularios
+FROM campo.plantilla_versiones v
+WHERE v.plantilla_id = $1
+ORDER BY v.numero DESC
+`
+
+type VersionesDePlantillaRow struct {
+	ID            int64
+	PlantillaID   int64
+	Numero        int32
+	Nombre        string
+	RequiereFirma bool
+	CreadaPor     *int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Formularios   int64
+}
+
+// Con la cantidad de formularios (de órdenes) que la usan.
+func (q *Queries) VersionesDePlantilla(ctx context.Context, plantillaID int64) ([]VersionesDePlantillaRow, error) {
+	rows, err := q.db.Query(ctx, versionesDePlantilla, plantillaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VersionesDePlantillaRow
+	for rows.Next() {
+		var i VersionesDePlantillaRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlantillaID,
+			&i.Numero,
+			&i.Nombre,
+			&i.RequiereFirma,
+			&i.CreadaPor,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Formularios,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const versionesPorIDs = `-- name: VersionesPorIDs :many
+SELECT id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at FROM campo.plantilla_versiones WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) VersionesPorIDs(ctx context.Context, ids []int64) ([]CampoPlantillaVersion, error) {
+	rows, err := q.db.Query(ctx, versionesPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoPlantillaVersion
+	for rows.Next() {
+		var i CampoPlantillaVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlantillaID,
+			&i.Numero,
+			&i.Nombre,
+			&i.RequiereFirma,
+			&i.CreadaPor,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -27,6 +27,10 @@ const (
 	OpAdjuntoRegistrar = "adjunto.registrar"
 	OpCerrar           = "orden.cerrar"
 	OpFallar           = "orden.fallar"
+	OpPausar           = "orden.pausar"
+	OpReanudar         = "orden.reanudar"
+	OpAgregarForm      = "orden.agregar_formulario"
+	OpQuitarForm       = "orden.quitar_formulario"
 )
 
 // Avisos de una acción aplicada.
