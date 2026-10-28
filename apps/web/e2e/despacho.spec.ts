@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { ADMIN, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
+import { ADMIN, ASIGNADOR, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { abrirMenu, avisoError, menu } from "./ayudas";
 import { JORGE, LUCIA, ROSA } from "./datos-agenda";
 import { simularTeselas } from "./teselas";
@@ -274,6 +274,32 @@ test.describe("agenda", () => {
         await dialogo(page).getByRole("button", { name: "Asignar" }).click();
         await expect(page.getByTestId("movida")).toContainText("OT-000010 asignada: Jorge Méndez");
         expect(ultima(api, "/api/v1/ordenes/10/asignar", "POST")?.cuerpo).toEqual({ version: 1, tecnicoId: JORGE, cuadrillaId: 1 });
+    });
+
+    test("con solo ordenes.asignar: las franjas con hora no aceptan el arrastre y «Mover a…» solo asigna", async ({ page, baseURL }, info) => {
+        const api = await simularApi(page, { despacho: true });
+        await entrarAgenda(page, baseURL, ASIGNADOR.correo);
+        if (enTelefono(info)) {
+            await abrirMover(page, info, "OT-000003");
+        } else {
+            // Soltar en la línea de Jorge (acción con hora) no hace nada: ni resalta ni abre un diálogo bloqueado.
+            await soltarEn(page, cita(page, "OT-000003"), JORGE, "15:30");
+            await expect(dialogo(page)).toHaveCount(0);
+            await expect(page.locator(`[data-pista="${JORGE}"]`).filter({ visible: true })).not.toHaveClass(/outline-primary/);
+            // Soltar en su nombre sí: asignar.
+            await cita(page, "OT-000003").dragTo(page.locator(`[data-cabecera-tecnico="${JORGE}"]`).filter({ visible: true }));
+            await expect(dialogo(page)).toBeVisible();
+            await expect(dialogo(page).getByLabel("Técnico", { exact: true })).toHaveValue(String(JORGE));
+        }
+        const d = dialogo(page);
+        await expect(d.getByLabel("Hora", { exact: true })).toHaveCount(0);
+        await expect(d.getByRole("checkbox")).toHaveCount(0);
+        await expect(d.getByText("No tienes permiso para esta acción")).toHaveCount(0);
+        await d.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
+        await d.getByRole("button", { name: "Asignar" }).click();
+        await expect(page.getByTestId("movida")).toContainText("OT-000003 asignada: Jorge Méndez");
+        expect(ultima(api, "/api/v1/ordenes/3/asignar", "POST")?.cuerpo).toEqual({ version: 3, tecnicoId: JORGE, cuadrillaId: 1 });
+        expect(api.peticiones.some((p) => p.ruta.endsWith("/programar") || p.ruta.endsWith("/reprogramar"))).toBe(false);
     });
 
     test("si la agenda no se lee: error con «Reintentar» y ningún calendario a medias", async ({ page, context, baseURL }) => {

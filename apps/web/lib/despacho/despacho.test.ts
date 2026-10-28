@@ -2,7 +2,7 @@ import type { Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
 import { ausenciasDelDia, citasDelDia, filasDeTecnicos, horarioDelDia, minutosEnFraccion, nombreDe, tramoEnHorario, type CitaAgenda, type Tecnico } from "./calendario";
 import { diaDesdeIso, esDia, etiquetaDia, horaDe, hoyGuatemala, inicioSemana, isoDesdeDia, minutosEnDia, rangoUtc, sumarDias, textoAntiguedad } from "./fechas";
-import { accionMover, comprobarDestino, entradaAsignar, entradaProgramar, esquemaMover, movibleDeCita, sePuedeMover, valoresIniciales, type Asignable } from "./mover";
+import { accionMover, arrastrePermitido, comprobarDestino, entradaAsignar, entradaProgramar, esquemaMover, movibleDeCita, sePuedeMover, valoresIniciales, type Asignable } from "./mover";
 import { antiguedadAhora, frescura, iniciales, textoPosicion } from "./posiciones";
 import { compararRutas, paradasReales, RUTAS_EN_CONTRATO, type ParadaPropuesta, type ParadaReal } from "./rutas";
 
@@ -138,6 +138,25 @@ describe("mover una orden", () => {
         expect(sePuedeMover("en_sitio", () => true)).toBe(false);
     });
 
+    it("las franjas con hora solo aceptan el arrastre con el permiso de programar o reprogramar", () => {
+        const soloAsignar = (p: readonly string[]) => p.includes("ordenes.asignar");
+        const programada = movibleDeCita(cita({}));
+        const pendiente = { ...programada, estado: "pendiente" as const, inicio: null, fin: null };
+        const fallida = { ...programada, estado: "fallida" as const };
+        // Solo `ordenes.asignar`: ninguna franja con hora acepta; el nombre del técnico sí.
+        expect(arrastrePermitido(programada, true, soloAsignar)).toBeNull();
+        expect(arrastrePermitido(pendiente, true, soloAsignar)).toBeNull();
+        expect(arrastrePermitido(programada, false, soloAsignar)).toBe(programada);
+        expect(arrastrePermitido(pendiente, false, soloAsignar)).toBe(pendiente);
+        // Cada acción con su permiso exacto.
+        expect(arrastrePermitido(programada, true, (p) => p.includes("ordenes.reprogramar"))).toBe(programada);
+        expect(arrastrePermitido(pendiente, true, (p) => p.includes("ordenes.reprogramar"))).toBeNull();
+        expect(arrastrePermitido(pendiente, true, (p) => p.includes("ordenes.programar"))).toBe(pendiente);
+        // Una fallida no se asigna sin hora; y sin arrastre, nada.
+        expect(arrastrePermitido(fallida, false, () => true)).toBeNull();
+        expect(arrastrePermitido(null, true, () => true)).toBeNull();
+    });
+
     it("reprogramar exige motivo y conserva la duración de la cita", () => {
         const m = movibleDeCita(cita({ inicio: "2026-10-28T16:00:00Z", fin: "2026-10-28T17:30:00Z" }));
         const esquema = esquemaMover(m);
@@ -173,6 +192,8 @@ describe("mover una orden", () => {
         expect(valoresIniciales(m, undefined, "2026-10-30")).toEqual({ tecnicoId: "3", soloAsignar: false, fecha: "2026-10-28", hora: "10:00", motivo: "" });
         expect(valoresIniciales(m, { tecnicoId: 11, dia: "2026-10-29", minutos: 13 * 60 + 45 }, "2026-10-30")).toMatchObject({ tecnicoId: "11", fecha: "2026-10-29", hora: "13:45" });
         expect(valoresIniciales(m, { tecnicoId: 11, dia: null, minutos: null }, "2026-10-30")).toMatchObject({ tecnicoId: "11", soloAsignar: true });
+        // Quien solo puede asignar empieza en «solo asignar» (nunca en una acción que no puede hacer).
+        expect(valoresIniciales(m, undefined, "2026-10-30", (conHora) => !conHora)).toMatchObject({ soloAsignar: true });
     });
 
     const asignable = (p: Partial<Asignable>): Asignable => ({

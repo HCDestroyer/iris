@@ -46,6 +46,8 @@ export const CONSULTA = usuario({ id: 7, nombre: "Carlos Ruiz", correo: "carlos@
 export const SUPERVISOR_ZONA = usuario({ id: 8, nombre: "Zoe Hernández", correo: "zoe@iris.test", roles: [{ rol: "supervisor", zonaId: 2 }] });
 /** Despacho: órdenes y pendientes en Argos, pero sin `integraciones.reintentar`. */
 export const DESPACHO = usuario({ id: 9, nombre: "Diego Castro", correo: "diego@iris.test", roles: [{ rol: "despacho" }] });
+/** Solo puede asignar órdenes (sin programar ni reprogramar): prueba de §10 en el despacho. */
+export const ASIGNADOR = usuario({ id: 10, nombre: "Andrés Coj", correo: "andres@iris.test", roles: [{ rol: "despacho" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
@@ -112,11 +114,12 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "tickets.ver", "usuarios.ver"],
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
+    [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
     [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],

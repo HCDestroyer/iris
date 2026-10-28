@@ -21,7 +21,7 @@ import {
     type Zona,
 } from "@/lib/despacho/calendario";
 import { diasDesde, etiquetaDia, etiquetaDiaLarga, horaDe, minutosDeTexto, minutosEnDia, textoMinutos, type Dia } from "@/lib/despacho/fechas";
-import { movibleDeCita, movibleDeOrden, sePuedeMover, type Movible } from "@/lib/despacho/mover";
+import { arrastrePermitido, movibleDeCita, movibleDeOrden, sePuedeMover, type Movible } from "@/lib/despacho/mover";
 import { ESTADOS_ORDEN, TIPOS_ORDEN, type Orden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import type { Destino } from "./mover-orden";
@@ -184,7 +184,7 @@ function BloqueAusencia({ a, style, className }: { a: AusenciaAgenda; style?: Re
 /** Nombre del técnico: también se puede soltar ahí una orden para asignarla sin cambiar la hora. */
 function CabeceraFila({ fila, comun, detalle }: { fila: FilaTecnico; comun: Comun; detalle: string }) {
     const { puede } = useSesion();
-    const soltar = useSoltar(puede(["ordenes.asignar"]) ? comun.arrastre : null, (m) => comun.alMover(m, { tecnicoId: fila.usuarioId, dia: null, minutos: null }));
+    const soltar = useSoltar(arrastrePermitido(comun.arrastre, false, puede), (m) => comun.alMover(m, { tecnicoId: fila.usuarioId, dia: null, minutos: null }));
     return (
         <div {...soltar.props} className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5", soltar.encima && "bg-primary/10 outline-2 outline-primary")} data-cabecera-tecnico={fila.usuarioId}>
             <UserRound aria-hidden className="size-4 shrink-0 text-muted-foreground" />
@@ -221,7 +221,8 @@ const ALTO_CARRIL = 44;
 function PistaDia({ fila, dia, horario, comun }: { fila: FilaTecnico; dia: Dia; horario: Horario; comun: Comun }) {
     const citas = citasDelDia(comun.calendario.citas ?? [], fila.usuarioId, dia);
     const ausencias = ausenciasDelDia(comun.calendario.ausencias ?? [], fila.usuarioId, dia);
-    const soltar = useSoltar(comun.arrastre, (m, e) => {
+    const { puede } = useSesion();
+    const soltar = useSoltar(arrastrePermitido(comun.arrastre, true, puede), (m, e) => {
         const caja = e.currentTarget.getBoundingClientRect();
         const minutos = minutosEnFraccion((e.clientX - caja.left) / Math.max(1, caja.width), horario);
         comun.alMover(m, { tecnicoId: fila.usuarioId, dia, minutos });
@@ -313,7 +314,8 @@ function RejillaDia({ dia, comun }: { dia: Dia; comun: Comun }) {
 function CeldaSemana({ fila, dia, comun }: { fila: FilaTecnico; dia: Dia; comun: Comun }) {
     const citas = citasDelDia(comun.calendario.citas ?? [], fila.usuarioId, dia);
     const ausencias = ausenciasDelDia(comun.calendario.ausencias ?? [], fila.usuarioId, dia);
-    const soltar = useSoltar(comun.arrastre, (m) => {
+    const { puede } = useSesion();
+    const soltar = useSoltar(arrastrePermitido(comun.arrastre, true, puede), (m) => {
         const minutos = (m.inicio ? minutosDeTexto(horaDe(m.inicio)) : undefined) ?? HORA_POR_DEFECTO;
         comun.alMover(m, { tecnicoId: fila.usuarioId, dia, minutos });
     });

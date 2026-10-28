@@ -91,6 +91,16 @@ export function sePuedeMover(estado: EstadoOrden, puede: (p: readonly Permiso[])
     });
 }
 
+/**
+ * Lo que se arrastra, si quien arrastra puede hacer la acción de ese destino (con hora: programar
+ * o reprogramar; sin hora: asignar); si no, `null` y el destino no acepta ni se resalta.
+ */
+export function arrastrePermitido(m: Movible | null, conHora: boolean, puede: (p: readonly Permiso[]) => boolean): Movible | null {
+    if (!m) return null;
+    const accion = accionMover(m.estado, conHora);
+    return accion !== null && puede([PERMISO_MOVER[accion]]) ? m : null;
+}
+
 /** Duración que se conserva al mover una cita (minutos); `null` sin cita: la API usa la del tipo. */
 export function duracionDe(m: Pick<Movible, "inicio" | "fin">): number | null {
     if (!m.inicio || !m.fin) return null;
@@ -225,7 +235,13 @@ export function comprobarDestino(
 }
 
 /** Valores iniciales del formulario a partir del destino (arrastre) o de la cita actual. */
-export function valoresIniciales(m: Movible, destino: { tecnicoId?: number | null; dia?: Dia | null; minutos?: number | null } | undefined, hoy: Dia): EntradaFormMover {
+export function valoresIniciales(
+    m: Movible,
+    destino: { tecnicoId?: number | null; dia?: Dia | null; minutos?: number | null } | undefined,
+    hoy: Dia,
+    /** ¿Puede la acción con hora o sin ella? Si solo puede asignar, el formulario empieza en «solo asignar». */
+    permite: (conHora: boolean) => boolean = () => true,
+): EntradaFormMover {
     const dia = destino?.dia ?? (m.inicio ? new Date(Date.parse(m.inicio) - 6 * 3_600_000).toISOString().slice(0, 10) : hoy);
     const hora =
         destino?.minutos !== undefined && destino.minutos !== null
@@ -236,7 +252,7 @@ export function valoresIniciales(m: Movible, destino: { tecnicoId?: number | nul
     const tecnico = destino?.tecnicoId ?? m.tecnicoId;
     return {
         tecnicoId: tecnico === null || tecnico === undefined ? "" : String(tecnico),
-        soloAsignar: destino !== undefined && destino.minutos === null && destino.dia === null,
+        soloAsignar: (destino !== undefined && destino.minutos === null && destino.dia === null) || (!permite(true) && permite(false)),
         fecha: dia,
         hora,
         motivo: "",

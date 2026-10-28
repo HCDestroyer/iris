@@ -15,6 +15,7 @@ import {
     MOTIVOS_NO_DISPONIBLE,
     PERMISO_MOVER,
     accionMover,
+    arrastrePermitido,
     comprobarDestino,
     entradaAsignar,
     entradaProgramar,
@@ -59,13 +60,13 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
     const [recargando, setRecargando] = useState(false);
     const form = useForm<{ tecnicoId: string; soloAsignar: boolean; fecha: string; hora: string; motivo: string }, unknown, DatosMover>({
         resolver: zodResolver(esquemaMover(movible)),
-        defaultValues: valoresIniciales(movible, destino, hoy),
+        defaultValues: valoresIniciales(movible, destino, hoy, (conHora) => arrastrePermitido(movible, conHora, puede) !== null),
     });
     const [tecnicoTexto, soloAsignar, fecha, hora] = useWatch({ control: form.control, name: ["tecnicoId", "soloAsignar", "fecha", "hora"] });
     const accion = accionMover(movible.estado, !soloAsignar);
     const permitido = accion !== null && puede([PERMISO_MOVER[accion]]);
-    const puedeSoloAsignar = accionMover(movible.estado, false) !== null && puede(["ordenes.asignar"]);
-    const puedeConHora = accionMover(movible.estado, true) !== null && puede([PERMISO_MOVER[accionMover(movible.estado, true) ?? "programar"]]);
+    const puedeSoloAsignar = arrastrePermitido(movible, false, puede) !== null;
+    const puedeConHora = arrastrePermitido(movible, true, puede) !== null;
 
     const diaConsulta = esDia(fecha) ? fecha : hoy;
     const asignables = useAsignables({ fecha: diaConsulta, tipo: movible.tipo, zonaId: movible.zonaId, ordenId: movible.inicio ? movible.ordenId : null });
