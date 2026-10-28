@@ -44,3 +44,10 @@ sql:
         <<: *gen
         package: identidadbd
         out: internal/nucleo/identidad/bd
+  - <<: *base
+    queries: internal/soporte/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: soportebd
+        out: internal/soporte/bd
