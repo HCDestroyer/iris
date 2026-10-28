@@ -13,7 +13,9 @@ import (
 //
 // El job no crea tickets (eso es de soporte, I2): valida y normaliza el payload (eventos.go) y
 // lo publica como evento interno por el outbox con el mismo nombre. Para un hallazgo con IP,
-// antes de la transacción pregunta a Argos de quién es la IP (argos.ResolverIPInterno: A8 con
+// antes de la transacción pregunta a Argos de quién es la IP, solo dentro de la empresa del
+// hallazgo (la del payload o, si no viene, la de su router en la instantánea de Argos; sin
+// empresa no se resuelve: motivo_sin_cliente = empresa_desconocida) (argos.ResolverIPInterno: A8 con
 // respaldo a GET /ip/{ip} y a la instantánea) y agrega cliente_id, servicio_id y empresa_id (o
 // null con motivo_sin_cliente). Si el router no trae empresa_id, la toma de la instantánea de
 // routers de Argos. Un payload inválido o un evento desconocido se guarda como «ignorado» con
@@ -129,11 +131,14 @@ func (p *ProcesarEntrante) enriquecer(ctx context.Context, n *normalizado) error
 	if !ok || n.resolverIP == "" {
 		return nil
 	}
-	var empresa int64
-	if h.EmpresaID != nil {
-		empresa = *h.EmpresaID
+	if h.EmpresaID == nil {
+		// Sin empresa no se resuelve: buscar la IP en todas las empresas podría dar el cliente
+		// de otra (IPs CGNAT o privadas repetidas).
+		motivo := MotivoEmpresaDesconocida
+		h.MotivoSinCliente = &motivo
+		return nil
 	}
-	res, err := p.m.argos.ResolverIPInterno(ctx, n.resolverIP, empresa)
+	res, err := p.m.argos.ResolverIPInterno(ctx, n.resolverIP, *h.EmpresaID)
 	if err != nil {
 		return err
 	}

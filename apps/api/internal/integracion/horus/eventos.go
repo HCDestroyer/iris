@@ -92,6 +92,10 @@ const (
 // MotivoSinIP: el hallazgo no trae IP (no hay cliente que buscar).
 const MotivoSinIP = "sin_ip"
 
+// MotivoEmpresaDesconocida: ni el payload ni el router dicen de qué empresa es el hallazgo; no
+// se busca la IP en todas las empresas (la misma IP puede estar en dos).
+const MotivoEmpresaDesconocida = "empresa_desconocida"
+
 // Lectura tolerante del payload ---------------------------------------------------------------
 
 // datos es el payload normalizado (claves en snake_case) leído campo por campo: un campo con
@@ -283,9 +287,13 @@ func normalizar(e conector.Entrante, origenes ...string) (*normalizado, string) 
 			return nil, notaPayloadInvalido + "falta hallazgo_id"
 		}
 		if e.Evento == EventoHallazgoResuelto {
-			return &normalizado{evento: e.Evento, payload: &HallazgoResuelto{
+			n := &normalizado{evento: e.Evento, payload: &HallazgoResuelto{
 				HallazgoID: id, Categoria: categoria, Resumen: resumen, OcurridoEn: ocurrido, EmpresaID: empresa, EntranteID: e.ID,
-			}}, ""
+			}}
+			if empresa == nil && routerID != nil {
+				n.routerSinEmpresa = routerID
+			}
+			return n, ""
 		}
 		if categoria == "" {
 			return nil, notaPayloadInvalido + "falta categoria"
@@ -296,6 +304,11 @@ func normalizar(e conector.Entrante, origenes ...string) (*normalizado, string) 
 			EmpresaID: empresa, OcurridoEn: ocurrido, EntranteID: e.ID,
 		}
 		n := &normalizado{evento: e.Evento, payload: p}
+		if empresa == nil && routerID != nil {
+			// La empresa del router (instantánea de Argos) acota la búsqueda de la IP: la misma
+			// IP (CGNAT, privada) puede existir en dos empresas.
+			n.routerSinEmpresa = routerID
+		}
 		switch {
 		case !valida:
 			motivo := "ip_invalida"
@@ -341,6 +354,10 @@ func (n *normalizado) fijarEmpresaRouter(empresa *int64) {
 	case *RouterEstadoCambiado:
 		p.EmpresaID = empresa
 	case *ServicioInfraCambiado:
+		p.EmpresaID = empresa
+	case *HallazgoAbierto:
+		p.EmpresaID = empresa
+	case *HallazgoResuelto:
 		p.EmpresaID = empresa
 	}
 }

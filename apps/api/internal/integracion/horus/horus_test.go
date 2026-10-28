@@ -555,6 +555,11 @@ func TestEventosInternosDeRouterEInfra(t *testing.T) {
 func TestHallazgosConClienteResueltoPorArgos(t *testing.T) {
 	e := nuevoEntorno(t, loopback)
 	admin, id, secreto := e.conectarHorus()
+	// El router 9 es de la empresa 1 (instantánea de Argos): los hallazgos sin empresa_id toman
+	// la de su router.
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO integracion.argos_routers (id, empresa_id, nombre, sincronizado_en) VALUES (9, 1, 'RB', now())`); err != nil {
+		t.Fatal(err)
+	}
 	hallazgo := func(extra map[string]any) map[string]any {
 		p := map[string]any{"hallazgoId": "hz-" + pruebas.Unico(), "categoria": "Equipo_Infectado", "severidad": "ALTA",
 			"resumen": "Tráfico hacia C2 conocido", "router_id": 9}
@@ -582,8 +587,13 @@ func TestHallazgosConClienteResueltoPorArgos(t *testing.T) {
 		ev["fuente_cliente"] != "argos" || motivo(ev) != nil || ev["url_horus"] != e.horus.srv.URL+"/hallazgos/hz-1" || ev["router_id"] != float64(9) {
 		t.Fatalf("resuelto: %v", ev)
 	}
+	// Sin empresa_id, la del router.
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoResuelto, map[string]any{"hallazgo_id": 78, "router_id": 9})
+	if ev["empresa_id"] != float64(1) {
+		t.Fatalf("resuelto con router: %v", ev)
+	}
 	// Una URL de otro origen no se publica (el panel no enlaza a donde diga un webhook).
-	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(map[string]any{"ip": "100.64.10.21", "url": "https://malo.example/x"}))
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(map[string]any{"ip": "100.64.10.21", "empresa_id": 2, "url": "https://malo.example/x"}))
 	if ev["url_horus"] != nil || ev["cliente_id"] != float64(502) || ev["empresa_id"] != float64(2) {
 		t.Fatalf("otro origen: %v", ev)
 	}
@@ -592,9 +602,26 @@ func TestHallazgosConClienteResueltoPorArgos(t *testing.T) {
 	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoOtraEmpresa || ev["empresa_id"] != float64(1) {
 		t.Fatalf("otra empresa: %v", ev)
 	}
+	// Regresión (revisión): sin empresa_id, la del router acota la IP; una IP repetida en otra
+	// empresa (CGNAT) no da el cliente ajeno.
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(map[string]any{"ip": "100.64.10.21"}))
+	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoOtraEmpresa || ev["empresa_id"] != float64(1) {
+		t.Fatalf("router de otra empresa: %v", ev)
+	}
+	// Sin empresa_id ni router conocido: no se busca la IP en todas las empresas.
+	sinEmpresa := hallazgo(map[string]any{"ip": "100.64.10.20"})
+	delete(sinEmpresa, "router_id")
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, sinEmpresa)
+	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoEmpresaDesconocida || ev["empresa_id"] != nil {
+		t.Fatalf("sin empresa: %v", ev)
+	}
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(map[string]any{"ip": "100.64.10.20", "router_id": 404}))
+	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoEmpresaDesconocida {
+		t.Fatalf("router desconocido: %v", ev)
+	}
 	// IP sin cliente, sin IP, IP inválida.
 	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(map[string]any{"ip": "100.64.99.99"}))
-	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoIPSinCliente || ev["empresa_id"] != nil {
+	if ev["cliente_id"] != nil || motivo(ev) != horus.MotivoIPSinCliente || ev["empresa_id"] != float64(1) {
 		t.Fatalf("ip sin cliente: %v", ev)
 	}
 	_, ev = e.procesar(id, secreto, horus.EventoHallazgoAbierto, hallazgo(nil))
