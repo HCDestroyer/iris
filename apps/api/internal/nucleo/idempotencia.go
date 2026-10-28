@@ -32,7 +32,32 @@ type OpcionesIdempotencia struct {
 	Vigencia time.Duration
 	// Tamaño máximo del cuerpo que se acepta con clave (1 MiB por defecto).
 	MaxCuerpo int64
-	Log       *slog.Logger
+	// Reclamo: una clave que sigue en_proceso después de este tiempo se puede retomar (el
+	// proceso cayó entre el COMMIT y guardar la respuesta). 2 min por defecto: más que el
+	// WriteTimeout del servidor (60 s), para no retomar una petición que sigue viva.
+	Reclamo time.Duration
+	Log     *slog.Logger
+}
+
+type claveNoRepetible int
+
+// NoRepetible marca la respuesta en curso como no repetible: lleva un secreto (el valor de un
+// token, un secreto TOTP) que no debe quedar guardado en nucleo.idempotencia. La clave se
+// consume igual, pero sin cuerpo: repetirla responde 409 idempotencia_no_repetible. La llama el
+// handler cuando la operación terminó bien; sin Idempotency-Key no hace nada.
+func NoRepetible(ctx context.Context) {
+	if marca, ok := ctx.Value(claveNoRepetible(0)).(*bool); ok {
+		*marca = true
+	}
+}
+
+// claveDeActor separa las claves por credencial: cada token tiene las suyas (dos tokens del
+// mismo usuario no comparten claves ni respuestas) y la sesión las del usuario.
+func claveDeActor(a contexto.Actor) string {
+	if a.TokenID != 0 {
+		return fmt.Sprintf("token:%d", a.TokenID)
+	}
+	return fmt.Sprintf("%s:%d", a.Tipo, a.ID)
 }
 
 // MiddlewareIdempotencia aplica Idempotency-Key a POST, PUT, PATCH y DELETE:
@@ -41,16 +66,26 @@ type OpcionesIdempotencia struct {
 //     con la cabecera Idempotent-Replayed: true;
 //   - misma clave con otra petición → 422 idempotencia_reutilizada;
 //   - misma clave mientras la primera sigue en curso → 409 idempotencia_en_proceso;
-//   - si la primera respondió 5xx, la clave se libera y se puede reintentar.
+//   - si la primera respondió 5xx, la clave se libera y se puede reintentar;
+//   - si la primera sigue en_proceso después de Reclamo (el proceso cayó entre el COMMIT y
+//     guardar la respuesta), la misma petición la retoma y se ejecuta de nuevo. Riesgo
+//     residual: la acción puede correr dos veces; los casos de uso lo toleran con version,
+//     unicidad o reglas de estado (un 409/422 en el reintento);
+//   - si la respuesta llevaba un secreto (NoRepetible), no se guarda su cuerpo y repetir la
+//     clave responde 409 idempotencia_no_repetible.
 //
-// Las claves son por actor (dos usuarios pueden usar la misma). Las peticiones anónimas no se
-// guardan (la respuesta podría servirse a otro). Va después de la autenticación y de ConBD.
+// Las claves son por credencial (claveDeActor): dos usuarios, o dos tokens, pueden usar la
+// misma. Las peticiones anónimas no se guardan (la respuesta podría servirse a otro). Va
+// después de la autenticación y de ConBD.
 func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Handler {
 	if op.Vigencia <= 0 {
 		op.Vigencia = 24 * time.Hour
 	}
 	if op.MaxCuerpo <= 0 {
 		op.MaxCuerpo = 1 << 20
+	}
+	if op.Reclamo <= 0 {
+		op.Reclamo = 2 * time.Minute
 	}
 	if op.Log == nil {
 		op.Log = slog.Default()
@@ -97,7 +132,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			hash := h.Sum(nil)
 
 			q := nucleobd.New(bd)
-			claveActor := fmt.Sprintf("%s:%d", actor.Tipo, actor.ID)
+			claveActor := claveDeActor(actor)
 			bdCtx := context.WithoutCancel(ctx)
 
 			if _, err := q.BorrarIdempotenciaExpirada(bdCtx, nucleobd.BorrarIdempotenciaExpiradaParams{Actor: claveActor, Clave: clave}); err != nil {
@@ -120,29 +155,15 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 					EscribirProblema(w, ErrorInterno())
 					return
 				}
-				switch {
-				case !bytes.Equal(previa.HashPeticion, hash):
-					EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, "idempotencia_reutilizada",
-						"Clave de idempotencia reutilizada",
-						"La clave ya se usó con otra petición (método, ruta o cuerpo distintos)"))
-				case previa.Estado != "completa":
-					EscribirProblema(w, Conflicto("idempotencia_en_proceso",
-						"Una petición con esta clave sigue en curso; vuelve a intentar en unos segundos"))
-				default:
-					if previa.ContentType != nil && *previa.ContentType != "" {
-						w.Header().Set("Content-Type", *previa.ContentType)
-					}
-					w.Header().Set(CabeceraRepetida, "true")
-					status := http.StatusOK
-					if previa.Status != nil {
-						status = int(*previa.Status)
-					}
-					w.WriteHeader(status)
-					_, _ = w.Write(previa.Respuesta)
+				if !op.responderPrevia(ctx, w, q, previa, hash) {
+					return
 				}
-				return
+				// Clave abandonada en en_proceso: esta petición la retomó y se ejecuta.
+				op.Log.WarnContext(ctx, "idempotencia: clave en proceso abandonada; se ejecuta de nuevo", "actor", claveActor)
 			}
 
+			noRepetible := false
+			r = r.WithContext(context.WithValue(ctx, claveNoRepetible(0), &noRepetible))
 			grabadora := &grabadora{ResponseWriter: w, status: http.StatusOK}
 			defer func() {
 				// Ante un pánico la clave se libera; el pánico sigue su camino.
@@ -161,13 +182,60 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}
 			status := int32(grabadora.status) //nolint:gosec // códigos HTTP caben en int32
 			tipo := grabadora.Header().Get("Content-Type")
-			if err := q.CompletarIdempotencia(bdCtx, nucleobd.CompletarIdempotenciaParams{
-				Actor: claveActor, Clave: clave, Status: &status, ContentType: &tipo, Respuesta: grabadora.cuerpo.Bytes(),
-			}); err != nil {
+			completa := nucleobd.CompletarIdempotenciaParams{
+				Actor: claveActor, Clave: clave, Estado: "completa", Status: &status, ContentType: &tipo, Respuesta: grabadora.cuerpo.Bytes(),
+			}
+			if noRepetible {
+				completa.Estado, completa.ContentType, completa.Respuesta = "no_repetible", nil, nil
+			}
+			if err := q.CompletarIdempotencia(bdCtx, completa); err != nil {
 				op.Log.ErrorContext(ctx, "idempotencia: guardar respuesta", "err", err)
 			}
 		})
 	}
+}
+
+// responderPrevia responde a una clave ya reservada. Devuelve true solo si la clave estaba
+// abandonada en en_proceso y esta petición (la misma) la retomó: entonces hay que ejecutarla.
+func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.ResponseWriter, q *nucleobd.Queries, previa nucleobd.NucleoIdempotencium, hash []byte) bool {
+	switch {
+	case !bytes.Equal(previa.HashPeticion, hash):
+		EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, "idempotencia_reutilizada",
+			"Clave de idempotencia reutilizada",
+			"La clave ya se usó con otra petición (método, ruta o cuerpo distintos)"))
+	case previa.Estado == "no_repetible":
+		EscribirProblema(w, Conflicto("idempotencia_no_repetible",
+			"La operación ya se hizo con esta clave, pero su respuesta llevaba un secreto que no se guarda; "+
+				"consulta el recurso creado o usa otra clave"))
+	case previa.Estado == "en_proceso":
+		ahora := time.Now()
+		filas, err := q.ReclamarIdempotencia(context.WithoutCancel(ctx), nucleobd.ReclamarIdempotenciaParams{
+			Actor: previa.Actor, Clave: previa.Clave, HashPeticion: hash,
+			Antes: ahora.Add(-op.Reclamo), ExpiraEn: ahora.Add(op.Vigencia),
+		})
+		if err != nil {
+			op.Log.ErrorContext(ctx, "idempotencia: retomar clave", "err", err)
+			EscribirProblema(w, ErrorInterno())
+			return false
+		}
+		if filas == 1 {
+			return true
+		}
+		EscribirProblema(w, Conflicto("idempotencia_en_proceso",
+			"Una petición con esta clave sigue en curso; vuelve a intentar en unos segundos"))
+	default:
+		if previa.ContentType != nil && *previa.ContentType != "" {
+			w.Header().Set("Content-Type", *previa.ContentType)
+		}
+		w.Header().Set(CabeceraRepetida, "true")
+		status := http.StatusOK
+		if previa.Status != nil {
+			status = int(*previa.Status)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write(previa.Respuesta)
+	}
+	return false
 }
 
 func metodoConEstado(m string) bool {

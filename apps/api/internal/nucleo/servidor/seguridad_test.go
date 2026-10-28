@@ -1,14 +1,19 @@
 package servidor_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pquerna/otp/totp"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -212,5 +217,116 @@ func TestMFASeRevocaTrasFallos(t *testing.T) {
 	n.csrf = n.cookie(identidad.CookieCSRF).Value
 	if r := n.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": siguiente}); r.status != 200 {
 		t.Fatalf("MFA tras volver a entrar: %d %s", r.status, r.crudo)
+	}
+}
+
+// Regresión: el valor de un token y el secreto TOTP no quedan en nucleo.idempotencia; repetir la
+// clave responde 409 idempotencia_no_repetible. Las claves de los tokens son por token.
+func TestIdempotenciaNoGuardaSecretos(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, correoAdmin := e.usuario("admin")
+	admin := e.cliente()
+	admin.entrar(correoAdmin)
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	guardado := func(clave string) (estado string, respuesta []byte) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT estado, respuesta FROM nucleo.idempotencia WHERE clave = $1`, clave).Scan(&estado, &respuesta); err != nil {
+			t.Fatal(err)
+		}
+		return estado, respuesta
+	}
+
+	nombre := "idem-" + pruebas.Unico()
+	clave := "tok-" + pruebas.Unico()
+	r := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": nombre}, nucleo.CabeceraIdempotencia, clave)
+	if r.status != 201 {
+		t.Fatalf("crear token: %d %s", r.status, r.crudo)
+	}
+	if estado, resp := guardado(clave); estado != "no_repetible" || resp != nil || strings.Contains(string(resp), r.cuerpo["valor"].(string)) {
+		t.Fatalf("idempotencia guardó el token: %s %q", estado, resp)
+	}
+	admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": nombre}, nucleo.CabeceraIdempotencia, clave).problema(t, 409, "idempotencia_no_repetible")
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM nucleo.tokens_api WHERE nombre = $1`, nombre).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("la repetición no crea otro token: %d %v", n, err)
+	}
+
+	claveMFA := "mfa-" + pruebas.Unico()
+	r = admin.pedir(http.MethodPost, "/api/v1/yo/mfa", nil, nucleo.CabeceraIdempotencia, claveMFA)
+	if r.status != 200 || r.cuerpo["secreto"] == "" {
+		t.Fatalf("configurar MFA: %d %s", r.status, r.crudo)
+	}
+	if estado, resp := guardado(claveMFA); estado != "no_repetible" || resp != nil {
+		t.Fatalf("idempotencia guardó el secreto TOTP: %s %q", estado, resp)
+	}
+	admin.pedir(http.MethodPost, "/api/v1/yo/mfa", nil, nucleo.CabeceraIdempotencia, claveMFA).problema(t, 409, "idempotencia_no_repetible")
+
+	// Un error no lleva secreto: se guarda y se repite igual.
+	idPersona, _ := e.usuario("lectura")
+	claveError := "err-" + pruebas.Unico()
+	admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "x", "usuarioId": idPersona}, nucleo.CabeceraIdempotencia, claveError).problema(t, 422, "token_para_persona")
+	rep := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "x", "usuarioId": idPersona}, nucleo.CabeceraIdempotencia, claveError)
+	rep.problema(t, 422, "token_para_persona")
+	if rep.h.Get(nucleo.CabeceraRepetida) != "true" {
+		t.Fatal("el error se repite desde idempotencia")
+	}
+
+	// Dos tokens del mismo usuario no comparten claves.
+	tokens := make([]*cliente, 2)
+	for i := range tokens {
+		r := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": fmt.Sprintf("api-%d", i)})
+		tokens[i] = e.cliente()
+		tokens[i].bearer = r.cuerpo["valor"].(string)
+	}
+	compartida := "comp-" + pruebas.Unico()
+	for i, c := range tokens {
+		r := c.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Por token", "correo": pruebas.Correo(fmt.Sprint("tk", i)), "contrasena": contrasena}, nucleo.CabeceraIdempotencia, compartida)
+		if r.status != 201 || r.h.Get(nucleo.CabeceraRepetida) != "" {
+			t.Fatalf("token %d con la misma clave: %d %s", i, r.status, r.crudo)
+		}
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT actor) FROM nucleo.idempotencia WHERE clave = $1 AND actor LIKE 'token:%'`, compartida).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("claves por token: %d %v", n, err)
+	}
+}
+
+// Regresión: una clave que quedó en_proceso (el proceso cayó antes de guardar la respuesta) se
+// retoma pasado el tiempo de reclamo; antes, 409 idempotencia_en_proceso.
+func TestIdempotenciaRetomaClaveAbandonada(t *testing.T) {
+	e := nuevoEntorno(t)
+	idAdmin, correoAdmin := e.usuario("admin")
+	admin := e.cliente()
+	admin.entrar(correoAdmin)
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+
+	cuerpo := map[string]any{"nombre": "Retomado", "correo": pruebas.Correo("ret"), "contrasena": contrasena}
+	crudo, _ := json.Marshal(cuerpo)
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%s\n%s\n", http.MethodPost, "/api/v1/usuarios")
+	h.Write(crudo)
+	clave := "aband-" + pruebas.Unico()
+	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.idempotencia (actor, clave, metodo, ruta, hash_peticion, expira_en, updated_at)
+		VALUES ($1, $2, 'POST', '/api/v1/usuarios', $3, now() + interval '1 day', now() - interval '10 seconds')`,
+		fmt.Sprintf("usuario:%d", idAdmin), clave, h.Sum(nil)); err != nil {
+		t.Fatal(err)
+	}
+	admin.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo, nucleo.CabeceraIdempotencia, clave).problema(t, 409, "idempotencia_en_proceso")
+
+	if _, err := pool.Exec(ctx, `UPDATE nucleo.idempotencia SET updated_at = now() - interval '3 minutes' WHERE clave = $1`, clave); err != nil {
+		t.Fatal(err)
+	}
+	// Otra petición con la misma clave no la retoma.
+	otro := map[string]any{"nombre": "Otro", "correo": pruebas.Correo("ret"), "contrasena": contrasena}
+	admin.pedir(http.MethodPost, "/api/v1/usuarios", otro, nucleo.CabeceraIdempotencia, clave).problema(t, 422, "idempotencia_reutilizada")
+
+	r := admin.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo, nucleo.CabeceraIdempotencia, clave)
+	if r.status != 201 || r.h.Get(nucleo.CabeceraRepetida) != "" {
+		t.Fatalf("retomar la clave: %d %s", r.status, r.crudo)
+	}
+	rep := admin.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo, nucleo.CabeceraIdempotencia, clave)
+	if rep.status != 201 || rep.h.Get(nucleo.CabeceraRepetida) != "true" || !bytes.Equal(rep.crudo, r.crudo) {
+		t.Fatalf("tras retomarla, se repite: %d %s", rep.status, rep.crudo)
 	}
 }

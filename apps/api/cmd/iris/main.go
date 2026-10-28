@@ -105,7 +105,10 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if cfg.ClaveCifrado == "" {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: el MFA (TOTP) queda deshabilitado")
 	}
-	handler, _ := servidor.Nuevo(servidor.Deps{BD: pool, Log: log, Version: cfg.Version, Identidad: id})
+	handler, _ := servidor.Nuevo(servidor.Deps{
+		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
+		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Puerto),

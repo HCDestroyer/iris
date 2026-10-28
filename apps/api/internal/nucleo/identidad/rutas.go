@@ -91,6 +91,10 @@ type conID[T any] struct {
 
 type vacio struct{}
 
+type soloClave struct {
+	nucleo.ConIdempotencia
+}
+
 // Registrar publica las rutas de identidad en la API.
 func (m *Modulo) Registrar(api huma.API) {
 	// Sesión ----------------------------------------------------------------------------
@@ -132,9 +136,12 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ObtenerYo.Ejecutar(ctx, struct{}{}))
 		})
 
-	huma.Register(api, operacion("configurarMFA", http.MethodPost, "/api/v1/yo/mfa", "Generar el secreto TOTP del usuario", "", http.StatusOK),
-		func(ctx context.Context, _ *vacio) (*cuerpo[MFAConfigurado], error) {
-			return responder(m.ConfigurarMFA.Ejecutar(ctx, struct{}{}))
+	configMFA := operacion("configurarMFA", http.MethodPost, "/api/v1/yo/mfa", "Generar el secreto TOTP del usuario", "", http.StatusOK, http.StatusConflict)
+	configMFA.Description = descNoRepetible
+	huma.Register(api, configMFA,
+		func(ctx context.Context, _ *soloClave) (*cuerpo[MFAConfigurado], error) {
+			v, err := m.ConfigurarMFA.Ejecutar(ctx, struct{}{})
+			return responderSecreto(ctx, v, err)
 		})
 
 	huma.Register(api, operacion("activarMFA", http.MethodPost, "/api/v1/yo/mfa/activar", "Activar el MFA con un código válido", "", http.StatusOK),
@@ -184,9 +191,12 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ListarTokens.Ejecutar(ctx, *in))
 		})
 
-	huma.Register(api, operacion("crearToken", http.MethodPost, "/api/v1/tokens", "Crear un token de API", nucleo.PermTokensCrear, http.StatusCreated, http.StatusNotFound),
+	crearToken := operacion("crearToken", http.MethodPost, "/api/v1/tokens", "Crear un token de API", nucleo.PermTokensCrear, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
+	crearToken.Description += " Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. " + descNoRepetible
+	huma.Register(api, crearToken,
 		func(ctx context.Context, in *conClave[EntradaCrearToken]) (*cuerpo[TokenCreado], error) {
-			return responder(m.CrearToken.Ejecutar(ctx, in.Body))
+			v, err := m.CrearToken.Ejecutar(ctx, in.Body)
+			return responderSecreto(ctx, v, err)
 		})
 
 	huma.Register(api, operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound),
@@ -195,6 +205,18 @@ func (m *Modulo) Registrar(api huma.API) {
 			e.ID = in.ID
 			return responder(m.RevocarToken.Ejecutar(ctx, e))
 		})
+}
+
+// descNoRepetible documenta las operaciones cuya respuesta lleva un secreto.
+const descNoRepetible = "La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`."
+
+// responderSecreto es responder para una respuesta que lleva un secreto: si salió bien, la
+// marca como no repetible (nucleo.NoRepetible) para que no quede en nucleo.idempotencia.
+func responderSecreto[T any](ctx context.Context, v T, err error) (*cuerpo[T], error) {
+	if err == nil {
+		nucleo.NoRepetible(ctx)
+	}
+	return responder(v, err)
 }
 
 func responder[T any](v T, err error) (*cuerpo[T], error) {

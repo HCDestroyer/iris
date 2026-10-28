@@ -27,6 +27,9 @@ type Config struct {
 	ClaveCifrado string
 	// IRIS_RELAY_INTERVALO: cada cuánto corre el relay del outbox aunque no haya NOTIFY (5s).
 	RelayIntervalo time.Duration
+	// IRIS_IDEMPOTENCIA_RECLAMO: tras cuánto una Idempotency-Key que quedó en proceso (el
+	// proceso cayó) se puede retomar (2m).
+	IdempotenciaReclamo time.Duration
 	// Version de la compilación (-ldflags "-X main.version=…").
 	Version string
 }
@@ -41,6 +44,8 @@ func Cargar() (Config, error) {
 		DuracionSesion: 12 * time.Hour,
 		ClaveCifrado:   os.Getenv("IRIS_CLAVE_CIFRADO"),
 		RelayIntervalo: 5 * time.Second,
+
+		IdempotenciaReclamo: 2 * time.Minute,
 	}
 	var errs []string
 	if c.DBURL == "" {
@@ -69,7 +74,10 @@ func Cargar() (Config, error) {
 		}
 		c.CookieSegura = b
 	}
-	for nombre, destino := range map[string]*time.Duration{"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo} {
+	for nombre, destino := range map[string]*time.Duration{
+		"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo,
+		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,
+	} {
 		if v := os.Getenv(nombre); v != "" {
 			d, err := time.ParseDuration(v)
 			if err != nil || d <= 0 {

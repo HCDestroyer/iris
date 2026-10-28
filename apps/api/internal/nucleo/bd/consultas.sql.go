@@ -29,11 +29,12 @@ func (q *Queries) BorrarIdempotenciaExpirada(ctx context.Context, arg BorrarIdem
 
 const completarIdempotencia = `-- name: CompletarIdempotencia :exec
 UPDATE nucleo.idempotencia
-SET estado = 'completa', status = $1, content_type = $2, respuesta = $3, updated_at = now()
-WHERE actor = $4 AND clave = $5
+SET estado = $1, status = $2, content_type = $3, respuesta = $4, updated_at = now()
+WHERE actor = $5 AND clave = $6
 `
 
 type CompletarIdempotenciaParams struct {
+	Estado      string
 	Status      *int32
 	ContentType *string
 	Respuesta   []byte
@@ -41,8 +42,10 @@ type CompletarIdempotenciaParams struct {
 	Clave       string
 }
 
+// estado: 'completa' (con la respuesta) o 'no_repetible' (sin cuerpo: llevaba un secreto).
 func (q *Queries) CompletarIdempotencia(ctx context.Context, arg CompletarIdempotenciaParams) error {
 	_, err := q.db.Exec(ctx, completarIdempotencia,
+		arg.Estado,
 		arg.Status,
 		arg.ContentType,
 		arg.Respuesta,
@@ -101,6 +104,37 @@ DELETE FROM nucleo.idempotencia WHERE expira_en < now()
 
 func (q *Queries) PurgarIdempotencia(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, purgarIdempotencia)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const reclamarIdempotencia = `-- name: ReclamarIdempotencia :execrows
+UPDATE nucleo.idempotencia
+SET updated_at = now(), expira_en = $1
+WHERE actor = $2 AND clave = $3 AND estado = 'en_proceso'
+  AND hash_peticion = $4 AND updated_at < $5::timestamptz
+`
+
+type ReclamarIdempotenciaParams struct {
+	ExpiraEn     time.Time
+	Actor        string
+	Clave        string
+	HashPeticion []byte
+	Antes        time.Time
+}
+
+// Retoma una clave que quedó en_proceso desde antes de @antes (el proceso cayó entre el COMMIT
+// y CompletarIdempotencia). Solo una petición gana: la que mueve updated_at.
+func (q *Queries) ReclamarIdempotencia(ctx context.Context, arg ReclamarIdempotenciaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reclamarIdempotencia,
+		arg.ExpiraEn,
+		arg.Actor,
+		arg.Clave,
+		arg.HashPeticion,
+		arg.Antes,
+	)
 	if err != nil {
 		return 0, err
 	}
