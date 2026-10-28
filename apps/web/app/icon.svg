@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Iris">
+  <rect width="32" height="32" rx="7" fill="#0f766e"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2.6">
+    <path d="M6 22a10 10 0 0 1 20 0"/>
+    <path d="M9.5 22a6.5 6.5 0 0 1 13 0" stroke-opacity=".7"/>
+    <path d="M13 22a3 3 0 0 1 6 0" stroke-opacity=".45"/>
+  </g>
+</svg>
