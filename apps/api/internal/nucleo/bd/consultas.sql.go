@@ -70,7 +70,7 @@ func (q *Queries) LiberarIdempotencia(ctx context.Context, arg LiberarIdempotenc
 }
 
 const obtenerIdempotencia = `-- name: ObtenerIdempotencia :one
-SELECT actor, clave, metodo, ruta, hash_peticion, estado, status, content_type, respuesta, expira_en, created_at, updated_at FROM nucleo.idempotencia WHERE actor = $1 AND clave = $2
+SELECT actor, clave, metodo, ruta, hash_peticion, estado, status, content_type, respuesta, expira_en, created_at, updated_at, hash_formato, hash_clave_id FROM nucleo.idempotencia WHERE actor = $1 AND clave = $2
 `
 
 type ObtenerIdempotenciaParams struct {
@@ -94,6 +94,8 @@ func (q *Queries) ObtenerIdempotencia(ctx context.Context, arg ObtenerIdempotenc
 		&i.ExpiraEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashFormato,
+		&i.HashClaveID,
 	)
 	return i, err
 }
@@ -112,27 +114,33 @@ func (q *Queries) PurgarIdempotencia(ctx context.Context) (int64, error) {
 
 const reclamarIdempotencia = `-- name: ReclamarIdempotencia :execrows
 UPDATE nucleo.idempotencia
-SET updated_at = now(), expira_en = $1
-WHERE actor = $2 AND clave = $3 AND estado = 'en_proceso'
-  AND hash_peticion = $4 AND updated_at < $5::timestamptz
+SET updated_at = now(), expira_en = $1,
+    hash_peticion = $2, hash_formato = 1, hash_clave_id = $3
+WHERE actor = $4 AND clave = $5 AND estado = 'en_proceso'
+  AND hash_peticion = $6 AND updated_at < $7::timestamptz
 `
 
 type ReclamarIdempotenciaParams struct {
 	ExpiraEn     time.Time
+	HashPeticion []byte
+	HashClaveID  []byte
 	Actor        string
 	Clave        string
-	HashPeticion []byte
+	HashPrevio   []byte
 	Antes        time.Time
 }
 
 // Retoma una clave que quedó en_proceso desde antes de @antes (el proceso cayó entre el COMMIT
 // y CompletarIdempotencia). Solo una petición gana: la que mueve updated_at.
+// El hash ya se comparó en Go (formato y clave de la fila): aquí se reescribe con el actual.
 func (q *Queries) ReclamarIdempotencia(ctx context.Context, arg ReclamarIdempotenciaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, reclamarIdempotencia,
 		arg.ExpiraEn,
+		arg.HashPeticion,
+		arg.HashClaveID,
 		arg.Actor,
 		arg.Clave,
-		arg.HashPeticion,
+		arg.HashPrevio,
 		arg.Antes,
 	)
 	if err != nil {
@@ -142,8 +150,8 @@ func (q *Queries) ReclamarIdempotencia(ctx context.Context, arg ReclamarIdempote
 }
 
 const reservarIdempotencia = `-- name: ReservarIdempotencia :execrows
-INSERT INTO nucleo.idempotencia (actor, clave, metodo, ruta, hash_peticion, expira_en)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO nucleo.idempotencia (actor, clave, metodo, ruta, hash_peticion, hash_formato, hash_clave_id, expira_en)
+VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
 ON CONFLICT (actor, clave) DO NOTHING
 `
 
@@ -153,6 +161,7 @@ type ReservarIdempotenciaParams struct {
 	Metodo       string
 	Ruta         string
 	HashPeticion []byte
+	HashClaveID  []byte
 	ExpiraEn     time.Time
 }
 
@@ -163,6 +172,7 @@ func (q *Queries) ReservarIdempotencia(ctx context.Context, arg ReservarIdempote
 		arg.Metodo,
 		arg.Ruta,
 		arg.HashPeticion,
+		arg.HashClaveID,
 		arg.ExpiraEn,
 	)
 	if err != nil {

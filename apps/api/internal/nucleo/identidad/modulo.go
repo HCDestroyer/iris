@@ -66,6 +66,7 @@ type Modulo struct {
 	DesactivarUsuario *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 	ReiniciarMFA      *auditoria.Caso[EntradaReiniciarMFA, Usuario]
 	ListarUsuarios    *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[Usuario]]
+	VerUsuario        *auditoria.Caso[EntradaVerUsuario, Usuario]
 
 	IniciarSesion *auditoria.Caso[EntradaIniciarSesion, SesionIniciada]
 	VerificarMFA  *auditoria.Caso[EntradaVerificarMFA, SesionIniciada]
@@ -134,6 +135,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.DesactivarUsuario = nuevoDesactivarUsuario()
 	m.ReiniciarMFA = nuevoReiniciarMFA()
 	m.ListarUsuarios = nuevoListarUsuarios()
+	m.VerUsuario = nuevoVerUsuario()
 	m.IniciarSesion = nuevoIniciarSesion(cfg)
 	m.VerificarMFA = nuevoVerificarMFA(cfg)
 	m.CerrarSesion = nuevoCerrarSesion()
