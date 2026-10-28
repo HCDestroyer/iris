@@ -17,6 +17,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
@@ -50,6 +51,7 @@ func escribir(salida string) error {
 			soporte.Nuevo(soporte.Config{}).Registrar,
 			adjuntos.Nuevo(adjuntos.Config{}).RegistrarRutas,
 			pendientes.Nuevo(pendientes.Config{}).Registrar,
+			campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos)}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()

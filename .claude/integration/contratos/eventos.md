@@ -161,3 +161,18 @@ con `ocurrido_en` igual o anterior al último conocido de su router, servicio o 
 como `obsoleto`); reglas en
 `apps/api/internal/soporte/README.md` («Tickets desde Horus»).
 
+
+## Campo: órdenes de trabajo (I2)
+
+Emite el módulo `campo`, con `empresa_id` = la empresa de la orden (null sin conector) en el sobre y,
+en `orden.creada` y `orden.cerrada`, también en el payload. Fechas en UTC (RFC 3339). Un evento por
+acción aplicada (desde el panel o desde el lote de la app de campo: una operación duplicada no lo
+repite).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `orden.creada` | `orden_id`, `numero`, `tipo` (`instalacion` \| `visita` \| `retiro` \| `cambio_equipo` \| `mantenimiento`), `empresa_id`, `ticket_id`, `prospecto_id`, `cliente_id`, `servicio_id`, `zona_id` (o null) | `ordenes.crear` (también desde un ticket con `ticketId`). |
+| `orden.asignada` | `orden_id`, `tecnico_id`, `cuadrilla_id`, `tecnico_anterior_id` (o null) | `ordenes.asignar`, y `programar`/`reprogramar` cuando cambian el técnico. |
+| `orden.programada` | `orden_id`, `tecnico_id`, `cuadrilla_id`, `inicio`, `fin`, `reprogramada` (bool), `motivo` (o null) | `ordenes.programar` y `ordenes.reprogramar`. Es del catálogo de agenda: lo emite campo hasta que exista agenda (fase 3), con el mismo nombre y payload. |
+| `orden.estado_cambiada` | `orden_id`, `numero`, `de`, `a`, `motivo` (o null), `tecnico_id` | Toda transición (programar, iniciar camino, llegar, cerrar —`motivo` = resultado—, fallar —`motivo` = `<motivo_falla>: <detalle>`—, cancelar, reabrir, reprogramar y la vuelta a pendiente o programada al reasignar). |
+| `orden.cerrada` | `orden_id`, `numero`, `tipo`, `resultado` (`exitosa` \| `parcial`), `empresa_id`, `cliente_id`, `servicio_id`, `ticket_id`, `prospecto_id`, `tecnico_id`, `bodega_id` (o null), `cerrada_en`, `retirar_servicio` (bool: retiro exitoso), `equipos_validados` (bool: false si algún equipo retirado no se verificó contra el comodato de Argos —sin conector o Argos caído—; tratarlo como dato no verificado), `materiales[]` (`producto_id`, `cantidad` —sumada por producto y bodega, 3 decimales—, `bodega_id` (o null), `excede_existencia`), `equipos[]` (`id`, `accion` `instalar` \| `retirar`, `unidad_id`, `serie`, `mac` `AA:BB:CC:DD:EE:FF`, `modelo`, `condicion` `buena` \| `danada` \| `perdido` (solo retirar; `perdido` = pérdida del comodato), `bodega_id`, `validado`) | `ordenes.cerrar`. Lo consume el núcleo (I1) para los pendientes en Argos (contrato §3): con `resultado = exitosa`, activar la instalación y el comodato, devoluciones o pérdidas, retiro del servicio; materiales → consumo desde la bodega. Sin `cargo` todavía. |

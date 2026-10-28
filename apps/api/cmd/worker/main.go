@@ -21,6 +21,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -105,6 +106,8 @@ func correr() error {
 	// Adjuntos: purga de subidas abandonadas (IRIS_ADJUNTOS_ABANDONO) cada hora. No necesita el
 	// almacenamiento: solo marca y borra las partes en la base.
 	adj := adjuntos.Nuevo(adjuntos.Config{Abandono: cfg.AdjuntosAbandono})
+	// La orden como entidad adjuntable (mismo registro que la API).
+	campo.RegistrarAdjuntos()
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,

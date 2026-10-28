@@ -40,6 +40,237 @@ type AuditoriaCambio struct {
 	CreatedAt time.Time
 }
 
+type CampoDispositivo struct {
+	ID             string
+	UsuarioID      int64
+	Plataforma     string
+	UltimoContacto time.Time
+	DesfaseMs      int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type CampoFirma struct {
+	ID           int64
+	OrdenID      int64
+	Nombre       string
+	Documento    string
+	Svg          string
+	AdjuntoID    pgtype.UUID
+	CapturadaPor *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  pgtype.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	InvalidadaEn *time.Time
+}
+
+type CampoOperacionesSync struct {
+	ID                 uuid.UUID
+	DispositivoID      string
+	UsuarioID          int64
+	OrdenID            *int64
+	Tipo               string
+	Estado             string
+	Resultado          []byte
+	VersionBase        *int32
+	OcurridoEnTelefono *time.Time
+	OcurridoEn         *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type CampoOrdenAdjunto struct {
+	ID            uuid.UUID
+	OrdenID       int64
+	Tipo          string
+	ItemID        *int64
+	Descripcion   string
+	RegistradoPor *int64
+	Canal         string
+	OcurridoEn    time.Time
+	OperacionID   pgtype.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type CampoOrdenCambio struct {
+	ID        int64
+	TecnicoID int64
+	OrdenID   int64
+	Tipo      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type CampoOrdenChecklist struct {
+	OrdenID     int64
+	ItemID      int64
+	Valor       []byte
+	MarcadoPor  *int64
+	Canal       string
+	OcurridoEn  time.Time
+	OperacionID pgtype.UUID
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type CampoOrdenChecklistHistorial struct {
+	ID          int64
+	OrdenID     int64
+	ItemID      int64
+	Valor       []byte
+	MarcadoPor  *int64
+	Canal       string
+	OcurridoEn  time.Time
+	OperacionID pgtype.UUID
+	Vigente     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type CampoOrdenEquipo struct {
+	ID            uuid.UUID
+	OrdenID       int64
+	Accion        string
+	UnidadID      *int64
+	Serie         *string
+	Mac           *string
+	Modelo        string
+	Condicion     *string
+	RegistradoPor *int64
+	Canal         string
+	OcurridoEn    time.Time
+	OperacionID   pgtype.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Validado      bool
+}
+
+type CampoOrdenEvento struct {
+	ID          int64
+	OrdenID     int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	Datos       []byte
+	ActorTipo   string
+	ActorID     *int64
+	ActorNombre string
+	Canal       string
+	RequestID   string
+	OcurridoEn  time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type CampoOrdenMateriale struct {
+	ID               uuid.UUID
+	OrdenID          int64
+	ProductoID       int64
+	Descripcion      string
+	Cantidad         pgtype.Numeric
+	BodegaID         *int64
+	ExcedeExistencia bool
+	RegistradoPor    *int64
+	Canal            string
+	OcurridoEn       time.Time
+	OperacionID      pgtype.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type CampoOrdenNota struct {
+	ID          uuid.UUID
+	OrdenID     int64
+	Texto       string
+	AutorID     *int64
+	AutorNombre string
+	Canal       string
+	OcurridoEn  time.Time
+	OperacionID pgtype.UUID
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type CampoOrdene struct {
+	ID               int64
+	Numero           string
+	EmpresaID        *int64
+	TipoID           int64
+	PlantillaID      *int64
+	TicketID         *int64
+	ProspectoID      *int64
+	ClienteID        *int64
+	ServicioID       *int64
+	ZonaID           *int64
+	CuadrillaID      *int64
+	BodegaID         *int64
+	Direccion        string
+	Lat              *float64
+	Lon              *float64
+	ContactoNombre   *string
+	ContactoTelefono *string
+	Descripcion      string
+	TecnicoID        *int64
+	AsignadaEn       *time.Time
+	Estado           string
+	ProgramadaInicio *time.Time
+	ProgramadaFin    *time.Time
+	EnCaminoEn       *time.Time
+	EnSitioEn        *time.Time
+	FinalizadaEn     *time.Time
+	Resultado        *string
+	MotivoFalla      *string
+	Motivo           *string
+	CreadoPor        *int64
+	Idempotencia     *string
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type CampoPlantillaItem struct {
+	ID          int64
+	PlantillaID int64
+	Posicion    int32
+	Codigo      string
+	Etiqueta    string
+	Tipo        string
+	Obligatorio bool
+	Unidad      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type CampoPlantillasChecklist struct {
+	ID            int64
+	Codigo        string
+	Nombre        string
+	TipoCodigo    string
+	RequiereFirma bool
+	Activa        bool
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type CampoTiposOrden struct {
+	ID            int64
+	Codigo        string
+	Nombre        string
+	DuracionMin   int32
+	PlantillaID   *int64
+	ExigeInstalar bool
+	ExigeRetirar  bool
+	Activo        bool
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type IntegracionArgosCliente struct {
 	ID             int64
 	EmpresaID      int64

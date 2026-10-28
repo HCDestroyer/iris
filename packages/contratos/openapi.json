@@ -157,6 +157,45 @@
         ],
         "type": "object"
       },
+      "AdjuntoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "descripcion": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "description": "Ítem del checklist al que corresponde (foto)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "foto",
+              "firma",
+              "documento"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tipo",
+          "itemId",
+          "descripcion",
+          "ocurridoEn"
+        ],
+        "type": "object"
+      },
       "AsignacionRol": {
         "additionalProperties": false,
         "properties": {
@@ -286,6 +325,63 @@
         ],
         "type": "object"
       },
+      "CambioOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "orden": {
+            "$ref": "#/components/schemas/OrdenCampo",
+            "description": "Ausente si ya no es del técnico (reasignada): quitarla del teléfono"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "nueva",
+              "actualizada",
+              "reprogramada",
+              "reasignada",
+              "cancelada"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "ordenId",
+          "tipo"
+        ],
+        "type": "object"
+      },
+      "Cambios": {
+        "additionalProperties": false,
+        "properties": {
+          "cambios": {
+            "description": "Una entrada por orden (el último cambio), en orden",
+            "items": {
+              "$ref": "#/components/schemas/CambioOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cursor": {
+            "description": "Siguiente cursor",
+            "type": "string"
+          },
+          "hayMas": {
+            "description": "Quedan cambios: pedir otra vez con el cursor",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cambios",
+          "cursor",
+          "hayMas"
+        ],
+        "type": "object"
+      },
       "Categoria": {
         "additionalProperties": false,
         "properties": {
@@ -348,6 +444,60 @@
           "id",
           "codigo",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "ClienteCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "sincronizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "telefono": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "telefono",
+          "direccion",
+          "lat",
+          "lon",
+          "estado",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -438,6 +588,40 @@
           "lon",
           "zonaId",
           "estado"
+        ],
+        "type": "object"
+      },
+      "Comodato": {
+        "additionalProperties": false,
+        "properties": {
+          "disponible": {
+            "type": "boolean"
+          },
+          "equipos": {
+            "items": {
+              "$ref": "#/components/schemas/EquipoComodato"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "motivo": {
+            "enum": [
+              "sin_conector",
+              "argos_no_disponible",
+              "sin_servicio"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "equipos"
         ],
         "type": "object"
       },
@@ -614,6 +798,28 @@
           "telefono",
           "correo",
           "verificado"
+        ],
+        "type": "object"
+      },
+      "ContactoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "telefono": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "nombre",
+          "telefono"
         ],
         "type": "object"
       },
@@ -809,6 +1015,59 @@
         ],
         "type": "object"
       },
+      "EntradaAgregarNota": {
+        "additionalProperties": false,
+        "properties": {
+          "texto": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "texto"
+        ],
+        "type": "object"
+      },
+      "EntradaAsignarOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos (hasta que agenda la tenga); ausente = se conserva",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cuadrillaId": {
+            "description": "Cuadrilla; ausente = ninguna",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico; ausente = ninguno",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaAsignarTicket": {
         "additionalProperties": false,
         "properties": {
@@ -924,6 +1183,78 @@
         ],
         "type": "object"
       },
+      "EntradaCapturarFirma": {
+        "additionalProperties": false,
+        "properties": {
+          "adjuntoId": {
+            "description": "PNG de la firma (adjunto)",
+            "type": "string"
+          },
+          "documento": {
+            "description": "DPI u otro documento de quien firma",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Quien firma",
+            "maxLength": 120,
+            "minLength": 2,
+            "type": "string"
+          },
+          "svg": {
+            "description": "Trazo de la firma en SVG",
+            "maxLength": 200000,
+            "minLength": 10,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nombre",
+          "svg"
+        ],
+        "type": "object"
+      },
+      "EntradaCerrarOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "resultado": {
+            "description": "exitosa por defecto. Solo una instalación exitosa activa el servicio en Argos",
+            "enum": [
+              "exitosa",
+              "parcial"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaCerrarTicket": {
         "additionalProperties": false,
         "properties": {
@@ -982,6 +1313,20 @@
             "maxLength": 254,
             "type": "string"
           },
+          "nombre": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "telefono": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "EntradaContactoOrden": {
+        "additionalProperties": false,
+        "properties": {
           "nombre": {
             "maxLength": 120,
             "type": "string"
@@ -1063,6 +1408,103 @@
         "required": [
           "id",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "clienteId": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "contacto": {
+            "$ref": "#/components/schemas/EntradaContactoOrden"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "descripcion": {
+            "description": "Trabajo a realizar",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "direccion": {
+            "description": "Obligatoria si no sale de la instantánea de Argos del servicio o el cliente",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos. La orden es de la empresa activa (otra: 422 empresa_no_coincide); solo el sistema la elige aquí",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "plantillaId": {
+            "description": "Otra plantilla del mismo tipo (p. ej. instalación inalámbrica); por defecto, la del tipo",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "prospectoId": {
+            "description": "Prospecto de origen (fase 4)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "servicioId": {
+            "description": "Servicio en Argos (exige clienteId)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "ticketId": {
+            "description": "Ticket de origen: la orden hereda su empresa, cliente, servicio, zona, cuadrilla y contacto, y el ticket recibe una nota interna. Exige ver el ticket (tickets.ver)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "zonaId": {
+            "description": "Zona (Argos); define el alcance. Por defecto, la del servicio o el cliente en la instantánea",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tipo"
         ],
         "type": "object"
       },
@@ -1464,6 +1906,47 @@
         ],
         "type": "object"
       },
+      "EntradaEquipo": {
+        "additionalProperties": false,
+        "properties": {
+          "condicion": {
+            "description": "Obligatoria al retirar; no va al instalar",
+            "enum": [
+              "buena",
+              "danada",
+              "perdido"
+            ],
+            "type": "string"
+          },
+          "mac": {
+            "description": "Se normaliza a AA:BB:CC:DD:EE:FF",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "modelo": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "serie": {
+            "description": "Número de serie (o unidadId)",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "unidadId": {
+            "description": "Unidad en el inventario de Argos (o serie)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "EntradaEscalarTicket": {
         "additionalProperties": false,
         "properties": {
@@ -1492,6 +1975,52 @@
         "required": [
           "version",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "EntradaFallarOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "detalle": {
+            "description": "Obligatorio con motivo otro",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "motivoFalla": {
+            "enum": [
+              "cliente_ausente",
+              "sin_acceso",
+              "sin_cobertura",
+              "falta_material",
+              "equipo_defectuoso",
+              "clima",
+              "cliente_rechaza",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivoFalla"
         ],
         "type": "object"
       },
@@ -1590,6 +2119,96 @@
         ],
         "type": "object"
       },
+      "EntradaLote": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "Cursor de cambios que tiene el teléfono (se devuelve igual)",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "dispositivoId": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "enviadoEn": {
+            "description": "Hora del teléfono al enviar (el mismo reloj que ocurridoEn): desfase = hora del servidor − enviadoEn",
+            "format": "date-time",
+            "type": "string"
+          },
+          "operaciones": {
+            "items": {
+              "$ref": "#/components/schemas/OperacionLote"
+            },
+            "maxItems": 200,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "plataforma": {
+            "description": "pwa, android, ios…",
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "dispositivoId",
+          "operaciones"
+        ],
+        "type": "object"
+      },
+      "EntradaMarcarChecklist": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código del ítem (o itemId)",
+            "maxLength": 60,
+            "type": "string"
+          },
+          "itemId": {
+            "description": "Ítem de la plantilla de la orden (o codigo)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "valor": {
+            "description": "si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "valor"
+        ],
+        "type": "object"
+      },
+      "EntradaMotivo": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "minLength": 3,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivo"
+        ],
+        "type": "object"
+      },
       "EntradaNotaInterna": {
         "additionalProperties": false,
         "properties": {
@@ -1629,6 +2248,82 @@
         "required": [
           "version",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "EntradaPosicion": {
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "precision": {
+            "description": "Metros",
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaProgramarOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos; ausente = se conserva",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "fin": {
+            "description": "Fin estimado; por defecto, inicio + la duración del tipo",
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "description": "Inicio de la visita (UTC)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Obligatorio al reprogramar",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Técnico; obligatorio si la orden no tiene. Otro distinto la reasigna",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "inicio"
         ],
         "type": "object"
       },
@@ -1746,6 +2441,44 @@
           "mime",
           "tamano",
           "sha256"
+        ],
+        "type": "object"
+      },
+      "EntradaRegistrarAdjunto": {
+        "additionalProperties": false,
+        "properties": {
+          "adjuntoId": {
+            "description": "uuid del adjunto (POST /adjuntos, de I1); basta con que la subida esté creada",
+            "type": "string"
+          },
+          "descripcion": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "itemId": {
+            "description": "Ítem foto del checklist al que corresponde",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "foto",
+              "firma",
+              "documento"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "adjuntoId",
+          "tipo"
         ],
         "type": "object"
       },
@@ -1898,6 +2631,45 @@
         ],
         "type": "object"
       },
+      "EntradaUsarMaterial": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "description": "Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cantidad": {
+            "description": "Hasta 3 decimales (metros de cable, unidades…)",
+            "exclusiveMinimum": 0,
+            "format": "double",
+            "maximum": 1000000,
+            "type": "number"
+          },
+          "descripcion": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "productoId": {
+            "description": "Producto en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión leída (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productoId",
+          "cantidad"
+        ],
+        "type": "object"
+      },
       "EntradaVerificarMFA": {
         "additionalProperties": false,
         "properties": {
@@ -1909,6 +2681,106 @@
         },
         "required": [
           "codigo"
+        ],
+        "type": "object"
+      },
+      "EquipoComodato": {
+        "additionalProperties": false,
+        "properties": {
+          "mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelo": {
+            "type": "string"
+          },
+          "serie": {
+            "type": "string"
+          },
+          "unidadId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unidadId",
+          "serie",
+          "mac",
+          "modelo"
+        ],
+        "type": "object"
+      },
+      "EquipoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "accion": {
+            "enum": [
+              "instalar",
+              "retirar"
+            ],
+            "type": "string"
+          },
+          "condicion": {
+            "description": "Solo retirar",
+            "enum": [
+              "buena",
+              "danada",
+              "perdido"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Id de la operación del lote que lo registró (o uno v7 del servidor)",
+            "type": "string"
+          },
+          "mac": {
+            "description": "AA:BB:CC:DD:EE:FF",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelo": {
+            "type": "string"
+          },
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "serie": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unidadId": {
+            "description": "Unidad en el inventario de Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "validado": {
+            "description": "Retirado y verificado contra el comodato del servicio en Argos (false: sin conector o Argos no respondió)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "accion",
+          "unidadId",
+          "serie",
+          "mac",
+          "modelo",
+          "condicion",
+          "validado",
+          "ocurridoEn"
         ],
         "type": "object"
       },
@@ -1970,6 +2842,32 @@
         ],
         "type": "object"
       },
+      "EstadoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "estado"
+        ],
+        "type": "object"
+      },
       "EstadoSaludBody": {
         "additionalProperties": false,
         "properties": {
@@ -1986,6 +2884,88 @@
         "required": [
           "estado",
           "version"
+        ],
+        "type": "object"
+      },
+      "EventoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "actorNombre": {
+            "type": "string"
+          },
+          "actorTipo": {
+            "type": "string"
+          },
+          "canal": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "description": "Hora de registro en el servidor",
+            "format": "date-time",
+            "type": "string"
+          },
+          "datos": {
+            "additionalProperties": {},
+            "description": "GPS (lat, lon, precision), técnico, fechas, según el tipo",
+            "type": "object"
+          },
+          "de": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ocurridoEn": {
+            "description": "Hora del hecho (la del teléfono corregida, si vino del lote)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "creada",
+              "estado",
+              "asignada",
+              "programada"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tipo",
+          "de",
+          "a",
+          "motivo",
+          "datos",
+          "actorTipo",
+          "actorId",
+          "actorNombre",
+          "canal",
+          "ocurridoEn",
+          "creadoEn"
         ],
         "type": "object"
       },
@@ -2067,6 +3047,89 @@
         ],
         "type": "object"
       },
+      "Existencia": {
+        "additionalProperties": false,
+        "properties": {
+          "cantidad": {
+            "format": "double",
+            "type": "number"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "productoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "unidad": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productoId",
+          "descripcion",
+          "cantidad",
+          "unidad"
+        ],
+        "type": "object"
+      },
+      "Existencias": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegas": {
+            "items": {
+              "$ref": "#/components/schemas/ExistenciasBodega"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "disponible": {
+            "type": "boolean"
+          },
+          "motivo": {
+            "enum": [
+              "sin_conector",
+              "argos_no_disponible",
+              "sin_bodega"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "bodegas"
+        ],
+        "type": "object"
+      },
+      "ExistenciasBodega": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lineas": {
+            "items": {
+              "$ref": "#/components/schemas/Existencia"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bodegaId",
+          "lineas"
+        ],
+        "type": "object"
+      },
       "Ficha": {
         "additionalProperties": false,
         "properties": {
@@ -2114,6 +3177,35 @@
           "estadoCuentaError",
           "stale",
           "sincronizadoEn"
+        ],
+        "type": "object"
+      },
+      "FirmaOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "adjuntoId": {
+            "description": "PNG de la firma (adjunto)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "documento": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "documento",
+          "adjuntoId",
+          "ocurridoEn"
         ],
         "type": "object"
       },
@@ -2225,6 +3317,122 @@
         ],
         "type": "object"
       },
+      "ItemChecklist": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "etiqueta": {
+            "type": "string"
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "marcadoPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "obligatorio": {
+            "type": "boolean"
+          },
+          "ocurridoEn": {
+            "description": "Hora de la marca vigente (gana la más reciente)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "posicion": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "si_no",
+              "texto",
+              "numero",
+              "foto",
+              "medicion"
+            ],
+            "type": "string"
+          },
+          "unidad": {
+            "description": "Para medicion y numero (dBm, Mbps…)",
+            "type": "string"
+          },
+          "valor": {
+            "description": "si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto. null = sin marcar",
+            "type": [
+              "",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "codigo",
+          "etiqueta",
+          "tipo",
+          "obligatorio",
+          "unidad",
+          "posicion",
+          "valor",
+          "marcadoPor",
+          "ocurridoEn"
+        ],
+        "type": "object"
+      },
+      "ItemPlantilla": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "etiqueta": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "obligatorio": {
+            "type": "boolean"
+          },
+          "posicion": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "si_no",
+              "texto",
+              "numero",
+              "foto",
+              "medicion"
+            ],
+            "type": "string"
+          },
+          "unidad": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "etiqueta",
+          "tipo",
+          "obligatorio",
+          "unidad",
+          "posicion"
+        ],
+        "type": "object"
+      },
       "MFAConfigurado": {
         "additionalProperties": false,
         "properties": {
@@ -2240,6 +3448,51 @@
         "required": [
           "secreto",
           "url"
+        ],
+        "type": "object"
+      },
+      "MaterialOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cantidad": {
+            "format": "double",
+            "type": "number"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "excedeExistencia": {
+            "description": "Se usó más de lo que había en la bodega según Argos",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Id de la operación del lote que lo registró (o uno v7 del servidor)",
+            "type": "string"
+          },
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "productoId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "productoId",
+          "descripcion",
+          "cantidad",
+          "bodegaId",
+          "excedeExistencia",
+          "ocurridoEn"
         ],
         "type": "object"
       },
@@ -2357,6 +3610,44 @@
         ],
         "type": "object"
       },
+      "NotaOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "autorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "autorNombre": {
+            "type": "string"
+          },
+          "canal": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Id de la operación del lote que la creó (o uno v7 del servidor)",
+            "type": "string"
+          },
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "texto": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "texto",
+          "autorId",
+          "autorNombre",
+          "canal",
+          "ocurridoEn"
+        ],
+        "type": "object"
+      },
       "ObjetivoSLA": {
         "additionalProperties": false,
         "properties": {
@@ -2382,6 +3673,981 @@
           "prioridad",
           "respuestaMin",
           "resolucionMin"
+        ],
+        "type": "object"
+      },
+      "OperacionLote": {
+        "additionalProperties": false,
+        "properties": {
+          "datos": {
+            "additionalProperties": {},
+            "description": "Los mismos campos (camelCase) que el cuerpo de la acción del panel, sin version",
+            "type": "object"
+          },
+          "id": {
+            "description": "uuid v7 generado en el teléfono; idempotencia",
+            "format": "uuid",
+            "type": "string"
+          },
+          "ocurridoEn": {
+            "description": "Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase",
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordenId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "orden.iniciar_camino",
+              "orden.llegar",
+              "checklist.marcar",
+              "nota.agregar",
+              "material.usar",
+              "equipo.instalar",
+              "equipo.retirar",
+              "firma.capturar",
+              "adjunto.registrar",
+              "orden.cerrar",
+              "orden.fallar"
+            ],
+            "type": "string"
+          },
+          "versionBase": {
+            "description": "Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tipo",
+          "ordenId"
+        ],
+        "type": "object"
+      },
+      "Orden": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "asignadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aviso": {
+            "description": "La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)",
+            "enum": [
+              "checklist_no_vigente",
+              "existencia_insuficiente"
+            ],
+            "type": "string"
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos (materiales y devoluciones)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "contacto": {
+            "$ref": "#/components/schemas/ContactoOrden"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null sin conector",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enCaminoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enSitioEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "finalizadaEn": {
+            "description": "Cierre, falla o cancelación",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "Detalle de la falla, la cancelación o la reapertura",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoFalla": {
+            "description": "Código de la falla (fallida)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "plantillaId": {
+            "description": "Plantilla de checklist",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "programadaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "programadaInicio": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "description": "Prospecto de origen (fase 4)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resultado": {
+            "enum": [
+              "exitosa",
+              "parcial",
+              "fallida",
+              "cancelada"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servicioId": {
+            "description": "Servicio en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico asignado",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ticketId": {
+            "description": "Ticket de origen",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "tipoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "description": "Zona (Argos); define el alcance",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "empresaId",
+          "tipo",
+          "tipoId",
+          "plantillaId",
+          "ticketId",
+          "prospectoId",
+          "clienteId",
+          "servicioId",
+          "zonaId",
+          "cuadrillaId",
+          "bodegaId",
+          "direccion",
+          "lat",
+          "lon",
+          "contacto",
+          "descripcion",
+          "tecnicoId",
+          "asignadaEn",
+          "estado",
+          "programadaInicio",
+          "programadaFin",
+          "enCaminoEn",
+          "enSitioEn",
+          "finalizadaEn",
+          "resultado",
+          "motivoFalla",
+          "motivo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "OrdenCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "adjuntos": {
+            "items": {
+              "$ref": "#/components/schemas/AdjuntoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "asignadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aviso": {
+            "description": "La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)",
+            "enum": [
+              "checklist_no_vigente",
+              "existencia_insuficiente"
+            ],
+            "type": "string"
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos (materiales y devoluciones)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/ItemChecklist"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cliente": {
+            "$ref": "#/components/schemas/ClienteCampo",
+            "description": "Instantánea de Argos; ausente si Iris no la tiene"
+          },
+          "clienteId": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "comodato": {
+            "$ref": "#/components/schemas/Comodato"
+          },
+          "contacto": {
+            "$ref": "#/components/schemas/ContactoOrden"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null sin conector",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enCaminoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enSitioEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "equipos": {
+            "items": {
+              "$ref": "#/components/schemas/EquipoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "finalizadaEn": {
+            "description": "Cierre, falla o cancelación",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firma": {
+            "$ref": "#/components/schemas/FirmaOrden",
+            "description": "Ausente si no hay firma"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "materiales": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "Detalle de la falla, la cancelación o la reapertura",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoFalla": {
+            "description": "Código de la falla (fallida)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notas": {
+            "items": {
+              "$ref": "#/components/schemas/NotaOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "plantillaId": {
+            "description": "Plantilla de checklist",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "programadaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "programadaInicio": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "description": "Prospecto de origen (fase 4)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "requiereFirma": {
+            "type": "boolean"
+          },
+          "resultado": {
+            "enum": [
+              "exitosa",
+              "parcial",
+              "fallida",
+              "cancelada"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servicio": {
+            "$ref": "#/components/schemas/ServicioCampo",
+            "description": "Instantánea de Argos; ausente si Iris no la tiene"
+          },
+          "servicioId": {
+            "description": "Servicio en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico asignado",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ticketId": {
+            "description": "Ticket de origen",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "tipoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "description": "Zona (Argos); define el alcance",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "comodato",
+          "requiereFirma",
+          "checklist",
+          "notas",
+          "materiales",
+          "equipos",
+          "adjuntos",
+          "id",
+          "numero",
+          "empresaId",
+          "tipo",
+          "tipoId",
+          "plantillaId",
+          "ticketId",
+          "prospectoId",
+          "clienteId",
+          "servicioId",
+          "zonaId",
+          "cuadrillaId",
+          "bodegaId",
+          "direccion",
+          "lat",
+          "lon",
+          "contacto",
+          "descripcion",
+          "tecnicoId",
+          "asignadaEn",
+          "estado",
+          "programadaInicio",
+          "programadaFin",
+          "enCaminoEn",
+          "enSitioEn",
+          "finalizadaEn",
+          "resultado",
+          "motivoFalla",
+          "motivo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "OrdenDetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "adjuntos": {
+            "items": {
+              "$ref": "#/components/schemas/AdjuntoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "asignadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aviso": {
+            "description": "La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)",
+            "enum": [
+              "checklist_no_vigente",
+              "existencia_insuficiente"
+            ],
+            "type": "string"
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos (materiales y devoluciones)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/ItemChecklist"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "contacto": {
+            "$ref": "#/components/schemas/ContactoOrden"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null sin conector",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enCaminoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enSitioEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "equipos": {
+            "items": {
+              "$ref": "#/components/schemas/EquipoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "finalizadaEn": {
+            "description": "Cierre, falla o cancelación",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firma": {
+            "$ref": "#/components/schemas/FirmaOrden",
+            "description": "Ausente si no hay firma"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "materiales": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "Detalle de la falla, la cancelación o la reapertura",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoFalla": {
+            "description": "Código de la falla (fallida)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notas": {
+            "items": {
+              "$ref": "#/components/schemas/NotaOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "plantillaId": {
+            "description": "Plantilla de checklist",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "programadaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "programadaInicio": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prospectoId": {
+            "description": "Prospecto de origen (fase 4)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "requiereFirma": {
+            "type": "boolean"
+          },
+          "resultado": {
+            "enum": [
+              "exitosa",
+              "parcial",
+              "fallida",
+              "cancelada"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "servicioId": {
+            "description": "Servicio en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico asignado",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ticketId": {
+            "description": "Ticket de origen",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "tipoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaId": {
+            "description": "Zona (Argos); define el alcance",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "requiereFirma",
+          "checklist",
+          "notas",
+          "materiales",
+          "equipos",
+          "adjuntos",
+          "id",
+          "numero",
+          "empresaId",
+          "tipo",
+          "tipoId",
+          "plantillaId",
+          "ticketId",
+          "prospectoId",
+          "clienteId",
+          "servicioId",
+          "zonaId",
+          "cuadrillaId",
+          "bodegaId",
+          "direccion",
+          "lat",
+          "lon",
+          "contacto",
+          "descripcion",
+          "tecnicoId",
+          "asignadaEn",
+          "estado",
+          "programadaInicio",
+          "programadaFin",
+          "enCaminoEn",
+          "enSitioEn",
+          "finalizadaEn",
+          "resultado",
+          "motivoFalla",
+          "motivo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
         ],
         "type": "object"
       },
@@ -2541,6 +4807,32 @@
         ],
         "type": "object"
       },
+      "PaginaEventoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EventoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaEventoTicket": {
         "additionalProperties": false,
         "properties": {
@@ -2599,6 +4891,32 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/MensajePortal"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Orden"
             },
             "type": [
               "array",
@@ -2775,6 +5093,32 @@
         ],
         "type": "object"
       },
+      "PaginaTipoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TipoOrden"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaTokenAPI": {
         "additionalProperties": false,
         "properties": {
@@ -2824,6 +5168,49 @@
         "required": [
           "data",
           "nextCursor"
+        ],
+        "type": "object"
+      },
+      "Paquete": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "Cursor para GET /campo/cambios (tomado antes de leer: puede repetir algo, nunca saltarlo)",
+            "type": "string"
+          },
+          "existencias": {
+            "$ref": "#/components/schemas/Existencias"
+          },
+          "fecha": {
+            "description": "Día del paquete (YYYY-MM-DD, America/Guatemala)",
+            "type": "string"
+          },
+          "ordenes": {
+            "description": "Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio",
+            "items": {
+              "$ref": "#/components/schemas/OrdenCampo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ruta": {
+            "$ref": "#/components/schemas/RutaCampo",
+            "description": "Ruta publicada (fase 3: hoy siempre ausente)"
+          },
+          "servidorEn": {
+            "description": "Hora del servidor al armar el paquete",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fecha",
+          "servidorEn",
+          "cursor",
+          "ordenes",
+          "existencias"
         ],
         "type": "object"
       },
@@ -2995,6 +5382,7 @@
           "buzones.desactivar",
           "buzones.editar",
           "buzones.ver",
+          "campo.sincronizar",
           "clientes.estado_cuenta",
           "clientes.ver",
           "empresas.adoptar",
@@ -3008,6 +5396,19 @@
           "integraciones.reintentar",
           "integraciones.ver",
           "integraciones.ver_pendientes",
+          "ordenes.asignar",
+          "ordenes.cancelar",
+          "ordenes.cerrar",
+          "ordenes.crear",
+          "ordenes.fallar",
+          "ordenes.iniciar_camino",
+          "ordenes.llegar",
+          "ordenes.programar",
+          "ordenes.reabrir",
+          "ordenes.registrar",
+          "ordenes.reprogramar",
+          "ordenes.ver",
+          "ordenes.ver_propias",
           "permisos.ver",
           "portal.emitir",
           "roles.ver",
@@ -3050,6 +5451,41 @@
         "required": [
           "codigo",
           "descripcion"
+        ],
+        "type": "object"
+      },
+      "Plantilla": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemPlantilla"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "requiereFirma": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "requiereFirma",
+          "items"
         ],
         "type": "object"
       },
@@ -3213,6 +5649,40 @@
         ],
         "type": "object"
       },
+      "RespuestaLote": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "Cursor de cambios para seguir con GET /campo/cambios: el que mandó el teléfono o, sin él, el de antes de aplicar el lote (nunca salta un cambio). No avanza con las operaciones del lote: sus efectos ya vienen en resultados[].orden",
+            "type": "string"
+          },
+          "desfaseMs": {
+            "description": "Hora del servidor − enviadoEn (0 sin enviadoEn)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "resultados": {
+            "items": {
+              "$ref": "#/components/schemas/ResultadoOperacion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "servidorEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resultados",
+          "cursor",
+          "servidorEn",
+          "desfaseMs"
+        ],
+        "type": "object"
+      },
       "ResultadoBusqueda": {
         "additionalProperties": false,
         "properties": {
@@ -3258,6 +5728,42 @@
         "required": [
           "origen",
           "destino"
+        ],
+        "type": "object"
+      },
+      "ResultadoOperacion": {
+        "additionalProperties": false,
+        "properties": {
+          "aviso": {
+            "enum": [
+              "checklist_no_vigente",
+              "existencia_insuficiente"
+            ],
+            "type": "string"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Problema",
+            "description": "problem+json del rechazo; el código va en type (urn:iris:problema:\u003ccodigo\u003e)"
+          },
+          "estado": {
+            "enum": [
+              "aplicada",
+              "duplicada",
+              "rechazada"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "orden": {
+            "$ref": "#/components/schemas/EstadoOrden",
+            "description": "Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo)"
+          }
+        },
+        "required": [
+          "id",
+          "estado"
         ],
         "type": "object"
       },
@@ -3319,6 +5825,31 @@
           "sistema",
           "permisos",
           "version"
+        ],
+        "type": "object"
+      },
+      "RutaCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ordenIds": {
+            "description": "Órdenes en el orden de visita",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "ordenIds"
         ],
         "type": "object"
       },
@@ -3484,6 +6015,64 @@
           "lat",
           "lon",
           "estado"
+        ],
+        "type": "object"
+      },
+      "ServicioCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "plan": {
+            "type": "string"
+          },
+          "router": {
+            "type": "string"
+          },
+          "sincronizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "plan",
+          "router",
+          "ip",
+          "direccion",
+          "lat",
+          "lon",
+          "estado",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -3970,6 +6559,69 @@
         "required": [
           "ticket",
           "mensaje"
+        ],
+        "type": "object"
+      },
+      "TipoOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "duracionMin": {
+            "description": "Duración estimada",
+            "format": "int32",
+            "type": "integer"
+          },
+          "exigeInstalar": {
+            "description": "El cierre exige al menos un equipo instalado",
+            "type": "boolean"
+          },
+          "exigeRetirar": {
+            "description": "El cierre exige al menos un equipo retirado",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "plantillaId": {
+            "description": "Plantilla por defecto",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "plantillas": {
+            "items": {
+              "$ref": "#/components/schemas/Plantilla"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "duracionMin",
+          "plantillaId",
+          "exigeInstalar",
+          "exigeRetirar",
+          "plantillas"
         ],
         "type": "object"
       },
@@ -5686,6 +8338,186 @@
           "soporte"
         ],
         "x-permiso": "buzones.editar"
+      }
+    },
+    "/api/v1/campo/cambios": {
+      "get": {
+        "description": "Permiso: `campo.sincronizar`. Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (sin orden: quitarla del teléfono). El cursor es del técnico y solo trae las órdenes de la empresa activa: al cambiar de empresa (X-Iris-Empresa), vuelve a pedir el paquete y usa su cursor.",
+        "operationId": "cambiosCampo",
+        "parameters": [
+          {
+            "description": "El del paquete o el de la respuesta anterior; vacío = desde el principio",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "El del paquete o el de la respuesta anterior; vacío = desde el principio",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cambios"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambios en las órdenes del técnico desde el cursor",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.sincronizar"
+      }
+    },
+    "/api/v1/campo/paquete": {
+      "get": {
+        "description": "Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), ruta (fase 3) y el cursor de cambios.",
+        "operationId": "paqueteCampo",
+        "parameters": [
+          {
+            "description": "YYYY-MM-DD (America/Guatemala); hoy por defecto",
+            "explode": false,
+            "in": "query",
+            "name": "fecha",
+            "schema": {
+              "description": "YYYY-MM-DD (America/Guatemala); hoy por defecto",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paquete"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Paquete del día del técnico",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.sincronizar"
       }
     },
     "/api/v1/categorias": {
@@ -8187,6 +11019,2527 @@
         ]
       }
     },
+    "/api/v1/ordenes": {
+      "get": {
+        "description": "Permiso: `ordenes.ver` (según el alcance) u `ordenes.ver_propias` (solo las asignadas al actor).",
+        "operationId": "listarOrdenes",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Uno o varios estados (estado=pendiente,programada)",
+            "explode": false,
+            "in": "query",
+            "name": "estado",
+            "schema": {
+              "description": "Uno o varios estados (estado=pendiente,programada)",
+              "items": {
+                "enum": [
+                  "pendiente",
+                  "programada",
+                  "en_camino",
+                  "en_sitio",
+                  "cerrada",
+                  "fallida",
+                  "cancelada"
+                ],
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Uno o varios tipos",
+            "explode": false,
+            "in": "query",
+            "name": "tipo",
+            "schema": {
+              "description": "Uno o varios tipos",
+              "items": {
+                "enum": [
+                  "instalacion",
+                  "visita",
+                  "retiro",
+                  "cambio_equipo",
+                  "mantenimiento"
+                ],
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Solo órdenes sin técnico",
+            "explode": false,
+            "in": "query",
+            "name": "sinTecnico",
+            "schema": {
+              "description": "Solo órdenes sin técnico",
+              "type": "boolean"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "ticketId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cliente de Argos (historial del cliente)",
+            "explode": false,
+            "in": "query",
+            "name": "clienteId",
+            "schema": {
+              "description": "Cliente de Argos (historial del cliente)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "servicioId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Programadas desde (inclusive, UTC)",
+            "explode": false,
+            "in": "query",
+            "name": "desde",
+            "schema": {
+              "description": "Programadas desde (inclusive, UTC)",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Programadas hasta (exclusive, UTC)",
+            "explode": false,
+            "in": "query",
+            "name": "hasta",
+            "schema": {
+              "description": "Programadas hasta (exclusive, UTC)",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Busca en número, dirección y contacto",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Busca en número, dirección y contacto",
+              "maxLength": 120,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaOrden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Listar órdenes de trabajo (tablero)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      },
+      "post": {
+        "description": "Permiso: `ordenes.crear`. Con `ticketId` la orden hereda los datos del ticket y deja una nota interna en él. Emite `orden.creada`.",
+        "operationId": "crearOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una orden de trabajo",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.crear"
+      }
+    },
+    "/api/v1/ordenes/{id}": {
+      "get": {
+        "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`.",
+        "operationId": "verOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdenDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver una orden con su checklist, notas, materiales, equipos, firma y adjuntos",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      }
+    },
+    "/api/v1/ordenes/{id}/adjuntos": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. El adjunto se crea con `POST /adjuntos`; basta con que la subida exista. En cualquier estado.",
+        "operationId": "registrarAdjuntoOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRegistrarAdjunto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un adjunto en la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/asignar": {
+      "post": {
+        "description": "Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente; otro técnico en camino la deja programada. Emite `orden.asignada`.",
+        "operationId": "asignarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAsignarOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Asignar una orden a un técnico o cuadrilla",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.asignar"
+      }
+    },
+    "/api/v1/ordenes/{id}/cancelar": {
+      "post": {
+        "description": "Permiso: `ordenes.cancelar`. Desde cualquier estado no final, con motivo. Emite `orden.estado_cambiada`.",
+        "operationId": "cancelarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaMotivo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancelar una orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.cancelar"
+      }
+    },
+    "/api/v1/ordenes/{id}/cerrar": {
+      "post": {
+        "description": "Permiso: `ordenes.cerrar`. en_sitio → cerrada. Exige el checklist obligatorio, los equipos del tipo y la firma si la plantilla la pide (422 `cierre_incompleto`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).",
+        "operationId": "cerrarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCerrarOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cerrar una orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.cerrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/checklist": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. Gana la marca más reciente (por hora del hecho); la otra queda en el historial (`aviso: checklist_no_vigente`).",
+        "operationId": "marcarChecklistOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaMarcarChecklist"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar un ítem del checklist",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/equipos-instalados": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. Serie o unidad de Argos; MAC normalizada. 422 `equipo_duplicado`.",
+        "operationId": "instalarEquipoOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEquipo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un equipo instalado (comodato)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/equipos-retirados": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. Con su condición (buena, danada o perdido: no se recuperó).",
+        "operationId": "retirarEquipoOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEquipo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un equipo retirado",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/eventos": {
+      "get": {
+        "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`.",
+        "operationId": "listarEventosOrden",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaEventoOrden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Historial de la orden (estado, asignación, programación y GPS)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      }
+    },
+    "/api/v1/ordenes/{id}/fallar": {
+      "post": {
+        "description": "Permiso: `ordenes.fallar`. programada, en_camino o en_sitio → fallida, con su motivo. Se puede reprogramar. Emite `orden.estado_cambiada`.",
+        "operationId": "fallarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFallarOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar la orden como fallida",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.fallar"
+      }
+    },
+    "/api/v1/ordenes/{id}/firma": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. Reemplaza la anterior. El SVG nunca sale por la API ni en la auditoría.",
+        "operationId": "capturarFirmaOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCapturarFirma"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Capturar la firma del cliente",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/iniciar-camino": {
+      "post": {
+        "description": "Permiso: `ordenes.iniciar_camino`. programada → en_camino, con GPS opcional. Emite `orden.estado_cambiada`.",
+        "operationId": "iniciarCaminoOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPosicion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar la orden en camino",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.iniciar_camino"
+      }
+    },
+    "/api/v1/ordenes/{id}/llegar": {
+      "post": {
+        "description": "Permiso: `ordenes.llegar`. programada o en_camino → en_sitio, con GPS opcional. Emite `orden.estado_cambiada`.",
+        "operationId": "llegarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPosicion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar la llegada al sitio",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.llegar"
+      }
+    },
+    "/api/v1/ordenes/{id}/materiales": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. Producto de Argos desde la bodega de la orden.",
+        "operationId": "usarMaterialOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaUsarMaterial"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar material usado",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/notas": {
+      "post": {
+        "description": "Permiso: `ordenes.registrar`. En cualquier estado.",
+        "operationId": "agregarNotaOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAgregarNota"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Agregar una nota a la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar"
+      }
+    },
+    "/api/v1/ordenes/{id}/programar": {
+      "post": {
+        "description": "Permiso: `ordenes.programar`. pendiente → programada. Emite `orden.programada` (y `orden.asignada` si cambia el técnico).",
+        "operationId": "programarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaProgramarOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Programar una orden (técnico y fecha)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.programar"
+      }
+    },
+    "/api/v1/ordenes/{id}/reabrir": {
+      "post": {
+        "description": "Permiso: `ordenes.reabrir`. fallida o cancelada → pendiente, con motivo (una cerrada no se reabre). Emite `orden.estado_cambiada`.",
+        "operationId": "reabrirOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaMotivo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reabrir una orden fallida o cancelada",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.reabrir"
+      }
+    },
+    "/api/v1/ordenes/{id}/reprogramar": {
+      "post": {
+        "description": "Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Emite `orden.programada`.",
+        "operationId": "reprogramarOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaProgramarOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reprogramar una orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.reprogramar"
+      }
+    },
     "/api/v1/permisos": {
       "get": {
         "description": "Permiso: `permisos.ver`.",
@@ -9710,6 +15063,99 @@
           "soporte"
         ],
         "x-permiso": "tickets.ver"
+      }
+    },
+    "/api/v1/sync/lote": {
+      "post": {
+        "description": "Permiso: `campo.sincronizar`. Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json). Cuerpo de hasta 4 MiB y 200 operaciones (una firma SVG ocupa hasta 200 000 caracteres).",
+        "operationId": "loteSync",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaLote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaLote"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Lote de operaciones de la app de campo",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.sincronizar"
       }
     },
     "/api/v1/tickets": {
@@ -11606,6 +17052,76 @@
           "soporte"
         ],
         "x-permiso": "tickets.responder"
+      }
+    },
+    "/api/v1/tipos-orden": {
+      "get": {
+        "description": "Cualquier usuario autenticado (catálogo).",
+        "operationId": "listarTiposOrden",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaTipoOrden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tipos de orden con sus plantillas de checklist",
+        "tags": [
+          "campo"
+        ]
       }
     },
     "/api/v1/tokens": {

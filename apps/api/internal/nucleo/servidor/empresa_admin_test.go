@@ -98,7 +98,7 @@ func TestAdministrarSoloUsuariosDeEmpresasPropias(t *testing.T) {
 	admin.entrar(correoAdmin)
 	bot := tokenDe(t, e, admin, "usuarios.ver", "usuarios.crear", "usuarios.editar", "usuarios.desactivar",
 		"usuarios.asignar_empresa", "usuarios.quitar_empresa", "tokens.crear", "tokens.revocar", "tokens.ver",
-		"roles.ver", "permisos.ver", "clientes.ver", "empresas.ver", "tickets.ver") // los del rol lectura
+		"roles.ver", "permisos.ver", "clientes.ver", "empresas.ver", "tickets.ver", "ordenes.ver") // los del rol lectura
 
 	editar := func(id int64, cuerpo map[string]any) respuesta {
 		cuerpo["version"] = 1
