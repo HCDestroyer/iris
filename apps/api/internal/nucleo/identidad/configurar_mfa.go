@@ -45,7 +45,7 @@ func nuevoConfigurarMFA(cfg Config) *auditoria.Caso[struct{}, MFAConfigurado] {
 			if err != nil {
 				return MFAConfigurado{}, err
 			}
-			cifrado, err := cfg.Cifrador.Cifrar([]byte(clave.Secret()), datosAsociadosTOTP(u.ID))
+			cifrado, err := cfg.Cifrador.Cifrar([]byte(clave.Secret()), DatosAsociadosTOTP(u.ID))
 			if err != nil {
 				return MFAConfigurado{}, err
 			}

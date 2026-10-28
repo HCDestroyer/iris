@@ -32,6 +32,15 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 			if err != nil {
 				return Usuario{}, err // sin filas → 404
 			}
+			// Editar a otro usuario (nombre, roles, lo que sea) exige operar en todas sus empresas;
+			// fuera de ese alcance, 404 como si no existiera (ni su versión se revela).
+			actor := contexto.ActorDe(ctx)
+			propio := actor.Tipo == contexto.ActorUsuario && actor.ID == in.ID
+			if !propio {
+				if err := exigirVisible(ctx, q, in.ID, "editar a este usuario"); err != nil {
+					return Usuario{}, err
+				}
+			}
 			if err := nucleo.ExigirVersion(in.Version, antes.Version, "usuario", in.ID); err != nil {
 				return Usuario{}, err
 			}
@@ -54,14 +63,6 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 			if correo != antes.Correo {
 				if otro, err := q.UsuarioPorCorreo(ctx, correo); err == nil && otro.ID != in.ID {
 					return Usuario{}, nucleo.Conflicto("correo_en_uso", "Ya existe un usuario con el correo "+correo)
-				}
-			}
-			// Editar a otro usuario (nombre, roles, lo que sea) exige operar en todas sus empresas.
-			actor := contexto.ActorDe(ctx)
-			propio := actor.Tipo == contexto.ActorUsuario && actor.ID == in.ID
-			if !propio {
-				if err := exigirEmpresasDe(ctx, q, in.ID, "editar a este usuario"); err != nil {
-					return Usuario{}, err
 				}
 			}
 			// Tomar la cuenta (contraseña, correo) o quitar roles exige superar al objetivo; con

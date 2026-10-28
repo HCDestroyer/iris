@@ -1709,6 +1709,26 @@
         ],
         "type": "object"
       },
+      "EntradaCambiarContrasena": {
+        "additionalProperties": false,
+        "properties": {
+          "actual": {
+            "description": "Contraseña actual (la temporal, si la hay)",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "nueva": {
+            "description": "Nueva contraseña: mínimo 12 caracteres y distinta de la actual",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "actual",
+          "nueva"
+        ],
+        "type": "object"
+      },
       "EntradaCambioConector": {
         "additionalProperties": false,
         "properties": {
@@ -3465,6 +3485,38 @@
           "inicio",
           "fin",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "EntradaReiniciarMFA": {
+        "additionalProperties": false,
+        "properties": {
+          "contrasenaTemporal": {
+            "description": "Contraseña temporal (mínimo 12 caracteres, distinta de la actual) que el administrador entrega al usuario fuera de banda. Reemplaza la actual; al entrar con ella, el usuario debe cambiarla antes de cualquier otra cosa. Nunca se audita ni va en eventos",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Por qué se reinicia (queda en la auditoría y en el evento)",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revocarTokens": {
+            "description": "Revoca también sus tokens iris_pat_ (true por omisión; emite token.revocado por cada uno)",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivo",
+          "contrasenaTemporal"
         ],
         "type": "object"
       },
@@ -6898,6 +6950,7 @@
           "usuarios.desactivar",
           "usuarios.editar",
           "usuarios.quitar_empresa",
+          "usuarios.reiniciar_mfa",
           "usuarios.ver"
         ],
         "title": "Permiso",
@@ -9415,6 +9468,10 @@
           "actualizadoEn": {
             "format": "date-time",
             "type": "string"
+          },
+          "cambioContrasenaRequerido": {
+            "description": "Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido)",
+            "type": "boolean"
           },
           "correo": {
             "type": "string"
@@ -23392,7 +23449,7 @@
     },
     "/api/v1/usuarios/{id}/desactivar": {
       "post": {
-        "description": "Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "description": "Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).",
         "operationId": "desactivarUsuario",
         "parameters": [
           {
@@ -23515,7 +23572,7 @@
     },
     "/api/v1/usuarios/{id}/editar": {
       "post": {
-        "description": "Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "description": "Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).",
         "operationId": "editarUsuario",
         "parameters": [
           {
@@ -23749,6 +23806,129 @@
         "x-permiso": "usuarios.quitar_empresa"
       }
     },
+    "/api/v1/usuarios/{id}/reiniciar-mfa": {
+      "post": {
+        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "operationId": "reiniciarMFAUsuario",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaReiniciarMFA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reiniciar el MFA de otro usuario",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "usuarios.reiniciar_mfa"
+      }
+    },
     "/api/v1/yo": {
       "get": {
         "description": "Incluye `empresas` (para el selector), `empresaActiva` y `modoEmpresa`. La empresa activa se elige con la cabecera `X-Iris-Empresa: \u003cid\u003e` en cada petición; con una sola empresa disponible es esa por defecto.",
@@ -23804,6 +23984,98 @@
           }
         ],
         "summary": "Usuario autenticado, permisos, alcance y empresas",
+        "tags": [
+          "identidad"
+        ]
+      }
+    },
+    "/api/v1/yo/contrasena": {
+      "post": {
+        "description": "Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Límite como el login: tras 10 contraseñas actuales incorrectas seguidas (15 min) responde 429 `demasiados_intentos` con `Retry-After`, cierra la sesión y bloquea el cambio 15 min. Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`.",
+        "operationId": "cambiarContrasenaPropia",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCambiarContrasena"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambiar la contraseña propia",
         "tags": [
           "identidad"
         ]

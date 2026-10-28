@@ -27,9 +27,12 @@ export type EntradaMenu = {
 };
 
 /*
- * Despacho y Comercial todavía no tienen permisos en el enum `Permiso` (los publica I2
- * con sus módulos). Mientras tanto son «Próximamente» para todos. Estas aserciones de tipos
- * fallan en `pnpm typecheck` en cuanto el permiso exista en el contrato, para que se pase de `null` al permiso real en la misma PR que regenera packages/contratos.
+ * `despacho.ver` y `prospectos.ver` todavía no existen en el enum `Permiso` (pedidos a I2 en
+ * .claude/integration/i3.md). Despacho usa mientras tanto `agenda.ver`, el permiso real más
+ * cercano (calendario y mover citas; el mapa en vivo pide además `campo.ver_posiciones`), y
+ * Comercial sigue «Próximamente» para todos. Estas aserciones de tipos fallan en `pnpm typecheck`
+ * en cuanto el permiso exista en el contrato, para pasar al permiso real en la misma PR que
+ * regenera packages/contratos.
  */
 type AunNoExiste<P extends string> = P extends Permiso ? false : true;
 export const permisosPendientes = {
@@ -46,8 +49,8 @@ export const MENU: readonly EntradaMenu[] = [
         icono: ClipboardList,
         permisos: ["ordenes.ver", "ordenes.ver_propias"],
     },
-    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"], proximamente: true },
-    { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: null, proximamente: true },
+    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
+    { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
     { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: null, proximamente: true },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {

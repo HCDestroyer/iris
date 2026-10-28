@@ -32,6 +32,10 @@ func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 			if err != nil {
 				return Usuario{}, err
 			}
+			// Fuera del alcance de empresas: 404, como si no existiera (ni su versión se revela).
+			if err := exigirVisible(ctx, q, in.ID, "desactivar a este usuario"); err != nil {
+				return Usuario{}, err
+			}
 			if err := nucleo.ExigirVersion(in.Version, antes.Version, "usuario", in.ID); err != nil {
 				return Usuario{}, err
 			}

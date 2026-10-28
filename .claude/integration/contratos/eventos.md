@@ -9,10 +9,11 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
 | `usuario.creado` | `usuario_id`, `tipo` | Alta de un usuario (`usuarios.crear`, también desde `iris admin crear`). |
-| `usuario.actualizado` | `usuario_id`, `campos[]` (nombres de los campos que cambiaron) | `usuarios.editar`. |
+| `usuario.actualizado` | `usuario_id`, `campos[]` (nombres de los campos que cambiaron) | `usuarios.editar`. También `yo.cambiar_contrasena` (`POST /yo/contrasena`, el propio usuario; `campos` = `["contrasena_hash", "cambio_requerido"]` o solo el primero). |
 | `usuario.desactivado` | `usuario_id`, `motivo` | `usuarios.desactivar`. Revoca sus sesiones; sus tokens dejan de autenticar mientras esté inactivo, sin revocarse ni emitir `token.revocado`. |
+| `usuario.mfa_reiniciado` | `usuario_id`, `motivo`, `sesiones_cerradas` (número), `tokens_revocados` (número) | `usuarios.reiniciar_mfa` (un administrador, nunca el propio usuario): borra su secreto TOTP, reemplaza su contraseña por una temporal (nunca va en el evento) que debe cambiar al entrar, revoca sus sesiones y, salvo `revocarTokens: false`, sus tokens (un `token.revocado` con `motivo = mfa_reiniciado` por cada uno). Un segundo reinicio sin MFA configurado es 422. |
 | `token.creado` | `token_id`, `usuario_id` | Alta de un token `iris_pat_`. |
-| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`. |
+| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`, y `usuarios.reiniciar_mfa` (uno por token, `motivo = mfa_reiniciado`). |
 | `empresa.creada` | `empresa_id`, `origen` (`manual`) | `empresas.crear` (un administrador registra una empresa de Argos). Lleva `empresa_id` = la empresa. Las que registra el canje del conector no emiten este evento (van en `conector.creado`). |
 | `empresa.actualizada` | `empresa_id`, `campos[]` | `empresas.editar` (nombre, NIT). |
 | `usuario.empresa_asignada` | `usuario_id`, `empresa_id` | `usuarios.asignar_empresa`, y `usuarios.crear` con `empresas` (uno por empresa). Lleva `empresa_id` = la empresa asignada. |
