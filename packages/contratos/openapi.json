@@ -629,6 +629,10 @@
           "hayMas": {
             "description": "Quedan cambios: pedir otra vez con el cursor",
             "type": "boolean"
+          },
+          "ruta": {
+            "$ref": "#/components/schemas/RutaCampo",
+            "description": "Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día"
           }
         },
         "required": [
@@ -3210,6 +3214,59 @@
         "required": [
           "version",
           "inicio"
+        ],
+        "type": "object"
+      },
+      "EntradaProponerRuta": {
+        "additionalProperties": false,
+        "properties": {
+          "fecha": {
+            "description": "Día local (YYYY-MM-DD, America/Guatemala); hoy por defecto",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+            "type": "string"
+          },
+          "ordenIds": {
+            "description": "Orden manual: todas las órdenes programadas del técnico ese día en el orden de visita (las ya en camino, en sitio o terminadas van primero en el orden real y se pueden omitir). Ausente = optimizada",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico (el tecnicoId de las órdenes)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Versión del borrador que se rehace (opcional); si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tecnicoId"
+        ],
+        "type": "object"
+      },
+      "EntradaPublicarRuta": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Versión leída del borrador; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -6073,6 +6130,32 @@
         ],
         "type": "object"
       },
+      "PaginaRuta": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Ruta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaSLA": {
         "additionalProperties": false,
         "properties": {
@@ -6307,7 +6390,7 @@
           },
           "ruta": {
             "$ref": "#/components/schemas/RutaCampo",
-            "description": "Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas)"
+            "description": "Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después"
           },
           "servidorEn": {
             "description": "Hora del servidor al armar el paquete",
@@ -6321,6 +6404,233 @@
           "cursor",
           "ordenes",
           "existencias"
+        ],
+        "type": "object"
+      },
+      "ParadaCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "fueraDeVentana": {
+            "description": "Se estima llegar después de la ventana acordada con el cliente",
+            "type": "boolean"
+          },
+          "llegadaEstimada": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "posicion": {
+            "description": "Posición en la ruta publicada (1 = primera; puede saltar números si una orden salió)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "salidaEstimada": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ordenId",
+          "posicion",
+          "llegadaEstimada",
+          "salidaEstimada",
+          "fueraDeVentana"
+        ],
+        "type": "object"
+      },
+      "ParadaRuta": {
+        "additionalProperties": false,
+        "properties": {
+          "citaInicio": {
+            "description": "Inicio de la cita al proponer",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desvioSeg": {
+            "description": "llegadaReal − llegadaEstimada (positivo = tarde)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "distanciaM": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "duracionMin": {
+            "description": "Duración estimada del tipo de orden",
+            "format": "int32",
+            "type": "integer"
+          },
+          "enCaminoEn": {
+            "description": "Real",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "esperaSeg": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "Estado actual de la orden",
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "fija": {
+            "description": "Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real",
+            "type": "boolean"
+          },
+          "finalizadaEn": {
+            "description": "Real: cierre o falla",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fueraDeVentana": {
+            "type": "boolean"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "llegadaEstimada": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "llegadaReal": {
+            "description": "Real: llegada al sitio",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "numero": {
+            "type": "string"
+          },
+          "oculta": {
+            "description": "Fuera de tu alcance: sin número, dirección ni coordenadas",
+            "type": "boolean"
+          },
+          "ordenId": {
+            "description": "0 si la orden está fuera de tu alcance (oculta)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "posicion": {
+            "description": "1 = primera",
+            "format": "int32",
+            "type": "integer"
+          },
+          "retrasoSeg": {
+            "description": "Llegada estimada después del fin de la ventana",
+            "format": "int32",
+            "type": "integer"
+          },
+          "salidaEstimada": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sinCoordenadas": {
+            "description": "Sin coordenadas: viaje 0 y al final de la ruta optimizada",
+            "type": "boolean"
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "ventanaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ventanaInicio": {
+            "description": "Ventana de llegada acordada con el cliente",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "viajeSeg": {
+            "description": "Viaje desde la parada anterior (o la salida)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "vigente": {
+            "description": "La orden sigue en este técnico y día; false = se movió después de proponer",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "posicion",
+          "ordenId",
+          "numero",
+          "tipo",
+          "estado",
+          "oculta",
+          "vigente",
+          "direccion",
+          "lat",
+          "lon",
+          "sinCoordenadas",
+          "duracionMin",
+          "ventanaInicio",
+          "ventanaFin",
+          "citaInicio",
+          "fija",
+          "llegadaEstimada",
+          "salidaEstimada",
+          "viajeSeg",
+          "distanciaM",
+          "esperaSeg",
+          "retrasoSeg",
+          "fueraDeVentana",
+          "enCaminoEn",
+          "llegadaReal",
+          "finalizadaEn",
+          "desvioSeg"
         ],
         "type": "object"
       },
@@ -6541,6 +6851,9 @@
           "permisos.ver",
           "portal.emitir",
           "roles.ver",
+          "rutas.proponer",
+          "rutas.publicar",
+          "rutas.ver",
           "tickets.asignar",
           "tickets.cerrar",
           "tickets.crear",
@@ -6854,6 +7167,104 @@
           "lat",
           "lon",
           "registradaEn"
+        ],
+        "type": "object"
+      },
+      "PuntoReal": {
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          },
+          "registradaEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "registradaEn"
+        ],
+        "type": "object"
+      },
+      "RecorridoReal": {
+        "additionalProperties": false,
+        "properties": {
+          "disponible": {
+            "description": "false = no se puede mostrar (motivo); nunca suponer «no se movió»",
+            "type": "boolean"
+          },
+          "distanciaM": {
+            "description": "Suma en línea recta entre posiciones",
+            "format": "int32",
+            "type": "integer"
+          },
+          "motivo": {
+            "description": "sin_permiso: falta campo.ver_posiciones; sin_posiciones: la app no envió ubicación ese día",
+            "enum": [
+              "sin_permiso",
+              "sin_posiciones"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordenVisitado": {
+            "description": "Órdenes en el orden real de llegada (las ocultas no van)",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "primeraEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "puntos": {
+            "description": "Posiciones del día en orden (hasta 1000, muestreadas)",
+            "items": {
+              "$ref": "#/components/schemas/PuntoReal"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "totalPuntos": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ultimaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "disponible",
+          "motivo",
+          "puntos",
+          "totalPuntos",
+          "distanciaM",
+          "primeraEn",
+          "ultimaEn",
+          "ordenVisitado"
         ],
         "type": "object"
       },
@@ -7196,9 +7607,255 @@
         ],
         "type": "object"
       },
+      "Ruta": {
+        "additionalProperties": false,
+        "properties": {
+          "degradada": {
+            "description": "true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados",
+            "type": "boolean"
+          },
+          "desactualizada": {
+            "description": "Una orden cambió de técnico o de hora (o entró una nueva ese día) después de proponerla: hay que volver a proponer. La publicada sigue vigente para el técnico hasta publicar otra",
+            "type": "boolean"
+          },
+          "desactualizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "distanciaM": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "esperaSeg": {
+            "description": "Esperas por llegar antes de la ventana",
+            "format": "int32",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "borrador: propuesta sin publicar; publicada: la que ve el técnico; reemplazada: publicada antes que la actual (historial)",
+            "enum": [
+              "borrador",
+              "publicada",
+              "reemplazada"
+            ],
+            "type": "string"
+          },
+          "excedeTurno": {
+            "description": "La ruta termina después del fin del turno",
+            "type": "boolean"
+          },
+          "fecha": {
+            "description": "Día local (YYYY-MM-DD, America/Guatemala)",
+            "type": "string"
+          },
+          "finTurno": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fueraDeVentana": {
+            "description": "Paradas a las que se llega después del fin de su ventana",
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "modo": {
+            "description": "optimizada: orden de Iris; manual: el orden que pidió despacho",
+            "enum": [
+              "optimizada",
+              "manual"
+            ],
+            "type": "string"
+          },
+          "motivoDesactualizada": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoMotor": {
+            "description": "Por qué se degradó (null con OSRM)",
+            "enum": [
+              "sin_osrm",
+              "osrm_no_disponible",
+              "datos_cambiaron"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motor": {
+            "description": "Con qué se calcularon tiempos y distancias",
+            "enum": [
+              "osrm",
+              "haversine"
+            ],
+            "type": "string"
+          },
+          "origenSalida": {
+            "description": "De dónde sale: base de la ficha, última posición (hoy), la última parada ya hecha o, sin ninguna, la primera parada",
+            "enum": [
+              "base",
+              "posicion",
+              "ultima_parada",
+              "primera_parada"
+            ],
+            "type": "string"
+          },
+          "propuestaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "propuestaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "publicadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reemplazadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reemplazadaPorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "saleEn": {
+            "description": "Hora de salida (inicio del turno o la primera cita)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "salidaLat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "salidaLon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico (el tecnicoId de las órdenes)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tecnicoNombre": {
+            "type": "string"
+          },
+          "terminaEn": {
+            "description": "Salida estimada de la última parada",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalParadas": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "viajeSeg": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "tecnicoId",
+          "tecnicoNombre",
+          "fecha",
+          "estado",
+          "modo",
+          "motor",
+          "degradada",
+          "motivoMotor",
+          "origenSalida",
+          "salidaLat",
+          "salidaLon",
+          "saleEn",
+          "terminaEn",
+          "finTurno",
+          "excedeTurno",
+          "distanciaM",
+          "viajeSeg",
+          "esperaSeg",
+          "totalParadas",
+          "fueraDeVentana",
+          "desactualizada",
+          "desactualizadaEn",
+          "motivoDesactualizada",
+          "propuestaPor",
+          "propuestaEn",
+          "publicadaPor",
+          "publicadaEn",
+          "reemplazadaEn",
+          "reemplazadaPorId",
+          "version"
+        ],
+        "type": "object"
+      },
       "RutaCampo": {
         "additionalProperties": false,
         "properties": {
+          "degradada": {
+            "description": "Tiempos en línea recta (OSRM no estaba disponible al proponerla)",
+            "type": "boolean"
+          },
+          "desactualizada": {
+            "description": "Una orden cambió de técnico o de hora después de publicarla: despacho publicará otra",
+            "type": "boolean"
+          },
+          "fecha": {
+            "description": "Día de la ruta (YYYY-MM-DD, America/Guatemala)",
+            "type": "string"
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -7213,11 +7870,287 @@
               "array",
               "null"
             ]
+          },
+          "paradas": {
+            "description": "Las de ordenIds, con la llegada estimada",
+            "items": {
+              "$ref": "#/components/schemas/ParadaCampo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "publicadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión de la ruta (cambia al publicar otra o al quedar desactualizada)",
+            "format": "int32",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "ordenIds"
+        ],
+        "type": "object"
+      },
+      "RutaDetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "degradada": {
+            "description": "true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados",
+            "type": "boolean"
+          },
+          "desactualizada": {
+            "description": "Una orden cambió de técnico o de hora (o entró una nueva ese día) después de proponerla: hay que volver a proponer. La publicada sigue vigente para el técnico hasta publicar otra",
+            "type": "boolean"
+          },
+          "desactualizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "distanciaM": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "esperaSeg": {
+            "description": "Esperas por llegar antes de la ventana",
+            "format": "int32",
+            "type": "integer"
+          },
+          "estado": {
+            "description": "borrador: propuesta sin publicar; publicada: la que ve el técnico; reemplazada: publicada antes que la actual (historial)",
+            "enum": [
+              "borrador",
+              "publicada",
+              "reemplazada"
+            ],
+            "type": "string"
+          },
+          "excedeTurno": {
+            "description": "La ruta termina después del fin del turno",
+            "type": "boolean"
+          },
+          "fecha": {
+            "description": "Día local (YYYY-MM-DD, America/Guatemala)",
+            "type": "string"
+          },
+          "finTurno": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fueraDeVentana": {
+            "description": "Paradas a las que se llega después del fin de su ventana",
+            "format": "int32",
+            "type": "integer"
+          },
+          "geometria": {
+            "additionalProperties": {},
+            "description": "GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "modo": {
+            "description": "optimizada: orden de Iris; manual: el orden que pidió despacho",
+            "enum": [
+              "optimizada",
+              "manual"
+            ],
+            "type": "string"
+          },
+          "motivoDesactualizada": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivoMotor": {
+            "description": "Por qué se degradó (null con OSRM)",
+            "enum": [
+              "sin_osrm",
+              "osrm_no_disponible",
+              "datos_cambiaron"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motor": {
+            "description": "Con qué se calcularon tiempos y distancias",
+            "enum": [
+              "osrm",
+              "haversine"
+            ],
+            "type": "string"
+          },
+          "origenSalida": {
+            "description": "De dónde sale: base de la ficha, última posición (hoy), la última parada ya hecha o, sin ninguna, la primera parada",
+            "enum": [
+              "base",
+              "posicion",
+              "ultima_parada",
+              "primera_parada"
+            ],
+            "type": "string"
+          },
+          "paradas": {
+            "items": {
+              "$ref": "#/components/schemas/ParadaRuta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "propuestaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "propuestaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "publicadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicadaPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "real": {
+            "$ref": "#/components/schemas/RecorridoReal"
+          },
+          "reemplazadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reemplazadaPorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "saleEn": {
+            "description": "Hora de salida (inicio del turno o la primera cita)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "salidaLat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "salidaLon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico (el tecnicoId de las órdenes)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tecnicoNombre": {
+            "type": "string"
+          },
+          "terminaEn": {
+            "description": "Salida estimada de la última parada",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalParadas": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "viajeSeg": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "geometria",
+          "paradas",
+          "real",
+          "id",
+          "empresaId",
+          "tecnicoId",
+          "tecnicoNombre",
+          "fecha",
+          "estado",
+          "modo",
+          "motor",
+          "degradada",
+          "motivoMotor",
+          "origenSalida",
+          "salidaLat",
+          "salidaLon",
+          "saleEn",
+          "terminaEn",
+          "finTurno",
+          "excedeTurno",
+          "distanciaM",
+          "viajeSeg",
+          "esperaSeg",
+          "totalParadas",
+          "fueraDeVentana",
+          "desactualizada",
+          "desactualizadaEn",
+          "motivoDesactualizada",
+          "propuestaPor",
+          "propuestaEn",
+          "publicadaPor",
+          "publicadaEn",
+          "reemplazadaEn",
+          "reemplazadaPorId",
+          "version"
         ],
         "type": "object"
       },
@@ -17514,6 +18447,469 @@
           "identidad"
         ],
         "x-permiso": "roles.ver"
+      }
+    },
+    "/api/v1/rutas": {
+      "get": {
+        "description": "Permiso: `rutas.ver`. De la empresa activa, de los técnicos que cubre tu alcance (su cuadrilla). Sin paradas ni recorrido: GET /rutas/{id}.",
+        "operationId": "listarRutas",
+        "parameters": [
+          {
+            "description": "Día local (YYYY-MM-DD); hoy por defecto",
+            "explode": false,
+            "in": "query",
+            "name": "fecha",
+            "schema": {
+              "description": "Día local (YYYY-MM-DD); hoy por defecto",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Usuario técnico",
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "description": "Usuario técnico",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cuadrilla del técnico",
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "description": "Cuadrilla del técnico",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sin estado: borradores y publicadas",
+            "explode": false,
+            "in": "query",
+            "name": "estado",
+            "schema": {
+              "description": "Sin estado: borradores y publicadas",
+              "enum": [
+                "borrador",
+                "publicada",
+                "reemplazada",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "También las publicadas antes que la actual",
+            "explode": false,
+            "in": "query",
+            "name": "incluirReemplazadas",
+            "schema": {
+              "description": "También las publicadas antes que la actual",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaRuta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rutas del día (borradores y publicadas)",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "rutas.ver"
+      }
+    },
+    "/api/v1/rutas/proponer": {
+      "post": {
+        "description": "Permiso: `rutas.proponer`. Ordena las citas del técnico ese día (las ya en camino, en sitio o terminadas van primero, en el orden real) para llegar dentro de la ventana acordada con el cliente con el menor viaje (OSRM /table; trazo con /route), con la duración estimada por tipo de orden. Si OSRM no responde, ordena por ventana y distancia en línea recta y lo dice (`degradada`, `motivoMotor`). Crea o rehace el borrador (una publicada no se toca hasta publicar otra). 422 `ruta_vacia`, `demasiadas_paradas`, `validacion` (ordenIds). Emite `ruta.propuesta`.",
+        "operationId": "proponerRuta",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaProponerRuta"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RutaDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Proponer la ruta del día de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "rutas.proponer"
+      }
+    },
+    "/api/v1/rutas/{id}": {
+      "get": {
+        "description": "Permiso: `rutas.ver`. Paradas con la llegada estimada y la real (en sitio), el desvío, si la orden sigue en la ruta (`vigente`), y el recorrido real del técnico ese día (campo.posiciones; exige `campo.ver_posiciones`). Paradas fuera de tu alcance salen ocultas.",
+        "operationId": "verRuta",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RutaDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ruta propuesta frente a la real",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "rutas.ver"
+      }
+    },
+    "/api/v1/rutas/{id}/publicar": {
+      "post": {
+        "description": "Permiso: `rutas.publicar`. Publica el borrador: el técnico la recibe en el paquete de la app de campo (órdenes en el orden de la ruta). La publicada anterior queda `reemplazada` (nunca se borra). 422 `ruta_desactualizada` (una orden cambió de técnico o de hora: propónla de nuevo) y `transicion_invalida`. Emite `ruta.publicada`.",
+        "operationId": "publicarRuta",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPublicarRuta"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RutaDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publicar la ruta del día",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "rutas.publicar"
       }
     },
     "/api/v1/salud": {

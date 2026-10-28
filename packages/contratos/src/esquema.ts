@@ -1457,6 +1457,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rutas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rutas del día (borradores y publicadas)
+         * @description Permiso: `rutas.ver`. De la empresa activa, de los técnicos que cubre tu alcance (su cuadrilla). Sin paradas ni recorrido: GET /rutas/{id}.
+         */
+        get: operations["listarRutas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rutas/proponer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Proponer la ruta del día de un técnico
+         * @description Permiso: `rutas.proponer`. Ordena las citas del técnico ese día (las ya en camino, en sitio o terminadas van primero, en el orden real) para llegar dentro de la ventana acordada con el cliente con el menor viaje (OSRM /table; trazo con /route), con la duración estimada por tipo de orden. Si OSRM no responde, ordena por ventana y distancia en línea recta y lo dice (`degradada`, `motivoMotor`). Crea o rehace el borrador (una publicada no se toca hasta publicar otra). 422 `ruta_vacia`, `demasiadas_paradas`, `validacion` (ordenIds). Emite `ruta.propuesta`.
+         */
+        post: operations["proponerRuta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rutas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ruta propuesta frente a la real
+         * @description Permiso: `rutas.ver`. Paradas con la llegada estimada y la real (en sitio), el desvío, si la orden sigue en la ruta (`vigente`), y el recorrido real del técnico ese día (campo.posiciones; exige `campo.ver_posiciones`). Paradas fuera de tu alcance salen ocultas.
+         */
+        get: operations["verRuta"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rutas/{id}/publicar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publicar la ruta del día
+         * @description Permiso: `rutas.publicar`. Publica el borrador: el técnico la recibe en el paquete de la app de campo (órdenes en el orden de la ruta). La publicada anterior queda `reemplazada` (nunca se borra). 422 `ruta_desactualizada` (una orden cambió de técnico o de hora: propónla de nuevo) y `transicion_invalida`. Emite `ruta.publicada`.
+         */
+        post: operations["publicarRuta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/salud": {
         parameters: {
             query?: never;
@@ -2568,6 +2648,8 @@ export interface components {
             cursor: string;
             /** @description Quedan cambios: pedir otra vez con el cursor */
             hayMas: boolean;
+            /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
+            ruta?: components["schemas"]["RutaCampo"];
         };
         Capacidad: {
             /**
@@ -3562,6 +3644,29 @@ export interface components {
              */
             version: number;
         };
+        EntradaProponerRuta: {
+            /** @description Día local (YYYY-MM-DD, America/Guatemala); hoy por defecto */
+            fecha?: string;
+            /** @description Orden manual: todas las órdenes programadas del técnico ese día en el orden de visita (las ya en camino, en sitio o terminadas van primero en el orden real y se pueden omitir). Ausente = optimizada */
+            ordenIds?: number[] | null;
+            /**
+             * Format: int64
+             * @description Usuario técnico (el tecnicoId de las órdenes)
+             */
+            tecnicoId: number;
+            /**
+             * Format: int32
+             * @description Versión del borrador que se rehace (opcional); si cambió, 409
+             */
+            version?: number;
+        };
+        EntradaPublicarRuta: {
+            /**
+             * Format: int32
+             * @description Versión leída del borrador; si cambió, 409
+             */
+            version: number;
+        };
         EntradaReabrirTicket: {
             motivo: string;
             /**
@@ -4478,6 +4583,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaRuta: {
+            data: components["schemas"]["Ruta"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaSLA: {
             data: components["schemas"]["SLA"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -4526,13 +4636,117 @@ export interface components {
             fecha: string;
             /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio */
             ordenes: components["schemas"]["OrdenCampo"][] | null;
-            /** @description Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas) */
+            /** @description Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después */
             ruta?: components["schemas"]["RutaCampo"];
             /**
              * Format: date-time
              * @description Hora del servidor al armar el paquete
              */
             servidorEn: string;
+        };
+        ParadaCampo: {
+            /** @description Se estima llegar después de la ventana acordada con el cliente */
+            fueraDeVentana: boolean;
+            /** Format: date-time */
+            llegadaEstimada: string;
+            /** Format: int64 */
+            ordenId: number;
+            /**
+             * Format: int32
+             * @description Posición en la ruta publicada (1 = primera; puede saltar números si una orden salió)
+             */
+            posicion: number;
+            /** Format: date-time */
+            salidaEstimada: string;
+        };
+        ParadaRuta: {
+            /**
+             * Format: date-time
+             * @description Inicio de la cita al proponer
+             */
+            citaInicio: string | null;
+            /**
+             * Format: int32
+             * @description llegadaReal − llegadaEstimada (positivo = tarde)
+             */
+            desvioSeg: number | null;
+            direccion: string;
+            /** Format: int32 */
+            distanciaM: number;
+            /**
+             * Format: int32
+             * @description Duración estimada del tipo de orden
+             */
+            duracionMin: number;
+            /**
+             * Format: date-time
+             * @description Real
+             */
+            enCaminoEn: string | null;
+            /** Format: int32 */
+            esperaSeg: number;
+            /**
+             * @description Estado actual de la orden
+             * @enum {string}
+             */
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            /** @description Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real */
+            fija: boolean;
+            /**
+             * Format: date-time
+             * @description Real: cierre o falla
+             */
+            finalizadaEn: string | null;
+            fueraDeVentana: boolean;
+            /** Format: double */
+            lat: number | null;
+            /** Format: date-time */
+            llegadaEstimada: string;
+            /**
+             * Format: date-time
+             * @description Real: llegada al sitio
+             */
+            llegadaReal: string | null;
+            /** Format: double */
+            lon: number | null;
+            numero: string;
+            /** @description Fuera de tu alcance: sin número, dirección ni coordenadas */
+            oculta: boolean;
+            /**
+             * Format: int64
+             * @description 0 si la orden está fuera de tu alcance (oculta)
+             */
+            ordenId: number;
+            /**
+             * Format: int32
+             * @description 1 = primera
+             */
+            posicion: number;
+            /**
+             * Format: int32
+             * @description Llegada estimada después del fin de la ventana
+             */
+            retrasoSeg: number;
+            /** Format: date-time */
+            salidaEstimada: string;
+            /** @description Sin coordenadas: viaje 0 y al final de la ruta optimizada */
+            sinCoordenadas: boolean;
+            /** @enum {string} */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /** Format: date-time */
+            ventanaFin: string | null;
+            /**
+             * Format: date-time
+             * @description Ventana de llegada acordada con el cliente
+             */
+            ventanaInicio: string | null;
+            /**
+             * Format: int32
+             * @description Viaje desde la parada anterior (o la salida)
+             */
+            viajeSeg: number;
+            /** @description La orden sigue en este técnico y día; false = se movió después de proponer */
+            vigente: boolean;
         };
         Pendiente: {
             /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
@@ -4595,7 +4809,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -4701,6 +4915,38 @@ export interface components {
              * @description m/s
              */
             velocidad?: number;
+        };
+        PuntoReal: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** Format: date-time */
+            registradaEn: string;
+        };
+        RecorridoReal: {
+            /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
+            disponible: boolean;
+            /**
+             * Format: int32
+             * @description Suma en línea recta entre posiciones
+             */
+            distanciaM: number;
+            /**
+             * @description sin_permiso: falta campo.ver_posiciones; sin_posiciones: la app no envió ubicación ese día
+             * @enum {string|null}
+             */
+            motivo: "sin_permiso" | "sin_posiciones" | null;
+            /** @description Órdenes en el orden real de llegada (las ocultas no van) */
+            ordenVisitado: number[] | null;
+            /** Format: date-time */
+            primeraEn: string | null;
+            /** @description Posiciones del día en orden (hasta 1000, muestreadas) */
+            puntos: components["schemas"]["PuntoReal"][] | null;
+            /** Format: int32 */
+            totalPuntos: number;
+            /** Format: date-time */
+            ultimaEn: string | null;
         };
         RelojSLA: {
             /**
@@ -4818,11 +5064,220 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        Ruta: {
+            /** @description true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados */
+            degradada: boolean;
+            /** @description Una orden cambió de técnico o de hora (o entró una nueva ese día) después de proponerla: hay que volver a proponer. La publicada sigue vigente para el técnico hasta publicar otra */
+            desactualizada: boolean;
+            /** Format: date-time */
+            desactualizadaEn: string | null;
+            /** Format: int32 */
+            distanciaM: number;
+            /** Format: int64 */
+            empresaId: number | null;
+            /**
+             * Format: int32
+             * @description Esperas por llegar antes de la ventana
+             */
+            esperaSeg: number;
+            /**
+             * @description borrador: propuesta sin publicar; publicada: la que ve el técnico; reemplazada: publicada antes que la actual (historial)
+             * @enum {string}
+             */
+            estado: "borrador" | "publicada" | "reemplazada";
+            /** @description La ruta termina después del fin del turno */
+            excedeTurno: boolean;
+            /** @description Día local (YYYY-MM-DD, America/Guatemala) */
+            fecha: string;
+            /** Format: date-time */
+            finTurno: string | null;
+            /**
+             * Format: int32
+             * @description Paradas a las que se llega después del fin de su ventana
+             */
+            fueraDeVentana: number;
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description optimizada: orden de Iris; manual: el orden que pidió despacho
+             * @enum {string}
+             */
+            modo: "optimizada" | "manual";
+            motivoDesactualizada: string | null;
+            /**
+             * @description Por qué se degradó (null con OSRM)
+             * @enum {string|null}
+             */
+            motivoMotor: "sin_osrm" | "osrm_no_disponible" | "datos_cambiaron" | null;
+            /**
+             * @description Con qué se calcularon tiempos y distancias
+             * @enum {string}
+             */
+            motor: "osrm" | "haversine";
+            /**
+             * @description De dónde sale: base de la ficha, última posición (hoy), la última parada ya hecha o, sin ninguna, la primera parada
+             * @enum {string}
+             */
+            origenSalida: "base" | "posicion" | "ultima_parada" | "primera_parada";
+            /** Format: date-time */
+            propuestaEn: string;
+            /** Format: int64 */
+            propuestaPor: number | null;
+            /** Format: date-time */
+            publicadaEn: string | null;
+            /** Format: int64 */
+            publicadaPor: number | null;
+            /** Format: date-time */
+            reemplazadaEn: string | null;
+            /** Format: int64 */
+            reemplazadaPorId: number | null;
+            /**
+             * Format: date-time
+             * @description Hora de salida (inicio del turno o la primera cita)
+             */
+            saleEn: string;
+            /** Format: double */
+            salidaLat: number | null;
+            /** Format: double */
+            salidaLon: number | null;
+            /**
+             * Format: int64
+             * @description Usuario técnico (el tecnicoId de las órdenes)
+             */
+            tecnicoId: number;
+            tecnicoNombre: string;
+            /**
+             * Format: date-time
+             * @description Salida estimada de la última parada
+             */
+            terminaEn: string | null;
+            /** Format: int32 */
+            totalParadas: number;
+            /** Format: int32 */
+            version: number;
+            /** Format: int32 */
+            viajeSeg: number;
+        };
         RutaCampo: {
+            /** @description Tiempos en línea recta (OSRM no estaba disponible al proponerla) */
+            degradada?: boolean;
+            /** @description Una orden cambió de técnico o de hora después de publicarla: despacho publicará otra */
+            desactualizada?: boolean;
+            /** @description Día de la ruta (YYYY-MM-DD, America/Guatemala) */
+            fecha?: string;
             /** Format: int64 */
             id: number;
             /** @description Órdenes en el orden de visita */
             ordenIds: number[] | null;
+            /** @description Las de ordenIds, con la llegada estimada */
+            paradas?: components["schemas"]["ParadaCampo"][] | null;
+            /** Format: date-time */
+            publicadaEn?: string;
+            /**
+             * Format: int32
+             * @description Versión de la ruta (cambia al publicar otra o al quedar desactualizada)
+             */
+            version?: number;
+        };
+        RutaDetalle: {
+            /** @description true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados */
+            degradada: boolean;
+            /** @description Una orden cambió de técnico o de hora (o entró una nueva ese día) después de proponerla: hay que volver a proponer. La publicada sigue vigente para el técnico hasta publicar otra */
+            desactualizada: boolean;
+            /** Format: date-time */
+            desactualizadaEn: string | null;
+            /** Format: int32 */
+            distanciaM: number;
+            /** Format: int64 */
+            empresaId: number | null;
+            /**
+             * Format: int32
+             * @description Esperas por llegar antes de la ventana
+             */
+            esperaSeg: number;
+            /**
+             * @description borrador: propuesta sin publicar; publicada: la que ve el técnico; reemplazada: publicada antes que la actual (historial)
+             * @enum {string}
+             */
+            estado: "borrador" | "publicada" | "reemplazada";
+            /** @description La ruta termina después del fin del turno */
+            excedeTurno: boolean;
+            /** @description Día local (YYYY-MM-DD, America/Guatemala) */
+            fecha: string;
+            /** Format: date-time */
+            finTurno: string | null;
+            /**
+             * Format: int32
+             * @description Paradas a las que se llega después del fin de su ventana
+             */
+            fueraDeVentana: number;
+            /** @description GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada */
+            geometria: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description optimizada: orden de Iris; manual: el orden que pidió despacho
+             * @enum {string}
+             */
+            modo: "optimizada" | "manual";
+            motivoDesactualizada: string | null;
+            /**
+             * @description Por qué se degradó (null con OSRM)
+             * @enum {string|null}
+             */
+            motivoMotor: "sin_osrm" | "osrm_no_disponible" | "datos_cambiaron" | null;
+            /**
+             * @description Con qué se calcularon tiempos y distancias
+             * @enum {string}
+             */
+            motor: "osrm" | "haversine";
+            /**
+             * @description De dónde sale: base de la ficha, última posición (hoy), la última parada ya hecha o, sin ninguna, la primera parada
+             * @enum {string}
+             */
+            origenSalida: "base" | "posicion" | "ultima_parada" | "primera_parada";
+            paradas: components["schemas"]["ParadaRuta"][] | null;
+            /** Format: date-time */
+            propuestaEn: string;
+            /** Format: int64 */
+            propuestaPor: number | null;
+            /** Format: date-time */
+            publicadaEn: string | null;
+            /** Format: int64 */
+            publicadaPor: number | null;
+            real: components["schemas"]["RecorridoReal"];
+            /** Format: date-time */
+            reemplazadaEn: string | null;
+            /** Format: int64 */
+            reemplazadaPorId: number | null;
+            /**
+             * Format: date-time
+             * @description Hora de salida (inicio del turno o la primera cita)
+             */
+            saleEn: string;
+            /** Format: double */
+            salidaLat: number | null;
+            /** Format: double */
+            salidaLon: number | null;
+            /**
+             * Format: int64
+             * @description Usuario técnico (el tecnicoId de las órdenes)
+             */
+            tecnicoId: number;
+            tecnicoNombre: string;
+            /**
+             * Format: date-time
+             * @description Salida estimada de la última parada
+             */
+            terminaEn: string | null;
+            /** Format: int32 */
+            totalParadas: number;
+            /** Format: int32 */
+            version: number;
+            /** Format: int32 */
+            viajeSeg: number;
         };
         SLA: {
             activo: boolean;
@@ -11200,6 +11655,304 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarRutas: {
+        parameters: {
+            query?: {
+                /** @description Día local (YYYY-MM-DD); hoy por defecto */
+                fecha?: string;
+                /** @description Usuario técnico */
+                tecnicoId?: number;
+                /** @description Cuadrilla del técnico */
+                cuadrillaId?: number;
+                /** @description Sin estado: borradores y publicadas */
+                estado?: "borrador" | "publicada" | "reemplazada" | "";
+                /** @description También las publicadas antes que la actual */
+                incluirReemplazadas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaRuta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    proponerRuta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProponerRuta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RutaDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verRuta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RutaDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    publicarRuta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPublicarRuta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RutaDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

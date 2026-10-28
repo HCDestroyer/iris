@@ -3,6 +3,7 @@ package campo
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -70,10 +71,28 @@ type ExistenciasBodega struct {
 	Lineas   []Existencia `json:"lineas"`
 }
 
-// RutaCampo es la ruta publicada del día (agenda: llega con la propuesta de ruta, siguiente PR).
+// RutaCampo es la ruta publicada del día (agenda): el orden de visita y la llegada estimada.
+// Solo trae las órdenes del paquete (las del técnico, vivas): las cerradas o reasignadas salen.
 type RutaCampo struct {
 	ID       int64   `json:"id"`
 	OrdenIDs []int64 `json:"ordenIds" doc:"Órdenes en el orden de visita"`
+	Version  int32   `json:"version,omitempty" doc:"Versión de la ruta (cambia al publicar otra o al quedar desactualizada)"`
+	Fecha    string  `json:"fecha,omitempty" doc:"Día de la ruta (YYYY-MM-DD, America/Guatemala)"`
+	// Desactualizada: una orden cambió de técnico o de hora después de publicarla (despacho debe
+	// publicar otra). Mostrarlo; las órdenes nuevas del día van después de las de la ruta.
+	Desactualizada bool          `json:"desactualizada,omitempty" doc:"Una orden cambió de técnico o de hora después de publicarla: despacho publicará otra"`
+	Degradada      bool          `json:"degradada,omitempty" doc:"Tiempos en línea recta (OSRM no estaba disponible al proponerla)"`
+	PublicadaEn    *time.Time    `json:"publicadaEn,omitempty"`
+	Paradas        []ParadaCampo `json:"paradas,omitempty" doc:"Las de ordenIds, con la llegada estimada"`
+}
+
+// ParadaCampo: una parada de la ruta publicada.
+type ParadaCampo struct {
+	OrdenID         int64     `json:"ordenId"`
+	Posicion        int16     `json:"posicion" doc:"Posición en la ruta publicada (1 = primera; puede saltar números si una orden salió)"`
+	LlegadaEstimada time.Time `json:"llegadaEstimada"`
+	SalidaEstimada  time.Time `json:"salidaEstimada"`
+	FueraDeVentana  bool      `json:"fueraDeVentana" doc:"Se estima llegar después de la ventana acordada con el cliente"`
 }
 
 // OrdenCampo es una orden con lo que el técnico necesita sin señal.
@@ -91,7 +110,7 @@ type Paquete struct {
 	Cursor      string       `json:"cursor" doc:"Cursor para GET /campo/cambios (tomado antes de leer: puede repetir algo, nunca saltarlo)"`
 	Ordenes     []OrdenCampo `json:"ordenes" doc:"Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio"`
 	Existencias Existencias  `json:"existencias"`
-	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas)"`
+	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después"`
 }
 
 // EntradaPaquete es la entrada de GET /campo/paquete.
@@ -118,6 +137,7 @@ type Cambios struct {
 	Cambios []CambioOrden `json:"cambios" doc:"Una entrada por orden (el último cambio), en orden"`
 	Cursor  string        `json:"cursor" doc:"Siguiente cursor"`
 	HayMas  bool          `json:"hayMas" doc:"Quedan cambios: pedir otra vez con el cursor"`
+	Ruta    *RutaCampo    `json:"ruta,omitempty" doc:"Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día"`
 }
 
 func cursorDe(id int64) string { return nucleo.CodificarCursor(id) }
@@ -163,10 +183,21 @@ func (m *Modulo) nuevoLeerPaquete() *auditoria.Caso[EntradaPaquete, Paquete] {
 			for _, o := range ordenes {
 				ids = append(ids, o.ID)
 			}
+			ruta, err := m.rutaCampo(ctx, t, actor.ID, inicioDia, ids)
+			if err != nil {
+				return Paquete{}, err
+			}
+			if ruta != nil {
+				ordenarPorRuta(ordenes, ruta.OrdenIDs)
+				ids = ids[:0]
+				for _, o := range ordenes {
+					ids = append(ids, o.ID)
+				}
+			}
 			t.Anotar(map[string]any{"fecha": inicioDia.Format("2006-01-02"), "ordenes": ids})
 			return Paquete{
 				Fecha: inicioDia.Format("2006-01-02"), ServidorEn: ahora, Cursor: cursorDe(ultimo), Ordenes: ordenes,
-				Existencias: Existencias{Bodegas: []ExistenciasBodega{}},
+				Existencias: Existencias{Bodegas: []ExistenciasBodega{}}, Ruta: ruta,
 			}, nil
 		},
 	})
@@ -202,7 +233,7 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 				filas, salida.HayMas = filas[:limite], true
 			}
 			if len(filas) == 0 {
-				return salida, nil
+				return salida, m.rutaDeHoyEnCambios(ctx, t, q, &salida)
 			}
 			salida.Cursor = cursorDe(filas[len(filas)-1].ID)
 			// Una entrada por orden: el último cambio, en el orden en que ocurrió.
@@ -253,8 +284,79 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 				salida.Cambios = append(salida.Cambios, c)
 			}
 			t.Anotar(map[string]any{"ordenes": ids})
-			return salida, nil
+			return salida, m.rutaDeHoyEnCambios(ctx, t, q, &salida)
 		},
+	})
+}
+
+// rutaDeHoyEnCambios agrega a los cambios la ruta publicada de hoy con las órdenes vivas del
+// técnico en la empresa activa.
+func (m *Modulo) rutaDeHoyEnCambios(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, c *Cambios) error {
+	actor := contexto.ActorDe(ctx)
+	hoy := m.ahora().In(m.cfg.ZonaHoraria)
+	dia := time.Date(hoy.Year(), hoy.Month(), hoy.Day(), 0, 0, 0, 0, m.cfg.ZonaHoraria)
+	todas, empresa := filtroEmpresa(ctx)
+	filas, err := q.OrdenesDelPaquete(ctx, campobd.OrdenesDelPaqueteParams{TecnicoID: &actor.ID, TodasEmpresas: todas,
+		EmpresaID: empresa, Hasta: ptr(dia.AddDate(0, 0, 1).UTC())})
+	if err != nil {
+		return err
+	}
+	ids := make([]int64, 0, len(filas))
+	for _, f := range filas {
+		ids = append(ids, f.ID)
+	}
+	c.Ruta, err = m.rutaCampo(ctx, t, actor.ID, dia, ids)
+	return err
+}
+
+// rutaCampo: la ruta publicada del técnico ese día en la empresa activa, solo con las órdenes
+// dadas (las del paquete). nil si no hay ruta o ninguna de sus órdenes sigue en el paquete.
+func (m *Modulo) rutaCampo(ctx context.Context, t *auditoria.Tx, tecnico int64, dia time.Time, ordenes []int64) (*RutaCampo, error) {
+	todas, empresa := filtroEmpresa(ctx)
+	if todas || (empresa != nil && *empresa == 0) {
+		return nil, nil
+	}
+	r, err := m.cfg.Agenda.RutaPublicadaDelTecnico(ctx, t, empresa, tecnico, dia)
+	if err != nil || r == nil {
+		return nil, err
+	}
+	salida := &RutaCampo{ID: r.ID, OrdenIDs: []int64{}, Version: r.Version, Fecha: r.Fecha, Desactualizada: r.Desactualizada,
+		Degradada: r.Motor != "osrm", Paradas: []ParadaCampo{}}
+	if !r.PublicadaEn.IsZero() {
+		salida.PublicadaEn = &r.PublicadaEn
+	}
+	for _, p := range r.Paradas {
+		if !slices.Contains(ordenes, p.OrdenID) {
+			continue
+		}
+		salida.OrdenIDs = append(salida.OrdenIDs, p.OrdenID)
+		salida.Paradas = append(salida.Paradas, ParadaCampo{OrdenID: p.OrdenID, Posicion: p.Posicion,
+			LlegadaEstimada: p.LlegadaEstimada, SalidaEstimada: p.SalidaEstimada, FueraDeVentana: p.FueraDeVentana})
+	}
+	if len(salida.OrdenIDs) == 0 {
+		return nil, nil
+	}
+	return salida, nil
+}
+
+// ordenarPorRuta: primero las de la ruta en su orden; las demás después, en el orden que traían.
+func ordenarPorRuta(ordenes []OrdenCampo, ruta []int64) {
+	posicion := make(map[int64]int, len(ruta))
+	for i, id := range ruta {
+		posicion[id] = i
+	}
+	slices.SortStableFunc(ordenes, func(a, b OrdenCampo) int {
+		pa, ea := posicion[a.ID]
+		pb, eb := posicion[b.ID]
+		switch {
+		case ea && eb:
+			return pa - pb
+		case ea:
+			return -1
+		case eb:
+			return 1
+		}
+		return 0
 	})
 }
 

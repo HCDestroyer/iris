@@ -341,6 +341,23 @@ func (q *Queries) CandadoAgendaTecnico(ctx context.Context, usuarioID int64) err
 	return err
 }
 
+const candadoRuta = `-- name: CandadoRuta :exec
+
+SELECT pg_advisory_xact_lock(hashtextextended(concat('agenda.ruta:', $1::bigint, ':', $2::date), 0))
+`
+
+type CandadoRutaParams struct {
+	TecnicoID int64
+	Fecha     time.Time
+}
+
+// Rutas del día ---------------------------------------------------------------------
+// Serializa la propuesta y la publicación de la ruta de un técnico en un día.
+func (q *Queries) CandadoRuta(ctx context.Context, arg CandadoRutaParams) error {
+	_, err := q.db.Exec(ctx, candadoRuta, arg.TecnicoID, arg.Fecha)
+	return err
+}
+
 const capacidadesDeCuadrilla = `-- name: CapacidadesDeCuadrilla :many
 SELECT id, tecnico_id, cuadrilla_id, tipo_id, cupos, minutos, created_at, updated_at FROM agenda.capacidades WHERE cuadrilla_id = $1 ORDER BY tipo_id NULLS FIRST
 `
@@ -508,6 +525,94 @@ func (q *Queries) CitasDeOrdenes(ctx context.Context, ordenes []int64) ([]Agenda
 	return items, nil
 }
 
+const citasParaRuta = `-- name: CitasParaRuta :many
+SELECT c.orden_id, c.inicio, c.fin, c.ventana_inicio, c.ventana_fin,
+       o.numero, o.estado, o.lat, o.lon, o.direccion, o.zona_id, o.cuadrilla_id,
+       o.en_camino_en, o.en_sitio_en, o.finalizada_en, tp.codigo AS tipo_codigo, tp.duracion_min
+FROM agenda.citas c
+JOIN campo.ordenes o ON o.id = c.orden_id
+JOIN campo.tipos_orden tp ON tp.id = o.tipo_id
+WHERE c.tecnico_id = $1 AND o.tecnico_id = $1
+  AND c.inicio >= $2 AND c.inicio < $3
+  AND c.empresa_id IS NOT DISTINCT FROM $4::bigint
+  AND o.empresa_id IS NOT DISTINCT FROM $4::bigint
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada', 'fallida')
+ORDER BY c.inicio, c.orden_id
+LIMIT 101
+`
+
+type CitasParaRutaParams struct {
+	TecnicoID int64
+	Desde     time.Time
+	Hasta     time.Time
+	EmpresaID *int64
+}
+
+type CitasParaRutaRow struct {
+	OrdenID       int64
+	Inicio        time.Time
+	Fin           time.Time
+	VentanaInicio *time.Time
+	VentanaFin    *time.Time
+	Numero        string
+	Estado        string
+	Lat           *float64
+	Lon           *float64
+	Direccion     string
+	ZonaID        *int64
+	CuadrillaID   *int64
+	EnCaminoEn    *time.Time
+	EnSitioEn     *time.Time
+	FinalizadaEn  *time.Time
+	TipoCodigo    string
+	DuracionMin   int32
+}
+
+// Citas del técnico que empiezan en [desde, hasta) en la empresa (null = sin conector), de
+// órdenes suyas programadas, en curso o terminadas (las canceladas y pendientes no tienen cita).
+func (q *Queries) CitasParaRuta(ctx context.Context, arg CitasParaRutaParams) ([]CitasParaRutaRow, error) {
+	rows, err := q.db.Query(ctx, citasParaRuta,
+		arg.TecnicoID,
+		arg.Desde,
+		arg.Hasta,
+		arg.EmpresaID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CitasParaRutaRow
+	for rows.Next() {
+		var i CitasParaRutaRow
+		if err := rows.Scan(
+			&i.OrdenID,
+			&i.Inicio,
+			&i.Fin,
+			&i.VentanaInicio,
+			&i.VentanaFin,
+			&i.Numero,
+			&i.Estado,
+			&i.Lat,
+			&i.Lon,
+			&i.Direccion,
+			&i.ZonaID,
+			&i.CuadrillaID,
+			&i.EnCaminoEn,
+			&i.EnSitioEn,
+			&i.FinalizadaEn,
+			&i.TipoCodigo,
+			&i.DuracionMin,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const crearAusencia = `-- name: CrearAusencia :one
 
 INSERT INTO agenda.ausencias (tecnico_id, inicio, fin, motivo, detalle, creada_por)
@@ -593,6 +698,116 @@ func (q *Queries) CrearCuadrilla(ctx context.Context, arg CrearCuadrillaParams) 
 		&i.EmpresaID,
 		&i.Nombre,
 		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const crearParadas = `-- name: CrearParadas :exec
+INSERT INTO agenda.ruta_paradas (ruta_id, posicion, orden_id, lat, lon, duracion_min, ventana_inicio, ventana_fin,
+    cita_inicio, fija, llegada_estimada, salida_estimada, viaje_seg, distancia_m, espera_seg, retraso_seg)
+SELECT $1, p.posicion, p.orden_id, p.lat, p.lon, p.duracion_min, p.ventana_inicio, p.ventana_fin,
+    p.cita_inicio, p.fija, p.llegada_estimada, p.salida_estimada, p.viaje_seg, p.distancia_m, p.espera_seg, p.retraso_seg
+FROM jsonb_to_recordset($2::jsonb)
+     AS p (posicion smallint, orden_id bigint, lat double precision, lon double precision, duracion_min integer,
+           ventana_inicio timestamptz, ventana_fin timestamptz, cita_inicio timestamptz, fija boolean,
+           llegada_estimada timestamptz, salida_estimada timestamptz, viaje_seg integer, distancia_m integer,
+           espera_seg integer, retraso_seg integer)
+`
+
+type CrearParadasParams struct {
+	RutaID  int64
+	Paradas []byte
+}
+
+func (q *Queries) CrearParadas(ctx context.Context, arg CrearParadasParams) error {
+	_, err := q.db.Exec(ctx, crearParadas, arg.RutaID, arg.Paradas)
+	return err
+}
+
+const crearRuta = `-- name: CrearRuta :one
+INSERT INTO agenda.rutas (empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida,
+    salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria,
+    propuesta_por, propuesta_en)
+VALUES ($1, $2, $3, 'borrador', $4, $5, $6, $7,
+    $8, $9, $10, $11, $12, $13, $14, $15, $16,
+    $17, $18)
+RETURNING id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at
+`
+
+type CrearRutaParams struct {
+	EmpresaID    *int64
+	TecnicoID    int64
+	Fecha        time.Time
+	Modo         string
+	Motor        string
+	MotivoMotor  *string
+	OrigenSalida string
+	SalidaLat    *float64
+	SalidaLon    *float64
+	SaleEn       time.Time
+	TerminaEn    *time.Time
+	FinTurno     *time.Time
+	DistanciaM   int32
+	ViajeSeg     int32
+	EsperaSeg    int32
+	Geometria    []byte
+	PropuestaPor *int64
+	PropuestaEn  time.Time
+}
+
+func (q *Queries) CrearRuta(ctx context.Context, arg CrearRutaParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, crearRuta,
+		arg.EmpresaID,
+		arg.TecnicoID,
+		arg.Fecha,
+		arg.Modo,
+		arg.Motor,
+		arg.MotivoMotor,
+		arg.OrigenSalida,
+		arg.SalidaLat,
+		arg.SalidaLon,
+		arg.SaleEn,
+		arg.TerminaEn,
+		arg.FinTurno,
+		arg.DistanciaM,
+		arg.ViajeSeg,
+		arg.EsperaSeg,
+		arg.Geometria,
+		arg.PropuestaPor,
+		arg.PropuestaEn,
+	)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1041,6 +1256,134 @@ func (q *Queries) ListarCuadrillas(ctx context.Context, arg ListarCuadrillasPara
 	return items, nil
 }
 
+const listarRutas = `-- name: ListarRutas :many
+SELECT r.id, r.empresa_id, r.tecnico_id, r.fecha, r.estado, r.modo, r.motor, r.motivo_motor, r.origen_salida, r.salida_lat, r.salida_lon, r.sale_en, r.termina_en, r.fin_turno, r.distancia_m, r.viaje_seg, r.espera_seg, r.geometria, r.desactualizada, r.desactualizada_en, r.motivo_desactualizada, r.propuesta_por, r.propuesta_en, r.publicada_por, r.publicada_en, r.reemplazada_en, r.reemplazada_por_id, r.version, r.created_at, r.updated_at, u.nombre AS tecnico_nombre, t.cuadrilla_id AS tecnico_cuadrilla_id,
+       (SELECT count(*) FROM agenda.ruta_paradas p WHERE p.ruta_id = r.id)::integer AS paradas,
+       (SELECT count(*) FROM agenda.ruta_paradas p WHERE p.ruta_id = r.id AND p.retraso_seg > 0)::integer AS fuera_de_ventana
+FROM agenda.rutas r
+JOIN nucleo.usuarios u ON u.id = r.tecnico_id
+LEFT JOIN agenda.tecnicos t ON t.usuario_id = r.tecnico_id
+WHERE r.fecha = $1
+  AND ($2::boolean OR r.empresa_id IS NOT DISTINCT FROM $3::bigint)
+  AND ($4::bigint IS NULL OR r.tecnico_id = $4)
+  AND ($5::bigint IS NULL OR t.cuadrilla_id = $5)
+  AND ($6::boolean OR r.estado <> 'reemplazada')
+  AND ($7::text IS NULL OR r.estado = $7)
+ORDER BY u.nombre, r.tecnico_id, r.id DESC
+LIMIT 500
+`
+
+type ListarRutasParams struct {
+	Fecha               time.Time
+	TodasEmpresas       bool
+	EmpresaID           *int64
+	TecnicoID           *int64
+	CuadrillaID         *int64
+	IncluirReemplazadas bool
+	Estado              *string
+}
+
+type ListarRutasRow struct {
+	ID                   int64
+	EmpresaID            *int64
+	TecnicoID            int64
+	Fecha                time.Time
+	Estado               string
+	Modo                 string
+	Motor                string
+	MotivoMotor          *string
+	OrigenSalida         string
+	SalidaLat            *float64
+	SalidaLon            *float64
+	SaleEn               time.Time
+	TerminaEn            *time.Time
+	FinTurno             *time.Time
+	DistanciaM           int32
+	ViajeSeg             int32
+	EsperaSeg            int32
+	Geometria            []byte
+	Desactualizada       bool
+	DesactualizadaEn     *time.Time
+	MotivoDesactualizada *string
+	PropuestaPor         *int64
+	PropuestaEn          time.Time
+	PublicadaPor         *int64
+	PublicadaEn          *time.Time
+	ReemplazadaEn        *time.Time
+	ReemplazadaPorID     *int64
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	TecnicoNombre        string
+	TecnicoCuadrillaID   *int64
+	Paradas              int32
+	FueraDeVentana       int32
+}
+
+// Rutas de un día en la empresa (null = sin conector; todas_empresas: actor sistema).
+func (q *Queries) ListarRutas(ctx context.Context, arg ListarRutasParams) ([]ListarRutasRow, error) {
+	rows, err := q.db.Query(ctx, listarRutas,
+		arg.Fecha,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.TecnicoID,
+		arg.CuadrillaID,
+		arg.IncluirReemplazadas,
+		arg.Estado,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListarRutasRow
+	for rows.Next() {
+		var i ListarRutasRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.TecnicoID,
+			&i.Fecha,
+			&i.Estado,
+			&i.Modo,
+			&i.Motor,
+			&i.MotivoMotor,
+			&i.OrigenSalida,
+			&i.SalidaLat,
+			&i.SalidaLon,
+			&i.SaleEn,
+			&i.TerminaEn,
+			&i.FinTurno,
+			&i.DistanciaM,
+			&i.ViajeSeg,
+			&i.EsperaSeg,
+			&i.Geometria,
+			&i.Desactualizada,
+			&i.DesactualizadaEn,
+			&i.MotivoDesactualizada,
+			&i.PropuestaPor,
+			&i.PropuestaEn,
+			&i.PublicadaPor,
+			&i.PublicadaEn,
+			&i.ReemplazadaEn,
+			&i.ReemplazadaPorID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TecnicoNombre,
+			&i.TecnicoCuadrillaID,
+			&i.Paradas,
+			&i.FueraDeVentana,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listarTecnicos = `-- name: ListarTecnicos :many
 SELECT t.id, t.usuario_id, t.cuadrilla_id, t.bodega_id, t.habilidades, t.base_lat, t.base_lon, t.activo, t.version, t.created_at, t.updated_at, u.nombre, u.correo, u.activo AS usuario_activo
 FROM agenda.tecnicos t
@@ -1205,6 +1548,81 @@ func (q *Queries) ListarZonas(ctx context.Context, arg ListarZonasParams) ([]Age
 	return items, nil
 }
 
+const marcarRutasDesactualizadas = `-- name: MarcarRutasDesactualizadas :many
+UPDATE agenda.rutas SET desactualizada = true, desactualizada_en = $1, motivo_desactualizada = $2,
+    version = version + 1, updated_at = now()
+WHERE tecnico_id = $3 AND fecha = $4 AND estado IN ('borrador', 'publicada')
+  AND empresa_id IS NOT DISTINCT FROM $5::bigint
+  AND NOT desactualizada
+RETURNING id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at
+`
+
+type MarcarRutasDesactualizadasParams struct {
+	Ahora     *time.Time
+	Motivo    *string
+	TecnicoID int64
+	Fecha     time.Time
+	EmpresaID *int64
+}
+
+// Borrador y publicada del técnico ese día (en la empresa) que todavía no estaban marcados.
+func (q *Queries) MarcarRutasDesactualizadas(ctx context.Context, arg MarcarRutasDesactualizadasParams) ([]AgendaRuta, error) {
+	rows, err := q.db.Query(ctx, marcarRutasDesactualizadas,
+		arg.Ahora,
+		arg.Motivo,
+		arg.TecnicoID,
+		arg.Fecha,
+		arg.EmpresaID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgendaRuta
+	for rows.Next() {
+		var i AgendaRuta
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.TecnicoID,
+			&i.Fecha,
+			&i.Estado,
+			&i.Modo,
+			&i.Motor,
+			&i.MotivoMotor,
+			&i.OrigenSalida,
+			&i.SalidaLat,
+			&i.SalidaLon,
+			&i.SaleEn,
+			&i.TerminaEn,
+			&i.FinTurno,
+			&i.DistanciaM,
+			&i.ViajeSeg,
+			&i.EsperaSeg,
+			&i.Geometria,
+			&i.Desactualizada,
+			&i.DesactualizadaEn,
+			&i.MotivoDesactualizada,
+			&i.PropuestaPor,
+			&i.PropuestaEn,
+			&i.PublicadaPor,
+			&i.PublicadaEn,
+			&i.ReemplazadaEn,
+			&i.ReemplazadaPorID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ocupacionTecnicos = `-- name: OcupacionTecnicos :many
 SELECT c.orden_id, c.tecnico_id, c.tipo_id, c.inicio, c.fin, o.estado, o.numero, o.empresa_id
 FROM agenda.citas c
@@ -1269,6 +1687,201 @@ func (q *Queries) OcupacionTecnicos(ctx context.Context, arg OcupacionTecnicosPa
 	return items, nil
 }
 
+const paradasDeRutas = `-- name: ParadasDeRutas :many
+SELECT p.ruta_id, p.posicion, p.orden_id, p.lat, p.lon, p.duracion_min, p.ventana_inicio, p.ventana_fin, p.cita_inicio, p.fija, p.llegada_estimada, p.salida_estimada, p.viaje_seg, p.distancia_m, p.espera_seg, p.retraso_seg, p.created_at, p.updated_at, o.numero, o.estado, o.direccion, o.zona_id, o.cuadrilla_id, o.tecnico_id AS orden_tecnico_id,
+       o.en_camino_en, o.en_sitio_en, o.finalizada_en, tp.codigo AS tipo_codigo
+FROM agenda.ruta_paradas p
+JOIN campo.ordenes o ON o.id = p.orden_id
+JOIN campo.tipos_orden tp ON tp.id = o.tipo_id
+WHERE p.ruta_id = ANY($1::bigint[])
+ORDER BY p.ruta_id, p.posicion
+`
+
+type ParadasDeRutasRow struct {
+	RutaID          int64
+	Posicion        int16
+	OrdenID         int64
+	Lat             *float64
+	Lon             *float64
+	DuracionMin     int32
+	VentanaInicio   *time.Time
+	VentanaFin      *time.Time
+	CitaInicio      *time.Time
+	Fija            bool
+	LlegadaEstimada time.Time
+	SalidaEstimada  time.Time
+	ViajeSeg        int32
+	DistanciaM      int32
+	EsperaSeg       int32
+	RetrasoSeg      int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Numero          string
+	Estado          string
+	Direccion       string
+	ZonaID          *int64
+	CuadrillaID     *int64
+	OrdenTecnicoID  *int64
+	EnCaminoEn      *time.Time
+	EnSitioEn       *time.Time
+	FinalizadaEn    *time.Time
+	TipoCodigo      string
+}
+
+// Paradas con el estado actual de su orden (llegada y salida reales).
+func (q *Queries) ParadasDeRutas(ctx context.Context, rutas []int64) ([]ParadasDeRutasRow, error) {
+	rows, err := q.db.Query(ctx, paradasDeRutas, rutas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ParadasDeRutasRow
+	for rows.Next() {
+		var i ParadasDeRutasRow
+		if err := rows.Scan(
+			&i.RutaID,
+			&i.Posicion,
+			&i.OrdenID,
+			&i.Lat,
+			&i.Lon,
+			&i.DuracionMin,
+			&i.VentanaInicio,
+			&i.VentanaFin,
+			&i.CitaInicio,
+			&i.Fija,
+			&i.LlegadaEstimada,
+			&i.SalidaEstimada,
+			&i.ViajeSeg,
+			&i.DistanciaM,
+			&i.EsperaSeg,
+			&i.RetrasoSeg,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Numero,
+			&i.Estado,
+			&i.Direccion,
+			&i.ZonaID,
+			&i.CuadrillaID,
+			&i.OrdenTecnicoID,
+			&i.EnCaminoEn,
+			&i.EnSitioEn,
+			&i.FinalizadaEn,
+			&i.TipoCodigo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const posicionesDelDia = `-- name: PosicionesDelDia :many
+SELECT lat, lon, precision_m, registrada_en FROM campo.posiciones
+WHERE tecnico_id = $1 AND registrada_en >= $2 AND registrada_en < $3
+  AND empresa_id IS NOT DISTINCT FROM $4::bigint
+ORDER BY registrada_en
+LIMIT 20000
+`
+
+type PosicionesDelDiaParams struct {
+	TecnicoID int64
+	Desde     time.Time
+	Hasta     time.Time
+	EmpresaID *int64
+}
+
+type PosicionesDelDiaRow struct {
+	Lat          float64
+	Lon          float64
+	PrecisionM   *float64
+	RegistradaEn time.Time
+}
+
+// Recorrido real del técnico en [desde, hasta), en la empresa (null = sin conector).
+func (q *Queries) PosicionesDelDia(ctx context.Context, arg PosicionesDelDiaParams) ([]PosicionesDelDiaRow, error) {
+	rows, err := q.db.Query(ctx, posicionesDelDia,
+		arg.TecnicoID,
+		arg.Desde,
+		arg.Hasta,
+		arg.EmpresaID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PosicionesDelDiaRow
+	for rows.Next() {
+		var i PosicionesDelDiaRow
+		if err := rows.Scan(
+			&i.Lat,
+			&i.Lon,
+			&i.PrecisionM,
+			&i.RegistradaEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publicarRuta = `-- name: PublicarRuta :one
+UPDATE agenda.rutas SET estado = 'publicada', publicada_por = $1, publicada_en = $2,
+    version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'borrador'
+RETURNING id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at
+`
+
+type PublicarRutaParams struct {
+	PublicadaPor *int64
+	PublicadaEn  *time.Time
+	ID           int64
+}
+
+func (q *Queries) PublicarRuta(ctx context.Context, arg PublicarRutaParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, publicarRuta, arg.PublicadaPor, arg.PublicadaEn, arg.ID)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const quitarCapacidadesCuadrilla = `-- name: QuitarCapacidadesCuadrilla :exec
 DELETE FROM agenda.capacidades WHERE cuadrilla_id = $1
 `
@@ -1287,16 +1900,51 @@ func (q *Queries) QuitarCapacidadesTecnico(ctx context.Context, tecnicoID *int64
 	return err
 }
 
-const quitarCita = `-- name: QuitarCita :execrows
-DELETE FROM agenda.citas WHERE orden_id = $1
+const quitarCita = `-- name: QuitarCita :many
+DELETE FROM agenda.citas WHERE orden_id = $1 RETURNING id, orden_id, empresa_id, tecnico_id, tipo_id, inicio, fin, ventana_inicio, ventana_fin, version, created_at, updated_at
 `
 
-func (q *Queries) QuitarCita(ctx context.Context, ordenID int64) (int64, error) {
-	result, err := q.db.Exec(ctx, quitarCita, ordenID)
+func (q *Queries) QuitarCita(ctx context.Context, ordenID int64) ([]AgendaCita, error) {
+	rows, err := q.db.Query(ctx, quitarCita, ordenID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []AgendaCita
+	for rows.Next() {
+		var i AgendaCita
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.EmpresaID,
+			&i.TecnicoID,
+			&i.TipoID,
+			&i.Inicio,
+			&i.Fin,
+			&i.VentanaInicio,
+			&i.VentanaFin,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const quitarParadasDeBorrador = `-- name: QuitarParadasDeBorrador :exec
+DELETE FROM agenda.ruta_paradas p USING agenda.rutas r
+WHERE p.ruta_id = r.id AND r.id = $1 AND r.estado = 'borrador'
+`
+
+func (q *Queries) QuitarParadasDeBorrador(ctx context.Context, rutaID int64) error {
+	_, err := q.db.Exec(ctx, quitarParadasDeBorrador, rutaID)
+	return err
 }
 
 const quitarTurnos = `-- name: QuitarTurnos :exec
@@ -1315,6 +1963,335 @@ DELETE FROM agenda.cuadrilla_zonas WHERE cuadrilla_id = $1
 func (q *Queries) QuitarZonasDeCuadrilla(ctx context.Context, cuadrillaID int64) error {
 	_, err := q.db.Exec(ctx, quitarZonasDeCuadrilla, cuadrillaID)
 	return err
+}
+
+const reemplazarRuta = `-- name: ReemplazarRuta :one
+UPDATE agenda.rutas SET estado = 'reemplazada', reemplazada_en = $1, reemplazada_por_id = $2,
+    version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'publicada'
+RETURNING id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at
+`
+
+type ReemplazarRutaParams struct {
+	ReemplazadaEn    *time.Time
+	ReemplazadaPorID *int64
+	ID               int64
+}
+
+func (q *Queries) ReemplazarRuta(ctx context.Context, arg ReemplazarRutaParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, reemplazarRuta, arg.ReemplazadaEn, arg.ReemplazadaPorID, arg.ID)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const rehacerBorrador = `-- name: RehacerBorrador :one
+UPDATE agenda.rutas SET modo = $1, motor = $2, motivo_motor = $3, origen_salida = $4,
+    salida_lat = $5, salida_lon = $6, sale_en = $7, termina_en = $8,
+    fin_turno = $9, distancia_m = $10, viaje_seg = $11, espera_seg = $12,
+    geometria = $13, propuesta_por = $14, propuesta_en = $15,
+    desactualizada = false, desactualizada_en = NULL, motivo_desactualizada = NULL,
+    version = version + 1, updated_at = now()
+WHERE id = $16 AND estado = 'borrador'
+RETURNING id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at
+`
+
+type RehacerBorradorParams struct {
+	Modo         string
+	Motor        string
+	MotivoMotor  *string
+	OrigenSalida string
+	SalidaLat    *float64
+	SalidaLon    *float64
+	SaleEn       time.Time
+	TerminaEn    *time.Time
+	FinTurno     *time.Time
+	DistanciaM   int32
+	ViajeSeg     int32
+	EsperaSeg    int32
+	Geometria    []byte
+	PropuestaPor *int64
+	PropuestaEn  time.Time
+	ID           int64
+}
+
+// Una nueva propuesta sobre el borrador existente (sus paradas se reemplazan).
+func (q *Queries) RehacerBorrador(ctx context.Context, arg RehacerBorradorParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, rehacerBorrador,
+		arg.Modo,
+		arg.Motor,
+		arg.MotivoMotor,
+		arg.OrigenSalida,
+		arg.SalidaLat,
+		arg.SalidaLon,
+		arg.SaleEn,
+		arg.TerminaEn,
+		arg.FinTurno,
+		arg.DistanciaM,
+		arg.ViajeSeg,
+		arg.EsperaSeg,
+		arg.Geometria,
+		arg.PropuestaPor,
+		arg.PropuestaEn,
+		arg.ID,
+	)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const rutaPorID = `-- name: RutaPorID :one
+SELECT id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at FROM agenda.rutas WHERE id = $1
+`
+
+func (q *Queries) RutaPorID(ctx context.Context, id int64) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, rutaPorID, id)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const rutaPorIDParaActualizar = `-- name: RutaPorIDParaActualizar :one
+SELECT id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at FROM agenda.rutas WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) RutaPorIDParaActualizar(ctx context.Context, id int64) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, rutaPorIDParaActualizar, id)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const rutaPublicadaDe = `-- name: RutaPublicadaDe :one
+SELECT id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at FROM agenda.rutas
+WHERE tecnico_id = $1 AND fecha = $2 AND estado = 'publicada'
+  AND empresa_id IS NOT DISTINCT FROM $3::bigint
+`
+
+type RutaPublicadaDeParams struct {
+	TecnicoID int64
+	Fecha     time.Time
+	EmpresaID *int64
+}
+
+func (q *Queries) RutaPublicadaDe(ctx context.Context, arg RutaPublicadaDeParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, rutaPublicadaDe, arg.TecnicoID, arg.Fecha, arg.EmpresaID)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const rutaVigente = `-- name: RutaVigente :one
+SELECT id, empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida, salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria, desactualizada, desactualizada_en, motivo_desactualizada, propuesta_por, propuesta_en, publicada_por, publicada_en, reemplazada_en, reemplazada_por_id, version, created_at, updated_at FROM agenda.rutas
+WHERE tecnico_id = $1 AND fecha = $2 AND estado = $3
+  AND empresa_id IS NOT DISTINCT FROM $4::bigint
+FOR UPDATE
+`
+
+type RutaVigenteParams struct {
+	TecnicoID int64
+	Fecha     time.Time
+	Estado    string
+	EmpresaID *int64
+}
+
+// El borrador o la publicada del técnico ese día en la empresa.
+func (q *Queries) RutaVigente(ctx context.Context, arg RutaVigenteParams) (AgendaRuta, error) {
+	row := q.db.QueryRow(ctx, rutaVigente,
+		arg.TecnicoID,
+		arg.Fecha,
+		arg.Estado,
+		arg.EmpresaID,
+	)
+	var i AgendaRuta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.TecnicoID,
+		&i.Fecha,
+		&i.Estado,
+		&i.Modo,
+		&i.Motor,
+		&i.MotivoMotor,
+		&i.OrigenSalida,
+		&i.SalidaLat,
+		&i.SalidaLon,
+		&i.SaleEn,
+		&i.TerminaEn,
+		&i.FinTurno,
+		&i.DistanciaM,
+		&i.ViajeSeg,
+		&i.EsperaSeg,
+		&i.Geometria,
+		&i.Desactualizada,
+		&i.DesactualizadaEn,
+		&i.MotivoDesactualizada,
+		&i.PropuestaPor,
+		&i.PropuestaEn,
+		&i.PublicadaPor,
+		&i.PublicadaEn,
+		&i.ReemplazadaEn,
+		&i.ReemplazadaPorID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const solapes = `-- name: Solapes :many
@@ -1605,6 +2582,29 @@ func (q *Queries) TurnosDeTecnicos(ctx context.Context, tecnicos []int64) ([]Age
 		return nil, err
 	}
 	return items, nil
+}
+
+const ultimaPosicionEnEmpresa = `-- name: UltimaPosicionEnEmpresa :one
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas
+WHERE tecnico_id = $1 AND empresa_id IS NOT DISTINCT FROM $2::bigint
+`
+
+type UltimaPosicionEnEmpresaParams struct {
+	TecnicoID int64
+	EmpresaID *int64
+}
+
+type UltimaPosicionEnEmpresaRow struct {
+	Lat          float64
+	Lon          float64
+	RegistradaEn time.Time
+}
+
+func (q *Queries) UltimaPosicionEnEmpresa(ctx context.Context, arg UltimaPosicionEnEmpresaParams) (UltimaPosicionEnEmpresaRow, error) {
+	row := q.db.QueryRow(ctx, ultimaPosicionEnEmpresa, arg.TecnicoID, arg.EmpresaID)
+	var i UltimaPosicionEnEmpresaRow
+	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
+	return i, err
 }
 
 const usuarioParaTecnico = `-- name: UsuarioParaTecnico :one
