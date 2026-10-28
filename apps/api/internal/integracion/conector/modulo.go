@@ -222,7 +222,9 @@ type Leido struct {
 // Token devuelve el token del otro sistema (atk_…, hf_pat_…).
 func (l Leido) Token() string { return l.token }
 
-func datosAsociados(id int64, campo string) []byte {
+// DatosAsociados ata un valor cifrado del conector a su fila y campo ("token",
+// "secreto_webhook"). También lo usa la rotación de la clave (internal/nucleo/clave).
+func DatosAsociados(id int64, campo string) []byte {
 	return fmt.Appendf(nil, "conector:%d:%s", id, campo)
 }
 
@@ -230,7 +232,7 @@ func (n *Nucleo) cifrar(id int64, campo, valor string) ([]byte, error) {
 	if n.cfg.Cifrador == nil {
 		return nil, SinCifrado()
 	}
-	return n.cfg.Cifrador.Cifrar([]byte(valor), datosAsociados(id, campo))
+	return n.cfg.Cifrador.Cifrar([]byte(valor), DatosAsociados(id, campo))
 }
 
 // Leer descifra el token y el secreto de un conector.
@@ -238,11 +240,11 @@ func (n *Nucleo) Leer(f conectorbd.IntegracionConectore) (Leido, error) {
 	if n.cfg.Cifrador == nil {
 		return Leido{}, SinCifrado()
 	}
-	token, err := n.cfg.Cifrador.Descifrar(f.TokenCifrado, datosAsociados(f.ID, "token"))
+	token, err := n.cfg.Cifrador.Descifrar(f.TokenCifrado, DatosAsociados(f.ID, "token"))
 	if err != nil {
 		return Leido{}, fmt.Errorf("conector %d: descifrar token: %w", f.ID, err)
 	}
-	secreto, err := n.cfg.Cifrador.Descifrar(f.SecretoWebhookCifrado, datosAsociados(f.ID, "secreto_webhook"))
+	secreto, err := n.cfg.Cifrador.Descifrar(f.SecretoWebhookCifrado, DatosAsociados(f.ID, "secreto_webhook"))
 	if err != nil {
 		return Leido{}, fmt.Errorf("conector %d: descifrar secreto: %w", f.ID, err)
 	}

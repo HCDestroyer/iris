@@ -25,8 +25,12 @@ type Config struct {
 	CookieSegura bool
 	// IRIS_DURACION_SESION: vida de una sesión (12h).
 	DuracionSesion time.Duration
-	// IRIS_CLAVE_CIFRADO: 32 bytes en base64 para cifrar secretos (TOTP). Sin ella, no hay MFA.
+	// IRIS_CLAVE_CIFRADO: 32 bytes en base64 para cifrar secretos (TOTP, conectores, buzones).
+	// Sin ella, no hay MFA ni conectores.
 	ClaveCifrado string
+	// IRIS_CLAVE_CIFRADO_ANTERIOR: la clave que se está rotando (solo para descifrar). Se pone
+	// mientras dura la rotación (`iris clave rotar`) y se quita al terminar.
+	ClaveCifradoAnterior string
 	// IRIS_RELAY_INTERVALO: cada cuánto corre el relay del outbox aunque no haya NOTIFY (5s).
 	RelayIntervalo time.Duration
 	// IRIS_IDEMPOTENCIA_RECLAMO: tras cuánto una Idempotency-Key que quedó en proceso (el
@@ -79,6 +83,23 @@ type Config struct {
 	Version string
 }
 
+// PuertoDesdeEntorno lee IRIS_PUERTO (o PORT); 3500 si no hay ninguna. Lo usan Cargar y
+// `iris salud`, que no necesita el resto de la configuración.
+func PuertoDesdeEntorno() (int, error) {
+	puerto := os.Getenv("IRIS_PUERTO")
+	if puerto == "" {
+		puerto = os.Getenv("PORT")
+	}
+	if puerto == "" {
+		return 3500, nil
+	}
+	n, err := strconv.Atoi(puerto)
+	if err != nil || n <= 0 || n > 65535 {
+		return 0, fmt.Errorf("IRIS_PUERTO inválido: %s", puerto)
+	}
+	return n, nil
+}
+
 // Cargar lee el entorno.
 func Cargar() (Config, error) {
 	c := Config{
@@ -88,7 +109,9 @@ func Cargar() (Config, error) {
 		CookieSegura:   true,
 		DuracionSesion: 12 * time.Hour,
 		ClaveCifrado:   os.Getenv("IRIS_CLAVE_CIFRADO"),
-		RelayIntervalo: 5 * time.Second,
+
+		ClaveCifradoAnterior: os.Getenv("IRIS_CLAVE_CIFRADO_ANTERIOR"),
+		RelayIntervalo:       5 * time.Second,
 
 		IdempotenciaReclamo: 2 * time.Minute,
 		ArgosTimeout:        5 * time.Second,
@@ -110,16 +133,13 @@ func Cargar() (Config, error) {
 	if c.DBURL == "" {
 		errs = append(errs, "IRIS_DB_URL es obligatoria")
 	}
-	puerto := os.Getenv("IRIS_PUERTO")
-	if puerto == "" {
-		puerto = os.Getenv("PORT")
-	}
-	if puerto != "" {
-		n, err := strconv.Atoi(puerto)
-		if err != nil || n <= 0 || n > 65535 {
-			errs = append(errs, "IRIS_PUERTO inválido: "+puerto)
-		}
+	if n, err := PuertoDesdeEntorno(); err != nil {
+		errs = append(errs, err.Error())
+	} else {
 		c.Puerto = n
+	}
+	if c.ClaveCifradoAnterior != "" && c.ClaveCifrado == "" {
+		errs = append(errs, "IRIS_CLAVE_CIFRADO_ANTERIOR sin IRIS_CLAVE_CIFRADO")
 	}
 	if v := os.Getenv("IRIS_LOG_NIVEL"); v != "" {
 		if err := c.LogNivel.UnmarshalText([]byte(v)); err != nil {

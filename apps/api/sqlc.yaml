@@ -45,6 +45,13 @@ sql:
         package: identidadbd
         out: internal/nucleo/identidad/bd
   - <<: *base
+    queries: internal/nucleo/clave/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: clavebd
+        out: internal/nucleo/clave/bd
+  - <<: *base
     queries: internal/integracion/conector/consultas.sql
     gen:
       go:

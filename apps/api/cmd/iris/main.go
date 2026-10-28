@@ -2,6 +2,9 @@
 //
 //	iris                    servidor HTTP (también `iris servir`)
 //	iris migrar             migraciones goose + River y sincroniza permisos y roles base
+//	iris salud [--url …] [--timeout 3s]   GET a /api/v1/salud local; sale 0 o 1 (healthcheck)
+//	iris clave rotar [--simular] [--ignorar-ilegibles]   re-cifra con IRIS_CLAVE_CIFRADO lo
+//	                        cifrado con IRIS_CLAVE_CIFRADO_ANTERIOR (una transacción, auditada)
 //	iris admin crear --correo admin@isp.gt --nombre "Admin" [--contrasena-stdin]
 //	iris portal acceso --cliente <id> --empresa <id> [--nombre "Ana"]   URL de entrada al portal
 //	iris integracion crear --sistema argosisp|horus --empresa 1,2 [--correo …] [--nombre …]
@@ -55,6 +58,11 @@ func correr(args []string) error {
 	ctx, cancelar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelar()
 
+	// El healthcheck solo necesita el puerto: no carga ni exige el resto de la configuración.
+	if len(args) > 0 && args[0] == "salud" {
+		return salud(ctx, args[1:], os.Stdout)
+	}
+
 	cfg, err := config.Cargar()
 	if err != nil {
 		return err
@@ -87,13 +95,18 @@ func correr(args []string) error {
 			return errors.New(usoIntegracion)
 		}
 		return crearIntegracion(ctx, cfg, args[1:])
+	case "clave":
+		if len(args) == 0 || args[0] != "rotar" {
+			return errors.New(usoClave)
+		}
+		return rotarClave(ctx, cfg, args[1:], os.Stdout)
 	case "campo":
 		if len(args) == 0 || args[0] != "semilla" {
 			return errors.New(usoSemillaCampo)
 		}
 		return semillaCampo(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear, campo semilla)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, salud, admin crear, portal acceso, integracion crear, campo semilla, clave rotar)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -108,7 +121,8 @@ func cifrador(cfg config.Config) (*nucleo.Cifrador, error) {
 	if cfg.ClaveCifrado == "" {
 		return nil, nil
 	}
-	return nucleo.NuevoCifrador(cfg.ClaveCifrado)
+	// Con IRIS_CLAVE_CIFRADO_ANTERIOR (rotación en curso) descifra con las dos claves.
+	return nucleo.NuevoCifrador(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 }
 
 func modulo(cfg config.Config) (*identidad.Modulo, error) {

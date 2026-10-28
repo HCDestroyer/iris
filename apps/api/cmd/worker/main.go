@@ -74,7 +74,7 @@ func correr() error {
 		RedesPermitidas: cfg.ArgosRedesPermitidas,
 	}
 	if cfg.ClaveCifrado != "" {
-		if acfg.Cifrador, err = nucleo.NuevoCifrador(cfg.ClaveCifrado); err != nil {
+		if acfg.Cifrador, err = nucleo.NuevoCifrador(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior); err != nil {
 			return err
 		}
 	} else {
