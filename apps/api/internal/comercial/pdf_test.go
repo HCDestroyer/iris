@@ -49,10 +49,48 @@ func TestMontos(t *testing.T) {
 			t.Fatalf("%q debería fallar", malo)
 		}
 	}
-	if multiplicar(250, 15050) != 37625 || multiplicar(333, 1) != 3 || aTexto(-5025) != "-50.25" {
+	if a, _ := multiplicar(250, 15050); a != 37625 || aTexto(-5025) != "-50.25" {
 		t.Fatal("aritmética de montos")
+	}
+	if b, _ := multiplicar(333, 1); b != 3 {
+		t.Fatal("redondeo")
+	}
+	// Revisión de seguridad: 999999.99 × 184467442581.77 no cabe (antes desbordaba int64).
+	cant, _ := leerMonto("cantidad", "999999.99", 99_999_999)
+	precio, err := leerMonto("precio", "184467442581.77", maxCentavos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, cabe := multiplicar(cant, precio); cabe {
+		t.Fatal("el desborde debe rechazarse")
 	}
 	if d := Haversine(14.6, -90.5, 14.6+100.0/111_195, -90.5); d < 99.5 || d > 100.5 {
 		t.Fatalf("haversine: %f", d)
+	}
+}
+
+// Revisión de seguridad: la firma se reconstruye solo con los trazos; tamaños y coordenadas
+// finitos y acotados.
+func TestNormalizarFirma(t *testing.T) {
+	limpia, err := normalizarFirma(`<svg width="100" height="50" onload="alert(1)"><script>alert(2)</script><path d="m 1 1 l 10 10 z" style="x"/></svg>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limpia != `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><path d="M 1 1 L 11 11 Z"/></svg>` {
+		t.Fatalf("reconstruida: %s", limpia)
+	}
+	for _, mala := range []string{
+		`<svg width="Inf" height="50"><path d="M 1 1 L 2 2"/></svg>`,
+		`<svg width="1e308" height="50"><path d="M 1 1 L 2 2"/></svg>`,
+		`<svg width="100" height="NaN"><path d="M 1 1 L 2 2"/></svg>`,
+		`<svg width="100" height="50"><path d="M 1 1 L 1e308 2"/></svg>`,
+		`<svg width="100" height="50"><path d="M 1 1 L Inf 2"/></svg>`,
+		`<svg width="0" height="50"><path d="M 1 1 L 2 2"/></svg>`,
+		`<svg width="100" height="50"></svg>`,
+		`<svg width="100" height="50"><circle r="1"/></svg>`,
+	} {
+		if s, err := normalizarFirma(mala); err == nil {
+			t.Fatalf("%s debería rechazarse (%s)", mala, s)
+		}
 	}
 }

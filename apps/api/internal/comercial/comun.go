@@ -198,6 +198,26 @@ func tomar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, id int6
 	return f, nil
 }
 
+// tomarCon: como tomar, pero el prospecto lo ve quien tiene el permiso de la acción con alcance
+// sobre él (aunque no tenga prospectos.ver): la factibilidad manual del técnico. Si no, 404.
+func tomarCon(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, id int64, permiso nucleo.Permiso, version *int32) (comercialbd.ComercialProspecto, error) {
+	t.FijarEntidad("prospecto", id)
+	f, err := q.ProspectoPorIDParaActualizar(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!enEmpresa(ctx, f.EmpresaID) || !alcanceDe(ctx, string(permiso)).cubre(f))) {
+		return f, noEncontrado()
+	}
+	if err != nil {
+		return f, err
+	}
+	t.FijarEmpresa(deref(f.EmpresaID))
+	if version != nil {
+		if err := nucleo.ExigirVersion(*version, f.Version, "prospecto", id); err != nil {
+			return f, err
+		}
+	}
+	return f, nil
+}
+
 // leer: como tomar, sin candado (consultas).
 func leer(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, id int64) (comercialbd.ComercialProspecto, error) {
 	t.FijarEntidad("prospecto", id)
@@ -230,7 +250,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, antes
 		PlanInteresNombre: d.PlanInteresNombre, VendedorID: d.VendedorID, Estado: d.Estado, Notas: d.Notas,
 		MotivoPerdida: d.MotivoPerdida, PerdidoEn: d.PerdidoEn, GanadoEn: d.GanadoEn, ObraConfirmada: d.ObraConfirmada,
 		AltaModo: d.AltaModo, AltaEstado: d.AltaEstado, ClienteArgosID: d.ClienteArgosID, ServicioArgosID: d.ServicioArgosID,
-		OrdenID: d.OrdenID, ID: antes.ID, Version: antes.Version,
+		OrdenID: d.OrdenID, RouterID: d.RouterID, AltaError: d.AltaError, ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
 		return f, nucleo.VerificarVersion(err, "prospecto", antes.ID)
@@ -404,11 +424,15 @@ func centavos(n pgtype.Numeric) int64 {
 
 // multiplicar: cantidad (centésimas) × precio (centavos) → centavos, redondeo a la mitad hacia
 // arriba.
-func multiplicar(cantidad, precio int64) int64 {
+// ok = false si el resultado no cabe en numeric(14,2) (ni en int64).
+func multiplicar(cantidad, precio int64) (int64, bool) {
 	p := new(big.Int).Mul(big.NewInt(cantidad), big.NewInt(precio))
 	p.Add(p, big.NewInt(50))
 	p.Quo(p, big.NewInt(100))
-	return p.Int64()
+	if !p.IsInt64() || p.Int64() > maxCentavos || p.Int64() < -maxCentavos {
+		return 0, false
+	}
+	return p.Int64(), true
 }
 
 // diaLocal formatea una hora en la zona de visualización.

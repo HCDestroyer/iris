@@ -144,8 +144,10 @@ func TestHTTPEmbudo(t *testing.T) {
 	if d["estado"] != "contactado" || d["acciones"].(map[string]any)["evaluar"] != true {
 		t.Fatalf("detalle: %v", d)
 	}
-	f := v.pedir(http.MethodPost, ruta+"/factibilidad", map[string]any{"version": d["version"], "manual": map[string]any{"resultado": "viable"},
-		"notas": "Visita técnica con poste a 50 m"}).ok(t, http.StatusOK)
+	manual := map[string]any{"version": d["version"], "resultado": "viable", "notas": "Visita técnica con poste a 50 m"}
+	v.pedir(http.MethodPost, ruta+"/factibilidad-manual", manual).problema(t, http.StatusForbidden, "prohibido")
+	sup := entrar(t, base, "supervisor")
+	f := sup.pedir(http.MethodPost, ruta+"/factibilidad-manual", manual).ok(t, http.StatusOK)
 	if f["resultado"] != "viable" || f["motor"] != "manual" {
 		t.Fatalf("factibilidad: %v", f)
 	}

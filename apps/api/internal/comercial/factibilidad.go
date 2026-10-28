@@ -3,6 +3,7 @@ package comercial
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"time"
@@ -137,19 +138,23 @@ func Haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	return 2 * radio * math.Asin(math.Min(1, math.Sqrt(a)))
 }
 
-// EntradaManual: la factibilidad que registra un técnico tras una visita (o sin conector).
-type EntradaManual struct {
-	Resultado string  `json:"resultado" enum:"viable,no_viable,requiere_obra"`
-	Caja      *string `json:"caja,omitempty" maxLength:"120"`
-	RouterID  *int64  `json:"routerId,omitempty" minimum:"1"`
+// EntradaFactibilidad evalúa la factibilidad del prospecto en sus coordenadas actuales con la
+// planta externa.
+type EntradaFactibilidad struct {
+	ProspectoID int64  `json:"-"`
+	Version     int32  `json:"version" minimum:"1" doc:"Versión del prospecto"`
+	Notas       string `json:"notas,omitempty" maxLength:"2000"`
 }
 
-// EntradaFactibilidad evalúa la factibilidad del prospecto en sus coordenadas actuales.
-type EntradaFactibilidad struct {
-	ProspectoID int64          `json:"-"`
-	Version     int32          `json:"version" minimum:"1" doc:"Versión del prospecto"`
-	Manual      *EntradaManual `json:"manual,omitempty" doc:"Resultado de una visita técnica (motor manual; exige notas). Sin él, evalúa la planta externa"`
-	Notas       string         `json:"notas,omitempty" maxLength:"2000"`
+// EntradaFactibilidadManual registra el resultado de una visita técnica (supervisor o técnico).
+type EntradaFactibilidadManual struct {
+	ProspectoID     int64   `json:"-"`
+	Version         int32   `json:"version" minimum:"1" doc:"Versión del prospecto"`
+	Resultado       string  `json:"resultado" enum:"viable,no_viable,requiere_obra"`
+	Notas           string  `json:"notas" minLength:"20" maxLength:"2000" doc:"Qué se vio en la visita (al menos 20 caracteres)"`
+	RouterID        *int64  `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos desde donde se atiende (de la empresa del prospecto); viaja a Argos en POST /servicios"`
+	Caja            *string `json:"caja,omitempty" maxLength:"120"`
+	MotivoAnulacion *string `json:"motivoAnulacion,omitempty" maxLength:"1000" doc:"Obligatorio si hay una evaluación automática no_viable sobre las mismas coordenadas: la manual la anula"`
 }
 
 // previoFactibilidad: lo leído antes de llamar a la planta.
@@ -162,13 +167,12 @@ type previoFactibilidad struct {
 // entradaGuardarFactibilidad: la evaluación ya hecha.
 type entradaGuardarFactibilidad struct {
 	EntradaFactibilidad
-	previo previoFactibilidad
-	ev     Evaluacion
+	ev Evaluacion
 }
 
 // MarshalJSON de la auditoría: la entrada y el resultado de la planta.
 func (e entradaGuardarFactibilidad) MarshalJSON() ([]byte, error) {
-	return jsonDe(map[string]any{"prospecto_id": e.ProspectoID, "version": e.Version, "manual": e.Manual, "notas": e.Notas,
+	return jsonDe(map[string]any{"prospecto_id": e.ProspectoID, "version": e.Version, "notas": e.Notas,
 		"resultado": e.ev.Resultado, "motor": e.ev.Motor, "motivo": e.ev.Motivo, "distancia_m": e.ev.DistanciaM, "router_id": e.ev.RouterID})
 }
 
@@ -191,27 +195,22 @@ func (m *Modulo) nuevoPrepararFactibilidad() *auditoria.Caso[EntradaFactibilidad
 	})
 }
 
-// EvaluarFactibilidad: lee el prospecto, evalúa la planta fuera de la transacción (o toma el
-// resultado manual) y guarda la evaluación (si el prospecto cambió entretanto, 409).
+// EvaluarFactibilidad: lee el prospecto, evalúa la planta fuera de la transacción y guarda la
+// evaluación (si el prospecto cambió entretanto, 409).
 func (m *Modulo) EvaluarFactibilidad(ctx context.Context, in EntradaFactibilidad) (Factibilidad, error) {
 	previo, err := m.prepararFactibilidad.Ejecutar(ctx, in)
 	if err != nil {
 		return Factibilidad{}, err
 	}
-	e := entradaGuardarFactibilidad{EntradaFactibilidad: in, previo: previo}
-	switch {
-	case in.Manual != nil:
-		e.ev = Evaluacion{Motor: "manual", Resultado: in.Manual.Resultado, RouterID: in.Manual.RouterID, Caja: deref(in.Manual.Caja)}
-	case previo.Lat == nil || previo.Lon == nil:
+	e := entradaGuardarFactibilidad{EntradaFactibilidad: in}
+	if previo.Lat == nil || previo.Lon == nil {
 		e.ev = Evaluacion{Motor: "distancia", Resultado: FactibleIndeterminado, Motivo: MotivoSinCoordenadas}
-	default:
-		e.ev, err = m.cfg.Planta.Evaluar(ctx, previo.EmpresaID, *previo.Lat, *previo.Lon)
-		if err != nil {
-			e.ev = Evaluacion{Motor: e.ev.Motor, Resultado: FactibleIndeterminado, Motivo: MotivoPlantaNoDisponible}
-			if e.ev.Motor == "" {
-				e.ev.Motor = "planta"
-			}
+	} else if e.ev, err = m.cfg.Planta.Evaluar(ctx, previo.EmpresaID, *previo.Lat, *previo.Lon); err != nil {
+		motor := e.ev.Motor
+		if motor == "" {
+			motor = "planta"
 		}
+		e.ev = Evaluacion{Motor: motor, Resultado: FactibleIndeterminado, Motivo: MotivoPlantaNoDisponible}
 	}
 	return m.guardarFactibilidad.Ejecutar(ctx, e)
 }
@@ -232,65 +231,135 @@ func (m *Modulo) nuevoGuardarFactibilidad() *auditoria.Caso[entradaGuardarFactib
 			if err != nil {
 				return Factibilidad{}, err
 			}
-			ev := in.ev
-			if in.Manual != nil {
-				if !slices.Contains([]string{FactibleViable, FactibleNoViable, FactibleRequiereObra}, ev.Resultado) {
-					return Factibilidad{}, campoInvalido("manual.resultado", "viable, no_viable o requiere_obra", "enum")
-				}
-				if len([]rune(notas)) < 5 {
-					return Factibilidad{}, campoInvalido("notas", "Describe la visita o el criterio (al menos 5 caracteres)", "required")
-				}
-				if ev.Caja != "" {
-					if ev.Caja, err = texto("manual.caja", ev.Caja, 1, 120); err != nil {
-						return Factibilidad{}, err
-					}
-				}
-			}
-			d := comercialbd.CrearFactibilidadParams{
-				EmpresaID: antes.EmpresaID, ProspectoID: antes.ID, Resultado: ev.Resultado, Motor: ev.Motor,
-				Lat: antes.Lat, Lon: antes.Lon, RouterID: ev.RouterID, DistanciaM: ev.DistanciaM, ViableM: ev.ViableM,
-				ObraM: ev.ObraM, Notas: notas, EvaluadaPor: actorUsuario(t),
-			}
-			if ev.Resultado == FactibleIndeterminado {
-				motivo := ev.Motivo
-				if motivo == "" {
-					motivo = MotivoPlantaNoDisponible
-				}
-				d.Motivo = &motivo
-			}
-			if ev.RouterNombre != "" {
-				d.RouterNombre = &ev.RouterNombre
-			}
-			if ev.Caja != "" {
-				d.Caja = &ev.Caja
-			}
-			fa, err := q.CrearFactibilidad(ctx, d)
-			if err != nil {
-				return Factibilidad{}, err
-			}
-			despues := antes
-			if antes.Estado == EstadoNuevo || antes.Estado == EstadoContactado {
-				despues.Estado = EstadoFactibilidad
-			}
-			f, err := guardar(ctx, t, q, antes, despues)
-			if err != nil {
-				return Factibilidad{}, err
-			}
-			t.RegistrarCambios("factibilidad", fa.ID, nil, fa)
-			if err := historial(ctx, t, q, f.ID, "factibilidad", nil, &fa.Resultado, fa.Motivo, map[string]any{
-				"factibilidad_id": fa.ID, "motor": fa.Motor, "distancia_m": fa.DistanciaM, "router_id": fa.RouterID,
-			}); err != nil {
-				return Factibilidad{}, err
-			}
-			if err := t.Emitir("factibilidad.evaluada", map[string]any{
-				"prospecto_id": f.ID, "factibilidad_id": fa.ID, "resultado": fa.Resultado, "motor": fa.Motor,
-				"motivo": fa.Motivo, "router_id": fa.RouterID, "caja": fa.Caja, "distancia_m": fa.DistanciaM,
-			}); err != nil {
-				return Factibilidad{}, err
-			}
-			return aFactibilidad(fa), cambioDeEstado(ctx, t, q, antes, f, nil)
+			return m.registrarEvaluacion(ctx, t, q, antes, in.ev, notas, nil, nil)
 		},
 	})
+}
+
+// minNotasManual: las notas de una visita técnica.
+const minNotasManual = 20
+
+func (m *Modulo) nuevoFactibilidadManual() *auditoria.Caso[EntradaFactibilidadManual, Factibilidad] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaFactibilidadManual, Factibilidad]{
+		Accion: "factibilidad.registrar_manual", Permiso: nucleo.PermFactibilidadRegistrarManual,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaFactibilidadManual) (Factibilidad, error) {
+			q := comercialbd.New(t)
+			// Lo ve quien tiene el permiso con alcance sobre el prospecto (el técnico no lista
+			// prospectos: no tiene prospectos.ver).
+			antes, err := tomarCon(ctx, t, q, in.ProspectoID, nucleo.PermFactibilidadRegistrarManual, &in.Version)
+			if err != nil {
+				return Factibilidad{}, err
+			}
+			if err := exigirEstado(antes, "registrar la factibilidad de", estadosFactibilidad...); err != nil {
+				return Factibilidad{}, err
+			}
+			if !slices.Contains([]string{FactibleViable, FactibleNoViable, FactibleRequiereObra}, in.Resultado) {
+				return Factibilidad{}, campoInvalido("resultado", "viable, no_viable o requiere_obra", "enum")
+			}
+			notas, err := texto("notas", in.Notas, minNotasManual, 2000)
+			if err != nil {
+				return Factibilidad{}, err
+			}
+			ev := Evaluacion{Motor: "manual", Resultado: in.Resultado}
+			if in.Caja != nil {
+				if ev.Caja, err = texto("caja", *in.Caja, 1, 120); err != nil {
+					return Factibilidad{}, err
+				}
+			}
+			if in.RouterID != nil {
+				r, err := routerDeEmpresa(ctx, q, *in.RouterID, antes.EmpresaID)
+				if err != nil {
+					return Factibilidad{}, err
+				}
+				ev.RouterID, ev.RouterNombre = &r.ID, r.Nombre
+			}
+			// Contradecir una automática no_viable sobre las mismas coordenadas exige un motivo.
+			var anula *int64
+			motivo, err := textoOpcional("motivoAnulacion", in.MotivoAnulacion, 1000)
+			if err != nil {
+				return Factibilidad{}, err
+			}
+			auto, err := q.UltimaAutomaticaNoViable(ctx, comercialbd.UltimaAutomaticaNoViableParams{ProspectoID: antes.ID, Lat: antes.Lat, Lon: antes.Lon})
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				motivo = nil
+			case err != nil:
+				return Factibilidad{}, err
+			case in.Resultado != FactibleNoViable:
+				if motivo == nil {
+					return Factibilidad{}, campoInvalido("motivoAnulacion",
+						fmt.Sprintf("La evaluación automática %d dio no_viable en estas coordenadas: explica por qué la visita la anula", auto.ID), "required")
+				}
+				anula = &auto.ID
+				t.Anotar(map[string]any{"anula_automatica": auto.ID, "motivo_anulacion": *motivo})
+			default:
+				motivo = nil
+			}
+			return m.registrarEvaluacion(ctx, t, q, antes, ev, notas, anula, motivo)
+		},
+	})
+}
+
+// routerDeEmpresa: el router está en la instantánea de Argos de la empresa del prospecto (422 si no).
+func routerDeEmpresa(ctx context.Context, q *comercialbd.Queries, id int64, empresa *int64) (comercialbd.RouterDeEmpresaRow, error) {
+	invalido := campoInvalido("routerId", "El router no existe en Argos para la empresa del prospecto", "router")
+	if empresa == nil {
+		return comercialbd.RouterDeEmpresaRow{}, invalido
+	}
+	r, err := q.RouterDeEmpresa(ctx, comercialbd.RouterDeEmpresaParams{ID: id, EmpresaID: *empresa})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r, invalido
+	}
+	return r, err
+}
+
+// registrarEvaluacion guarda la factibilidad, sube el estado y emite factibilidad.evaluada.
+func (m *Modulo) registrarEvaluacion(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, antes comercialbd.ComercialProspecto,
+	ev Evaluacion, notas string, anula *int64, motivoAnulacion *string) (Factibilidad, error) {
+	d := comercialbd.CrearFactibilidadParams{
+		EmpresaID: antes.EmpresaID, ProspectoID: antes.ID, Resultado: ev.Resultado, Motor: ev.Motor,
+		Lat: antes.Lat, Lon: antes.Lon, RouterID: ev.RouterID, DistanciaM: ev.DistanciaM, ViableM: ev.ViableM,
+		ObraM: ev.ObraM, Notas: notas, EvaluadaPor: actorUsuario(t), AnulaID: anula, MotivoAnulacion: motivoAnulacion,
+	}
+	if ev.Resultado == FactibleIndeterminado {
+		motivo := ev.Motivo
+		if motivo == "" {
+			motivo = MotivoPlantaNoDisponible
+		}
+		d.Motivo = &motivo
+	}
+	if ev.RouterNombre != "" {
+		d.RouterNombre = &ev.RouterNombre
+	}
+	if ev.Caja != "" {
+		d.Caja = &ev.Caja
+	}
+	fa, err := q.CrearFactibilidad(ctx, d)
+	if err != nil {
+		return Factibilidad{}, err
+	}
+	despues := antes
+	if antes.Estado == EstadoNuevo || antes.Estado == EstadoContactado {
+		despues.Estado = EstadoFactibilidad
+	}
+	f, err := guardar(ctx, t, q, antes, despues)
+	if err != nil {
+		return Factibilidad{}, err
+	}
+	t.RegistrarCambios("factibilidad", fa.ID, nil, fa)
+	if err := historial(ctx, t, q, f.ID, "factibilidad", nil, &fa.Resultado, fa.Motivo, map[string]any{
+		"factibilidad_id": fa.ID, "motor": fa.Motor, "distancia_m": fa.DistanciaM, "router_id": fa.RouterID,
+		"anula_id": fa.AnulaID, "motivo_anulacion": fa.MotivoAnulacion,
+	}); err != nil {
+		return Factibilidad{}, err
+	}
+	if err := t.Emitir("factibilidad.evaluada", map[string]any{
+		"prospecto_id": f.ID, "factibilidad_id": fa.ID, "resultado": fa.Resultado, "motor": fa.Motor,
+		"motivo": fa.Motivo, "router_id": fa.RouterID, "caja": fa.Caja, "distancia_m": fa.DistanciaM, "anula_id": fa.AnulaID,
+	}); err != nil {
+		return Factibilidad{}, err
+	}
+	return aFactibilidad(fa), cambioDeEstado(ctx, t, q, antes, f, nil)
 }
 
 // --- Umbrales y cobertura --------------------------------------------------------------------

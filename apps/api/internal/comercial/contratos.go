@@ -110,6 +110,9 @@ func (m *Modulo) nuevoCrearContratoCaso() *auditoria.Caso[EntradaCrearContrato, 
 			if err != nil {
 				return Contrato{}, err
 			}
+			if err := m.exigirVigente(cot); err != nil {
+				return Contrato{}, err
+			}
 			c, err := m.aCotizacion(ctx, q, cot)
 			if err != nil {
 				return Contrato{}, err
@@ -284,7 +287,7 @@ func (m *Modulo) GenerarPDFContrato(ctx context.Context, in EntradaVerContrato) 
 // --- Firma ---------------------------------------------------------------------------------
 
 // exigirFirmable: el contrato y su prospecto admiten la firma (contratos.firmar con alcance).
-func exigirFirmable(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, in EntradaFirmar, candado bool) (comercialbd.ComercialContrato, comercialbd.ComercialProspecto, error) {
+func (m *Modulo) exigirFirmable(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, in EntradaFirmar, candado bool) (comercialbd.ComercialContrato, comercialbd.ComercialProspecto, error) {
 	c, p, err := contratoVisible(ctx, t, q, in.ContratoID)
 	if err != nil {
 		return c, p, err
@@ -307,7 +310,11 @@ func exigirFirmable(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 	if c.Estado != "borrador" || p.Estado != EstadoContrato {
 		return c, p, transicionInvalida("Solo se firma un contrato en borrador de un prospecto en estado contrato")
 	}
-	return c, p, nil
+	cot, err := q.CotizacionPorID(ctx, c.CotizacionID)
+	if err != nil {
+		return c, p, err
+	}
+	return c, p, m.exigirVigente(cot)
 }
 
 func (m *Modulo) nuevoPrepararFirma() *auditoria.Caso[EntradaFirmar, datosContratoPDF] {
@@ -315,7 +322,7 @@ func (m *Modulo) nuevoPrepararFirma() *auditoria.Caso[EntradaFirmar, datosContra
 		Accion: "contratos.firmar", Permiso: nucleo.PermContratosFirmar, AuditarExito: soloLecturas[datosContratoPDF],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaFirmar) (datosContratoPDF, error) {
 			q := comercialbd.New(t)
-			c, _, err := exigirFirmable(ctx, t, q, in, false)
+			c, _, err := m.exigirFirmable(ctx, t, q, in, false)
 			if err != nil {
 				return datosContratoPDF{}, err
 			}
@@ -334,9 +341,10 @@ func (m *Modulo) nuevoPrepararFirma() *auditoria.Caso[EntradaFirmar, datosContra
 			if strings.ContainsRune(svg, 0) || len(svg) > 200_000 {
 				return datosContratoPDF{}, campoInvalido("svg", "Firma inválida", "svg")
 			}
-			if err := firmaValida(svg); err != nil {
+			svg, err = normalizarFirma(svg)
+			if err != nil {
 				return datosContratoPDF{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "svg", Rule: "firma",
-					Message: "La firma debe ser un SVG con width, height y trazos <path d> (M, L, C, Q, H, V, Z): " + err.Error()})
+					Message: "La firma debe ser un SVG con width y height (0–10000) y trazos <path d> (M, L, C, Q, H, V, Z): " + err.Error()})
 			}
 			d, err := datosContrato(c)
 			if err != nil {
@@ -380,7 +388,7 @@ func (m *Modulo) nuevoFirmar() *auditoria.Caso[entradaFirmaLista, Contrato] {
 		Accion: "contratos.firmar", Permiso: nucleo.PermContratosFirmar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFirmaLista) (Contrato, error) {
 			q := comercialbd.New(t)
-			c, p, err := exigirFirmable(ctx, t, q, in.EntradaFirmar, true)
+			c, p, err := m.exigirFirmable(ctx, t, q, in.EntradaFirmar, true)
 			if err != nil {
 				return Contrato{}, err
 			}
@@ -416,4 +424,12 @@ func (m *Modulo) nuevoFirmar() *auditoria.Caso[entradaFirmaLista, Contrato] {
 			return aContrato(ctx, q, f)
 		},
 	})
+}
+
+// exigirVigente: la cotización sigue vigente (422 cotizacion_vencida si no).
+func (m *Modulo) exigirVigente(c comercialbd.ComercialCotizacion) error {
+	if c.VigenteHasta.After(m.ahora()) {
+		return nil
+	}
+	return nucleo.ReglaNegocio("cotizacion_vencida", "La cotización "+c.Numero+" venció el "+m.diaLocal(c.VigenteHasta)+"; crea una revisión nueva")
 }

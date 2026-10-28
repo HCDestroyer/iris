@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,25 +18,26 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	comercialbd "github.com/HCDestroyer/iris/apps/api/internal/comercial/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // --- Planes de Argos -------------------------------------------------------------------------
 
-// PlanComercial es un plan de Argos para cotizar.
+// PlanComercial es un plan de Argos para cotizar. Los planes de Argos son de toda la
+// instalación (sin empresa).
 type PlanComercial struct {
-	ID        int64   `json:"id"`
-	EmpresaID int64   `json:"empresaId"`
-	Nombre    string  `json:"nombre"`
-	Precio    *string `json:"precio" nullable:"true" doc:"Mensualidad (decimal, 2 cifras); null si Argos no la publica"`
-	Estado    string  `json:"estado"`
+	ID     int64   `json:"id"`
+	Nombre string  `json:"nombre"`
+	Precio *string `json:"precio" nullable:"true" doc:"Mensualidad (decimal, 2 cifras); null si Argos no la publica"`
+	Activo bool    `json:"activo"`
 }
 
-// LectorPlanes lee los planes de la empresa en Argos (GET /planes por el conector). Se llama
-// fuera de toda transacción. Sin conector activo devuelve el problema 503 conector_apagado; Argos
-// caído, 503 argos_no_disponible.
+// LectorPlanes lee los planes activos de Argos (GET /planes?activo=true[&router_id=]) por el
+// conector, fuera de toda transacción. Sin conector activo devuelve el problema 503
+// conector_apagado; Argos caído, 503 argos_no_disponible.
 type LectorPlanes interface {
-	Planes(ctx context.Context, empresa int64) ([]PlanComercial, error)
+	Planes(ctx context.Context, routerID *int64) ([]PlanComercial, error)
 }
 
 // PlanesDeArgos lee los planes con el cliente del conector Argos activo (protección SSRF).
@@ -43,29 +45,46 @@ func PlanesDeArgos(am *argos.Modulo) LectorPlanes { return planesArgos{am: am} }
 
 type planesArgos struct{ am *argos.Modulo }
 
-func (p planesArgos) Planes(ctx context.Context, empresa int64) ([]PlanComercial, error) {
+// planArgos: GET /planes de Argos 1.2 (precio texto decimal, activo booleano, sin empresa).
+type planArgos struct {
+	ID     int64          `json:"id"`
+	Nombre string         `json:"nombre"`
+	Precio *argos.Decimal `json:"precio"`
+	Activo *bool          `json:"activo"`
+}
+
+func (p planesArgos) Planes(ctx context.Context, routerID *int64) ([]PlanComercial, error) {
 	cli, err := p.am.ClienteActivo(ctx, nucleo.BDDe(ctx))
 	if err != nil {
 		return nil, err
 	}
-	ps, err := cli.Planes(ctx)
+	q := url.Values{"activo": {"true"}}
+	if routerID != nil {
+		q.Set("router_id", strconv.FormatInt(*routerID, 10))
+	}
+	ps, err := conector.Todas[planArgos](ctx, cli.Cliente, "/planes", q)
 	if err != nil {
 		return nil, argos.Problema(err)
 	}
 	salida := make([]PlanComercial, 0, len(ps))
 	for _, pl := range ps {
-		if pl.EmpresaID != 0 && pl.EmpresaID != empresa {
+		if pl.Activo != nil && !*pl.Activo {
 			continue
 		}
-		salida = append(salida, PlanComercial{ID: pl.ID, EmpresaID: pl.EmpresaID, Nombre: pl.Nombre, Precio: pl.Precio.Texto(), Estado: pl.Estado})
+		salida = append(salida, PlanComercial{ID: pl.ID, Nombre: pl.Nombre, Precio: pl.Precio.Texto(), Activo: true})
 	}
 	return salida, nil
+}
+
+// EntradaPlanes: GET /comercial/planes.
+type EntradaPlanes struct {
+	RouterID int64 `query:"routerId" minimum:"0" doc:"Router sugerido por la factibilidad: solo los planes que ofrece"`
 }
 
 // PlanesDisponibles: respuesta de GET /comercial/planes.
 type PlanesDisponibles struct {
 	Disponible bool            `json:"disponible" doc:"false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo)"`
-	Motivo     *string         `json:"motivo" nullable:"true" doc:"sin_conector, sin_empresa, conector_apagado, argos_no_disponible…"`
+	Motivo     *string         `json:"motivo" nullable:"true" doc:"sin_conector, conector_apagado, argos_no_disponible…"`
 	Data       []PlanComercial `json:"data"`
 }
 
@@ -74,41 +93,32 @@ func (m *Modulo) nuevoVerPlanes() *auditoria.Caso[struct{}, previoPlanes] {
 		Accion: "cotizaciones.crear", Permiso: nucleo.PermCotizacionesCrear, AuditarExito: soloLecturas[previoPlanes],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (previoPlanes, error) {
 			estado, err := comercialbd.New(t).EstadoConectorArgos(ctx)
-			if err != nil {
-				return previoPlanes{}, err
-			}
-			todas, empresa := filtroEmpresa(ctx)
-			if todas {
-				empresa = nil
-			}
-			return previoPlanes{Conector: estado, EmpresaID: empresa}, nil
+			return previoPlanes{Conector: estado}, err
 		},
 	})
 }
 
 type previoPlanes struct {
-	Conector  string `json:"conector"`
-	EmpresaID *int64 `json:"empresa_id"`
+	Conector string `json:"conector"`
 }
 
-// Planes: los planes de Argos de la empresa activa (GET /comercial/planes), sin inventar nada.
-func (m *Modulo) Planes(ctx context.Context) (PlanesDisponibles, error) {
+// Planes: los planes activos de Argos (GET /comercial/planes), sin inventar nada.
+func (m *Modulo) Planes(ctx context.Context, in EntradaPlanes) (PlanesDisponibles, error) {
 	p, err := m.verPlanes.Ejecutar(ctx, struct{}{})
 	if err != nil {
 		return PlanesDisponibles{}, err
 	}
 	r := PlanesDisponibles{Data: []PlanComercial{}}
 	motivo := ""
-	switch {
-	case p.Conector == "":
-		motivo = MotivoSinConector
-	case p.EmpresaID == nil:
-		motivo = MotivoSinEmpresa
-	case m.cfg.Planes == nil:
+	if p.Conector == "" || m.cfg.Planes == nil {
 		motivo = MotivoSinConector
 	}
 	if motivo == "" {
-		ps, err := m.cfg.Planes.Planes(ctx, *p.EmpresaID)
+		var router *int64
+		if in.RouterID > 0 {
+			router = &in.RouterID
+		}
+		ps, err := m.cfg.Planes.Planes(ctx, router)
 		var pr *nucleo.Problema
 		switch {
 		case errors.As(err, &pr) && pr.Status >= 500:
@@ -155,6 +165,7 @@ type EntradaCrearCotizacion struct {
 type previoCotizacion struct {
 	EmpresaID *int64 `json:"empresa_id"`
 	Conector  string `json:"conector"`
+	RouterID  *int64 `json:"router_id"` // el sugerido por la última factibilidad (filtra los planes)
 }
 
 type entradaCrearCotizacion struct {
@@ -202,7 +213,13 @@ func (m *Modulo) nuevoPrepararCotizacion() *auditoria.Caso[EntradaCrearCotizacio
 			if err != nil {
 				return previoCotizacion{}, err
 			}
-			return previoCotizacion{EmpresaID: f.EmpresaID, Conector: estado}, nil
+			previo := previoCotizacion{EmpresaID: f.EmpresaID, Conector: estado}
+			if fa, err := q.UltimaFactibilidad(ctx, f.ID); err == nil {
+				previo.RouterID = fa.RouterID
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return previoCotizacion{}, err
+			}
+			return previo, nil
 		},
 	})
 }
@@ -216,13 +233,10 @@ func (m *Modulo) CrearCotizacion(ctx context.Context, in EntradaCrearCotizacion)
 	}
 	e := entradaCrearCotizacion{EntradaCrearCotizacion: in, previo: previo}
 	if previo.Conector != "" && slices.ContainsFunc(in.Lineas, func(l EntradaLinea) bool { return l.Tipo == "plan" && l.PlanID != nil }) {
-		if previo.EmpresaID == nil {
-			return Cotizacion{}, nucleo.ReglaNegocio("empresa_requerida", "El prospecto no tiene empresa: adopta los datos sin empresa antes de cotizar con planes de Argos")
-		}
 		if m.cfg.Planes == nil {
 			return Cotizacion{}, nucleo.NoDisponible("No hay lector de planes de Argos configurado")
 		}
-		if e.planes, err = m.cfg.Planes.Planes(ctx, *previo.EmpresaID); err != nil {
+		if e.planes, err = m.cfg.Planes.Planes(ctx, previo.RouterID); err != nil {
 			return Cotizacion{}, err
 		}
 	}
@@ -295,6 +309,9 @@ func calcularLineas(in entradaCrearCotizacion) ([]lineaCalculada, int64, int64, 
 		case "plan":
 			planes++
 			lc.Recurrente = true
+			if lc.cant != 100 {
+				return nil, 0, 0, nil, campoInvalido(campo("cantidad"), "La línea de plan lleva cantidad 1 (el precio solo baja con una línea de descuento)", "plan")
+			}
 			switch {
 			case in.previo.Conector == "" && l.PlanID != nil:
 				return nil, 0, 0, nil, campoInvalido(campo("planId"), "Sin conector con Argos el plan va con descripción y precio", "sin_conector")
@@ -303,12 +320,9 @@ func calcularLineas(in entradaCrearCotizacion) ([]lineaCalculada, int64, int64, 
 			case l.PlanID != nil:
 				i := slices.IndexFunc(in.planes, func(p PlanComercial) bool { return p.ID == *l.PlanID })
 				if i < 0 {
-					return nil, 0, 0, nil, campoInvalido(campo("planId"), "El plan no existe en Argos para la empresa", "plan")
+					return nil, 0, 0, nil, campoInvalido(campo("planId"), "El plan no existe o no está activo en Argos (para el router sugerido)", "plan")
 				}
 				p := in.planes[i]
-				if p.Estado != "" && p.Estado != "activo" {
-					return nil, 0, 0, nil, campoInvalido(campo("planId"), "El plan no está activo en Argos", "plan")
-				}
 				lc.PlanID, plan = &p.ID, &p.ID
 				if descripcion == "" {
 					descripcion = p.Nombre
@@ -337,12 +351,12 @@ func calcularLineas(in entradaCrearCotizacion) ([]lineaCalculada, int64, int64, 
 		if lc.precio, err = leerMonto(campo("precioUnitario"), *precio, maxCentavos); err != nil {
 			return nil, 0, 0, nil, err
 		}
-		lc.total = multiplicar(lc.cant, lc.precio)
+		var cabe bool
+		if lc.total, cabe = multiplicar(lc.cant, lc.precio); !cabe {
+			return nil, 0, 0, nil, campoInvalido(campo("precioUnitario"), "El total de la línea es demasiado grande", "max")
+		}
 		if l.Tipo == "descuento" {
 			lc.total = -lc.total
-		}
-		if lc.total > maxCentavos || lc.total < -maxCentavos {
-			return nil, 0, 0, nil, campoInvalido(campo("precioUnitario"), "El total de la línea es demasiado grande", "max")
 		}
 		lc.Descripcion = descripcion
 		lc.Cantidad, lc.PrecioUnitario, lc.Total = aNumeric(lc.cant), aNumeric(lc.precio), aNumeric(lc.total)
@@ -350,6 +364,9 @@ func calcularLineas(in entradaCrearCotizacion) ([]lineaCalculada, int64, int64, 
 			mensual += lc.total
 		} else {
 			unico += lc.total
+		}
+		if mensual > maxCentavos || unico > maxCentavos || mensual < -maxCentavos || unico < -maxCentavos {
+			return nil, 0, 0, nil, campoInvalido("lineas", "El total es demasiado grande", "max")
 		}
 		salida = append(salida, lc)
 	}

@@ -47,6 +47,8 @@ type Alta struct {
 	ServicioArgosID *int64  `json:"servicioArgosId" nullable:"true"`
 	OrdenID         *int64  `json:"ordenId" nullable:"true" doc:"Orden de instalación (al completarse el alta)"`
 	OrdenNumero     *string `json:"ordenNumero" nullable:"true"`
+	RouterID        *int64  `json:"routerId" nullable:"true" doc:"Router de Argos del servicio"`
+	Error           *string `json:"error" nullable:"true" doc:"El alta no pudo avanzar y necesita revisión manual (no se reintenta sola)"`
 }
 
 func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
@@ -59,7 +61,7 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 	}
 	if f.AltaModo != nil {
 		p.Alta = &Alta{Modo: *f.AltaModo, Estado: deref(f.AltaEstado), ClienteArgosID: f.ClienteArgosID,
-			ServicioArgosID: f.ServicioArgosID, OrdenID: f.OrdenID}
+			ServicioArgosID: f.ServicioArgosID, OrdenID: f.OrdenID, RouterID: f.RouterID, Error: f.AltaError}
 	}
 	return p
 }
@@ -134,28 +136,30 @@ func aActividad(f comercialbd.ComercialActividad) Actividad {
 
 // Factibilidad es una evaluación técnica.
 type Factibilidad struct {
-	ID           int64     `json:"id"`
-	ProspectoID  int64     `json:"prospectoId"`
-	Resultado    string    `json:"resultado" enum:"viable,no_viable,requiere_obra,indeterminado" doc:"indeterminado: no hay datos para decidir (motivo); nunca se inventa"`
-	Motor        string    `json:"motor" doc:"distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6)"`
-	Motivo       *string   `json:"motivo" nullable:"true" doc:"Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas"`
-	Lat          *float64  `json:"lat" nullable:"true" doc:"Coordenadas evaluadas (las del prospecto en ese momento)"`
-	Lon          *float64  `json:"lon" nullable:"true"`
-	RouterID     *int64    `json:"routerId" nullable:"true" doc:"Router sugerido (Argos)"`
-	RouterNombre *string   `json:"routerNombre" nullable:"true"`
-	Caja         *string   `json:"caja" nullable:"true" doc:"Caja sugerida (fase 6, OZmap)"`
-	DistanciaM   *float64  `json:"distanciaM" nullable:"true" doc:"Distancia en línea recta al router, en metros"`
-	ViableM      *int32    `json:"viableM" nullable:"true" doc:"Umbral aplicado: viable hasta estos metros"`
-	ObraM        *int32    `json:"obraM" nullable:"true" doc:"Umbral aplicado: requiere obra hasta estos metros"`
-	Notas        string    `json:"notas"`
-	EvaluadaPor  *int64    `json:"evaluadaPor" nullable:"true"`
-	CreadoEn     time.Time `json:"creadoEn"`
+	ID              int64     `json:"id"`
+	ProspectoID     int64     `json:"prospectoId"`
+	Resultado       string    `json:"resultado" enum:"viable,no_viable,requiere_obra,indeterminado" doc:"indeterminado: no hay datos para decidir (motivo); nunca se inventa"`
+	Motor           string    `json:"motor" doc:"distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6)"`
+	Motivo          *string   `json:"motivo" nullable:"true" doc:"Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas"`
+	Lat             *float64  `json:"lat" nullable:"true" doc:"Coordenadas evaluadas (las del prospecto en ese momento)"`
+	Lon             *float64  `json:"lon" nullable:"true"`
+	RouterID        *int64    `json:"routerId" nullable:"true" doc:"Router sugerido (Argos)"`
+	RouterNombre    *string   `json:"routerNombre" nullable:"true"`
+	Caja            *string   `json:"caja" nullable:"true" doc:"Caja sugerida (fase 6, OZmap)"`
+	DistanciaM      *float64  `json:"distanciaM" nullable:"true" doc:"Distancia en línea recta al router, en metros"`
+	ViableM         *int32    `json:"viableM" nullable:"true" doc:"Umbral aplicado: viable hasta estos metros"`
+	ObraM           *int32    `json:"obraM" nullable:"true" doc:"Umbral aplicado: requiere obra hasta estos metros"`
+	Notas           string    `json:"notas"`
+	AnulaID         *int64    `json:"anulaId" nullable:"true" doc:"Manual que anula esta evaluación automática no_viable"`
+	MotivoAnulacion *string   `json:"motivoAnulacion" nullable:"true"`
+	EvaluadaPor     *int64    `json:"evaluadaPor" nullable:"true"`
+	CreadoEn        time.Time `json:"creadoEn"`
 }
 
 func aFactibilidad(f comercialbd.ComercialFactibilidad) Factibilidad {
 	return Factibilidad{ID: f.ID, ProspectoID: f.ProspectoID, Resultado: f.Resultado, Motor: f.Motor, Motivo: f.Motivo,
 		Lat: f.Lat, Lon: f.Lon, RouterID: f.RouterID, RouterNombre: f.RouterNombre, Caja: f.Caja, DistanciaM: f.DistanciaM,
-		ViableM: f.ViableM, ObraM: f.ObraM, Notas: f.Notas, EvaluadaPor: f.EvaluadaPor, CreadoEn: f.CreatedAt}
+		ViableM: f.ViableM, ObraM: f.ObraM, Notas: f.Notas, AnulaID: f.AnulaID, MotivoAnulacion: f.MotivoAnulacion, EvaluadaPor: f.EvaluadaPor, CreadoEn: f.CreatedAt}
 }
 
 // DocumentoPDF es un PDF guardado como adjunto del núcleo.

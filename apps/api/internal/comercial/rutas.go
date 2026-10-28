@@ -120,9 +120,13 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	// Factibilidad.
 	registrarConID(api, accion("evaluarFactibilidad", "/api/v1/prospectos/{id}/factibilidad", "Evaluar la factibilidad",
-		"Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa (o `manual` tras una visita). "+
+		"Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa. "+
 			"Sin datos: indeterminado con motivo. Emite `factibilidad.evaluada`.", nucleo.PermFactibilidadEvaluar),
 		m.EvaluarFactibilidad, func(e *EntradaFactibilidad, id int64, _ string) { e.ProspectoID = id })
+	registrarConID(api, accion("factibilidadManual", "/api/v1/prospectos/{id}/factibilidad-manual", "Registrar la factibilidad de una visita técnica",
+		"Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, "+
+			"un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.", nucleo.PermFactibilidadRegistrarManual),
+		m.FactibilidadManual.Ejecutar, func(e *EntradaFactibilidadManual, id int64, _ string) { e.ProspectoID = id })
 	lectura(api, operacion("verUmbrales", http.MethodGet, "/api/v1/comercial/umbrales", "Umbrales de la factibilidad de la empresa", ver, http.StatusOK),
 		func(ctx context.Context, _ struct{}) (Umbrales, error) {
 			return m.VerUmbrales.Ejecutar(ctx, struct{}{})
@@ -153,8 +157,8 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	// Cotizaciones.
 	lectura(api, con(operacion("planesComerciales", http.MethodGet, "/api/v1/comercial/planes", "Planes de Argos para cotizar", nucleo.PermCotizacionesCrear, http.StatusOK),
-		"GET /planes de Argos por el conector (empresa activa). disponible = false con motivo si no se pueden leer."),
-		func(ctx context.Context, _ struct{}) (PlanesDisponibles, error) { return m.Planes(ctx) })
+		"GET /planes?activo=true[&router_id=] de Argos por el conector (los planes son de toda la instalación). disponible = false con motivo si no se pueden leer."),
+		m.Planes)
 	lectura(api, operacion("listarCotizaciones", http.MethodGet, "/api/v1/prospectos/{id}/cotizaciones", "Cotizaciones del prospecto (todas las revisiones)", ver,
 		http.StatusOK, http.StatusNotFound), m.ListarCotizaciones.Ejecutar)
 	cot := operacion("crearCotizacion", http.MethodPost, "/api/v1/prospectos/{id}/cotizaciones", "Cotizar (o una revisión nueva)",

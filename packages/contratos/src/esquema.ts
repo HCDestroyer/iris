@@ -405,7 +405,7 @@ export interface paths {
         };
         /**
          * Planes de Argos para cotizar
-         * @description Permiso: `cotizaciones.crear`. GET /planes de Argos por el conector (empresa activa). disponible = false con motivo si no se pueden leer.
+         * @description Permiso: `cotizaciones.crear`. GET /planes?activo=true[&router_id=] de Argos por el conector (los planes son de toda la instalación). disponible = false con motivo si no se pueden leer.
          */
         get: operations["planesComerciales"];
         put?: never;
@@ -1824,9 +1824,29 @@ export interface paths {
         put?: never;
         /**
          * Evaluar la factibilidad
-         * @description Permiso: `factibilidad.evaluar`. Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa (o `manual` tras una visita). Sin datos: indeterminado con motivo. Emite `factibilidad.evaluada`.
+         * @description Permiso: `factibilidad.evaluar`. Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa. Sin datos: indeterminado con motivo. Emite `factibilidad.evaluada`.
          */
         post: operations["evaluarFactibilidad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/factibilidad-manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar la factibilidad de una visita técnica
+         * @description Permiso: `factibilidad.registrar_manual`. Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.
+         */
+        post: operations["factibilidadManual"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3034,6 +3054,8 @@ export interface components {
         Alta: {
             /** Format: int64 */
             clienteArgosId: number | null;
+            /** @description El alta no pudo avanzar y necesita revisión manual (no se reintenta sola) */
+            error: string | null;
             /** @enum {string} */
             estado: "esperando_cliente" | "esperando_servicio" | "completa";
             /**
@@ -3047,6 +3069,11 @@ export interface components {
              */
             ordenId: number | null;
             ordenNumero: string | null;
+            /**
+             * Format: int64
+             * @description Router de Argos del servicio
+             */
+            routerId: number | null;
             /** Format: int64 */
             servicioArgosId: number | null;
         };
@@ -3940,6 +3967,7 @@ export interface components {
              */
             planInteresId?: number;
             planInteresNombre?: string;
+            /** @description Hasta 30 (lo que acepta Argos) */
             telefono?: string;
             /**
              * Format: int64
@@ -4131,6 +4159,7 @@ export interface components {
             /** Format: int64 */
             planInteresId?: number;
             planInteresNombre?: string;
+            /** @description Hasta 30 (lo que acepta Argos) */
             telefono?: string;
             /**
              * Format: int32
@@ -4245,9 +4274,26 @@ export interface components {
             version: number;
         };
         EntradaFactibilidad: {
-            /** @description Resultado de una visita técnica (motor manual; exige notas). Sin él, evalúa la planta externa */
-            manual?: components["schemas"]["EntradaManual"];
             notas?: string;
+            /**
+             * Format: int32
+             * @description Versión del prospecto
+             */
+            version: number;
+        };
+        EntradaFactibilidadManual: {
+            caja?: string;
+            /** @description Obligatorio si hay una evaluación automática no_viable sobre las mismas coordenadas: la manual la anula */
+            motivoAnulacion?: string;
+            /** @description Qué se vio en la visita (al menos 20 caracteres) */
+            notas: string;
+            /** @enum {string} */
+            resultado: "viable" | "no_viable" | "requiere_obra";
+            /**
+             * Format: int64
+             * @description Router de Argos desde donde se atiende (de la empresa del prospecto); viaja a Argos en POST /servicios
+             */
+            routerId?: number;
             /**
              * Format: int32
              * @description Versión del prospecto
@@ -4319,6 +4365,11 @@ export interface components {
         EntradaGanar: {
             /** @description Obligatorio (true) si la factibilidad es requiere_obra */
             confirmarObra?: boolean;
+            /**
+             * Format: int64
+             * @description Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido
+             */
+            routerId?: number;
             /** Format: int32 */
             version: number;
         };
@@ -4374,13 +4425,6 @@ export interface components {
             operaciones: components["schemas"]["OperacionLote"][] | null;
             /** @description pwa, android, ios… */
             plataforma?: string;
-        };
-        EntradaManual: {
-            caja?: string;
-            /** @enum {string} */
-            resultado: "viable" | "no_viable" | "requiere_obra";
-            /** Format: int64 */
-            routerId?: number;
         };
         EntradaMarcarChecklist: {
             /** @description Código del ítem (o itemId) */
@@ -4859,6 +4903,11 @@ export interface components {
             lineas: components["schemas"]["Existencia"][] | null;
         };
         Factibilidad: {
+            /**
+             * Format: int64
+             * @description Manual que anula esta evaluación automática no_viable
+             */
+            anulaId: number | null;
             /** @description Caja sugerida (fase 6, OZmap) */
             caja: string | null;
             /** Format: date-time */
@@ -4881,6 +4930,7 @@ export interface components {
             lon: number | null;
             /** @description Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas */
             motivo: string | null;
+            motivoAnulacion: string | null;
             /** @description distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6) */
             motor: string;
             notas: string;
@@ -5819,15 +5869,13 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
         };
         PlanComercial: {
-            /** Format: int64 */
-            empresaId: number;
-            estado: string;
+            activo: boolean;
             /** Format: int64 */
             id: number;
             nombre: string;
@@ -5838,7 +5886,7 @@ export interface components {
             data: components["schemas"]["PlanComercial"][] | null;
             /** @description false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo) */
             disponible: boolean;
-            /** @description sin_conector, sin_empresa, conector_apagado, argos_no_disponible… */
+            /** @description sin_conector, conector_apagado, argos_no_disponible… */
             motivo: string | null;
         };
         Plantilla: {
@@ -8625,7 +8673,10 @@ export interface operations {
     };
     planesComerciales: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Router sugerido por la factibilidad: solo los planes que ofrece */
+                routerId?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14459,6 +14510,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaFactibilidad"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Factibilidad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    factibilidadManual: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFactibilidadManual"];
             };
         };
         responses: {

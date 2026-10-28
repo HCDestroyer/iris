@@ -19,7 +19,10 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
   `comercial.umbrales_factibilidad` (por empresa; por defecto 300 m viable y 1000 m requiere
   obra). Sin conector, conector apagado, sin empresa, sin instantánea o sin routers con
   coordenadas: `indeterminado` con `motivo` (nunca un resultado inventado). `manual`: el resultado
-  de una visita técnica (exige notas); es lo que permite vender en modo sin conector.
+  de una visita técnica (`POST …/factibilidad-manual`, permiso `factibilidad.registrar_manual`:
+  supervisor y técnico, no ventas; notas ≥ 20; router de la empresa; si contradice una automática
+  `no_viable` en las mismas coordenadas, exige `motivoAnulacion` y la anula); es lo que permite
+  vender en modo sin conector.
 - **Cotización** (`COT-000001`, `revision` 1, 2…): exactamente una línea de plan (con conector, un
   plan de Argos de `GET /planes` con su nombre y precio; sin conector, descripción y precio a
   mano), instalación, equipos, descuentos y otros, mensuales o únicos. Montos en `numeric(14,2)`,
@@ -29,7 +32,8 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
   del núcleo (`entidad = cotizacion`, tipo `documento`).
 - **Contrato** (`CTR-000001`): plantilla `estandar_v1` llena con el prospecto y la cotización
   aceptada (`contenido`), PDF borrador para leer y **firma del cliente capturada como imagen**
-  (SVG de trazos, igual que la firma de la orden de campo) en el dispositivo del vendedor. El PDF
+  (SVG de trazos, igual que la firma de la orden de campo) en el dispositivo del vendedor; se
+  guarda un SVG reconstruido con los trazos, nunca el texto recibido. El PDF
   firmado (la firma dibujada) queda como adjunto (`entidad = contrato`) y su SHA-256 en
   `auditoria.acciones` (`entrada.auditoria.pdf_firmado_sha256`) y en el contrato. El SVG queda
   enmascarado (`***`) en la auditoría. Se eligió frente a la aceptación por enlace con token: no
@@ -38,11 +42,16 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
   la última factibilidad viable (o `requiere_obra` con `confirmarObra: true`) sobre las
   coordenadas actuales del prospecto.
   - **Con conector** (activo o apagado, como la cola de I1): encola en `integracion.pendientes`
-    `POST /clientes` (`iris:cliente:<prospecto_id>`, entidad `prospecto`). Al quedar hecho
+    `POST /clientes` (`iris:cliente:<prospecto_id>`, entidad `prospecto`; cuerpo de Argos 1.2 con
+    `codigo_externo = iris:prospecto:<id>`, sin empresa). El router del servicio es el sugerido por
+    la factibilidad o `routerId` al ganar (422 `router_requerido`). Al quedar hecho
     (`integracion.pendiente_hecho` → `SuscribirAltas`, o el barrido `comercial.completar_altas`
     cada 5 min), recupera el id del cliente repitiendo la llamada con la misma Idempotency-Key
     (Argos devuelve el mismo resultado) y encola `POST /servicios` con
-    `estado = pendiente_instalacion` (`iris:servicio:<prospecto_id>`, `depende_de` el primero).
+    `estado_inicial = pendiente_instalacion` (`iris:servicio:<prospecto_id>`, `depende_de` el
+    primero). La repetición manda los mismos bytes guardados en el pendiente, y el id recuperado se
+    comprueba (`GET /clientes/{id}` → `codigo_externo`); si no coincide, Argos rechaza o el pendiente
+    tiene más de 30 días, el alta queda en `alta.error` (revisión manual).
     Al quedar hecho, crea la orden de instalación con el cliente y el servicio de Argos
     (`origen = sistema`, clave `comercial.instalacion:<id>`: una sola). `alta.estado`:
     `esperando_cliente` → `esperando_servicio` → `completa`.
