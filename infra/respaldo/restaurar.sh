@@ -27,10 +27,10 @@ identidad="${IRIS_RESPALDO_IDENTIDAD:-$(sed -n 's/^IRIS_RESPALDO_IDENTIDAD=//p' 
 command -v age >/dev/null || { echo "Falta age." >&2; exit 1; }
 command -v pg_restore >/dev/null || { echo "Falta pg_restore (cliente de PostgreSQL 16)." >&2; exit 1; }
 [ -s "$archivo" ] || { echo "No existe el respaldo $archivo." >&2; exit 1; }
-[ -n "$identidad" ] && [ -s "$identidad" ] || {
+if [ -z "$identidad" ] || [ ! -s "$identidad" ]; then
     echo "IRIS_RESPALDO_IDENTIDAD debe apuntar al archivo con la clave privada age." >&2
     exit 1
-}
+fi
 
 if [ -f "$archivo.sha256" ]; then
     (cd "$(dirname "$archivo")" && sha256sum --check --quiet "$(basename "$archivo").sha256")
