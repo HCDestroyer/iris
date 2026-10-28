@@ -229,6 +229,20 @@ test.describe("con sesión del portal", () => {
         await expect(page.getByRole("heading", { name: "Este caso está cerrado" })).toBeVisible();
         await expect(page.getByRole("button", { name: "Confirmar que quedó resuelto" })).toHaveCount(0);
         await expect(page.getByLabel("Escribe tu mensaje")).toHaveCount(0);
+        // Regresión: de vuelta en «Mis casos», el cerrado no aparece en «En curso» y la opción
+        // elegida se ve marcada; solo «Todos» lo muestra.
+        await page.getByRole("link", { name: "Mis casos", exact: true }).click();
+        const filtro = page.getByRole("radiogroup", { name: "Mostrar" });
+        await expect(filtro.getByRole("radio", { name: "En curso" })).toHaveAttribute("aria-checked", "true");
+        await expect(caso(page, "TK-000501")).toBeVisible();
+        await expect(caso(page, "TK-000502")).toHaveCount(0);
+        await expect(page.locator("[data-ticket]").filter({ hasText: "Cerrado" })).toHaveCount(0);
+        await filtro.getByRole("radio", { name: "Todos" }).click();
+        await expect(filtro.getByRole("radio", { name: "Todos" })).toHaveAttribute("aria-checked", "true");
+        await expect(filtro.getByRole("radio", { name: "En curso" })).toHaveAttribute("aria-checked", "false");
+        await expect(caso(page, "TK-000502")).toContainText("Cerrado");
+        const listas = api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/portal/tickets").map((p) => new URL(p.url).search);
+        expect(listas).toEqual(["?limit=20&estado=nuevo,abierto,en_espera,resuelto", "?limit=20"]);
         const c = api.peticiones.find((p) => p.ruta === "/api/v1/portal/tickets/502/confirmar-solucion");
         expect(c?.cuerpo).toEqual({ version: 4 });
         expect(c?.csrf).toBe(CSRF_PORTAL);

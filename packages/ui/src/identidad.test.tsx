@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Aviso } from "./componentes/aviso";
+import { GrupoSegmentado } from "./componentes/grupo-segmentado";
 import { InsigniaEstado } from "./componentes/insignia-estado";
 import { LogoIris } from "./componentes/marca";
 
@@ -43,5 +44,16 @@ describe("estados: icono + texto + color", () => {
         );
         expect(html).toContain('role="alert"');
         expect(html).toContain("Reintentar");
+    });
+});
+
+describe("GrupoSegmentado", () => {
+    it("la opción elegida se distingue con el color de marca (no solo con el fondo)", () => {
+        const html = renderToStaticMarkup(
+            <GrupoSegmentado etiqueta="Mostrar" opciones={[{ valor: "a", etiqueta: "En curso" }, { valor: "b", etiqueta: "Todos" }]} valor="b" alCambiar={() => undefined} />,
+        );
+        expect(html).toMatch(/aria-checked="true"[^>]*aria-checked:text-primary[^>]*>Todos</);
+        expect(html).toMatch(/aria-checked="false"[^>]*>En curso</);
+        expect(html).toContain("aria-checked:shadow-[0_0_0_1px_var(--hx-primary)]");
     });
 });

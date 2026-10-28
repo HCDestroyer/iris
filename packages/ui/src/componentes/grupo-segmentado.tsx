@@ -75,7 +75,8 @@ export function GrupoSegmentado<V extends string>({
                         className={cn(
                             "inline-flex h-7 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium",
                             "text-muted-foreground transition-colors duration-150 hover:text-foreground",
-                            "aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-[0_0_0_1px_var(--hx-border)]",
+                            // Opción elegida inconfundible en claro y oscuro: color de marca (selección) en texto y borde.
+                            "aria-checked:bg-background aria-checked:font-semibold aria-checked:text-primary aria-checked:shadow-[0_0_0_1px_var(--hx-primary)]",
                             "[&_svg]:size-4",
                         )}
                     >

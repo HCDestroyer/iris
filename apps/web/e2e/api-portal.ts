@@ -132,7 +132,9 @@ export async function simularApiPortal(page: Page): Promise<ApiPortal> {
 
         if (ruta === `${PORTAL}/tickets`) {
             if (metodo === "GET") {
-                const estados = url.searchParams.get("estado")?.split(",");
+                // Como la API real: `estado=a,b` y también `estado=a&estado=b`.
+                const valores = url.searchParams.getAll("estado").flatMap((v) => v.split(",")).filter(Boolean);
+                const estados = valores.length > 0 ? valores : undefined;
                 const limite = Number(url.searchParams.get("limit") ?? 20);
                 const desde = Number(url.searchParams.get("cursor") ?? 0);
                 const lista = esc.tickets.filter((t) => !estados || estados.includes(t.estado)).sort((a, b) => b.id - a.id);
