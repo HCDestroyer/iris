@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
 )
@@ -35,6 +36,8 @@ func init() {
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
+	// Portal: topes anti spam del portal del cliente (IRIS_PORTAL_*; LimitesPortalDesdeEntorno).
+	Portal LimitesPortal
 	// Cifrador (IRIS_CLAVE_CIFRADO) cifra las contraseñas de los buzones. Sin él no se pueden
 	// crear ni activar buzones (422 cifrado_no_configurado).
 	Cifrador *nucleo.Cifrador
@@ -109,6 +112,22 @@ type Modulo struct {
 	ProcesarCorreo    *auditoria.Caso[EntradaProcesarCorreo, ResultadoProcesarCorreo]
 	EncolarRespuesta  *auditoria.Caso[EntradaEncolarRespuesta, ResultadoEncolarRespuesta]
 	RegistrarEnvio    *auditoria.Caso[EntradaRegistrarEnvio, struct{}]
+
+	// Eventos de Horus (worker, actor sistema): horus.go.
+	IncidenteHorus   *auditoria.Caso[EntradaIncidenteHorus, ResultadoHorus]
+	HallazgoAbierto  *auditoria.Caso[horus.HallazgoAbierto, ResultadoHorus]
+	HallazgoResuelto *auditoria.Caso[horus.HallazgoResuelto, ResultadoHorus]
+	DescartarHorus   *auditoria.Caso[EntradaDescartarHorus, ResultadoHorus]
+	AvisarTanda      *auditoria.Caso[ArgsAvisarHijos, int]
+
+	// Portal del cliente (actor cliente): portal.go.
+	ListarTicketsPortal     *auditoria.Caso[EntradaListarTicketsPortal, nucleo.Pagina[TicketPortal]]
+	VerTicketPortal         *auditoria.Caso[EntradaVerTicketPortal, TicketPortal]
+	ListarMensajesPortal    *auditoria.Caso[EntradaListarMensajesPortal, nucleo.Pagina[MensajePortal]]
+	CrearTicketPortal       *auditoria.Caso[EntradaCrearTicketPortal, TicketPortal]
+	ResponderTicketPortal   *auditoria.Caso[EntradaResponderTicketPortal, TicketPortalConMensaje]
+	ConfirmarSolucionPortal *auditoria.Caso[EntradaConfirmarSolucion, TicketPortal]
+	ListarCategoriasPortal  *auditoria.Caso[struct{}, nucleo.Pagina[CategoriaPortal]]
 }
 
 // Nuevo arma el módulo.
@@ -148,6 +167,18 @@ func Nuevo(cfg Config) *Modulo {
 	m.ProcesarCorreo = m.nuevoProcesarCorreo()
 	m.EncolarRespuesta = m.nuevoEncolarRespuesta()
 	m.RegistrarEnvio = m.nuevoRegistrarEnvio()
+	m.IncidenteHorus = m.nuevoIncidenteHorus()
+	m.HallazgoAbierto = m.nuevoHallazgoAbierto()
+	m.HallazgoResuelto = m.nuevoHallazgoResuelto()
+	m.DescartarHorus = m.nuevoDescartarHorus()
+	m.AvisarTanda = m.nuevoAvisarTanda()
+	m.ListarTicketsPortal = m.nuevoListarTicketsPortal()
+	m.VerTicketPortal = m.nuevoVerTicketPortal()
+	m.ListarMensajesPortal = m.nuevoListarMensajesPortal()
+	m.CrearTicketPortal = m.nuevoCrearTicketPortal()
+	m.ResponderTicketPortal = m.nuevoResponderTicketPortal()
+	m.ConfirmarSolucionPortal = m.nuevoConfirmarSolucionPortal()
+	m.ListarCategoriasPortal = nuevoListarCategoriasPortal()
 	return m
 }
 

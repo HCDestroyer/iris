@@ -59,7 +59,8 @@ sql:
         package: argosbd
         out: internal/integracion/argos/bd
   - <<: *base
-    queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql]
+    queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql, internal/soporte/consultas_horus.sql,
+      internal/soporte/consultas_portal.sql]
     gen:
       go:
         <<: *gen

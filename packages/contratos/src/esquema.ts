@@ -569,6 +569,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/categorias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Categorías que el cliente puede elegir
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Las activas marcadas como visibles en el portal (globales y de su empresa).
+         */
+        get: operations["listarCategoriasPortal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/sesion": {
         parameters: {
             query?: never;
@@ -597,6 +617,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mis tickets
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Solo los del cliente de la sesión; más recientes primero (cursor).
+         */
+        get: operations["listarTicketsPortal"];
+        put?: never;
+        /**
+         * Abrir un ticket
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Origen `portal`, prioridad media, categoría de `GET /portal/categorias` (otra: 422 en `categoriaId`), servicio del cliente según la instantánea de Argos (si no: 422 en `servicioId`). El contacto sale de la ficha del cliente. Si su servicio está en un router con un incidente maestro abierto, se vincula a él. Emite `ticket.creado`. Topes por cliente (429 `demasiados_tickets`): tickets del portal abiertos (10) y creados en la última hora (20).
+         */
+        post: operations["crearTicketPortal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/tickets-acceso": {
         parameters: {
             query?: never;
@@ -611,6 +655,86 @@ export interface paths {
          * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["emitirAccesoPortal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver mi ticket
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. De otro cliente o de otra empresa: 404.
+         */
+        get: operations["verTicketPortal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tickets/{id}/confirmar-solucion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar la solución
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. resuelto → cerrado. Si no está resuelto, 422 `transicion_invalida`. Emite `ticket.estado_cambiado`.
+         */
+        post: operations["confirmarSolucionPortal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tickets/{id}/mensajes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Conversación de mi ticket
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Solo los mensajes públicos (nunca notas internas ni el historial), más antiguos primero.
+         */
+        get: operations["listarMensajesPortal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tickets/{id}/responder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Escribir en mi ticket
+         * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió). Tope por cliente (429 `demasiados_mensajes`): 10 mensajes por minuto en todos sus tickets.
+         */
+        post: operations["responderTicketPortal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1282,6 +1406,12 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        CategoriaPortal: {
+            codigo: string;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         ClientePortal: {
             /**
              * Format: int64
@@ -1503,6 +1633,13 @@ export interface components {
             /** @description Enlace de conexión generado en el otro sistema: https://<sistema>/conectar#<código> (15 min, un solo uso) */
             enlace: string;
         };
+        EntradaConfirmarSolucion: {
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EntradaContacto: {
             /** Format: email */
             correo?: string;
@@ -1577,6 +1714,21 @@ export interface components {
              * @description Zona (Argos); define el alcance
              */
             zonaId?: number;
+        };
+        EntradaCrearTicketPortal: {
+            asunto: string;
+            /**
+             * Format: int64
+             * @description Una de GET /portal/categorias
+             */
+            categoriaId?: number;
+            /** @description Primer mensaje del cliente */
+            descripcion: string;
+            /**
+             * Format: int64
+             * @description Servicio del cliente en Argos (debe ser suyo según la instantánea)
+             */
+            servicioId?: number;
         };
         EntradaCrearToken: {
             /**
@@ -1776,6 +1928,14 @@ export interface components {
              */
             version?: number;
         };
+        EntradaResponderTicketPortal: {
+            cuerpo: string;
+            /**
+             * Format: int32
+             * @description Versión leída (opcional); si se envía y cambió, 409
+             */
+            version?: number;
+        };
         EntradaRevocarToken: {
             motivo?: string;
         };
@@ -1878,6 +2038,26 @@ export interface components {
             servicioId: number | null;
             stale: boolean;
         };
+        IncidenteHorus: {
+            /** @description Hallazgo en Horus */
+            hallazgoId: string | null;
+            /** @description Servicio de infraestructura en Horus */
+            infraId: string | null;
+            /** @description Nombre del router o servicio según Horus */
+            nombre: string | null;
+            /**
+             * Format: int64
+             * @description Router en Argos
+             */
+            routerId: number | null;
+            /**
+             * @description router / infra = incidente maestro (los tickets de clientes afectados son sus hijos); hallazgo = hallazgo de seguridad
+             * @enum {string}
+             */
+            tipo: "router" | "infra" | "hallazgo";
+            /** @description «Ver en Horus» (mismo origen que el conector) */
+            urlHorus: string | null;
+        };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
@@ -1903,6 +2083,20 @@ export interface components {
             /** Format: int64 */
             ticketId: number;
         };
+        MensajePortal: {
+            adjuntos: string[] | null;
+            autorNombre: string;
+            /**
+             * @description cliente = el propio cliente (portal o correo); agente = soporte; sistema = aviso automático
+             * @enum {string}
+             */
+            autorTipo: "cliente" | "agente" | "sistema";
+            /** Format: date-time */
+            creadoEn: string;
+            cuerpo: string;
+            /** Format: int64 */
+            id: number;
+        };
         ObjetivoSLA: {
             /** @enum {string} */
             prioridad: "baja" | "media" | "alta" | "critica";
@@ -1918,6 +2112,11 @@ export interface components {
         };
         PaginaCategoria: {
             data: components["schemas"]["Categoria"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaCategoriaPortal: {
+            data: components["schemas"]["CategoriaPortal"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -1941,6 +2140,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaMensajePortal: {
+            data: components["schemas"]["MensajePortal"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaPermisoInfo: {
             data: components["schemas"]["PermisoInfo"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -1958,6 +2162,11 @@ export interface components {
         };
         PaginaTicket: {
             data: components["schemas"]["Ticket"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaTicketPortal: {
+            data: components["schemas"]["TicketPortal"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -1995,6 +2204,13 @@ export interface components {
             title: string;
             /** @description URI estable del tipo de problema (urn:iris:problema:<codigo>) */
             type: string;
+        };
+        PropuestaTicket: {
+            /** @enum {string} */
+            accion: "resolver" | "cerrar";
+            /** Format: date-time */
+            en: string;
+            motivo: string | null;
         };
         PruebaServidor: {
             /** @enum {string|null} */
@@ -2189,6 +2405,8 @@ export interface components {
             fusionadoEnId: number | null;
             /** Format: int64 */
             id: number;
+            /** @description Solo si lo abrió Horus (maestro o hallazgo) */
+            incidente?: components["schemas"]["IncidenteHorus"];
             /**
              * Format: int32
              * @description Veces que se escaló
@@ -2200,6 +2418,8 @@ export interface components {
             origen: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
             /** @enum {string} */
             prioridad: "baja" | "media" | "alta" | "critica";
+            /** @description Propuesta pendiente de Horus (el router volvió, el hallazgo se resolvió); se descarta al cambiar de estado */
+            propuesta?: components["schemas"]["PropuestaTicket"];
             /**
              * Format: int64
              * @description Servicio en Argos
@@ -2225,6 +2445,44 @@ export interface components {
         TicketConMensaje: {
             mensaje: components["schemas"]["Mensaje"];
             ticket: components["schemas"]["Ticket"];
+        };
+        TicketPortal: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Vinculado a una falla general de la red (incidente maestro) que sigue abierta */
+            afectadoPorIncidente: boolean;
+            asunto: string;
+            /** @description Nombre de la categoría */
+            categoria: string | null;
+            /** Format: int64 */
+            categoriaId: number | null;
+            /** Format: date-time */
+            cerradoEn: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @enum {string} */
+            estado: "nuevo" | "abierto" | "en_espera" | "resuelto" | "cerrado";
+            /** Format: int64 */
+            id: number;
+            /** @description Número legible (TK-000123) */
+            numero: string;
+            /** @enum {string} */
+            origen: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
+            /** @description Resuelto: el cliente puede confirmar la solución (lo cierra) o responder (lo reabre) */
+            puedeConfirmar: boolean;
+            /** Format: date-time */
+            resueltoEn: string | null;
+            /**
+             * Format: int64
+             * @description Servicio en Argos
+             */
+            servicioId: number | null;
+            /** Format: int32 */
+            version: number;
+        };
+        TicketPortalConMensaje: {
+            mensaje: components["schemas"]["MensajePortal"];
+            ticket: components["schemas"]["TicketPortal"];
         };
         TokenAPI: {
             /** Format: date-time */
@@ -4439,6 +4697,62 @@ export interface operations {
             };
         };
     };
+    listarCategoriasPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCategoriaPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     obtenerSesionPortal: {
         parameters: {
             query?: never;
@@ -4611,6 +4925,141 @@ export interface operations {
             };
         };
     };
+    listarTicketsPortal: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Uno o varios estados */
+                estado?: ("nuevo" | "abierto" | "en_espera" | "resuelto" | "cerrado")[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaTicketPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearTicketPortal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearTicketPortal"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     emitirAccesoPortal: {
         parameters: {
             query?: never;
@@ -4665,6 +5114,320 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verTicketPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    confirmarSolucionPortal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConfirmarSolucion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarMensajesPortal: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaMensajePortal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    responderTicketPortal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResponderTicketPortal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPortalConMensaje"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

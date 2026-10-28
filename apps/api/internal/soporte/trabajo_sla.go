@@ -58,5 +58,6 @@ func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 		river.AddWorker(w, &TrabajadorLeerBuzon{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorProcesarCorreos{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorEnviarCorreo{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorAvisarHijos{BD: bd, Modulo: m})
 	}
 }

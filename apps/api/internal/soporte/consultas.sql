@@ -68,12 +68,15 @@ INSERT INTO soporte.tickets (
     empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo,
     categoria_id, prioridad, origen, asunto, ticket_padre_id,
     sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min,
-    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, idempotencia
+    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, idempotencia,
+    maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus
 ) VALUES (
     @empresa_id, @cliente_id, @servicio_id, @zona_id, @contacto_nombre, @contacto_telefono, @contacto_correo,
     @categoria_id, @prioridad, @origen, @asunto, @ticket_padre_id,
     @sla_id, @calendario_id, @sla_inicio, @sla_respuesta_min, @sla_resolucion_min,
-    @riesgo_respuesta, @vence_respuesta, @riesgo_resolucion, @vence_resolucion, sqlc.narg(idempotencia)
+    @riesgo_respuesta, @vence_respuesta, @riesgo_resolucion, @vence_resolucion, sqlc.narg(idempotencia),
+    sqlc.narg(maestro), sqlc.narg(router_id), sqlc.narg(infra_id), sqlc.narg(incidente_nombre),
+    sqlc.narg(hallazgo_id), sqlc.narg(url_horus)
 )
 RETURNING *;
 
@@ -100,6 +103,7 @@ UPDATE soporte.tickets SET
     riesgo_resolucion = @riesgo_resolucion, vence_resolucion = @vence_resolucion,
     primera_respuesta_en = @primera_respuesta_en, en_espera_desde = @en_espera_desde,
     resuelto_en = @resuelto_en, cerrado_en = @cerrado_en, fusionado_en_id = @fusionado_en_id,
+    propuesta = sqlc.narg(propuesta), propuesta_en = sqlc.narg(propuesta_en), propuesta_motivo = sqlc.narg(propuesta_motivo),
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
@@ -158,7 +162,8 @@ VALUES (@ticket_id, @empresa_id, @tipo, @de, @a, @motivo, @datos, @actor_tipo, @
 
 -- name: ListarEventosTicket :many
 SELECT * FROM soporte.ticket_eventos
-WHERE ticket_id = @ticket_id AND id > @despues_de
+-- aviso_incidente todavía no está en el enum del contrato (lo agrega el panel cuando lo muestre).
+WHERE ticket_id = @ticket_id AND id > @despues_de AND tipo <> 'aviso_incidente'
 ORDER BY id
 LIMIT @limite;
 

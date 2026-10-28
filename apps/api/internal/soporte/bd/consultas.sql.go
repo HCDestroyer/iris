@@ -141,7 +141,7 @@ func (q *Queries) CalendarioPorID(ctx context.Context, id int64) (SoporteCalenda
 }
 
 const categoriaPorID = `-- name: CategoriaPorID :one
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at FROM soporte.categorias WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias WHERE id = $1
 `
 
 func (q *Queries) CategoriaPorID(ctx context.Context, id int64) (SoporteCategoria, error) {
@@ -158,6 +158,7 @@ func (q *Queries) CategoriaPorID(ctx context.Context, id int64) (SoporteCategori
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.VisiblePortal,
 	)
 	return i, err
 }
@@ -255,14 +256,17 @@ INSERT INTO soporte.tickets (
     empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo,
     categoria_id, prioridad, origen, asunto, ticket_padre_id,
     sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min,
-    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, idempotencia
+    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, idempotencia,
+    maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12,
     $13, $14, $15, $16, $17,
-    $18, $19, $20, $21, $22
+    $18, $19, $20, $21, $22,
+    $23, $24, $25, $26,
+    $27, $28
 )
-RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado
+RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo
 `
 
 type CrearTicketParams struct {
@@ -288,6 +292,12 @@ type CrearTicketParams struct {
 	RiesgoResolucion *time.Time
 	VenceResolucion  *time.Time
 	Idempotencia     *string
+	Maestro          *string
+	RouterID         *int64
+	InfraID          *string
+	IncidenteNombre  *string
+	HallazgoID       *string
+	UrlHorus         *string
 }
 
 // Tickets ----------------------------------------------------------------------
@@ -315,6 +325,12 @@ func (q *Queries) CrearTicket(ctx context.Context, arg CrearTicketParams) (Sopor
 		arg.RiesgoResolucion,
 		arg.VenceResolucion,
 		arg.Idempotencia,
+		arg.Maestro,
+		arg.RouterID,
+		arg.InfraID,
+		arg.IncidenteNombre,
+		arg.HallazgoID,
+		arg.UrlHorus,
 	)
 	var i SoporteTicket
 	err := row.Scan(
@@ -356,6 +372,15 @@ func (q *Queries) CrearTicket(ctx context.Context, arg CrearTicketParams) (Sopor
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
@@ -412,9 +437,10 @@ UPDATE soporte.tickets SET
     riesgo_resolucion = $11, vence_resolucion = $12,
     primera_respuesta_en = $13, en_espera_desde = $14,
     resuelto_en = $15, cerrado_en = $16, fusionado_en_id = $17,
+    propuesta = $18, propuesta_en = $19, propuesta_motivo = $20,
     version = version + 1, updated_at = now()
-WHERE id = $18 AND version = $19
-RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado
+WHERE id = $21 AND version = $22
+RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo
 `
 
 type GuardarTicketParams struct {
@@ -435,6 +461,9 @@ type GuardarTicketParams struct {
 	ResueltoEn         *time.Time
 	CerradoEn          *time.Time
 	FusionadoEnID      *int64
+	Propuesta          *string
+	PropuestaEn        *time.Time
+	PropuestaMotivo    *string
 	ID                 int64
 	Version            int32
 }
@@ -459,6 +488,9 @@ func (q *Queries) GuardarTicket(ctx context.Context, arg GuardarTicketParams) (S
 		arg.ResueltoEn,
 		arg.CerradoEn,
 		arg.FusionadoEnID,
+		arg.Propuesta,
+		arg.PropuestaEn,
+		arg.PropuestaMotivo,
 		arg.ID,
 		arg.Version,
 	)
@@ -502,6 +534,15 @@ func (q *Queries) GuardarTicket(ctx context.Context, arg GuardarTicketParams) (S
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
@@ -520,7 +561,7 @@ func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
 }
 
 const listarCategorias = `-- name: ListarCategorias :many
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at FROM soporte.categorias
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
 WHERE (empresa_id IS NULL OR empresa_id = $1)
   AND (NOT $2::boolean OR activa)
 ORDER BY nombre, id
@@ -551,6 +592,7 @@ func (q *Queries) ListarCategorias(ctx context.Context, arg ListarCategoriasPara
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.VisiblePortal,
 		); err != nil {
 			return nil, err
 		}
@@ -564,7 +606,7 @@ func (q *Queries) ListarCategorias(ctx context.Context, arg ListarCategoriasPara
 
 const listarEventosTicket = `-- name: ListarEventosTicket :many
 SELECT id, ticket_id, empresa_id, tipo, de, a, motivo, datos, actor_tipo, actor_id, actor_nombre, request_id, created_at, updated_at FROM soporte.ticket_eventos
-WHERE ticket_id = $1 AND id > $2
+WHERE ticket_id = $1 AND id > $2 AND tipo <> 'aviso_incidente'
 ORDER BY id
 LIMIT $3
 `
@@ -575,6 +617,7 @@ type ListarEventosTicketParams struct {
 	Limite    int32
 }
 
+// aviso_incidente todavía no está en el enum del contrato (lo agrega el panel cuando lo muestre).
 func (q *Queries) ListarEventosTicket(ctx context.Context, arg ListarEventosTicketParams) ([]SoporteTicketEvento, error) {
 	rows, err := q.db.Query(ctx, listarEventosTicket, arg.TicketID, arg.DespuesDe, arg.Limite)
 	if err != nil {
@@ -720,7 +763,7 @@ func (q *Queries) ListarSLAs(ctx context.Context, empresaID *int64) ([]ListarSLA
 }
 
 const listarTickets = `-- name: ListarTickets :many
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets
 WHERE ($1::bigint IS NULL OR id < $1)
   -- Empresa: @todas_empresas solo para el actor sistema; si no, la activa o (sin conector) null.
   AND ($2::boolean
@@ -834,6 +877,15 @@ func (q *Queries) ListarTickets(ctx context.Context, arg ListarTicketsParams) ([
 			&i.UpdatedAt,
 			&i.Idempotencia,
 			&i.ContactoVerificado,
+			&i.Maestro,
+			&i.RouterID,
+			&i.InfraID,
+			&i.IncidenteNombre,
+			&i.HallazgoID,
+			&i.UrlHorus,
+			&i.Propuesta,
+			&i.PropuestaEn,
+			&i.PropuestaMotivo,
 		); err != nil {
 			return nil, err
 		}
@@ -1005,7 +1057,7 @@ func (q *Queries) SLAPorID(ctx context.Context, id int64) (SoporteSla, error) {
 }
 
 const ticketPorID = `-- name: TicketPorID :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets WHERE id = $1
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE id = $1
 `
 
 func (q *Queries) TicketPorID(ctx context.Context, id int64) (SoporteTicket, error) {
@@ -1050,12 +1102,21 @@ func (q *Queries) TicketPorID(ctx context.Context, id int64) (SoporteTicket, err
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
 
 const ticketPorIDCompartido = `-- name: TicketPorIDCompartido :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets WHERE id = $1 FOR SHARE
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE id = $1 FOR SHARE
 `
 
 // Lectura con FOR SHARE: el ticket no cambia (p. ej. se cierra) hasta el COMMIT.
@@ -1101,12 +1162,21 @@ func (q *Queries) TicketPorIDCompartido(ctx context.Context, id int64) (SoporteT
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
 
 const ticketPorIDParaActualizar = `-- name: TicketPorIDParaActualizar :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets WHERE id = $1 FOR UPDATE
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) TicketPorIDParaActualizar(ctx context.Context, id int64) (SoporteTicket, error) {
@@ -1151,12 +1221,21 @@ func (q *Queries) TicketPorIDParaActualizar(ctx context.Context, id int64) (Sopo
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
 
 const ticketPorIdempotencia = `-- name: TicketPorIdempotencia :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado FROM soporte.tickets WHERE idempotencia = $1
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE idempotencia = $1
 `
 
 func (q *Queries) TicketPorIdempotencia(ctx context.Context, idempotencia *string) (SoporteTicket, error) {
@@ -1201,6 +1280,15 @@ func (q *Queries) TicketPorIdempotencia(ctx context.Context, idempotencia *strin
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }
@@ -1208,7 +1296,7 @@ func (q *Queries) TicketPorIdempotencia(ctx context.Context, idempotencia *strin
 const tocarTicket = `-- name: TocarTicket :one
 UPDATE soporte.tickets SET version = version + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado
+RETURNING id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo
 `
 
 // Sube la versión de un ticket que cambió sin tocar sus campos (p. ej. al recibir una fusión).
@@ -1254,6 +1342,15 @@ func (q *Queries) TocarTicket(ctx context.Context, id int64) (SoporteTicket, err
 		&i.UpdatedAt,
 		&i.Idempotencia,
 		&i.ContactoVerificado,
+		&i.Maestro,
+		&i.RouterID,
+		&i.InfraID,
+		&i.IncidenteNombre,
+		&i.HallazgoID,
+		&i.UrlHorus,
+		&i.Propuesta,
+		&i.PropuestaEn,
+		&i.PropuestaMotivo,
 	)
 	return i, err
 }

@@ -3,7 +3,7 @@
 // (webhooks entrantes y refresco periódico de zonas y routers), los del conector Horus
 // (webhooks entrantes → eventos internos horus.*), el cron de SLA de soporte (cada minuto) y el
 // correo de soporte (lectura de buzones IMAP cada minuto, proceso de correos y envío de
-// respuestas por SMTP).
+// respuestas por SMTP) y los tickets que abre Horus (suscriptor de los eventos horus.*).
 package main
 
 import (
@@ -88,6 +88,9 @@ func correr() error {
 	registrarSoporte := sop.RegistrarTrabajos(pool)
 	// Salida por correo: respuestas de agentes en tickets de origen correo.
 	sop.SuscribirCorreo(bus, pool)
+	// Tickets desde Horus: incidentes maestros por router o servicio de infraestructura y
+	// tickets por hallazgo (eventos internos horus.* del conector).
+	sop.SuscribirHorus(bus, pool)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,

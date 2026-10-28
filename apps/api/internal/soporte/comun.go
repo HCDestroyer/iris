@@ -29,6 +29,10 @@ func conIdempotencia(ctx context.Context, clave string) *string {
 	}
 	a := contexto.ActorDe(ctx)
 	credencial := fmt.Sprintf("%s:%d", a.Tipo, a.ID)
+	if a.Tipo == contexto.ActorCliente {
+		// El actor cliente no es un usuario (ID 0): la clave es por cliente de Argos.
+		credencial = fmt.Sprintf("cliente:%d:%d", a.EmpresaID, a.ClienteID)
+	}
 	if a.TokenID != 0 {
 		credencial = fmt.Sprintf("token:%d", a.TokenID)
 	}
@@ -182,7 +186,16 @@ func tomar(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, id int64,
 
 // verificarAcceso: fuera de la empresa activa o del alcance de lectura, 404 (no revela que
 // existe); visible pero fuera del alcance del permiso de la acción, 403.
+//
+// El actor cliente del portal solo alcanza los tickets de su cliente en su empresa (lo demás,
+// 404), sin importar el permiso.
 func verificarAcceso(ctx context.Context, permiso nucleo.Permiso, f soportebd.SoporteTicket) error {
+	if a := contexto.ActorDe(ctx); a.Tipo == contexto.ActorCliente {
+		if esDelCliente(a, f) {
+			return nil
+		}
+		return noEncontrado()
+	}
 	if !enEmpresa(ctx, f) {
 		return noEncontrado()
 	}
@@ -195,6 +208,12 @@ func verificarAcceso(ctx context.Context, permiso nucleo.Permiso, f soportebd.So
 	return noEncontrado()
 }
 
+// esDelCliente: el ticket es del cliente de la sesión del portal y de su empresa.
+func esDelCliente(a contexto.Actor, f soportebd.SoporteTicket) bool {
+	return a.EsCliente() && f.ClienteID != nil && *f.ClienteID == a.ClienteID &&
+		f.EmpresaID != nil && *f.EmpresaID == a.EmpresaID
+}
+
 // exigirEstado: la acción solo aplica desde los estados dados.
 func exigirEstado(f soportebd.SoporteTicket, accion string, permitidos ...string) error {
 	if !slices.Contains(permitidos, f.Estado) {
@@ -204,8 +223,12 @@ func exigirEstado(f soportebd.SoporteTicket, accion string, permitidos ...string
 }
 
 // guardar recalcula el SLA, escribe el ticket (control de versión) y registra los cambios.
+// Un cambio de estado descarta la propuesta de Horus (resolver o cerrar) pendiente.
 func guardar(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes, despues soportebd.SoporteTicket, cal *Calendario) (soportebd.SoporteTicket, error) {
 	aplicarSLA(&despues, cal)
+	if despues.Estado != antes.Estado {
+		despues.Propuesta, despues.PropuestaEn, despues.PropuestaMotivo = nil, nil, nil
+	}
 	f, err := q.GuardarTicket(ctx, soportebd.GuardarTicketParams{
 		Estado: despues.Estado, Prioridad: despues.Prioridad, AsignadoA: despues.AsignadoA, CuadrillaID: despues.CuadrillaID,
 		NivelEscalamiento: despues.NivelEscalamiento, SlaRespuestaMin: despues.SlaRespuestaMin,
@@ -214,6 +237,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes, 
 		RiesgoResolucion: despues.RiesgoResolucion, VenceResolucion: despues.VenceResolucion,
 		PrimeraRespuestaEn: despues.PrimeraRespuestaEn, EnEsperaDesde: despues.EnEsperaDesde,
 		ResueltoEn: despues.ResueltoEn, CerradoEn: despues.CerradoEn, FusionadoEnID: despues.FusionadoEnID,
+		Propuesta: despues.Propuesta, PropuestaEn: despues.PropuestaEn, PropuestaMotivo: despues.PropuestaMotivo,
 		ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
@@ -268,10 +292,22 @@ func mensajeIdempotente(ctx context.Context, t *auditoria.Tx, q *soportebd.Queri
 		TicketID: f.ID, EmpresaID: f.EmpresaID, Publico: publico, AutorTipo: "sistema",
 		AutorNombre: actor.Nombre, Canal: string(contexto.CanalDe(ctx)), Cuerpo: cuerpo, Idempotencia: idem,
 	}
-	if actor.EsUsuario() {
+	switch {
+	case actor.EsUsuario():
 		p.AutorTipo, p.AutorID = "usuario", &actor.ID
+	case actor.Tipo == contexto.ActorCliente:
+		p.AutorTipo = "cliente"
 	}
 	return q.CrearMensaje(ctx, p)
+}
+
+// mensajeSistema agrega un mensaje de Iris (autor sistema), aunque la acción la haga una
+// persona: avisos automáticos (vinculación a un incidente, notas de Horus, aviso a los hijos).
+func mensajeSistema(ctx context.Context, q *soportebd.Queries, f soportebd.SoporteTicket, publico bool, cuerpo string) (soportebd.SoporteTicketMensaje, error) {
+	return q.CrearMensaje(ctx, soportebd.CrearMensajeParams{
+		TicketID: f.ID, EmpresaID: f.EmpresaID, Publico: publico, AutorTipo: "sistema", AutorNombre: "Iris",
+		Canal: string(contexto.CanalDe(ctx)), Cuerpo: cuerpo,
+	})
 }
 
 // mensajeRepetido busca el mensaje que dejó una ejecución anterior de la misma operación (la
@@ -307,4 +343,33 @@ func marcarRespuesta(f *soportebd.SoporteTicket, ahora time.Time) {
 	if f.PrimeraRespuestaEn == nil {
 		f.PrimeraRespuestaEn = &ahora
 	}
+}
+
+// reactivarPorCliente aplica la regla de estado de un mensaje del cliente (correo o portal) y
+// guarda el ticket: en_espera → abierto (reanuda; corre el SLA de resolución) y resuelto →
+// abierto (reabre; el tiempo resuelto cuenta como pausa); nuevo y abierto no cambian (no se
+// guarda: la versión no sube). No cuenta
+// como primera respuesta. Devuelve el motivo del cambio de estado (nil si no cambió); quien
+// llama agrega el mensaje y registra el cambio con cambioDeEstado.
+func (m *Modulo) reactivarPorCliente(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes soportebd.SoporteTicket, canal string) (soportebd.SoporteTicket, *string, error) {
+	ahora := m.ahora()
+	cal, err := cargarCalendario(ctx, q, antes.CalendarioID)
+	if err != nil {
+		return antes, nil, err
+	}
+	despues := antes
+	var motivo *string
+	switch antes.Estado {
+	case EstadoEnEspera:
+		salirDeEspera(&despues, cal, ahora)
+		despues.Estado, motivo = EstadoAbierto, ptr("El cliente respondió por "+canal)
+	case EstadoResuelto:
+		acumularPausa(&despues, cal, antes.ResueltoEn, ahora)
+		despues.Estado, despues.ResueltoEn, motivo = EstadoAbierto, nil, ptr("El cliente respondió por "+canal+" a un ticket resuelto")
+	}
+	if despues.Estado == antes.Estado {
+		return antes, nil, nil // nuevo o abierto: el ticket no cambia (ni su versión)
+	}
+	f, err := guardar(ctx, t, q, antes, despues, cal)
+	return f, motivo, err
 }
