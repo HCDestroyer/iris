@@ -18,6 +18,9 @@ export const TECNICO: Schema<"Usuario"> = {
     actualizadoEn: "2026-10-01T12:00:00Z",
 };
 
+/** Otro técnico que usa el mismo teléfono (aislamiento entre usuarios). */
+export const TECNICO_B: Schema<"Usuario"> = { ...TECNICO, id: 52, nombre: "Beatriz Sosa", correo: "beatriz@iris.test" };
+
 export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
     "adjuntos.subir",
     "adjuntos.ver",
@@ -165,4 +168,20 @@ export function existenciasDelTecnico(): Schema<"Existencias"> {
             },
         ],
     };
+}
+
+/** La orden del día de Beatriz (TECNICO_B). */
+export function ordenesDeB(): OrdenCampo[] {
+    const hoy = new Date().toISOString().slice(0, 10);
+    return [
+        orden(201, {
+            numero: "OT-000201",
+            tipo: "visita",
+            tecnicoId: TECNICO_B.id,
+            programadaInicio: `${hoy}T15:30:00Z`,
+            direccion: "Avenida Las Américas 9-50, zona 13",
+            contacto: { nombre: "Luis Ortiz", telefono: "5555-2020" },
+            checklist: [item(7, "senal_ok", "Señal restablecida", "si_no", true)],
+        }),
+    ];
 }

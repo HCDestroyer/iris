@@ -11,6 +11,9 @@ export { urlDeVista, type Vista };
 
 export type Notificacion = { tono: Tono; texto: string };
 
+/** Cierra la sesión del técnico: borra el teléfono o conserva solo lo pendiente (cola y archivos). */
+export type CerrarSesion = (opciones: { conservarPendientes: boolean }) => Promise<void>;
+
 type ContextoCampo = {
     motor: MotorSync;
     estado: EstadoSync;
@@ -27,6 +30,7 @@ type ContextoCampo = {
     /** Miniaturas de las fotos tomadas en esta visita (URL de objeto por id de adjunto). */
     miniaturas: ReadonlyMap<string, string>;
     agregarMiniatura: (id: string, datos: Blob) => void;
+    cerrarSesion: CerrarSesion;
 };
 
 const Contexto = createContext<ContextoCampo | null>(null);
@@ -54,7 +58,17 @@ function mensajeError(e: unknown): string {
     return "No se pudo guardar en el teléfono. Vuelve a intentarlo.";
 }
 
-export function ProveedorCampo({ motor, sesion, children }: { motor: MotorSync; sesion: SesionCampo; children: ReactNode }) {
+export function ProveedorCampo({
+    motor,
+    sesion,
+    cerrarSesion,
+    children,
+}: {
+    motor: MotorSync;
+    sesion: SesionCampo;
+    cerrarSesion: CerrarSesion;
+    children: ReactNode;
+}) {
     const estado = useEstadoMotor(motor);
     const [vista, setVista] = useState<Vista>({ tipo: "lista" });
     const [notificacion, setNotificacion] = useState<Notificacion | null>(null);
@@ -113,8 +127,8 @@ export function ProveedorCampo({ motor, sesion, children }: { motor: MotorSync; 
     }, []);
 
     const valor = useMemo<ContextoCampo>(
-        () => ({ motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura }),
-        [motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura],
+        () => ({ motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion }),
+        [motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

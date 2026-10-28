@@ -1,7 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { CSRF } from "./api-falsa";
-import { PERMISOS_TECNICO, TECNICO, existenciasDelTecnico, ordenesDelDia } from "./datos-campo";
+import { PERMISOS_TECNICO, TECNICO, TECNICO_B, existenciasDelTecnico, ordenesDeB, ordenesDelDia } from "./datos-campo";
 
 /*
  * API falsa de la app de campo para Playwright, con la forma exacta de I2 (paquete, cambios,
@@ -33,8 +33,10 @@ export interface ApiCampo {
     /** Las PATCH de tus fallan (la subida queda a medias) mientras sea true. */
     pausarSubidas: boolean;
     lotes: Schema<"EntradaLote">[];
+    /** Quién mandó cada lote (correo de la cookie de sesión). */
+    lotesDe: string[];
     resultados: ResultadoOperacion[];
-    peticiones: { metodo: string; ruta: string; canal: string | undefined; csrf: string | undefined; empresa: string | undefined }[];
+    peticiones: { metodo: string; ruta: string; canal: string | undefined; csrf: string | undefined; empresa: string | undefined; usuario: string | undefined }[];
     ordenes: Map<number, OrdenCampo>;
     subidas: Map<string, Subida>;
     /** Rechaza la próxima operación que cumpla `cuando` con este problema. */
@@ -68,16 +70,19 @@ const problema = (codigo: string, status: number, title: string, errors?: Proble
     ...(errors ? { errors } : {}),
 });
 
-/** Con sesión de técnico ya iniciada (cookies como las deja la API). */
-export async function conSesionTecnico(context: BrowserContext, baseURL: string) {
+/** Con sesión de técnico ya iniciada (cookies como las deja la API); por defecto, Tomás. */
+export async function conSesionTecnico(context: BrowserContext, baseURL: string, usuario: Schema<"Usuario"> = TECNICO) {
     await context.addCookies([
-        { name: "iris_sesion", value: `s:${TECNICO.correo}`, url: baseURL, httpOnly: true, sameSite: "Lax" },
+        { name: "iris_sesion", value: `s:${usuario.correo}`, url: baseURL, httpOnly: true, sameSite: "Lax" },
         { name: "iris_csrf", value: CSRF, url: baseURL, sameSite: "Lax" },
     ]);
 }
 
 export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}): Promise<ApiCampo> {
-    const ordenesIniciales = opciones.ordenes ?? ordenesDelDia();
+    const ordenesIniciales = [...(opciones.ordenes ?? ordenesDelDia()), ...ordenesDeB()];
+    const usuarios = new Map([TECNICO, TECNICO_B].map((u) => [u.correo, u]));
+    /** dispositivoId → correo de su primer usuario (409 dispositivo_ajeno con otro). */
+    const dispositivos = new Map<string, string>();
     const empresas = opciones.empresas ?? [];
     const pendientesRechazo: { cuando: (op: OperacionLote) => boolean; problema: Problema }[] = [];
     const cambiosPendientes: Schema<"CambioOrden">[] = [];
@@ -86,6 +91,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         sinRed: false,
         pausarSubidas: false,
         lotes: [],
+        lotesDe: [],
         resultados: [],
         peticiones: [],
         ordenes: new Map(ordenesIniciales.map((o) => [o.id, structuredClone(o)])),
@@ -103,9 +109,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 s.recibido === s.entrada.tamano,
         );
 
-    function aplicar(op: OperacionLote, rechazadas: Set<number>): ResultadoOperacion {
+    function aplicar(op: OperacionLote, rechazadas: Set<number>, usuario: Schema<"Usuario">): ResultadoOperacion {
         const o = api.ordenes.get(op.ordenId);
-        if (!o) {
+        if (!o || o.tecnicoId !== usuario.id) {
             return { id: op.id, estado: "rechazada", error: problema("no_encontrado", 404, "No encontrada") };
         }
         const conOrden = (r: ResultadoOperacion): ResultadoOperacion => ({ ...r, orden: { version: o.version, estado: o.estado } });
@@ -222,11 +228,14 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         const ruta = url.pathname;
         const metodo = req.method();
         const h = await req.allHeaders();
-        api.peticiones.push({ metodo, ruta, canal: h["x-iris-canal"], csrf: h["x-csrf-token"], empresa: h["x-iris-empresa"] });
+        const sesion = /(?:^|;\s*)iris_sesion=s:([^;]+)/.exec(h.cookie ?? "")?.[1];
+        const correo = sesion ? decodeURIComponent(sesion) : undefined;
+        api.peticiones.push({ metodo, ruta, canal: h["x-iris-canal"], csrf: h["x-csrf-token"], empresa: h["x-iris-empresa"], usuario: correo });
         if (api.sinRed) {
             return route.abort("internetdisconnected");
         }
-        if (!/(?:^|;\s*)iris_sesion=/.test(h.cookie ?? "")) {
+        const usuario = correo ? usuarios.get(correo) : undefined;
+        if (!usuario) {
             return error(route, problema("no_autenticado", 401, "Sin sesión"));
         }
         if (metodo !== "GET" && metodo !== "HEAD" && h["x-csrf-token"] !== CSRF) {
@@ -238,7 +247,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const activa = empresas.find((e) => e.id === empresa) ?? (empresas.length === 1 ? empresas[0] : undefined);
             const yo: Schema<"Yo"> = {
                 actor: "usuario",
-                usuario: TECNICO,
+                usuario,
                 permisos: PERMISOS_TECNICO,
                 empresas,
                 modoEmpresa: empresas.length === 0 ? "sin_conector" : activa ? "activa" : "por_elegir",
@@ -253,7 +262,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 fecha: url.searchParams.get("fecha") ?? new Date().toISOString().slice(0, 10),
                 servidorEn: new Date().toISOString(),
                 cursor: String(cursor),
-                ordenes: [...api.ordenes.values()].filter((o) => !["cerrada", "fallida", "cancelada"].includes(o.estado)).map((o) => structuredClone(o)),
+                ordenes: [...api.ordenes.values()]
+                    .filter((o) => o.tecnicoId === usuario.id && !["cerrada", "fallida", "cancelada"].includes(o.estado))
+                    .map((o) => structuredClone(o)),
                 existencias: existenciasDelTecnico(),
             };
             return json(route, paquete);
@@ -268,15 +279,24 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         }
         if (ruta === "/api/v1/sync/lote" && metodo === "POST") {
             const entrada = req.postDataJSON() as Schema<"EntradaLote">;
+            const dueno = dispositivos.get(entrada.dispositivoId) ?? usuario.correo;
+            dispositivos.set(entrada.dispositivoId, dueno);
+            if (dueno !== usuario.correo) {
+                return error(route, problema("dispositivo_ajeno", 409, "El dispositivo es de otro usuario"));
+            }
             api.lotes.push(entrada);
+            api.lotesDe.push(usuario.correo);
             const rechazadas = new Set<number>();
-            const resultados = (entrada.operaciones ?? []).map((op) => aplicar(op, rechazadas));
+            const resultados = (entrada.operaciones ?? []).map((op) => aplicar(op, rechazadas, usuario));
             api.resultados.push(...resultados);
             const r: Schema<"RespuestaLote"> = { resultados, cursor: entrada.cursor ?? String(cursor), servidorEn: new Date().toISOString(), desfaseMs: 0 };
             return json(route, r);
         }
         if (ruta === "/api/v1/adjuntos" && metodo === "POST") {
             const e = req.postDataJSON() as Schema<"EntradaRegistrar">;
+            if (api.ordenes.get(Number(e.entidadId))?.tecnicoId !== usuario.id) {
+                return error(route, problema("no_encontrado", 404, "No existe o no puedes usar su entidad"));
+            }
             const previa = api.subidas.get(e.id);
             if (!previa) {
                 api.subidas.set(e.id, { entrada: e, recibido: 0 });
@@ -309,7 +329,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         const subida = /^\/api\/v1\/adjuntos\/([^/]+)\/subida$/.exec(ruta);
         if (subida) {
             const s = api.subidas.get(subida[1] ?? "");
-            if (!s) {
+            if (!s || api.ordenes.get(Number(s.entrada.entidadId))?.tecnicoId !== usuario.id) {
                 return error(route, problema("no_encontrado", 404, "No existe"));
             }
             if (metodo === "HEAD") {

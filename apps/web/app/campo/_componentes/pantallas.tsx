@@ -5,7 +5,6 @@ import { Aviso, Boton, Dialogo, DialogoContenido, DialogoPie, LogoIris, cn } fro
 import { Building2, LogOut, Menu, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SelectorTema } from "@/componentes/selector-tema";
-import { api } from "@/lib/api/cliente";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { BarraConexion } from "./barra-conexion";
 import { useCampo } from "./contexto";
@@ -148,21 +147,52 @@ function MenuCampo({
     pedirEmpresa: () => void;
     bajarPaquete: () => Promise<void>;
 }) {
-    const { estado, sesion } = useCampo();
+    const { estado, sesion, motor, cerrarSesion, notificar } = useCampo();
     const [abierto, setAbierto] = useState(false);
     const [confirmarEmpresa, setConfirmarEmpresa] = useState(false);
-    const porEnviar = estado.pendientes + estado.rechazos.length + estado.subidas.pendientes;
+    const [confirmarSalida, setConfirmarSalida] = useState(false);
+    const [saliendo, setSaliendo] = useState(false);
+    const porEnviar = estado.pendientes + estado.rechazos.length + estado.esperandoAdjuntos.length + estado.subidas.pendientes;
+    const conSenal = estado.conexion === "en_linea" || estado.conexion === "desconocida";
 
-    const salir = async () => {
+    const salir = async (conservarPendientes: boolean) => {
+        setSaliendo(true);
         try {
-            await api().DELETE("/api/v1/sesion");
-        } finally {
-            window.location.assign("/entrar?siguiente=%2Fcampo");
+            await cerrarSesion({ conservarPendientes });
+        } catch {
+            notificar({ tono: "error", texto: "No se pudo cerrar la sesión en el teléfono. Vuelve a intentarlo." });
+            setSaliendo(false);
         }
     };
 
+    const enviarYSalir = async () => {
+        setSaliendo(true);
+        try {
+            await motor.sincronizar();
+        } catch {
+            // Lo que no salió se informa abajo.
+        }
+        const e = motor.obtenerEstado();
+        const quedan = e.pendientes + e.rechazos.length + e.esperandoAdjuntos.length + e.subidas.pendientes;
+        if (quedan === 0) {
+            await salir(false);
+            return;
+        }
+        setSaliendo(false);
+        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Por enviar» o sal conservándolos.` });
+    };
+
     return (
-        <Dialogo open={abierto} onOpenChange={setAbierto}>
+        <Dialogo
+            open={abierto}
+            onOpenChange={(v) => {
+                setAbierto(v);
+                if (!v) {
+                    setConfirmarSalida(false);
+                    setConfirmarEmpresa(false);
+                }
+            }}
+        >
             <Boton variante="fantasma" tamano="icono" aria-label="Menú" title="Menú" onClick={() => setAbierto(true)}>
                 <Menu />
             </Boton>
@@ -206,15 +236,39 @@ function MenuCampo({
                             </Boton>
                         )
                     ) : null}
-                    <Boton variante="fantasma" tamano="lg" className="justify-start" onClick={() => void salir()}>
-                        <LogOut aria-hidden />
-                        Cerrar sesión
-                    </Boton>
-                    {porEnviar > 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                            Lo que queda por enviar se guarda en este teléfono y se envía cuando vuelvas a entrar.
-                        </p>
-                    ) : null}
+                    {confirmarSalida && porEnviar > 0 ? (
+                        <Aviso tono="warning" titulo={`Tienes ${porEnviar} ${porEnviar === 1 ? "cambio" : "cambios"} sin enviar`}>
+                            <p>
+                                {conSenal
+                                    ? "Envíalos antes de salir, o sal y consérvalos: se guardan sin datos de clientes y se envían cuando vuelvas a entrar."
+                                    : "Sin señal no se pueden enviar. Si sales, se conservan sin datos de clientes y se envían cuando vuelvas a entrar."}
+                            </p>
+                            <DialogoPie className="mt-3">
+                                <Boton variante="fantasma" disabled={saliendo} onClick={() => setConfirmarSalida(false)}>
+                                    Quedarme
+                                </Boton>
+                                <Boton variante="secundario" disabled={saliendo} onClick={() => void salir(true)}>
+                                    Salir y conservarlos
+                                </Boton>
+                                {conSenal ? (
+                                    <Boton disabled={saliendo} onClick={() => void enviarYSalir()}>
+                                        {saliendo ? "Enviando…" : "Enviar y salir"}
+                                    </Boton>
+                                ) : null}
+                            </DialogoPie>
+                        </Aviso>
+                    ) : (
+                        <Boton
+                            variante="fantasma"
+                            tamano="lg"
+                            className="justify-start"
+                            disabled={saliendo}
+                            onClick={() => (porEnviar > 0 ? setConfirmarSalida(true) : void salir(false))}
+                        >
+                            <LogOut aria-hidden />
+                            {saliendo ? "Cerrando sesión…" : "Cerrar sesión"}
+                        </Boton>
+                    )}
                 </div>
             </DialogoContenido>
         </Dialogo>
