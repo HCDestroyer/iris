@@ -75,7 +75,7 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   `.claude/integration/i4.md`).
 - **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
   `cambio_contrasena_requerido` (paquete, lote, ubicaciones), va a
-  `/cambiar-contrasena?siguiente=/campo` (pantalla del panel, I3).
+  `/cambiar-contrasena?siguiente=/campo` (pantalla del panel, I3, #27).
 - **Service worker** (Serwist, `app/sw.ts`, alcance `/campo`): precachea el shell y los estáticos;
   nunca toca `/api`. Manifest «Iris Campo» en `/campo/manifest.webmanifest`.
 

@@ -9,6 +9,7 @@ import type { Schema } from "@iris/contratos";
 import { borrarLocal, escribirLocal, leerLocal, leerLocalJson } from "@/lib/almacen";
 import { crearClienteIris } from "@/lib/api/cliente";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "@/lib/api/errores";
+import { CODIGO_CAMBIO_REQUERIDO, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import { errorSesionAjena, ErrorTransporte } from "@iris/sync";
 
 export type EmpresaResumen = Schema<"EmpresaResumen">;
@@ -38,8 +39,9 @@ export function usableSinSenal(s: SesionCampo, ahora = Date.now(), horas = HORAS
 }
 
 /** 403 de la API con una contraseña temporal: solo se puede cambiar (`GET /yo` trae `cambioContrasenaRequerido`). */
-export const CODIGO_CAMBIO_CONTRASENA = "cambio_contrasena_requerido";
-export const RUTA_CAMBIAR_CONTRASENA = "/cambiar-contrasena?siguiente=%2Fcampo";
+export const CODIGO_CAMBIO_CONTRASENA = CODIGO_CAMBIO_REQUERIDO;
+/** Pantalla del panel (I3) que vuelve a `/campo` con carga completa al terminar. */
+export const RUTA_CAMBIAR_CONTRASENA = rutaCambiarContrasena("/campo");
 
 let yendoACambiarContrasena = false;
 

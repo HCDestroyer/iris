@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HORAS_SIN_SENAL, pideCambioContrasena, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
+import { HORAS_SIN_SENAL, pideCambioContrasena, RUTA_CAMBIAR_CONTRASENA, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
 
 const HORA = 60 * 60 * 1000;
 const sesion = (verificadoEn: number): SesionCampo => ({
@@ -67,5 +67,6 @@ describe("verificarDueno (antes de cada envío del motor)", () => {
         expect(pideCambioContrasena((error as { problema: { type: string } }).problema)).toBe(true);
         expect(pideCambioContrasena({ type: "urn:iris:problema:no_autenticado" })).toBe(false);
         expect(pideCambioContrasena(null)).toBe(false);
+        expect(RUTA_CAMBIAR_CONTRASENA).toBe("/cambiar-contrasena?siguiente=%2Fcampo");
     });
 });
