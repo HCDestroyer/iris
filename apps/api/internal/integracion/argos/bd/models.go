@@ -319,6 +319,36 @@ type NucleoUsuariosRole struct {
 	UpdatedAt   time.Time
 }
 
+type SoporteBuzone struct {
+	ID                    int64
+	EmpresaID             *int64
+	Nombre                string
+	Correo                string
+	ImapHost              string
+	ImapPuerto            int32
+	ImapTls               string
+	ImapUsuario           string
+	ImapContrasena        []byte
+	ImapCarpeta           string
+	ImapCarpetaProcesados *string
+	SmtpHost              *string
+	SmtpPuerto            *int32
+	SmtpTls               *string
+	SmtpUsuario           *string
+	SmtpContrasena        []byte
+	CategoriaID           *int64
+	Prioridad             string
+	Activo                bool
+	UidValidity           *int64
+	UltimoUid             int64
+	UltimaLecturaEn       *time.Time
+	UltimoError           *string
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	AuthservID            *string
+}
+
 type SoporteCalendario struct {
 	ID          int64
 	EmpresaID   *int64
@@ -351,6 +381,54 @@ type SoporteCategoria struct {
 	Version       int32
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type SoporteCorreosEntrante struct {
+	ID              int64
+	BuzonID         int64
+	EmpresaID       *int64
+	MessageID       string
+	UidValidity     int64
+	Uid             int64
+	Remitente       string
+	RemitenteNombre string
+	Asunto          string
+	InReplyTo       *string
+	Referencias     []string
+	Cuerpo          string
+	Adjuntos        []byte
+	Automatico      *string
+	Truncado        bool
+	Fecha           *time.Time
+	Estado          string
+	Resultado       *string
+	Motivo          *string
+	TicketID        *int64
+	MensajeID       *int64
+	ProcesadoEn     *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Verificado      bool
+	Autenticacion   *string
+	Limite          *string
+}
+
+type SoporteCorreosSaliente struct {
+	ID           int64
+	BuzonID      int64
+	EmpresaID    *int64
+	TicketID     int64
+	MensajeID    int64
+	MessageID    string
+	InReplyTo    *string
+	Destinatario string
+	Asunto       string
+	Estado       string
+	Intentos     int32
+	UltimoError  *string
+	EnviadoEn    *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type SoporteFeriado struct {
@@ -423,6 +501,7 @@ type SoporteTicket struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	Idempotencia       *string
+	ContactoVerificado bool
 }
 
 type SoporteTicketEvento struct {

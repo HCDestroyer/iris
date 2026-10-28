@@ -145,6 +145,8 @@ Una tarea está terminada solo si:
 | `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
 | `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
+| `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
+| `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id |
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |

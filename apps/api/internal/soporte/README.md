@@ -45,15 +45,80 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
 - **Argos:** guarda `cliente_id`, `servicio_id` y `zona_id` (opcionales) y, sin conector, los
   datos de contacto capturados a mano. No llama a Argos.
 
+## Entrada por correo (IMAP) y respuesta por SMTP
+
+Paquete de protocolo en `correo/` (IMAP con go-imap v2, MIME con go-message, SMTP con
+`net/smtp`); la lógica, en `buzones.go` y `correo_*.go`.
+
+- **Buzones** (`soporte.buzones`, `/api/v1/buzones`): `GET` lista y detalle (`buzones.ver`), `POST`
+  crear (`buzones.crear`, nace inactivo), `POST /{id}/editar` (`buzones.editar`, con `version`),
+  `/activar` y `/desactivar` (`buzones.activar`/`desactivar`) y `/probar` (`buzones.editar`).
+  Las acciones de escritura y `probar` exigen el permiso con **alcance global** (un supervisor de
+  zona recibe 403); ver y listar, con cualquier alcance. `probar` lee y descifra en una
+  transacción corta, conecta fuera de toda transacción con un plazo total de 20 s (no se renueva
+  por paso) y audita el resultado en otra transacción corta. Empresa: la activa (null sin conector), como los tickets. Solo TLS (`tls` implícito o `starttls`
+  obligatorio; si el servidor no ofrece STARTTLS se corta antes del LOGIN) con el certificado
+  verificado. Contraseñas IMAP y SMTP cifradas con `IRIS_CLAVE_CIFRADO` (AES-GCM, atadas al
+  buzón); nunca salen en respuestas, logs, errores ni auditoría (`***`). Editar host, puerto,
+  TLS o usuario exige volver a escribir la contraseña. SSRF: IP interna escrita → 422
+  `destino_no_permitido`; al conectar, `argos.DestinoPermitido` sobre la IP resuelta, salvo
+  `IRIS_CORREO_REDES_PERMITIDAS`.
+- **Lectura** (`soporte.programar_buzones` cada minuto → `soporte.leer_buzon`, único por buzón):
+  UID mayores que el guardado con la misma UIDVALIDITY (la primera vez, o si cambió, solo los no
+  leídos). Cada correo se guarda en `correos_entrantes` (único por buzón y `Message-ID`) y avanza
+  `ultimo_uid` en la misma transacción; solo después se marca leído (o se mueve a la carpeta de
+  procesados). Más grande que `IRIS_CORREO_TAMANO_MAX`: solo cabeceras. Errores resumidos en
+  `buzones.ultimo_error`.
+- **Límites MIME:** con más de 50 `boundary=`/`multipart/` en el crudo no se analiza el cuerpo
+  (solo cabeceras); el recorrido se corta a las 100 partes, 10 niveles de anidamiento o 2 MiB de
+  cuerpo analizado, y respeta el plazo (10 s por correo). Si se supera un límite, el correo se
+  guarda igual con `truncado = true` y `limite` = `tamano`, `mime_anidado`, `partes`,
+  `profundidad`, `bytes` o `tiempo` (el cursor avanza: un correo hostil no traba el buzón) y el
+  ticket lleva una nota que lo explica, con lo que se alcanzó a leer.
+- **Verificación del remitente** (`correo/autenticacion.go`): el `From` lo escribe cualquiera.
+  Cada buzón tiene `authservId` (el authserv-id que pone en `Authentication-Results` el servidor
+  que recibe para él, RFC 8601); vacío = no se confía en ninguna cabecera y **nada queda
+  verificado**. Solo cuenta el primer bloque contiguo, desde arriba, de cabeceras con ese id (las
+  de más abajo las pudo escribir el remitente; el servidor debe quitar las que lleguen con su id).
+  Verificado = `dmarc=pass` (con `header.from` = dominio del From, si viene) o `dkim=pass` con
+  `header.d` (o `header.i`) alineado al dominio del From (igual o dominio padre con al menos un
+  punto). SPF solo no basta. Se guarda en `correos_entrantes.verificado` y `autenticacion`.
+- **Proceso** (`soporte.procesar_correos`, único por buzón, en orden): autorespuestas y rebotes
+  (`Auto-Submitted`, `Precedence`, `X-Autoreply`, MAILER-DAEMON/postmaster, `multipart/report`,
+  `Return-Path: <>`) y correos del propio buzón se ignoran. Respuesta si `In-Reply-To`/`References`
+  apuntan a una respuesta enviada o a un correo ya ligado (mismo buzón), o si el asunto trae
+  `[TK-…]` **y** el remitente es el contacto del ticket; el ticket debe ser de la empresa del
+  buzón; si estaba fusionado, va al destino; si está cerrado, abre otro que lo menciona. En ese
+  ticket (el destino, tras una fusión) **solo el contacto del ticket** (dirección normalizada)
+  **con el remitente verificado** entra como mensaje público del cliente (`autor_tipo = cliente`,
+  canal `correo`, sin la cita) y cambia el estado: `en_espera → abierto` (reanuda) y `resuelto →
+  abierto` (reabre). Cualquier otro (tercero en CC, reenvío, From falsificado o sin verificar)
+  queda como **nota interna** «correo de X no verificado / no es el contacto» (`resultado =
+  nota_interna`, `motivo = remitente_no_es_contacto | remitente_no_verificado`): no cambia
+  estado, contacto ni destinatario, y no emite `ticket.respondido` ni `ticket.estado_cambiado`.
+  Si no hay ticket, ticket nuevo (origen `correo`, categoría y prioridad del buzón, remitente como
+  contacto); puede entrar sin verificar, pero queda con `contacto.verificado = false` (el panel lo
+  muestra). HTML → texto (sin scripts ni estilos), adjuntos solo como metadatos (se listan en el
+  mensaje).
+- **Salida** (suscriptor de `ticket.respondido` → `soporte.enviar_correo`): mensaje público de un
+  agente en un ticket de origen correo → un `correos_salientes` por mensaje (idempotente). El
+  destinatario es **siempre el contacto del ticket** (`contacto_correo`), nunca «el último
+  remitente» ni otros remitentes ligados; buzón e `In-Reply-To`/`References` del último correo de
+  ese contacto que entró como mensaje del cliente. `Re: [TK-…] asunto`, `Message-ID` fijo (un
+  reintento sale igual) y sin `Auto-Submitted` (la escribió una persona). Sin SMTP en el buzón o
+  sin contacto, no sale.
+
 ## Eventos que emite
 
 `ticket.creado`, `ticket.asignado`, `ticket.estado_cambiado`, `ticket.respondido`,
-`ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`. Payloads en
-`.claude/integration/contratos/eventos.md`.
+`ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`,
+`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`.
+Payloads en `.claude/integration/contratos/eventos.md`.
 
 ## Eventos que consume
 
-Ninguno todavía (el webhook de Horus y la entrada por correo y portal van en otra PR).
+`ticket.respondido` (salida por correo; idempotente por mensaje). El webhook de Horus y el
+portal van en otra PR.
 
 ## Pruebas
 
@@ -61,4 +126,13 @@ Ninguno todavía (el webhook de Horus y la entrada por correo y portal van en ot
 semana, feriados y medio día), transiciones válidas e inválidas, permisos y alcance, auditoría y
 outbox, `version` → 409, idempotencia por HTTP, pausa del SLA y cron idempotente.
 `revision_test.go` cubre los hallazgos de la revisión de la PR #5 y `empresa_test.go` la empresa
-activa (aislamiento A/B por HTTP, modo sin conector, asignación y adopción).
+activa (aislamiento A/B por HTTP, modo sin conector, asignación y adopción). `correo_test.go`, con
+un IMAP en memoria (`imapmemserver`) y un SMTP falso con TLS de una CA de prueba
+(`correo_falso_test.go`): ticket nuevo, respuesta por número y por `In-Reply-To`, duplicado por
+`Message-ID`, autorespuesta y rebote, HTML, reanudación por UID, otra empresa, contraseña cifrada y
+nunca expuesta, TLS exigido (sin STARTTLS no hay LOGIN; CA desconocida), SSRF, envío idempotente y
+las rutas HTTP. `correo/mensaje_test.go`: HTML, cita, charsets, cabeceras sin inyección, límites
+MIME y verificación con `Authentication-Results`. `revision_correo_test.go` cubre la revisión de
+seguridad de la PR #8: secuestro del hilo (tercero y From sin verificar → nota interna; respuesta
+al contacto; fusión), MIME anidado profundo (< 1 s, no traba el siguiente), From falsificado,
+`probar` sin transacción durante la red y con plazo total, y alcance global de `buzones.*`.

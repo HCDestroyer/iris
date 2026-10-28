@@ -160,6 +160,11 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	acfg.Encolar = integracion.Encolar(cola)
 	conectorArgos := argos.Nuevo(acfg)
+	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
+	if err != nil {
+		return err
+	}
+	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Encolar: integracion.Encolar(cola)})
 	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
@@ -167,7 +172,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
-			soporte.Nuevo(soporte.Config{}).Registrar,
+			sop.Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})

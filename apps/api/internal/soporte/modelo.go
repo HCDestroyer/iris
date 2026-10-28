@@ -32,6 +32,9 @@ type Contacto struct {
 	Nombre   *string `json:"nombre" nullable:"true"`
 	Telefono *string `json:"telefono" nullable:"true"`
 	Correo   *string `json:"correo" nullable:"true"`
+	// Verificado: false si el ticket nació de un correo cuyo remitente no se pudo autenticar
+	// (el From pudo ser falsificado). Capturado a mano: true.
+	Verificado bool `json:"verificado" doc:"false = el ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM); mostrarlo como no verificado"`
 }
 
 // EntradaContacto son los datos de contacto al crear un ticket.
@@ -77,7 +80,7 @@ func aTicket(f soportebd.SoporteTicket, ahora time.Time) Ticket {
 	}
 	return Ticket{
 		ID: f.ID, Numero: f.Numero, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID, ServicioID: f.ServicioID,
-		ZonaID: f.ZonaID, Contacto: Contacto{Nombre: f.ContactoNombre, Telefono: f.ContactoTelefono, Correo: f.ContactoCorreo},
+		ZonaID: f.ZonaID, Contacto: Contacto{Nombre: f.ContactoNombre, Telefono: f.ContactoTelefono, Correo: f.ContactoCorreo, Verificado: f.ContactoVerificado},
 		CategoriaID: f.CategoriaID, Prioridad: f.Prioridad, Estado: f.Estado, Origen: f.Origen, Asunto: f.Asunto,
 		AsignadoA: f.AsignadoA, CuadrillaID: f.CuadrillaID, NivelEscalamiento: f.NivelEscalamiento, SLAID: f.SlaID,
 		SLARespuesta:  reloj(f.SlaRespuestaMin, f.RiesgoRespuesta, f.VenceRespuesta, f.PrimeraRespuestaEn, false, ref),

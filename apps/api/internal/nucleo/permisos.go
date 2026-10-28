@@ -41,6 +41,13 @@ const (
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
 	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
+
+	// Buzones de correo (I2): entrada de tickets por IMAP y respuesta por SMTP.
+	PermBuzonesActivar    Permiso = "buzones.activar"
+	PermBuzonesCrear      Permiso = "buzones.crear"
+	PermBuzonesDesactivar Permiso = "buzones.desactivar"
+	PermBuzonesEditar     Permiso = "buzones.editar"
+	PermBuzonesVer        Permiso = "buzones.ver"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -77,6 +84,11 @@ type DefPermiso struct {
 
 // Catalogo es la lista ordenada de todos los permisos.
 var Catalogo = []DefPermiso{
+	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
+	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
+	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
+	{PermBuzonesEditar, "Editar un buzón de correo y probar su conexión (nunca ver la contraseña)"},
+	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -137,7 +149,8 @@ var RolesBase = []DefRol{
 	{Codigo: "admin", Nombre: "Administrador", Descripcion: "Todos los permisos", Todos: true},
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
-			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer}, permisosTickets...)},
+			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
+			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar}, permisosTickets...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: []Permiso{PermUsuariosVer,
 			PermClientesVer,

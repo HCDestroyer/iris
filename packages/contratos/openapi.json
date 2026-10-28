@@ -46,6 +46,108 @@
         ],
         "type": "object"
       },
+      "Buzon": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "authservId": {
+            "description": "authserv-id de Authentication-Results del servidor de correo de confianza; null = ningún remitente queda verificado",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaId": {
+            "description": "Categoría de los tickets nuevos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "correo": {
+            "description": "Dirección del buzón (remitente de las respuestas)",
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null sin conector",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "imap": {
+            "$ref": "#/components/schemas/ServidorIMAP"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "prioridad": {
+            "description": "Prioridad de los tickets nuevos",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ],
+            "type": "string"
+          },
+          "smtp": {
+            "$ref": "#/components/schemas/ServidorSMTP",
+            "description": "Salida de respuestas por correo; ausente = sin salida"
+          },
+          "ultimaLecturaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimoError": {
+            "description": "Último error de lectura (resumido, sin credenciales)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "nombre",
+          "correo",
+          "imap",
+          "categoriaId",
+          "prioridad",
+          "authservId",
+          "activo",
+          "ultimaLecturaEn",
+          "ultimoError",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "Categoria": {
         "additionalProperties": false,
         "properties": {
@@ -342,12 +444,17 @@
               "string",
               "null"
             ]
+          },
+          "verificado": {
+            "description": "false = el ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM); mostrarlo como no verificado",
+            "type": "boolean"
           }
         },
         "required": [
           "nombre",
           "telefono",
-          "correo"
+          "correo",
+          "verificado"
         ],
         "type": "object"
       },
@@ -570,6 +677,20 @@
         ],
         "type": "object"
       },
+      "EntradaCambiarBuzon": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaCambioConector": {
         "additionalProperties": false,
         "properties": {
@@ -696,6 +817,54 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "EntradaCrearBuzon": {
+        "additionalProperties": false,
+        "properties": {
+          "authservId": {
+            "description": "authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera",
+            "maxLength": 253,
+            "type": "string"
+          },
+          "categoriaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "correo": {
+            "format": "email",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "imap": {
+            "$ref": "#/components/schemas/EntradaIMAP"
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "prioridad": {
+            "description": "media por defecto",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ],
+            "type": "string"
+          },
+          "smtp": {
+            "$ref": "#/components/schemas/EntradaSMTP",
+            "description": "Sin smtp, las respuestas de los agentes no salen por correo"
+          }
+        },
+        "required": [
+          "nombre",
+          "correo",
+          "imap"
+        ],
         "type": "object"
       },
       "EntradaCrearEmpresa": {
@@ -915,6 +1084,60 @@
         ],
         "type": "object"
       },
+      "EntradaEditarBuzon": {
+        "additionalProperties": false,
+        "properties": {
+          "authservId": {
+            "description": "authserv-id que pone en Authentication-Results el servidor que recibe para este buzón (RFC 8601; p. ej. mx.isp.gt). Solo con él se verifica el remitente (dmarc=pass o dkim=pass alineado): sin verificar, la respuesta a un ticket queda como nota interna. Omitido o vacío = no se confía en ninguna cabecera",
+            "maxLength": 253,
+            "type": "string"
+          },
+          "categoriaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "correo": {
+            "format": "email",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "imap": {
+            "$ref": "#/components/schemas/EntradaIMAP"
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "prioridad": {
+            "description": "media por defecto",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ],
+            "type": "string"
+          },
+          "smtp": {
+            "$ref": "#/components/schemas/EntradaSMTP",
+            "description": "Sin smtp, las respuestas de los agentes no salen por correo"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "nombre",
+          "correo",
+          "imap"
+        ],
+        "type": "object"
+      },
       "EntradaEditarEmpresa": {
         "additionalProperties": false,
         "properties": {
@@ -1091,6 +1314,55 @@
         ],
         "type": "object"
       },
+      "EntradaIMAP": {
+        "additionalProperties": false,
+        "properties": {
+          "carpeta": {
+            "description": "INBOX por defecto",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "carpetaProcesados": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "contrasena": {
+            "description": "Obligatoria al crear y al cambiar host, puerto o usuario; al editar, omitida = se conserva",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "host": {
+            "maxLength": 253,
+            "minLength": 1,
+            "type": "string"
+          },
+          "puerto": {
+            "format": "int32",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tls": {
+            "enum": [
+              "tls",
+              "starttls"
+            ],
+            "type": "string"
+          },
+          "usuario": {
+            "maxLength": 254,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "puerto",
+          "tls",
+          "usuario"
+        ],
+        "type": "object"
+      },
       "EntradaIniciarSesion": {
         "additionalProperties": false,
         "properties": {
@@ -1243,6 +1515,45 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "EntradaSMTP": {
+        "additionalProperties": false,
+        "properties": {
+          "contrasena": {
+            "description": "Obligatoria con usuario al crear o al cambiar host, puerto o usuario; al editar, omitida = se conserva",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "host": {
+            "maxLength": 253,
+            "minLength": 1,
+            "type": "string"
+          },
+          "puerto": {
+            "format": "int32",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tls": {
+            "enum": [
+              "tls",
+              "starttls"
+            ],
+            "type": "string"
+          },
+          "usuario": {
+            "description": "Sin usuario no se autentica",
+            "maxLength": 254,
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "puerto",
+          "tls"
+        ],
         "type": "object"
       },
       "EntradaURLPublica": {
@@ -1651,6 +1962,32 @@
         ],
         "type": "object"
       },
+      "PaginaBuzon": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Buzon"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaCategoria": {
         "additionalProperties": false,
         "properties": {
@@ -1940,6 +2277,11 @@
       "Permiso": {
         "description": "Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.",
         "enum": [
+          "buzones.activar",
+          "buzones.crear",
+          "buzones.desactivar",
+          "buzones.editar",
+          "buzones.ver",
           "clientes.estado_cuenta",
           "clientes.ver",
           "empresas.adoptar",
@@ -2031,6 +2373,43 @@
           "type",
           "title",
           "status"
+        ],
+        "type": "object"
+      },
+      "PruebaServidor": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "enum": [
+              "destino_no_permitido",
+              "dns",
+              "conexion",
+              "tls",
+              "sin_tls",
+              "autenticacion",
+              "carpeta",
+              "protocolo",
+              "cifrado"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "codigo",
+          "detalle"
         ],
         "type": "object"
       },
@@ -2136,6 +2515,22 @@
         "required": [
           "origen",
           "destino"
+        ],
+        "type": "object"
+      },
+      "ResultadoPrueba": {
+        "additionalProperties": false,
+        "properties": {
+          "imap": {
+            "$ref": "#/components/schemas/PruebaServidor"
+          },
+          "smtp": {
+            "$ref": "#/components/schemas/PruebaServidor",
+            "description": "Ausente si el buzón no tiene SMTP"
+          }
+        },
+        "required": [
+          "imap"
         ],
         "type": "object"
       },
@@ -2346,6 +2741,82 @@
           "lat",
           "lon",
           "estado"
+        ],
+        "type": "object"
+      },
+      "ServidorIMAP": {
+        "additionalProperties": false,
+        "properties": {
+          "carpeta": {
+            "type": "string"
+          },
+          "carpetaProcesados": {
+            "description": "Carpeta a la que se mueve cada correo ya guardado; null = solo se marca leído",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "type": "string"
+          },
+          "puerto": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tls": {
+            "description": "tls = IMAPS (993); starttls = STARTTLS obligatorio (143). Nunca en claro",
+            "enum": [
+              "tls",
+              "starttls"
+            ],
+            "type": "string"
+          },
+          "usuario": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "puerto",
+          "tls",
+          "usuario",
+          "carpeta",
+          "carpetaProcesados"
+        ],
+        "type": "object"
+      },
+      "ServidorSMTP": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "puerto": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tls": {
+            "description": "tls = SMTPS (465); starttls = STARTTLS obligatorio (587). Nunca en claro",
+            "enum": [
+              "tls",
+              "starttls"
+            ],
+            "type": "string"
+          },
+          "usuario": {
+            "description": "null = sin autenticación",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "host",
+          "puerto",
+          "tls",
+          "usuario"
         ],
         "type": "object"
       },
@@ -2911,6 +3382,760 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/buzones": {
+      "get": {
+        "description": "Permiso: `buzones.ver`.",
+        "operationId": "listarBuzones",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaBuzon"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Buzones de correo (entrada de tickets)",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.ver"
+      },
+      "post": {
+        "description": "Permiso: `buzones.crear`. Nace inactivo. Solo TLS (`tls` o `starttls`). Las contraseñas se guardan cifradas (IRIS_CLAVE_CIFRADO; sin ella, 422 `cifrado_no_configurado`) y nunca se devuelven. Un host que es una IP interna da 422 `destino_no_permitido`. `authservId` es el authserv-id de Authentication-Results del servidor de correo de confianza: sin él ningún remitente queda verificado y las respuestas a tickets entran como nota interna. Exige el permiso con alcance global (si no, 403). Emite `buzon.creado`.",
+        "operationId": "crearBuzon",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearBuzon"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buzon"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un buzón de correo",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.crear"
+      }
+    },
+    "/api/v1/buzones/{id}": {
+      "get": {
+        "description": "Permiso: `buzones.ver`.",
+        "operationId": "verBuzon",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buzon"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver un buzón de correo",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.ver"
+      }
+    },
+    "/api/v1/buzones/{id}/activar": {
+      "post": {
+        "description": "Permiso: `buzones.activar`. La primera lectura toma solo los correos no leídos. Exige el permiso con alcance global (si no, 403). Emite `buzon.activado`.",
+        "operationId": "activarBuzon",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCambiarBuzon"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buzon"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar un buzón (empieza a leerse cada minuto)",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.activar"
+      }
+    },
+    "/api/v1/buzones/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `buzones.desactivar`. Exige el permiso con alcance global (si no, 403). Emite `buzon.desactivado`.",
+        "operationId": "desactivarBuzon",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCambiarBuzon"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buzon"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar un buzón (deja de leerse)",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.desactivar"
+      }
+    },
+    "/api/v1/buzones/{id}/editar": {
+      "post": {
+        "description": "Permiso: `buzones.editar`. Reemplaza los datos editables (con `version`). Una contraseña omitida se conserva, salvo que cambie el host, el puerto, el TLS o el usuario: entonces es obligatoria (la guardada no viaja a otro servidor). Cambiar servidor, usuario o carpeta reinicia la lectura (solo los no leídos). Exige el permiso con alcance global (si no, 403). Emite `buzon.actualizado`.",
+        "operationId": "editarBuzon",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarBuzon"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buzon"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar un buzón de correo",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.editar"
+      }
+    },
+    "/api/v1/buzones/{id}/probar": {
+      "post": {
+        "description": "Permiso: `buzones.editar`. Conecta con TLS, inicia sesión y abre la carpeta (IMAP); con SMTP, negocia TLS y se autentica sin enviar nada. Responde 200 con el resultado de cada uno: `ok` o un `codigo` y `detalle` resumidos (nunca la contraseña ni la respuesta cruda del servidor). Plazo total de 20 s; la red corre fuera de toda transacción. Exige `buzones.editar` con alcance global (si no, 403).",
+        "operationId": "probarBuzon",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoPrueba"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Probar la conexión IMAP (y SMTP) del buzón",
+        "tags": [
+          "soporte"
+        ],
+        "x-permiso": "buzones.editar"
+      }
+    },
     "/api/v1/categorias": {
       "get": {
         "description": "Permiso: `tickets.ver`.",
