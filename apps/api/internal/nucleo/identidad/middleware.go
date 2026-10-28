@@ -189,13 +189,12 @@ func csrfCookieValido(r *http.Request, nombreCookie string, esperado []byte) boo
 		subtle.ConstantTimeCompare(Hash256(cabecera), esperado) == 1
 }
 
-// canalDeSesion: panel por defecto; la app de campo y el portal se identifican con X-Iris-Canal.
+// canalDeSesion: panel por defecto; la app de campo se identifica con X-Iris-Canal: campo. Una
+// sesión del panel no puede declarar el canal portal (solo lo fija contexto.ComoCliente para el
+// actor cliente): si no, una persona vería por ese canal lo que solo es del cliente.
 func canalDeSesion(r *http.Request) contexto.Canal {
-	switch contexto.Canal(r.Header.Get(CabeceraCanal)) {
-	case contexto.CanalCampo:
+	if contexto.Canal(r.Header.Get(CabeceraCanal)) == contexto.CanalCampo {
 		return contexto.CanalCampo
-	case contexto.CanalPortal:
-		return contexto.CanalPortal
 	}
 	return contexto.CanalPanel
 }

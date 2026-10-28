@@ -449,3 +449,33 @@ func TestPrepararIntegracion(t *testing.T) {
 		t.Fatalf("sistema: %v", err)
 	}
 }
+
+// Regresión (revisión): una sesión del panel no puede declarar X-Iris-Canal: portal; ese canal
+// es solo del actor cliente. campo sí vale.
+func TestSesionDelPanelNoDeclaraCanalPortal(t *testing.T) {
+	e := nuevoEntorno(t)
+	canalDeCierre := func(canal string) string {
+		t.Helper()
+		_, correo := e.usuario("lectura")
+		c := e.cliente()
+		if r := c.entrar(correo); r.status != 200 {
+			t.Fatalf("login: %d %s", r.status, r.crudo)
+		}
+		r := c.pedir(http.MethodDelete, "/api/v1/sesion", nil, identidad.CabeceraCanal, canal)
+		if r.status != http.StatusNoContent {
+			t.Fatalf("cerrar: %d %s", r.status, r.crudo)
+		}
+		var v string
+		if err := pruebas.Pool(t).QueryRow(context.Background(),
+			`SELECT canal FROM auditoria.acciones WHERE accion = 'sesion.cerrar' AND request_id = $1`, r.h.Get(servidor.CabeceraRequestID)).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if c := canalDeCierre("portal"); c != "panel" {
+		t.Fatalf("una sesión del panel declaró el canal %s", c)
+	}
+	if c := canalDeCierre("campo"); c != "campo" {
+		t.Fatalf("campo: %s", c)
+	}
+}
