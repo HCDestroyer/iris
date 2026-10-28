@@ -44,7 +44,10 @@ export function FichaCliente({ ticket, enlaces }: { ticket: Ticket; enlaces: Enl
     );
 }
 
-function Contacto({ contacto, vacio }: { contacto: Schema<"Contacto">; vacio: string }) {
+/** Contacto capturado (ticket u orden): sin correo en las órdenes. */
+export type ContactoCapturado = { nombre: string | null; telefono: string | null; correo?: string | null };
+
+export function Contacto({ contacto, vacio }: { contacto: ContactoCapturado; vacio: string }) {
     const filas = [
         { icono: UserRound, valor: contacto.nombre, etiqueta: "Nombre" },
         { icono: Phone, valor: contacto.telefono, etiqueta: "Teléfono" },
@@ -68,16 +71,20 @@ function Contacto({ contacto, vacio }: { contacto: Schema<"Contacto">; vacio: st
     );
 }
 
-function FichaArgos({
+/** Ficha del cliente en Argos (`GET /clientes/{id}`), con `stale` visible y el conector apagado explicado. */
+export function FichaArgos({
     clienteId,
     servicioId,
     contacto,
     verArgos,
+    origen = "ticket",
 }: {
     clienteId: number;
     servicioId: number | null;
-    contacto: Schema<"Contacto">;
+    contacto: ContactoCapturado;
     verArgos: EnlaceVer | null;
+    /** Dónde se capturó el contacto que se muestra si no se puede leer la ficha. */
+    origen?: "ticket" | "orden";
 }) {
     const ficha = useLectura((signal) => resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId } }, signal })));
     const titulo = (
@@ -110,12 +117,12 @@ function FichaArgos({
                 <TarjetaContenido className="grid gap-3">
                     {apagado ? (
                         <Aviso tono="neutral" titulo="Conector con Argos apagado" icono={PlugZap}>
-                            No se puede leer la ficha del cliente {clienteId}. Se muestran los datos capturados en el ticket.
+                            No se puede leer la ficha del cliente {clienteId}. Se muestran los datos capturados en {origen === "orden" ? "la orden" : "el ticket"}.
                         </Aviso>
                     ) : (
                         <ErrorLectura error={ficha.error} que="la ficha del cliente" reintentar={ficha.reintentar} />
                     )}
-                    <Contacto contacto={contacto} vacio="Sin datos de contacto en el ticket." />
+                    <Contacto contacto={contacto} vacio={`Sin datos de contacto en ${origen === "orden" ? "la orden" : "el ticket"}.`} />
                 </TarjetaContenido>
             </Tarjeta>
         );
@@ -165,7 +172,7 @@ function FichaArgos({
                 </dl>
                 {lista.length ? (
                     <div className="grid gap-2 border-t pt-3">
-                        <span className="text-xs font-medium text-muted-foreground">{servicio ? "Servicio del ticket" : "Servicios"}</span>
+                        <span className="text-xs font-medium text-muted-foreground">{servicio ? (origen === "orden" ? "Servicio de la orden" : "Servicio del ticket") : "Servicios"}</span>
                         <ul className="grid gap-2">
                             {lista.map((s) => (
                                 <li key={s.id} className="flex items-start gap-2">

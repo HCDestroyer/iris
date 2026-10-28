@@ -16,8 +16,11 @@ import {
 import { ArrowLeft, GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { FichaCliente } from "@/componentes/clientes/ficha-cliente";
 import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { DialogoCrearOrden } from "@/componentes/ordenes/crear-orden";
+import { OrdenesDelTicket } from "@/componentes/ordenes/ordenes-ticket";
 import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
@@ -32,7 +35,6 @@ import { ESTADOS, ORIGENES, PRIORIDADES, type EstadoTicket, type Prioridad } fro
 import { correoRetenido } from "@/lib/tickets/mensajes";
 import type { Ticket } from "@/lib/tickets/sla";
 import { BarraAcciones } from "./acciones";
-import { FichaCliente } from "./ficha-cliente";
 
 type Mensaje = Schema<"Mensaje">;
 type Evento = Schema<"EventoTicket">;
@@ -178,16 +180,19 @@ function Detalle({ id }: { id: number }) {
                         </Link>
                     </Aviso>
                 ) : null}
-                <BarraAcciones
-                    ticket={t}
-                    usuarios={listaUsuarios}
-                    alHecho={(nuevo) => {
-                        ticket.reemplazar(nuevo);
-                        void mensajes.refrescar();
-                        void eventos.refrescar();
-                    }}
-                    recargar={refrescarTodo}
-                />
+                <div className="flex flex-wrap items-start gap-2">
+                    <BarraAcciones
+                        ticket={t}
+                        usuarios={listaUsuarios}
+                        alHecho={(nuevo) => {
+                            ticket.reemplazar(nuevo);
+                            void mensajes.refrescar();
+                            void eventos.refrescar();
+                        }}
+                        recargar={refrescarTodo}
+                    />
+                    {puede(["ordenes.crear"]) && t.estado !== "cerrado" ? <DialogoCrearOrden ticket={{ id: t.id, numero: t.numero, asunto: t.asunto }} /> : null}
+                </div>
             </header>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -217,6 +222,7 @@ function Detalle({ id }: { id: number }) {
 
                     <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} />
                     <TicketsHijos ticketId={t.id} />
+                    {puede(["ordenes.ver", "ordenes.ver_propias"]) ? <OrdenesDelTicket ticketId={t.id} /> : null}
                     <Historial paginado={eventos} ahora={ahora} />
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente">

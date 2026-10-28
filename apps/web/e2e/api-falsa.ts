@@ -1,6 +1,8 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
+import { apiOrdenes } from "./api-ordenes";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
+import type { EscenarioOrdenes } from "./datos-ordenes";
 import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
 
 /*
@@ -41,6 +43,8 @@ export const SOPORTE = usuario({ id: 6, nombre: "Sofía Morales", correo: "sofia
 export const CONSULTA = usuario({ id: 7, nombre: "Carlos Ruiz", correo: "carlos@iris.test", roles: [{ rol: "lectura" }] });
 /** Supervisor de zona: tiene `buzones.*`, pero con alcance de zona (las escrituras dan 403). */
 export const SUPERVISOR_ZONA = usuario({ id: 8, nombre: "Zoe Hernández", correo: "zoe@iris.test", roles: [{ rol: "supervisor", zonaId: 2 }] });
+/** Despacho: órdenes y pendientes en Argos, pero sin `integraciones.reintentar`. */
+export const DESPACHO = usuario({ id: 9, nombre: "Diego Castro", correo: "diego@iris.test", roles: [{ rol: "despacho" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
@@ -61,13 +65,31 @@ const PERMISOS_TICKETS: Permiso[] = [
     "tickets.ver_notas",
 ];
 
+const PERMISOS_ORDENES: Permiso[] = [
+    "ordenes.asignar",
+    "ordenes.cancelar",
+    "ordenes.cerrar",
+    "ordenes.crear",
+    "ordenes.fallar",
+    "ordenes.iniciar_camino",
+    "ordenes.llegar",
+    "ordenes.programar",
+    "ordenes.reabrir",
+    "ordenes.registrar",
+    "ordenes.reprogramar",
+    "ordenes.ver",
+];
+
 export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_BUZONES,
+    "adjuntos.ver",
+    "integraciones.reintentar",
+    "integraciones.ver_pendientes",
+    ...PERMISOS_ORDENES,
     "clientes.estado_cuenta",
     "clientes.ver",
     "empresas.adoptar",
     "empresas.todas",
-    "ordenes.ver",
     "permisos.ver",
     "roles.ver",
     ...PERMISOS_TICKETS,
@@ -87,10 +109,11 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
@@ -139,9 +162,24 @@ export type ApiFalsa = {
     cambiarVersionBuzon: (buzonId: number) => void;
     /** Otra persona cambió el ticket: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersion: (ticketId: number) => void;
+    /** Órdenes, adjuntos y pendientes del escenario (se pueden cambiar en la prueba). */
+    ordenes: EscenarioOrdenes;
+    /** Otra persona cambió la orden: sube su versión (la próxima acción con la vieja da 409). */
+    cambiarVersionOrden: (ordenId: number) => void;
+    /** El worker tocó el pendiente: sube su versión (el próximo reintento con la vieja da 409). */
+    cambiarVersionPendiente: (pendienteId: number) => void;
 };
 
-const OPERATIVAS = ["/api/v1/tickets", "/api/v1/categorias", "/api/v1/slas", "/api/v1/clientes", "/api/v1/buzones"];
+const OPERATIVAS = [
+    "/api/v1/tickets",
+    "/api/v1/categorias",
+    "/api/v1/slas",
+    "/api/v1/clientes",
+    "/api/v1/buzones",
+    "/api/v1/ordenes",
+    "/api/v1/adjuntos",
+    "/api/v1/integraciones/pendientes",
+];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
     return route.fulfill({
@@ -176,6 +214,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let siguienteTicket = 1000;
     let buzones: Schema<"Buzon">[] | undefined = opciones.buzones;
     let siguienteBuzon = 100;
+    const ordenes = apiOrdenes(empresas.map((e) => e.id));
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -464,6 +503,23 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 
+        if (
+            await ordenes.manejar({
+                route,
+                metodo,
+                ruta,
+                query: url.searchParams,
+                cuerpo,
+                idempotencia: cabeceras["idempotency-key"],
+                actual,
+                puede,
+                empresaId,
+                tickets: visibles,
+            })
+        ) {
+            return;
+        }
+
         if (ruta === "/api/v1/tickets") {
             if (metodo === "GET") {
                 if (!puede("tickets.ver")) return prohibido();
@@ -577,6 +633,15 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         fallar: (ruta, n) => {
             fallos.set(ruta, n);
+        },
+        ordenes: ordenes.escenario,
+        cambiarVersionOrden: (ordenId) => {
+            const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
+            if (o) o.version++;
+        },
+        cambiarVersionPendiente: (pendienteId) => {
+            const p = ordenes.escenario.pendientes.find((x) => x.id === pendienteId);
+            if (p) p.version++;
         },
     };
 }

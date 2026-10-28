@@ -22,10 +22,11 @@ describe("menú por permisos", () => {
         expect(menuVisible(null)).toEqual(menuVisible([]));
     });
 
-    it("ordenes.ver u ordenes.ver_propias muestran Órdenes (aún «Próximamente»)", () => {
+    it("ordenes.ver u ordenes.ver_propias muestran Órdenes (con tablero)", () => {
         for (const p of ["ordenes.ver", "ordenes.ver_propias"] as const) {
             const ordenes = menuVisible([p]).find((e) => e.href === "/ordenes");
-            expect(ordenes?.proximamente).toBe(true);
+            expect(ordenes).toBeDefined();
+            expect(ordenes?.proximamente).toBeUndefined();
         }
         expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/ordenes");
     });
