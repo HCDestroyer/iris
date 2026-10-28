@@ -53,8 +53,16 @@ const TRANSICIONES: Record<string, readonly Orden["estado"][]> = {
     reabrir: ["fallida", "cancelada"],
 };
 
-export function apiOrdenes(empresas: readonly number[]): ApiOrdenes {
+export type OpcionesOrdenes = {
+    /** Usuarios técnicos que la API acepta al asignar o programar (por defecto, solo Lucía). */
+    tecnicos?: readonly number[];
+    /** Reglas de la agenda al programar, reprogramar o asignar (422 legibles). */
+    validarCita?: (o: Orden, e: { tecnicoId?: number; inicio?: string; fin?: string }, accion: string) => Problema | undefined;
+};
+
+export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdenes = {}): ApiOrdenes {
     const esc = escenarioOrdenes(Date.now(), empresas);
+    const tecnicos = opciones.tecnicos ?? [3];
     let siguiente = 1000;
     let siguienteEvento = 5000;
 
@@ -181,7 +189,7 @@ export function apiOrdenes(empresas: readonly number[]): ApiOrdenes {
                     await problema(route, { type: "urn:iris:problema:validacion", title: "Falta Idempotency-Key", status: 422 });
                     return true;
                 }
-                const e = (cuerpo ?? {}) as { version?: number; tecnicoId?: number; inicio?: string; motivo?: string };
+                const e = (cuerpo ?? {}) as { version?: number; tecnicoId?: number; inicio?: string; fin?: string; motivo?: string };
                 if (e.version !== o.version) {
                     await problema(route, { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409, detail: "La orden cambió desde que la leíste" });
                     return true;
@@ -194,8 +202,13 @@ export function apiOrdenes(empresas: readonly number[]): ApiOrdenes {
                     await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "body.motivo", message: "Obligatorio" }] });
                     return true;
                 }
-                if (e.tecnicoId !== undefined && e.tecnicoId !== 3) {
+                if (e.tecnicoId !== undefined && !tecnicos.includes(e.tecnicoId)) {
                     await problema(route, { type: "urn:iris:problema:tecnico_fuera_de_empresa", title: "Técnico fuera de la empresa", status: 422, errors: [{ field: "body.tecnicoId", message: "El técnico no opera en esta empresa" }] });
+                    return true;
+                }
+                const rechazo = opciones.validarCita?.(o, e, sub);
+                if (rechazo) {
+                    await problema(route, rechazo);
                     return true;
                 }
                 const ahora = new Date().toISOString();
@@ -211,7 +224,7 @@ export function apiOrdenes(empresas: readonly number[]): ApiOrdenes {
                     o.tecnicoId = e.tecnicoId ?? o.tecnicoId;
                     o.programadaInicio = e.inicio ?? null;
                     const dur = TIPOS_ORDEN.find((t) => t.codigo === o.tipo)?.duracionMin ?? 60;
-                    o.programadaFin = e.inicio ? new Date(Date.parse(e.inicio) + dur * 60_000).toISOString() : null;
+                    o.programadaFin = e.fin ?? (e.inicio ? new Date(Date.parse(e.inicio) + dur * 60_000).toISOString() : null);
                     o.estado = "programada";
                     o.resultado = null;
                     o.motivoFalla = null;
