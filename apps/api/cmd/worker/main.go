@@ -1,5 +1,6 @@
-// Comando worker: workers de River. Por ahora, el relay del outbox (integracion.outbox →
-// suscriptores internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO.
+// Comando worker: workers de River. El relay del outbox (integracion.outbox → suscriptores
+// internos), que corre por NOTIFY y cada IRIS_RELAY_INTERVALO, y el cron de SLA de soporte
+// (cada minuto).
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
 
@@ -49,12 +51,15 @@ func correr() error {
 	})
 	relay := &integracion.Relay{BD: pool, Bus: bus, Log: log}
 
+	sop := soporte.Nuevo(soporte.Config{})
 	cliente, err := integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
+		Registrar: sop.RegistrarTrabajos(pool),
 	})
 	if err != nil {
 		return err
 	}
+	cliente.PeriodicJobs().Add(soporte.TrabajoPeriodicoSLA(time.Minute))
 	if err := cliente.Start(ctx); err != nil {
 		return err
 	}

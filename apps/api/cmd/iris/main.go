@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -27,6 +28,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
 
@@ -108,6 +110,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Modulos:      []func(huma.API){soporte.Nuevo(soporte.Config{}).Registrar},
 	})
 
 	srv := &http.Server{
