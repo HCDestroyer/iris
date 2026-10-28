@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"sync"
@@ -30,6 +31,9 @@ type Deps struct {
 	Idempotencia nucleo.OpcionesIdempotencia
 	// Registradores de otros módulos (I2: soporte, campo…). Cada uno publica sus rutas.
 	Modulos []func(huma.API)
+	// ProxiesConfiables: redes cuyo X-Forwarded-For se cree (IRIS_PROXIES_CONFIABLES). Vacío =
+	// la IP del cliente es la de la conexión.
+	ProxiesConfiables []netip.Prefix
 }
 
 // Nuevo devuelve el handler y la API (para leer el OpenAPI).
@@ -40,7 +44,7 @@ func Nuevo(d Deps) (http.Handler, huma.API) {
 	instalarErrores(d.Log)
 
 	r := chi.NewRouter()
-	r.Use(middlewareRequestID, middlewareLog(d.Log), middlewarePanico(d.Log))
+	r.Use(middlewareIPReal(d.ProxiesConfiables), middlewareRequestID, middlewareLog(d.Log), middlewarePanico(d.Log))
 	if d.BD != nil {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
