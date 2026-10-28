@@ -1,8 +1,8 @@
 "use client";
 
-import type { OrdenVista } from "@iris/sync";
+import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado } from "@iris/ui";
-import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, RefreshCw, TriangleAlert, UserX } from "lucide-react";
+import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent } from "react";
 import { diaLargo, horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
@@ -34,6 +34,13 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                 </div>
                 {carga.estado === "cargando" ? <Cargando visible texto="Bajando…" /> : null}
             </div>
+
+            {conRuta && estado.ruta?.desactualizada ? (
+                <Aviso tono="warning" icono={Route} titulo="Tu ruta cambió">
+                    Una orden cambió de técnico o de hora después de publicarla. Despacho publicará otra; mientras tanto se muestra la
+                    anterior.
+                </Aviso>
+            ) : null}
 
             {estado.caducado ? (
                 <Aviso
@@ -76,7 +83,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
             ) : (
                 <ol className="grid gap-3" aria-label="Órdenes del día">
                     {activas.map((o, i) => (
-                        <TarjetaOrden key={o.id} orden={o} posicion={conRuta ? i + 1 : null} />
+                        <TarjetaOrden key={o.id} orden={o} posicion={conRuta ? i + 1 : null} parada={paradaDe(estado.ruta, o.id)} />
                     ))}
                 </ol>
             )}
@@ -94,7 +101,14 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
     );
 }
 
-function TarjetaOrden({ orden, posicion }: { orden: OrdenVista; posicion: number | null }) {
+type Parada = NonNullable<RutaCampo["paradas"]>[number];
+
+/** Parada de la ruta publicada para esa orden (llegada estimada), si la ruta la trae. */
+function paradaDe(ruta: RutaCampo | null, ordenId: number): Parada | null {
+    return ruta?.paradas?.find((p) => p.ordenId === ordenId) ?? null;
+}
+
+function TarjetaOrden({ orden, posicion, parada = null }: { orden: OrdenVista; posicion: number | null; parada?: Parada | null }) {
     const { navegar } = useCampo();
     const hora = horaCorta(orden.cita?.inicio ?? orden.programadaInicio);
     const ventana = ventanaCita(orden.cita);
@@ -126,6 +140,13 @@ function TarjetaOrden({ orden, posicion }: { orden: OrdenVista; posicion: number
                     </div>
                     <p className="truncate text-base font-semibold">{nombre}</p>
                     <p className="text-sm text-muted-foreground">{TIPOS_ORDEN[orden.tipo]}</p>
+                    {parada ? (
+                        <p className={parada.fueraDeVentana ? "flex items-center gap-1 text-sm text-warning" : "flex items-center gap-1 text-sm text-muted-foreground"}>
+                            {parada.fueraDeVentana ? <TriangleAlert aria-hidden className="size-3.5 shrink-0" /> : <Route aria-hidden className="size-3.5 shrink-0" />}
+                            Llegada estimada {horaCorta(parada.llegadaEstimada)}
+                            {parada.fueraDeVentana ? " · fuera de la ventana acordada" : ""}
+                        </p>
+                    ) : null}
                     {ventana ? (
                         <p className="flex items-center gap-1 text-sm text-muted-foreground">
                             <Clock aria-hidden className="size-3.5 shrink-0" />

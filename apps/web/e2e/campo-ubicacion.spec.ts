@@ -240,13 +240,29 @@ test.describe("en el teléfono", () => {
         await expect(page.getByText("por hora de cita")).toBeVisible();
 
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        await simularApiCampo(page, { ordenes, ruta: { id: 7, ordenIds: [102, 101, 103] } });
+        await simularApiCampo(page, {
+            ordenes,
+            ruta: {
+                id: 7,
+                ordenIds: [102, 101, 103],
+                desactualizada: true,
+                paradas: [
+                    { ordenId: 102, posicion: 1, llegadaEstimada: `${hoy}T14:40:00Z`, salidaEstimada: `${hoy}T15:40:00Z`, fueraDeVentana: false },
+                    { ordenId: 101, posicion: 2, llegadaEstimada: `${hoy}T16:10:00Z`, salidaEstimada: `${hoy}T17:40:00Z`, fueraDeVentana: true },
+                ],
+            },
+        });
         await page.getByRole("button", { name: "Menú" }).click();
         await page.getByRole("button", { name: "Actualizar órdenes del día" }).click();
         await expect(page.getByText("en orden de ruta")).toBeVisible();
         await expect(tarjetas.nth(0)).toContainText("OT-000102");
         await expect(tarjetas.nth(0).getByLabel("Parada 1")).toBeVisible();
         await expect(tarjetas.nth(2)).toContainText("OT-000103");
+        // Llegada estimada de la ruta publicada y aviso si queda fuera de la ventana.
+        await expect(tarjetas.nth(0)).toContainText("Llegada estimada 08:40");
+        await expect(tarjetas.nth(1)).toContainText("Llegada estimada 10:10 · fuera de la ventana acordada");
+        // Ruta desactualizada: se avisa al técnico.
+        await expect(page.getByText("Tu ruta cambió")).toBeVisible();
     });
 });
 

@@ -27,8 +27,9 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
 - **Mis órdenes del día** en orden de ruta publicada (`ruta.ordenIds` del paquete, cuando I2 la
-  publique) y, sin ruta, por la hora de la cita de la agenda (`cita.inicio`) con la ventana de
-  llegada acordada («Llegada acordada 07:30–09:00»); estado con icono + texto + color,
+  publique), con la «Llegada estimada» de cada parada (y si queda fuera de la ventana) y el aviso
+  «Tu ruta cambió» si está `desactualizada`; sin ruta, por la hora de la cita de la agenda
+  (`cita.inicio`) con la ventana de llegada acordada («Llegada acordada 07:30–09:00»); estado con icono + texto + color,
   y la barra de conexión con «N pendientes por enviar» → vista *Por enviar* (cola, archivos,
   rechazos con «Descartar» / «Rehacer», cierres esperando archivos por `faltan_adjuntos`).
 - **Detalle:** cliente, llamar, «Cómo llegar» (app de mapas con las coordenadas), servicio,
