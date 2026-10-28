@@ -1,0 +1,46 @@
+# sqlc: SQL tipado. El código generado se commitea (`sqlc generate`; CI verifica `sqlc diff`).
+# El esquema son las migraciones goose (sqlc ignora las secciones Down).
+version: "2"
+sql:
+  - &base
+    engine: postgresql
+    schema: migraciones
+    queries: internal/auditoria/consultas.sql
+    gen:
+      go: &gen
+        package: auditoriabd
+        out: internal/auditoria/bd
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+  - <<: *base
+    queries: internal/integracion/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: integracionbd
+        out: internal/integracion/bd
+  - <<: *base
+    queries: internal/nucleo/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: nucleobd
+        out: internal/nucleo/bd
+  - <<: *base
+    queries: internal/nucleo/identidad/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: identidadbd
+        out: internal/nucleo/identidad/bd

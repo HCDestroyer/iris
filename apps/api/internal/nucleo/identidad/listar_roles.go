@@ -1,0 +1,48 @@
+package identidad
+
+import (
+	"context"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
+)
+
+func nuevoListarRoles() *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]] {
+	return auditoria.Nuevo(auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]{
+		Accion:       "roles.ver",
+		Permiso:      nucleo.PermRolesVer,
+		AuditarExito: soloLecturas[nucleo.Pagina[Rol]],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in nucleo.ParamsPagina) (nucleo.Pagina[Rol], error) {
+			var despues int64
+			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
+				return nucleo.Pagina[Rol]{}, err
+			}
+			q := identidadbd.New(t)
+			filas, err := q.ListarRoles(ctx, identidadbd.ListarRolesParams{DespuesDe: despues, Limite: int32(in.Limite() + 1)}) //nolint:gosec // ≤ 201
+			if err != nil {
+				return nucleo.Pagina[Rol]{}, err
+			}
+			ids := make([]int64, 0, len(filas))
+			for _, f := range filas {
+				ids = append(ids, f.ID)
+			}
+			permisos, err := q.PermisosDeRoles(ctx, ids)
+			if err != nil {
+				return nucleo.Pagina[Rol]{}, err
+			}
+			porRol := map[int64][]nucleo.Permiso{}
+			for _, p := range permisos {
+				porRol[p.RolID] = append(porRol[p.RolID], nucleo.Permiso(p.Permiso))
+			}
+			return nucleo.Paginar(filas, in.Limite(), func(r identidadbd.NucleoRole) Rol {
+				ps := porRol[r.ID]
+				if ps == nil {
+					ps = []nucleo.Permiso{}
+				}
+				return Rol{ID: r.ID, Codigo: r.Codigo, Nombre: r.Nombre, Descripcion: r.Descripcion,
+					Sistema: r.Sistema, Permisos: ps, Version: r.Version}
+			}, func(r identidadbd.NucleoRole) []any { return []any{r.ID} }), nil
+		},
+	})
+}
