@@ -93,6 +93,12 @@ export function FormularioEntrar() {
     });
 
     function entrar() {
+        // La app de campo se carga entera (no por el router): así queda bajo su service worker
+        // desde la primera visita y abre sin señal la próxima vez.
+        if (siguiente === "/campo" || siguiente.startsWith("/campo?") || siguiente.startsWith("/campo/")) {
+            window.location.assign(siguiente);
+            return;
+        }
         router.replace(siguiente);
         router.refresh();
     }
