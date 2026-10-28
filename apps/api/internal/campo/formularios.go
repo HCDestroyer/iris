@@ -216,19 +216,26 @@ func (m *Modulo) nuevoAgregarFormularioCampo() *auditoria.Caso[EntradaAgregarFor
 				return f, "", err
 			}
 			// La versión que veía el teléfono (sus marcas sin señal son de esos ítems), aunque ya
-			// no sea la actual: se avisa (version_anterior), nunca se cambia en silencio.
-			versionID, aviso := p.VersionActualID, ""
-			if in.VersionID != nil && *in.VersionID != p.VersionActualID {
-				versionID, aviso = *in.VersionID, AvisoVersionAnterior
-			}
-			v, err := q.VersionPorID(ctx, versionID)
-			if errors.Is(err, pgx.ErrNoRows) || (err == nil && v.PlantillaID != p.ID) {
-				return f, "", campoInvalido("versionId", "La versión no es de esa plantilla", "version")
-			}
+			// no sea la actual: se avisa (version_anterior), nunca se cambia en silencio. Solo la
+			// actual o la que estaba vigente a la hora de la operación: una más vieja dejaría la
+			// orden con una versión superada y bloquearía la actual (una plantilla una vez).
+			cuando := m.cuandoEn(in.Sync, f)
+			v, err := q.VersionPorID(ctx, p.VersionActualID)
 			if err != nil {
 				return f, "", err
 			}
-			fo, err := agregarFormulario(ctx, t, q, f, p, v, OrigenTecnico, in.Sync.ID, m.cuandoEn(in.Sync, f), in.Sync)
+			aviso := ""
+			if in.VersionID != nil && *in.VersionID != p.VersionActualID {
+				vigente, err := q.VersionVigenteEn(ctx, campobd.VersionVigenteEnParams{PlantillaID: p.ID, Momento: cuando})
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && vigente.ID != *in.VersionID) {
+					return f, "", campoInvalido("versionId", "La versión no es la actual de la plantilla ni la vigente a la hora de la operación", "version")
+				}
+				if err != nil {
+					return f, "", err
+				}
+				v, aviso = vigente, AvisoVersionAnterior
+			}
+			fo, err := agregarFormulario(ctx, t, q, f, p, v, OrigenTecnico, in.Sync.ID, cuando, in.Sync)
 			if err != nil {
 				return f, "", err
 			}
@@ -250,6 +257,11 @@ func quitarFormulario(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, 
 	}
 	if fo.QuitadoEn != nil {
 		return nucleo.Conflicto("formulario_ya_quitado", "El formulario ya se quitó de la orden")
+	}
+	// El del tipo es el mínimo de la orden: no se quita (otro checklist = otra orden con otra
+	// plantilla del mismo tipo).
+	if fo.Origen == OrigenTipo {
+		return nucleo.ReglaNegocio("formulario_del_tipo", "El formulario del tipo de orden no se quita; crea la orden con otra plantilla del mismo tipo")
 	}
 	if err := autorizar(fo); err != nil {
 		return err

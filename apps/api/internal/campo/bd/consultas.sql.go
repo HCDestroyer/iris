@@ -915,9 +915,11 @@ func (q *Queries) CrearPausa(ctx context.Context, arg CrearPausaParams) (CampoOr
 }
 
 const crearPlantilla = `-- name: CrearPlantilla :one
-INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por, version_actual_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, 0)
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id
+INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por,
+                                        version_actual_id, activa, alguna_vez_activa)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
+        0, $8, $8)
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
 `
 
 type CrearPlantillaParams struct {
@@ -928,6 +930,7 @@ type CrearPlantillaParams struct {
 	RequiereFirma bool
 	EmpresaID     *int64
 	CreadoPor     *int64
+	Activa        bool
 }
 
 // Nace con una versión provisional (la 1 se crea enseguida y se fija con FijarVersionActual).
@@ -940,6 +943,7 @@ func (q *Queries) CrearPlantilla(ctx context.Context, arg CrearPlantillaParams) 
 		arg.RequiereFirma,
 		arg.EmpresaID,
 		arg.CreadoPor,
+		arg.Activa,
 	)
 	var i CampoPlantillasChecklist
 	err := row.Scan(
@@ -960,15 +964,16 @@ func (q *Queries) CrearPlantilla(ctx context.Context, arg CrearPlantillaParams) 
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
 
 const crearVersion = `-- name: CrearVersion :one
-INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por)
+INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por, created_at)
 VALUES ($1,
         (SELECT coalesce(max(numero), 0) + 1 FROM campo.plantilla_versiones WHERE plantilla_id = $1),
-        $2, $3, $4)
+        $2, $3, $4, $5)
 RETURNING id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at
 `
 
@@ -977,6 +982,7 @@ type CrearVersionParams struct {
 	Nombre        string
 	RequiereFirma bool
 	CreadaPor     *int64
+	CreadaEn      time.Time
 }
 
 func (q *Queries) CrearVersion(ctx context.Context, arg CrearVersionParams) (CampoPlantillaVersion, error) {
@@ -985,6 +991,7 @@ func (q *Queries) CrearVersion(ctx context.Context, arg CrearVersionParams) (Cam
 		arg.Nombre,
 		arg.RequiereFirma,
 		arg.CreadaPor,
+		arg.CreadaEn,
 	)
 	var i CampoPlantillaVersion
 	err := row.Scan(
@@ -1107,7 +1114,7 @@ const fijarVersionActual = `-- name: FijarVersionActual :one
 UPDATE campo.plantillas_checklist SET version_actual_id = $1, nombre = $2, requiere_firma = $3,
     updated_at = now()
 WHERE id = $4
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
 `
 
 type FijarVersionActualParams struct {
@@ -1143,8 +1150,21 @@ func (q *Queries) FijarVersionActual(ctx context.Context, arg FijarVersionActual
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
+}
+
+const finUltimaPausa = `-- name: FinUltimaPausa :one
+SELECT coalesce(max(fin), 'epoch'::timestamptz)::timestamptz FROM campo.orden_pausas WHERE orden_id = $1 AND fin IS NOT NULL
+`
+
+// Fin de la última pausa terminada de la orden (piso de una pausa nueva).
+func (q *Queries) FinUltimaPausa(ctx context.Context, ordenID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, finUltimaPausa, ordenID)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const firmasDeOrdenes = `-- name: FirmasDeOrdenes :many
@@ -1579,9 +1599,10 @@ func (q *Queries) GuardarOrden(ctx context.Context, arg GuardarOrdenParams) (Cam
 const guardarPlantilla = `-- name: GuardarPlantilla :one
 UPDATE campo.plantillas_checklist SET nombre = $1, descripcion = $2, tipo_codigo = $3,
     requiere_firma = $4, activa = $5, version_actual_id = $6,
+    alguna_vez_activa = alguna_vez_activa OR $5,
     version = version + 1, updated_at = now()
 WHERE id = $7 AND version = $8
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa
 `
 
 type GuardarPlantillaParams struct {
@@ -1627,6 +1648,7 @@ func (q *Queries) GuardarPlantilla(ctx context.Context, arg GuardarPlantillaPara
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
@@ -2626,6 +2648,24 @@ func (q *Queries) PausaAbierta(ctx context.Context, ordenID int64) (CampoOrdenPa
 	return i, err
 }
 
+const pausadoDesde = `-- name: PausadoDesde :one
+SELECT coalesce(sum(extract(epoch FROM fin - inicio)), 0)::bigint FROM campo.orden_pausas
+WHERE orden_id = $1 AND fin IS NOT NULL AND inicio >= $2
+`
+
+type PausadoDesdeParams struct {
+	OrdenID int64
+	Desde   time.Time
+}
+
+// Segundos de las pausas terminadas que empezaron desde ese momento (la visita en curso).
+func (q *Queries) PausadoDesde(ctx context.Context, arg PausadoDesdeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, pausadoDesde, arg.OrdenID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const pausasDeOrdenes = `-- name: PausasDeOrdenes :many
 SELECT id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at FROM campo.orden_pausas WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, inicio, id
 `
@@ -2668,7 +2708,7 @@ func (q *Queries) PausasDeOrdenes(ctx context.Context, ordenes []int64) ([]Campo
 }
 
 const plantillaPorID = `-- name: PlantillaPorID :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id FROM campo.plantillas_checklist WHERE id = $1
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1
 `
 
 func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
@@ -2692,12 +2732,13 @@ func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillas
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
 
 const plantillaPorIDCompartida = `-- name: PlantillaPorIDCompartida :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id FROM campo.plantillas_checklist WHERE id = $1 FOR SHARE
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1 FOR SHARE
 `
 
 // Al agregar un formulario: la edición (FOR UPDATE) espera, así no reescribe una versión que
@@ -2723,12 +2764,13 @@ func (q *Queries) PlantillaPorIDCompartida(ctx context.Context, id int64) (Campo
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
 
 const plantillaPorIDParaActualizar = `-- name: PlantillaPorIDParaActualizar :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id FROM campo.plantillas_checklist WHERE id = $1 FOR UPDATE
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) PlantillaPorIDParaActualizar(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
@@ -2752,12 +2794,13 @@ func (q *Queries) PlantillaPorIDParaActualizar(ctx context.Context, id int64) (C
 		&i.Descripcion,
 		&i.CreadoPor,
 		&i.VersionActualID,
+		&i.AlgunaVezActiva,
 	)
 	return i, err
 }
 
 const plantillasPorIDs = `-- name: PlantillasPorIDs :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id FROM campo.plantillas_checklist WHERE id = ANY($1::bigint[])
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPlantillasChecklist, error) {
@@ -2787,6 +2830,7 @@ func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPla
 			&i.Descripcion,
 			&i.CreadoPor,
 			&i.VersionActualID,
+			&i.AlgunaVezActiva,
 		); err != nil {
 			return nil, err
 		}
@@ -2799,7 +2843,7 @@ func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPla
 }
 
 const plantillasVisibles = `-- name: PlantillasVisibles :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id FROM campo.plantillas_checklist
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist
 WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
   AND (NOT $3::boolean OR activa)
   AND ($4::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = $4)
@@ -2851,6 +2895,7 @@ func (q *Queries) PlantillasVisibles(ctx context.Context, arg PlantillasVisibles
 			&i.Descripcion,
 			&i.CreadoPor,
 			&i.VersionActualID,
+			&i.AlgunaVezActiva,
 		); err != nil {
 			return nil, err
 		}
@@ -3427,6 +3472,35 @@ type VersionPorNumeroParams struct {
 
 func (q *Queries) VersionPorNumero(ctx context.Context, arg VersionPorNumeroParams) (CampoPlantillaVersion, error) {
 	row := q.db.QueryRow(ctx, versionPorNumero, arg.PlantillaID, arg.Numero)
+	var i CampoPlantillaVersion
+	err := row.Scan(
+		&i.ID,
+		&i.PlantillaID,
+		&i.Numero,
+		&i.Nombre,
+		&i.RequiereFirma,
+		&i.CreadaPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const versionVigenteEn = `-- name: VersionVigenteEn :one
+SELECT id, plantilla_id, numero, nombre, requiere_firma, creada_por, created_at, updated_at FROM campo.plantilla_versiones
+WHERE plantilla_id = $1 AND created_at <= $2
+ORDER BY numero DESC
+LIMIT 1
+`
+
+type VersionVigenteEnParams struct {
+	PlantillaID int64
+	Momento     time.Time
+}
+
+// La versión de la plantilla vigente en ese momento: la última creada hasta entonces.
+func (q *Queries) VersionVigenteEn(ctx context.Context, arg VersionVigenteEnParams) (CampoPlantillaVersion, error) {
+	row := q.db.QueryRow(ctx, versionVigenteEn, arg.PlantillaID, arg.Momento)
 	var i CampoPlantillaVersion
 	err := row.Scan(
 		&i.ID,

@@ -466,6 +466,7 @@ type CampoPlantillasChecklist struct {
 	Descripcion      string
 	CreadoPor        *int64
 	VersionActualID  int64
+	AlgunaVezActiva  bool
 }
 
 type CampoPosicione struct {

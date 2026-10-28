@@ -258,3 +258,35 @@ func TestMigracionFormulariosDeOrdenesExistentes(t *testing.T) {
 		t.Fatalf("plantillas sin versión 1 con ítems: %s", got)
 	}
 }
+
+// Revisión de la PR #29, punto 3: una pausa con la hora del teléfono no se encima a la anterior
+// (se ajusta a su fin, con aviso) y el tiempo pausado nunca supera lo transcurrido desde que salió.
+func TestRevisionPausaNoSeEncima(t *testing.T) {
+	e := nuevoEntorno()
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	o := programada(t, e, cd, "visita", tec)
+	esperar(t, lote(t, e, ct, op(campo.OpIniciarCamino, o.ID, nil)), "aplicada") // 15:00
+	en := func(tipo string, datos map[string]any, m time.Duration) campo.OperacionLote {
+		x := op(tipo, o.ID, datos)
+		x.OcurridoEn = ptr(inicio.Add(m))
+		return x
+	}
+	e.reloj.avanzar(60 * time.Minute)
+	// Pausa de 15:10 a 15:40.
+	esperar(t, lote(t, e, ct, en(campo.OpPausar, map[string]any{"motivo": "clima"}, 10*time.Minute),
+		en(campo.OpReanudar, nil, 40*time.Minute)), "aplicada", "aplicada")
+	// Otra que dice empezar a las 15:05 (antes del fin de la anterior) y termina a las 15:50.
+	r := lote(t, e, ct, en(campo.OpPausar, map[string]any{"motivo": "acceso"}, 5*time.Minute), en(campo.OpReanudar, nil, 50*time.Minute))
+	esperar(t, r, "aplicada", "aplicada")
+	if r.Resultados[0].Aviso == nil || *r.Resultados[0].Aviso != campo.AvisoPausaAjustada {
+		t.Fatalf("aviso: %+v", r.Resultados[0])
+	}
+	dt := detalle(t, e, o.ID)
+	if !dt.Pausas[1].Inicio.Equal(inicio.Add(40*time.Minute)) || dt.TiempoPausadoSeg != 40*60 {
+		t.Fatalf("ajustada al fin de la anterior (30 + 10 min): %+v, %d", dt.Pausas[1], dt.TiempoPausadoSeg)
+	}
+	if transcurrido := int64(e.reloj.ahora().Sub(*dt.EnCaminoEn) / time.Second); dt.TiempoPausadoSeg > transcurrido {
+		t.Fatalf("pausado %d > transcurrido %d", dt.TiempoPausadoSeg, transcurrido)
+	}
+}

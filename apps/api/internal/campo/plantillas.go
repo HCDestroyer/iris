@@ -45,6 +45,7 @@ type PlantillaFormulario struct {
 	RequiereFirma bool            `json:"requiereFirma"`
 	Activa        bool            `json:"activa" doc:"Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen"`
 	PorDefecto    bool            `json:"porDefecto" doc:"Es la plantilla por defecto de un tipo de orden (no se puede desactivar)"`
+	Borrador      bool            `json:"borrador" required:"false" doc:"Nunca se activó: editarla reescribe su versión. Si es false, toda edición crea una versión nueva"`
 	Version       int32           `json:"version" doc:"Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)"`
 	VersionID     int64           `json:"versionId" doc:"Versión de la plantilla de estos ítems"`
 	NumeroVersion int32           `json:"numeroVersion" doc:"Número de la versión de estos ítems (1, 2, …)"`
@@ -89,6 +90,7 @@ type EntradaCrearPlantilla struct {
 	Tipo          *string                `json:"tipo,omitempty" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Tipo de orden; ausente = cualquiera"`
 	RequiereFirma bool                   `json:"requiereFirma,omitempty"`
 	Comun         bool                   `json:"comun,omitempty" doc:"Común a todas las empresas (exige empresas.todas con empresas registradas); por defecto, de la empresa activa"`
+	Borrador      bool                   `json:"borrador,omitempty" doc:"Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión"`
 	Items         []EntradaItemPlantilla `json:"items" minItems:"1" maxItems:"100"`
 }
 
@@ -240,7 +242,7 @@ func leerPlantilla(ctx context.Context, q *campobd.Queries, p campobd.CampoPlant
 		return PlantillaFormulario{}, err
 	}
 	salida := PlantillaFormulario{ID: p.ID, Codigo: p.Codigo, Nombre: v.Nombre, Descripcion: p.Descripcion, Tipo: p.TipoCodigo,
-		EmpresaID: p.EmpresaID, RequiereFirma: v.RequiereFirma, Activa: p.Activa, PorDefecto: porDefecto, Version: p.Version,
+		EmpresaID: p.EmpresaID, RequiereFirma: v.RequiereFirma, Activa: p.Activa, PorDefecto: porDefecto, Borrador: !p.AlgunaVezActiva, Version: p.Version,
 		VersionID: v.ID, NumeroVersion: v.Numero, VersionActual: actual.Numero, Items: make([]ItemPlantilla, 0, len(items)),
 		CreadoEn: p.CreatedAt, ActualizadoEn: p.UpdatedAt}
 	for _, it := range items {
@@ -305,7 +307,7 @@ func conItems(ctx context.Context, q *campobd.Queries, filas []campobd.CampoPlan
 	salida := make([]PlantillaFormulario, 0, len(filas))
 	for _, p := range filas {
 		o := PlantillaFormulario{ID: p.ID, Codigo: p.Codigo, Nombre: p.Nombre, Descripcion: p.Descripcion, Tipo: p.TipoCodigo,
-			EmpresaID: p.EmpresaID, RequiereFirma: p.RequiereFirma, Activa: p.Activa, Version: p.Version,
+			EmpresaID: p.EmpresaID, RequiereFirma: p.RequiereFirma, Activa: p.Activa, Borrador: !p.AlgunaVezActiva, Version: p.Version,
 			VersionID: p.VersionActualID, NumeroVersion: numero[p.VersionActualID], VersionActual: numero[p.VersionActualID],
 			Items: []ItemPlantilla{}, CreadoEn: p.CreatedAt, ActualizadoEn: p.UpdatedAt}
 		for _, tp := range tipos {
@@ -438,7 +440,7 @@ func (m *Modulo) nuevoCrearPlantilla() *auditoria.Caso[EntradaCrearPlantilla, Pl
 			}
 			t.FijarEmpresa(deref(empresa))
 			p, err := q.CrearPlantilla(ctx, campobd.CrearPlantillaParams{Codigo: codigo, Nombre: nombre, Descripcion: descripcion,
-				TipoCodigo: tipo, RequiereFirma: in.RequiereFirma, EmpresaID: empresa, CreadoPor: actorUsuario(t)})
+				TipoCodigo: tipo, RequiereFirma: in.RequiereFirma, EmpresaID: empresa, CreadoPor: actorUsuario(t), Activa: !in.Borrador})
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == "23505" {
 				return PlantillaFormulario{}, nucleo.ReglaNegocio("codigo_duplicado", "Ya hay una plantilla con ese código")
@@ -448,7 +450,7 @@ func (m *Modulo) nuevoCrearPlantilla() *auditoria.Caso[EntradaCrearPlantilla, Pl
 			}
 			t.FijarEntidad("plantilla", p.ID)
 			v, err := q.CrearVersion(ctx, campobd.CrearVersionParams{PlantillaID: p.ID, Nombre: nombre, RequiereFirma: in.RequiereFirma,
-				CreadaPor: actorUsuario(t)})
+				CreadaPor: actorUsuario(t), CreadaEn: m.ahora()})
 			if err != nil {
 				return PlantillaFormulario{}, err
 			}
@@ -520,15 +522,20 @@ func (m *Modulo) nuevoEditarPlantilla() *auditoria.Caso[EntradaEditarPlantilla, 
 			if err != nil {
 				return PlantillaFormulario{}, err
 			}
-			// Con uso, versión nueva (lo respondido en las órdenes no cambia); sin uso, se reescribe.
-			enUso, err := q.VersionEnUso(ctx, antes.VersionActualID)
-			if err != nil {
-				return PlantillaFormulario{}, err
+			// Versión nueva si la plantilla estuvo activa alguna vez (la actual ya viajó en el
+			// catálogo de los teléfonos: cambiarla en el lugar movería obligatorios sin aviso) o si
+			// la versión ya está en alguna orden (lo respondido no cambia). Solo un borrador que
+			// nunca se activó ni se usó se reescribe.
+			enUso := antes.AlgunaVezActiva
+			if !enUso {
+				if enUso, err = q.VersionEnUso(ctx, antes.VersionActualID); err != nil {
+					return PlantillaFormulario{}, err
+				}
 			}
 			var v campobd.CampoPlantillaVersion
 			if enUso {
 				v, err = q.CrearVersion(ctx, campobd.CrearVersionParams{PlantillaID: antes.ID, Nombre: nombre,
-					RequiereFirma: in.RequiereFirma, CreadaPor: actorUsuario(t)})
+					RequiereFirma: in.RequiereFirma, CreadaPor: actorUsuario(t), CreadaEn: m.ahora()})
 			} else {
 				if err = q.BorrarItemsDeVersion(ctx, antes.VersionActualID); err == nil {
 					v, err = q.ReescribirVersion(ctx, campobd.ReescribirVersionParams{ID: antes.VersionActualID, Nombre: nombre,

@@ -41,8 +41,10 @@ LIMIT 500;
 
 -- name: CrearPlantilla :one
 -- Nace con una versión provisional (la 1 se crea enseguida y se fija con FijarVersionActual).
-INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por, version_actual_id)
-VALUES (@codigo, @nombre, @descripcion, sqlc.narg(tipo_codigo), @requiere_firma, sqlc.narg(empresa_id), sqlc.narg(creado_por), 0)
+INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por,
+                                        version_actual_id, activa, alguna_vez_activa)
+VALUES (@codigo, @nombre, @descripcion, sqlc.narg(tipo_codigo), @requiere_firma, sqlc.narg(empresa_id), sqlc.narg(creado_por),
+        0, @activa, @activa)
 RETURNING *;
 
 -- name: FijarVersionActual :one
@@ -56,15 +58,16 @@ RETURNING *;
 -- nada (409).
 UPDATE campo.plantillas_checklist SET nombre = @nombre, descripcion = @descripcion, tipo_codigo = sqlc.narg(tipo_codigo),
     requiere_firma = @requiere_firma, activa = @activa, version_actual_id = @version_actual_id,
+    alguna_vez_activa = alguna_vez_activa OR @activa,
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 
 -- name: CrearVersion :one
-INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por)
+INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por, created_at)
 VALUES (@plantilla_id,
         (SELECT coalesce(max(numero), 0) + 1 FROM campo.plantilla_versiones WHERE plantilla_id = @plantilla_id),
-        @nombre, @requiere_firma, sqlc.narg(creada_por))
+        @nombre, @requiere_firma, sqlc.narg(creada_por), @creada_en)
 RETURNING *;
 
 -- name: ReescribirVersion :one
@@ -78,6 +81,13 @@ SELECT * FROM campo.plantilla_versiones WHERE id = @id;
 
 -- name: VersionPorNumero :one
 SELECT * FROM campo.plantilla_versiones WHERE plantilla_id = @plantilla_id AND numero = @numero;
+
+-- name: VersionVigenteEn :one
+-- La versión de la plantilla vigente en ese momento: la última creada hasta entonces.
+SELECT * FROM campo.plantilla_versiones
+WHERE plantilla_id = @plantilla_id AND created_at <= @momento
+ORDER BY numero DESC
+LIMIT 1;
 
 -- name: VersionesPorIDs :many
 SELECT * FROM campo.plantilla_versiones WHERE id = ANY(@ids::bigint[]);
@@ -310,6 +320,15 @@ UPDATE campo.orden_pausas SET fin = @fin, cierre = @cierre, cerrada_por = sqlc.n
     canal_cierre = @canal_cierre, operacion_cierre = sqlc.narg(operacion_cierre), updated_at = now()
 WHERE id = @id AND fin IS NULL
 RETURNING *;
+
+-- name: FinUltimaPausa :one
+-- Fin de la última pausa terminada de la orden (piso de una pausa nueva).
+SELECT coalesce(max(fin), 'epoch'::timestamptz)::timestamptz FROM campo.orden_pausas WHERE orden_id = @orden_id AND fin IS NOT NULL;
+
+-- name: PausadoDesde :one
+-- Segundos de las pausas terminadas que empezaron desde ese momento (la visita en curso).
+SELECT coalesce(sum(extract(epoch FROM fin - inicio)), 0)::bigint FROM campo.orden_pausas
+WHERE orden_id = @orden_id AND fin IS NOT NULL AND inicio >= @desde;
 
 -- name: PausasDeOrdenes :many
 SELECT * FROM campo.orden_pausas WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, inicio, id;

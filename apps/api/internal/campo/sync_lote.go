@@ -57,7 +57,7 @@ type ResultadoOperacion struct {
 	ID     string           `json:"id"`
 	Estado string           `json:"estado" enum:"aplicada,duplicada,rechazada"`
 	Error  *nucleo.Problema `json:"error,omitempty" doc:"problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>)"`
-	Aviso  *string          `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior"`
+	Aviso  *string          `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada"`
 	Orden  *EstadoOrden     `json:"orden,omitempty" doc:"Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo)"`
 }
 

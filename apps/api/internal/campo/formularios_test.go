@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -123,14 +124,26 @@ func TestPlantillasCrudYVersiones(t *testing.T) {
 	_, err = e.m.EditarPlantilla.Ejecutar(ct, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version, Nombre: "X", Items: itemsPrueba()})
 	problema(t, err, 403, "prohibido")
 
-	// Sin uso: la versión 1 se reescribe.
+	// Un borrador (nunca activado) se reescribe en el lugar; activado una vez, toda edición crea
+	// una versión (la actual ya viajó en el catálogo de los teléfonos).
+	b := deber(e.m.CrearPlantilla.Ejecutar(cs, campo.EntradaCrearPlantilla{Codigo: "borrador_" + strings.ReplaceAll(pruebas.Unico(), "-", "_"),
+		Nombre: "Borrador", Borrador: true, Items: itemsPrueba()}))(t)
+	if b.Activa || !b.Borrador {
+		t.Fatalf("borrador: %+v", b)
+	}
 	items := itemsPrueba()
 	items[0].Etiqueta = "Poste firme y aterrizado"
-	p = deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version, Nombre: "Revisión NAP", Items: items}))(t)
-	if p.NumeroVersion != 1 || p.Nombre != "Revisión NAP" || p.Items[0].Etiqueta != "Poste firme y aterrizado" {
-		t.Fatalf("editada sin uso: %+v", p)
+	b = deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: b.ID, Version: b.Version, Nombre: "Borrador 2", Items: items}))(t)
+	if b.NumeroVersion != 1 || b.Nombre != "Borrador 2" || b.Items[0].Etiqueta != "Poste firme y aterrizado" {
+		t.Fatalf("borrador editado en el lugar: %+v", b)
 	}
-	_, err = e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version - 1, Nombre: "X", Items: items})
+	b = deber(e.m.ActivarPlantilla.Ejecutar(cs, campo.EntradaVersionPlantilla{ID: b.ID, Version: b.Version}))(t)
+	b = deber(e.m.DesactivarPlantilla.Ejecutar(cs, campo.EntradaVersionPlantilla{ID: b.ID, Version: b.Version}))(t)
+	b = deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: b.ID, Version: b.Version, Nombre: "Borrador 3", Items: items}))(t)
+	if b.NumeroVersion != 2 || b.Borrador {
+		t.Fatalf("activada alguna vez (aunque hoy esté inactiva y sin uso): versión nueva: %+v", b)
+	}
+	_, err = e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version + 1, Nombre: "X", Items: items})
 	problema(t, err, 409, "conflicto_version")
 
 	// Con uso: una orden la tiene (versión 1) y respondió un ítem; editar crea la versión 2.
@@ -157,7 +170,7 @@ func TestPlantillasCrudYVersiones(t *testing.T) {
 	d1 = detalle(t, e, o1.ID)
 	f1b := formularioDe(t, d1, p.ID)
 	it = itemDe(t, d1, f1.ID, "estado_caja")
-	if f1b.NumeroVersion != 1 || f1b.Nombre != "Revisión NAP" || f1b.RequiereFirma || it.Valor != "Dañada" ||
+	if f1b.NumeroVersion != 1 || f1b.Nombre != "Revisión de caja NAP" || f1b.RequiereFirma || it.Valor != "Dañada" ||
 		len(it.Opciones) != 3 || !f1b.ConRespuestas {
 		t.Fatalf("la orden conserva su versión: %+v %+v", f1b, it)
 	}
@@ -208,10 +221,10 @@ func TestPlantillasCrudYVersiones(t *testing.T) {
 	problema(t, err, 422, "plantilla_por_defecto")
 
 	if ev := eventosPlantilla(t, p.ID); !slices.Equal(ev, []string{"plantilla.creada", "plantilla.actualizada",
-		"plantilla.actualizada", "plantilla.desactivada", "plantilla.activada"}) {
+		"plantilla.desactivada", "plantilla.activada"}) {
 		t.Fatalf("eventos: %v", ev)
 	}
-	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'plantillas.editar' AND entidad_id = $1::bigint::text AND resultado = 'ok'", p.ID); n != 2 {
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'plantillas.editar' AND entidad_id = $1::bigint::text AND resultado = 'ok'", p.ID); n != 1 {
 		t.Fatalf("auditoría de editar: %d", n)
 	}
 }
@@ -245,6 +258,9 @@ func TestFormulariosAsignarYQuitar(t *testing.T) {
 		t.Fatalf("orden.formulario_agregado: %v", ev)
 	}
 
+	// El formulario del tipo no se quita.
+	_, err = e.m.QuitarFormulario.Ejecutar(cd, campo.EntradaQuitarFormulario{ID: o.ID, FormularioID: dt.Formularios[0].ID, Version: o.Version})
+	problema(t, err, 422, "formulario_del_tipo")
 	// Quitar sin respuestas; otra vez → 409.
 	o = deber(e.m.QuitarFormulario.Ejecutar(cd, campo.EntradaQuitarFormulario{ID: o.ID, FormularioID: f.ID, Version: o.Version}))(t)
 	_, err = e.m.QuitarFormulario.Ejecutar(cd, campo.EntradaQuitarFormulario{ID: o.ID, FormularioID: f.ID, Version: o.Version})
@@ -428,11 +444,14 @@ func TestFormulariosPorSync(t *testing.T) {
 	p4 := crearPlantilla(t, e, cs, false)
 	otra := crearOrden(t, e, cd, "visita")
 	deber(e.m.AsignarFormulario.Ejecutar(cd, campo.EntradaAgregarFormulario{ID: otra.ID, Version: otra.Version, PlantillaID: p4.ID}))(t)
+	vioV1 := e.reloj.ahora().Add(10 * time.Minute) // el teléfono la vio y la agregó antes de la edición
+	e.reloj.avanzar(30 * time.Minute)
 	p4b := deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p4.ID, Version: p4.Version, Nombre: "NAP v2", Items: itemsPrueba()[:2]}))(t)
 	if p4b.NumeroVersion != 2 {
 		t.Fatal("versión 2")
 	}
 	ag := op(campo.OpAgregarForm, o.ID, map[string]any{"plantillaId": p4.ID, "versionId": p4.VersionID})
+	ag.OcurridoEn = &vioV1
 	r = lote(t, e, ct, ag, op(campo.OpChecklistMarcar, o.ID, map[string]any{"itemId": p4.Items[2].ID, "valor": uuid.Must(uuid.NewV7()).String()}))
 	esperar(t, r, "aplicada", "aplicada")
 	if r.Resultados[0].Aviso == nil || *r.Resultados[0].Aviso != campo.AvisoVersionAnterior {
@@ -533,4 +552,82 @@ func TestPlantillasMultiempresa(t *testing.T) {
 	limitado := conAlcance(t, sup, map[string][]contexto.Alcance{"plantillas.crear": {{ZonaID: 3}}})
 	_, err = e.m.CrearPlantilla.Ejecutar(limitado, campo.EntradaCrearPlantilla{Codigo: "limitada", Nombre: "X", Items: itemsPrueba()})
 	problema(t, err, 403, "prohibido")
+}
+
+// Revisión de la PR #29, punto 1: el teléfono solo fija la versión actual o la vigente a la hora
+// de la operación; una más vieja (v1 cuando a esa hora ya regía v2) dejaría la orden con una
+// versión superada y bloquearía la actual.
+func TestRevisionVersionVigenteAlAgregar(t *testing.T) {
+	e := nuevoEntorno()
+	cs := supervisor(t)
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	o := programada(t, e, cd, "visita", tec)
+	o2 := programada(t, e, cd, "visita", tec)
+	t0 := e.reloj.ahora()
+	p := crearPlantilla(t, e, cs, false) // v1 a t0
+	e.reloj.avanzar(time.Hour)
+	p2 := deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version, Nombre: "v2", Items: itemsPrueba()}))(t)
+	e.reloj.avanzar(time.Hour)
+	p3 := deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p2.Version, Nombre: "v3", Items: itemsPrueba()}))(t)
+	if p2.NumeroVersion != 2 || p3.NumeroVersion != 3 {
+		t.Fatalf("versiones: %d %d", p2.NumeroVersion, p3.NumeroVersion)
+	}
+	agregar := func(version int64, momento time.Time) campo.OperacionLote {
+		x := op(campo.OpAgregarForm, o.ID, map[string]any{"plantillaId": p.ID, "versionId": version})
+		x.OcurridoEn = &momento
+		return x
+	}
+	// A t0+90 min regía v2: v1 se rechaza (422 versionId), aunque sea de la plantilla.
+	r := lote(t, e, ct, agregar(p.VersionID, t0.Add(90*time.Minute)))
+	esperar(t, r, "rechazada:validacion")
+	if r.Resultados[0].Error.Errors[0].Field != "versionId" {
+		t.Fatalf("campo: %+v", r.Resultados[0].Error)
+	}
+	// v1 a t0+30 min (la vigente entonces): aplicada con aviso.
+	r = lote(t, e, ct, agregar(p.VersionID, t0.Add(30*time.Minute)))
+	esperar(t, r, "aplicada")
+	if *r.Resultados[0].Aviso != campo.AvisoVersionAnterior || formularioDe(t, detalle(t, e, o.ID), p.ID).NumeroVersion != 1 {
+		t.Fatalf("vigente a esa hora: %+v", r.Resultados[0])
+	}
+	// En otra orden (asignada antes): v2 a t0+90 min sí; la actual (v3), siempre.
+	x := op(campo.OpAgregarForm, o2.ID, map[string]any{"plantillaId": p.ID, "versionId": p2.VersionID})
+	x.OcurridoEn = ptr(t0.Add(90 * time.Minute))
+	esperar(t, lote(t, e, ct, x), "aplicada")
+	o3 := programada(t, e, cd, "visita", tec)
+	esperar(t, lote(t, e, ct, op(campo.OpAgregarForm, o3.ID, map[string]any{"plantillaId": p.ID, "versionId": p3.VersionID})), "aplicada")
+}
+
+// Punto 2: una plantilla activa sin uso en órdenes ya está en el catálogo de los teléfonos;
+// editarla crea una versión, así lo que el técnico llena sin señal (ítems de la versión que vio)
+// sigue siendo válido y los obligatorios nuevos no le cambian sin aviso.
+func TestRevisionEdicionDeActivaSinUsoCreaVersion(t *testing.T) {
+	e := nuevoEntorno()
+	cs := supervisor(t)
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	o := programada(t, e, cd, "visita", tec)
+	p := crearPlantilla(t, e, cs, false)
+	paq := deber(e.m.Paquete(ct, campo.EntradaPaquete{Fecha: "2026-10-28"}))(t)
+	visto := paq.Plantillas[slices.IndexFunc(paq.Plantillas, func(x campo.PlantillaFormulario) bool { return x.ID == p.ID })]
+	sinSenal := e.reloj.ahora().Add(10 * time.Minute)
+	e.reloj.avanzar(30 * time.Minute)
+
+	// Sin señal, el técnico la agrega y marca; mientras, se edita (sin uso todavía) con un
+	// obligatorio nuevo.
+	items := append(itemsPrueba(), campo.EntradaItemPlantilla{Codigo: "nuevo", Etiqueta: "Nuevo obligatorio", Tipo: campo.ItemSiNo, Obligatorio: true})
+	p2 := deber(e.m.EditarPlantilla.Ejecutar(cs, campo.EntradaEditarPlantilla{ID: p.ID, Version: p.Version, Nombre: "Con nuevo", Items: items}))(t)
+	if p2.NumeroVersion != 2 || p2.VersionID == visto.VersionID {
+		t.Fatalf("versión nueva: %+v", p2)
+	}
+	ag := op(campo.OpAgregarForm, o.ID, map[string]any{"plantillaId": p.ID, "versionId": visto.VersionID})
+	ag.OcurridoEn = &sinSenal
+	marca := op(campo.OpChecklistMarcar, o.ID, map[string]any{"itemId": visto.Items[0].ID, "valor": true})
+	r := lote(t, e, ct, ag, marca)
+	esperar(t, r, "aplicada", "aplicada")
+	f := formularioDe(t, detalle(t, e, o.ID), p.ID)
+	if f.NumeroVersion != 1 || itemDe(t, detalle(t, e, o.ID), f.ID, "poste_ok").Valor != true ||
+		slices.ContainsFunc(detalle(t, e, o.ID).Checklist, func(it campo.ItemChecklist) bool { return it.Codigo == "nuevo" }) {
+		t.Fatalf("el formulario conserva la versión que vio el teléfono: %+v", f)
+	}
 }

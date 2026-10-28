@@ -3462,6 +3462,8 @@ export interface components {
             zonaId?: number;
         };
         EntradaCrearPlantilla: {
+            /** @description Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión */
+            borrador?: boolean;
             codigo: string;
             /** @description Común a todas las empresas (exige empresas.todas con empresas registradas); por defecto, de la empresa activa */
             comun?: boolean;
@@ -4569,10 +4571,10 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
@@ -4688,10 +4690,10 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
@@ -4827,10 +4829,10 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
@@ -5321,6 +5323,8 @@ export interface components {
             activa: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Nunca se activó: editarla reescribe su versión. Si es false, toda edición crea una versión nueva */
+            borrador?: boolean;
             /** @description Único por empresa (las comunes, entre las comunes) */
             codigo: string;
             /** Format: date-time */
@@ -5369,6 +5373,8 @@ export interface components {
             activa: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Nunca se activó: editarla reescribe su versión. Si es false, toda edición crea una versión nueva */
+            borrador?: boolean;
             /** @description Único por empresa (las comunes, entre las comunes) */
             codigo: string;
             /** Format: date-time */
@@ -5630,7 +5636,7 @@ export interface components {
         };
         ResultadoOperacion: {
             /** @enum {string} */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /** @description problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>) */
             error?: components["schemas"]["Problema"];
             /** @enum {string} */

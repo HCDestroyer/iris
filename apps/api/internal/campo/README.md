@@ -15,9 +15,10 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   `POST /plantillas/{id}/editar|activar|desactivar` (`plantillas.crear|editar|activar|desactivar`,
   con el permiso global). Ítems `si_no`, `texto`, `numero`, `foto`, `medicion` y `seleccion` (con
   `opciones`), en orden y con `obligatorio`; `requiereFirma` por plantilla; `tipo` opcional (null =
-  cualquier tipo). **Versiones:** editar reemplaza la definición; si la versión actual ya está en
-  algún formulario de una orden, crea la versión N+1 (las órdenes conservan la suya y lo respondido
-  no cambia); si no, la reescribe. **Empresa:** una plantilla es de la empresa activa o común
+  cualquier tipo). **Versiones:** editar reemplaza la definición y crea la versión N+1 si la
+  plantilla estuvo activa alguna vez (ya viajó en el catálogo de los teléfonos) o si la versión
+  está en alguna orden (las órdenes conservan la suya y lo respondido no cambia); solo un
+  borrador (`borrador: true` al crear; nunca activado) se reescribe. **Empresa:** una plantilla es de la empresa activa o común
   (`comun`, empresa null; la semilla es común); con empresas registradas, las comunes solo las crea
   o modifica quien puede tocar lo común (`empresas.todas` global, el sistema o sin conector; si no,
   403). Una orden usa plantillas comunes o de su empresa. La plantilla por defecto de un tipo no se
@@ -26,7 +27,8 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   orden (la del tipo o `plantillaId`) entra como primer formulario (origen `tipo`) en su versión
   actual. Despacho agrega (`POST /ordenes/{id}/formularios`, `ordenes.asignar_formulario`) y quita
   (`POST /ordenes/{id}/formularios/{fid}/quitar`, solo sin respuestas: 422
-  `formulario_con_respuestas`). El técnico agrega y quita (solo los suyos) sin señal con
+  `formulario_con_respuestas`; el del tipo nunca: 422 `formulario_del_tipo`). El técnico solo fija
+  la versión actual o la vigente a la hora de la operación (otra: 422 `versionId`). El técnico agrega y quita (solo los suyos) sin señal con
   `orden.agregar_formulario` / `orden.quitar_formulario` del lote (`ordenes.registrar`, orden propia
   y abierta). Una plantilla una sola vez por orden (409 `formulario_duplicado`). Las marcas del
   checklist quedan ligadas al formulario (`orden_checklist.formulario_id`); un ítem identifica su
@@ -66,7 +68,8 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   nota) desde en camino o en sitio, y `POST /ordenes/{id}/reanudar { version }` (`ordenes.reanudar`)
   al estado de antes. Cada pausa queda en `orden_pausas` (inicio, fin, motivo, nota, quién la abrió
   y la cerró, cómo terminó: `reanudada`, `cancelada` o `reprogramada`); el total de las terminadas
-  en `ordenes.pausada_seg` (`tiempoPausadoSeg`). Sigue abierta: conserva la cita (agenda: ocupa,
+  en `ordenes.pausada_seg` (`tiempoPausadoSeg`). Una pausa no empieza antes del fin de la anterior
+  (se ajusta con `aviso: pausa_ajustada`) y lo pausado nunca supera lo transcurrido desde que salió. Sigue abierta: conserva la cita (agenda: ocupa,
   cuenta para la capacidad y sale `pausada` en el calendario), no sale del paquete ni de la ruta
   (que no se marca desactualizada: la cita no se mueve) y admite evidencias. No se cierra, falla,
   llega, sale ni reasigna sin reanudar (422 `orden_pausada`); cancelar y reprogramar cierran la

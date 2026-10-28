@@ -83,7 +83,7 @@ type Orden struct {
 	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`
 	// Aviso: la acción se aplicó, pero con una advertencia (checklist_no_vigente,
 	// existencia_insuficiente). Solo en la respuesta de una acción.
-	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos) o version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual)"`
+	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)"`
 }
 
 func aOrden(f campobd.CampoOrden, tipo string) Orden {

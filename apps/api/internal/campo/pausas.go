@@ -50,6 +50,10 @@ type EntradaReanudar struct {
 func (e EntradaPausar) ordenID() int64   { return e.ID }
 func (e EntradaReanudar) ordenID() int64 { return e.ID }
 
+// AvisoPausaAjustada: el inicio de la pausa (hora del teléfono) caía antes del fin de la pausa
+// anterior; se ajustó a ese fin.
+const AvisoPausaAjustada = "pausa_ajustada"
+
 // noPausada: una orden pausada no avanza ni termina sin reanudar (422 orden_pausada).
 func noPausada(f campobd.CampoOrden, accion string) error {
 	if f.Estado != EstadoPausada {
@@ -82,7 +86,17 @@ func (m *Modulo) nuevoPausarOrden() *auditoria.Caso[EntradaPausar, Orden] {
 			if in.Motivo == "otro" && nota == nil {
 				return antes, "", campoObligatorio("nota")
 			}
-			cuando := m.cuandoEn(in.Sync, antes)
+			// Piso: el fin de la última pausa (con la hora del teléfono, una pausa no se puede
+			// encimar a otra ya cerrada e inflar el tiempo pausado): se ajusta y se avisa.
+			cuando, aviso := m.cuandoEn(in.Sync, antes), ""
+			finPrevia, err := q.FinUltimaPausa(ctx, antes.ID)
+			if err != nil {
+				return antes, "", err
+			}
+			if cuando.Before(finPrevia) {
+				cuando, aviso = finPrevia, AvisoPausaAjustada
+				t.Anotar(map[string]any{"pausa_ajustada": true})
+			}
 			p, err := q.CrearPausa(ctx, campobd.CrearPausaParams{OrdenID: antes.ID, Motivo: in.Motivo, Nota: nota,
 				DesdeEstado: antes.Estado, Inicio: cuando, PausadaPor: actorUsuario(t), Canal: string(contexto.CanalDe(ctx)),
 				OperacionID: operacionDe(in.Sync)})
@@ -104,7 +118,7 @@ func (m *Modulo) nuevoPausarOrden() *auditoria.Caso[EntradaPausar, Orden] {
 			if err := cambioDeEstado(ctx, t, q, antes, f, &motivo, map[string]any{"pausa_id": p.ID, "motivo": in.Motivo, "nota": nota}, cuando); err != nil {
 				return f, "", err
 			}
-			return f, "", t.Emitir("orden.pausada", map[string]any{
+			return f, aviso, t.Emitir("orden.pausada", map[string]any{
 				"orden_id": f.ID, "numero": f.Numero, "pausa_id": p.ID, "motivo": in.Motivo, "nota": nota, "desde": desde,
 				"inicio": cuando, "tecnico_id": f.TecnicoID,
 			})
@@ -165,7 +179,19 @@ func cerrarPausa(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f *ca
 	if f.PausadaDesde != nil {
 		f.Estado = *f.PausadaDesde
 	}
+	duracion := int64(cuando.Sub(p.Inicio) / time.Second)
+	// Nunca más pausado que el tiempo transcurrido desde que salió (en camino) en esta visita.
+	if f.EnCaminoEn != nil {
+		previo, err := q.PausadoDesde(ctx, campobd.PausadoDesdeParams{OrdenID: f.ID, Desde: *f.EnCaminoEn})
+		if err != nil {
+			return p, err
+		}
+		// previo ya incluye esta pausa (recién cerrada).
+		if tope := int64(cuando.Sub(*f.EnCaminoEn)/time.Second) - (previo - duracion); duracion > tope {
+			duracion = max(tope, 0)
+		}
+	}
 	f.PausadaDesde, f.PausadaEn = nil, nil
-	f.PausadaSeg += int64(cuando.Sub(p.Inicio) / time.Second)
+	f.PausadaSeg += duracion
 	return p, nil
 }
