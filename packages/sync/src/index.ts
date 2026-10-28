@@ -7,7 +7,7 @@ export { AlmacenMemoria } from "./almacen-memoria";
 export { aplicarOperacion, bodegaDeOrden, descontarExistencias, fusionarMarca, valorDe, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
 export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
 export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi } from "./http";
-export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
+export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 export {
     CODIGO_BLOQUEADA,
     CODIGOS_TERMINALES,

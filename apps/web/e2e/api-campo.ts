@@ -27,6 +27,8 @@ export interface OpcionesCampo {
     fotosExigidas?: string[];
     /** Ruta publicada del técnico en el paquete (`RutaCampo`; hoy la API no la manda). */
     ruta?: Schema<"RutaCampo">;
+    /** Turno de la agenda para el día pedido (`undefined` = ese día no trabaja). */
+    turno?: (fecha: string) => Schema<"TurnoCampo"> | undefined;
 }
 
 export interface ApiCampo {
@@ -53,6 +55,12 @@ export interface ApiCampo {
     respuestasPosiciones: Schema<"RespuestaPosiciones">[];
     /** Las próximas `veces` peticiones de posiciones responden 429 con `Retry-After` (segundos). */
     limitarPosiciones: (veces: number, retryAfter?: number) => void;
+    /** Día pedido en cada GET /campo/paquete. */
+    fechasPaquete: string[];
+    /** Si no es null, GET /campo/paquete responde con este problema. */
+    fallarPaquete: Problema | null;
+    /** El técnico tiene una contraseña temporal (`usuario.cambioContrasenaRequerido` en GET /yo). */
+    contrasenaTemporal: boolean;
 }
 
 /** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
@@ -83,7 +91,7 @@ const DESDE: Partial<Record<OperacionLote["tipo"], OrdenCampo["estado"][]>> = {
     "firma.capturar": ["en_sitio"],
 };
 
-const problema = (codigo: string, status: number, title: string, errors?: Problema["errors"]): Problema => ({
+export const problema = (codigo: string, status: number, title: string, errors?: Problema["errors"]): Problema => ({
     type: `urn:iris:problema:${codigo}`,
     title,
     status,
@@ -124,6 +132,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         posiciones: [],
         intentosPosiciones: [],
         respuestasPosiciones: [],
+        fechasPaquete: [],
+        fallarPaquete: null,
+        contrasenaTemporal: false,
         limitarPosiciones: (veces, retryAfter = 20) => {
             limite429.veces = veces;
             limite429.retryAfter = retryAfter;
@@ -277,7 +288,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const activa = empresas.find((e) => e.id === empresa) ?? (empresas.length === 1 ? empresas[0] : undefined);
             const yo: Schema<"Yo"> = {
                 actor: "usuario",
-                usuario,
+                usuario: api.contrasenaTemporal ? { ...usuario, cambioContrasenaRequerido: true } : usuario,
                 permisos: PERMISOS_TECNICO,
                 empresas,
                 modoEmpresa: empresas.length === 0 ? "sin_conector" : activa ? "activa" : "por_elegir",
@@ -288,8 +299,14 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             return json(route, yo);
         }
         if (ruta === "/api/v1/campo/paquete") {
+            const fecha = url.searchParams.get("fecha") ?? new Date().toISOString().slice(0, 10);
+            api.fechasPaquete.push(fecha);
+            if (api.fallarPaquete) {
+                return error(route, api.fallarPaquete);
+            }
+            const turno = opciones.turno?.(fecha);
             const paquete: Schema<"Paquete"> = {
-                fecha: url.searchParams.get("fecha") ?? new Date().toISOString().slice(0, 10),
+                fecha,
                 servidorEn: new Date().toISOString(),
                 cursor: String(cursor),
                 ordenes: [...api.ordenes.values()]
@@ -297,6 +314,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                     .map((o) => structuredClone(o)),
                 existencias: existenciasDelTecnico(),
                 ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
+                ...(turno ? { turno } : {}),
             };
             return json(route, paquete);
         }
