@@ -61,11 +61,12 @@ func responder[T any](v T, err error) (*cuerpo[T], error) {
 	return &cuerpo[T]{Body: v}, nil
 }
 
-// registrarAccion publica POST /tickets/{id}/<ruta> para un caso cuya entrada lleva el id.
-func registrarAccion[In, Out any](api huma.API, op huma.Operation, ejecutar func(context.Context, In) (Out, error), conIDFn func(*In, int64)) {
+// registrarAccion publica POST /tickets/{id}/<ruta> para un caso cuya entrada lleva el id (y,
+// si la usa, la Idempotency-Key).
+func registrarAccion[In, Out any](api huma.API, op huma.Operation, ejecutar func(context.Context, In) (Out, error), conIDFn func(*In, *conID[In])) {
 	huma.Register(api, op, func(ctx context.Context, in *conID[In]) (*cuerpo[Out], error) {
 		e := in.Body
-		conIDFn(&e, in.ID)
+		conIDFn(&e, in)
 		return responder(ejecutar(ctx, e))
 	})
 }
@@ -80,7 +81,9 @@ func (m *Modulo) Registrar(api huma.API) {
 	crear := operacion("crearTicket", http.MethodPost, "/api/v1/tickets", "Crear un ticket", nucleo.PermTicketsCrear, http.StatusCreated)
 	crear.Description += " Calcula el SLA (categoría → SLA, o el por defecto; objetivos de la prioridad) y emite `ticket.creado`."
 	huma.Register(api, crear, func(ctx context.Context, in *conClave[EntradaCrearTicket]) (*cuerpo[Ticket], error) {
-		return responder(m.CrearTicket.Ejecutar(ctx, in.Body))
+		e := in.Body
+		e.ClaveIdempotencia = in.IdempotencyKey
+		return responder(m.CrearTicket.Ejecutar(ctx, e))
 	})
 
 	huma.Register(api, operacion("verTicket", http.MethodGet, "/api/v1/tickets/{id}", "Ver un ticket", nucleo.PermTicketsVer, http.StatusOK, http.StatusNotFound),
@@ -88,7 +91,7 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.VerTicket.Ejecutar(ctx, *in))
 		})
 
-	huma.Register(api, operacion("listarMensajesTicket", http.MethodGet, "/api/v1/tickets/{id}/mensajes", "Conversación del ticket (mensajes y notas internas)", nucleo.PermTicketsVer, http.StatusOK, http.StatusNotFound),
+	huma.Register(api, operacion("listarMensajesTicket", http.MethodGet, "/api/v1/tickets/{id}/mensajes", "Conversación del ticket (mensajes y, con tickets.ver_notas, notas internas)", nucleo.PermTicketsVer, http.StatusOK, http.StatusNotFound),
 		func(ctx context.Context, in *EntradaListarMensajes) (*cuerpo[nucleo.Pagina[Mensaje]], error) {
 			return responder(m.ListarMensajes.Ejecutar(ctx, *in))
 		})
@@ -100,43 +103,47 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	registrarAccion(api, accion("asignarTicket", "asignar", "Asignar un ticket",
 		"A un usuario y/o una cuadrilla (sin ambos, queda sin asignar). Un ticket nuevo pasa a abierto. Emite `ticket.asignado`.",
-		nucleo.PermTicketsAsignar), m.AsignarTicket.Ejecutar, func(e *EntradaAsignarTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsAsignar), m.AsignarTicket.Ejecutar, func(e *EntradaAsignarTicket, in *conID[EntradaAsignarTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("responderTicket", "responder", "Responder al cliente (mensaje público)",
 		"Cuenta como primera respuesta del SLA; un ticket nuevo pasa a abierto. No se permite en cerrado. Emite `ticket.respondido`.",
-		nucleo.PermTicketsResponder), m.ResponderTicket.Ejecutar, func(e *EntradaResponderTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsResponder), m.ResponderTicket.Ejecutar, func(e *EntradaResponderTicket, in *conID[EntradaResponderTicket]) {
+		e.ID, e.ClaveIdempotencia = in.ID, in.IdempotencyKey
+	})
 
 	registrarAccion(api, accion("agregarNotaInterna", "nota-interna", "Agregar una nota interna",
 		"El cliente no la ve; no cambia el estado ni el SLA. Se permite en cualquier estado.",
-		nucleo.PermTicketsNotaInterna), m.AgregarNotaInterna.Ejecutar, func(e *EntradaNotaInterna, id int64) { e.ID = id })
+		nucleo.PermTicketsNotaInterna), m.AgregarNotaInterna.Ejecutar, func(e *EntradaNotaInterna, in *conID[EntradaNotaInterna]) {
+		e.ID, e.ClaveIdempotencia = in.ID, in.IdempotencyKey
+	})
 
 	registrarAccion(api, accion("escalarTicket", "escalar", "Escalar un ticket",
-		"Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA. Emite `ticket.escalado`.",
-		nucleo.PermTicketsEscalar), m.EscalarTicket.Ejecutar, func(e *EntradaEscalarTicket, id int64) { e.ID = id })
+		"Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA de los relojes que no se cumplieron. Emite `ticket.escalado`.",
+		nucleo.PermTicketsEscalar), m.EscalarTicket.Ejecutar, func(e *EntradaEscalarTicket, in *conID[EntradaEscalarTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("ponerTicketEnEspera", "poner-en-espera", "Poner un ticket en espera",
 		"abierto → en_espera. Pausa el reloj de resolución. Emite `ticket.estado_cambiado`.",
-		nucleo.PermTicketsPonerEnEspera), m.PonerTicketEnEspera.Ejecutar, func(e *EntradaPonerEnEspera, id int64) { e.ID = id })
+		nucleo.PermTicketsPonerEnEspera), m.PonerTicketEnEspera.Ejecutar, func(e *EntradaPonerEnEspera, in *conID[EntradaPonerEnEspera]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("reanudarTicket", "reanudar", "Reanudar un ticket en espera",
 		"en_espera → abierto. El tiempo laboral en espera corre el vencimiento de resolución. Emite `ticket.estado_cambiado`.",
-		nucleo.PermTicketsReanudar), m.ReanudarTicket.Ejecutar, func(e *EntradaReanudarTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsReanudar), m.ReanudarTicket.Ejecutar, func(e *EntradaReanudarTicket, in *conID[EntradaReanudarTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("resolverTicket", "resolver", "Resolver un ticket",
 		"nuevo, abierto o en_espera → resuelto, con la solución como mensaje público. Emite `ticket.estado_cambiado`.",
-		nucleo.PermTicketsResolver), m.ResolverTicket.Ejecutar, func(e *EntradaResolverTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsResolver), m.ResolverTicket.Ejecutar, func(e *EntradaResolverTicket, in *conID[EntradaResolverTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("reabrirTicket", "reabrir", "Reabrir un ticket resuelto",
 		"resuelto → abierto. El tiempo en resuelto no cuenta para el SLA de resolución. Emite `ticket.estado_cambiado`.",
-		nucleo.PermTicketsReabrir), m.ReabrirTicket.Ejecutar, func(e *EntradaReabrirTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsReabrir), m.ReabrirTicket.Ejecutar, func(e *EntradaReabrirTicket, in *conID[EntradaReabrirTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("cerrarTicket", "cerrar", "Cerrar un ticket",
 		"Desde resuelto, o desde nuevo, abierto o en_espera con motivo. Cerrado es final. Emite `ticket.estado_cambiado`.",
-		nucleo.PermTicketsCerrar), m.CerrarTicket.Ejecutar, func(e *EntradaCerrarTicket, id int64) { e.ID = id })
+		nucleo.PermTicketsCerrar), m.CerrarTicket.Ejecutar, func(e *EntradaCerrarTicket, in *conID[EntradaCerrarTicket]) { e.ID = in.ID })
 
 	registrarAccion(api, accion("fusionarTickets", "fusionar", "Fusionar un ticket duplicado en otro",
 		"El ticket {id} se cierra fusionado en `destinoId` (no cerrado, misma empresa; si no, 422 `fusion_invalida`). Emite `ticket.estado_cambiado` y `ticket.fusionado`.",
-		nucleo.PermTicketsFusionar), m.FusionarTickets.Ejecutar, func(e *EntradaFusionarTickets, id int64) { e.ID = id })
+		nucleo.PermTicketsFusionar), m.FusionarTickets.Ejecutar, func(e *EntradaFusionarTickets, in *conID[EntradaFusionarTickets]) { e.ID = in.ID })
 
 	huma.Register(api, operacion("listarCategoriasTicket", http.MethodGet, "/api/v1/categorias", "Categorías de ticket", nucleo.PermTicketsVer, http.StatusOK),
 		func(ctx context.Context, in *EntradaListarCategorias) (*cuerpo[nucleo.Pagina[Categoria]], error) {

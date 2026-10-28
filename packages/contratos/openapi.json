@@ -209,13 +209,13 @@
             "type": "string"
           },
           "empresaId": {
-            "description": "Empresa en Argos; por defecto, la activa",
+            "description": "Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide. Solo una integración o el sistema sin empresa activa la eligen aquí",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
           },
           "origen": {
-            "description": "Por defecto, según el canal",
+            "description": "Por defecto, según el canal. correo, telegram, horus y argos solo para integraciones o el sistema; portal solo por el canal portal (si no, 422 origen_no_permitido)",
             "enum": [
               "panel",
               "portal",
@@ -1107,6 +1107,7 @@
           "tickets.resolver",
           "tickets.responder",
           "tickets.ver",
+          "tickets.ver_notas",
           "tokens.crear",
           "tokens.revocar",
           "tokens.ver",
@@ -3090,7 +3091,7 @@
     },
     "/api/v1/tickets/{id}/escalar": {
       "post": {
-        "description": "Permiso: `tickets.escalar`. Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA. Emite `ticket.escalado`.",
+        "description": "Permiso: `tickets.escalar`. Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA de los relojes que no se cumplieron. Emite `ticket.escalado`.",
         "operationId": "escalarTicket",
         "parameters": [
           {
@@ -3493,12 +3494,12 @@
             }
           },
           {
-            "description": "Sin notas internas (lo que ve el cliente)",
+            "description": "Sin notas internas (lo que ve el cliente). Sin el permiso tickets.ver_notas, o por el canal portal, siempre es true",
             "explode": false,
             "in": "query",
             "name": "soloPublicos",
             "schema": {
-              "description": "Sin notas internas (lo que ve el cliente)",
+              "description": "Sin notas internas (lo que ve el cliente). Sin el permiso tickets.ver_notas, o por el canal portal, siempre es true",
               "type": "boolean"
             }
           }
@@ -3573,7 +3574,7 @@
             "bearer": []
           }
         ],
-        "summary": "Conversación del ticket (mensajes y notas internas)",
+        "summary": "Conversación del ticket (mensajes y, con tickets.ver_notas, notas internas)",
         "tags": [
           "soporte"
         ],

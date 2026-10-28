@@ -28,8 +28,8 @@ type ResultadoRevisarSLA struct {
 func (r ResultadoRevisarSLA) Emitidas() int { return r.EnRiesgo + r.Vencidos }
 
 // nuevoRevisarSLA arma el cron: procesa todo lo pendiente hasta ahora y emite
-// ticket.sla_en_riesgo (80 %) y ticket.sla_vencido una sola vez por ticket, reloj y umbral
-// (soporte.ticket_sla_alertas). Una corrida concurrente o repetida no duplica: la alerta se
+// ticket.sla_en_riesgo (80 %) y ticket.sla_vencido una sola vez por ticket, reloj, umbral y
+// vencimiento (soporte.ticket_sla_alertas; un plazo nuevo vuelve a alertar). Una corrida concurrente o repetida no duplica: la alerta se
 // reclama con INSERT … ON CONFLICT DO NOTHING en la misma transacción que el evento.
 func (m *Modulo) nuevoRevisarSLA() *auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]{

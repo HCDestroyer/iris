@@ -21,6 +21,30 @@ import (
 // Piezas comunes de las acciones sobre un ticket: tomarlo con candado verificando empresa,
 // alcance, versión y estado; guardarlo con el SLA recalculado y auditado; historial y eventos.
 
+// conIdempotencia identifica la operación por la credencial y su Idempotency-Key (las claves
+// son por credencial, como en nucleo.MiddlewareIdempotencia). nil sin clave.
+func conIdempotencia(ctx context.Context, clave string) *string {
+	if clave == "" {
+		return nil
+	}
+	a := contexto.ActorDe(ctx)
+	credencial := fmt.Sprintf("%s:%d", a.Tipo, a.ID)
+	if a.TokenID != 0 {
+		credencial = fmt.Sprintf("token:%d", a.TokenID)
+	}
+	v := credencial + "|" + clave
+	return &v
+}
+
+// esSistemaOIntegracion: actores que no son una persona (cron, workers, Argos, Horus).
+func esSistemaOIntegracion(ctx context.Context) bool {
+	switch contexto.ActorDe(ctx).Tipo {
+	case contexto.ActorSistema, contexto.ActorIntegracion:
+		return true
+	}
+	return false
+}
+
 // noEncontrado oculta también los tickets de otra empresa o fuera del alcance de lectura.
 func noEncontrado() *nucleo.Problema { return nucleo.NoEncontrado("El ticket no existe") }
 
@@ -202,15 +226,41 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, 
 
 // mensaje agrega un mensaje del actor (o del sistema) al ticket.
 func mensaje(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, f soportebd.SoporteTicket, publico bool, cuerpo string) (soportebd.SoporteTicketMensaje, error) {
+	return mensajeIdempotente(ctx, t, q, f, publico, cuerpo, nil)
+}
+
+// mensajeIdempotente agrega el mensaje guardando la clave de la operación (ver conIdempotencia).
+func mensajeIdempotente(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, f soportebd.SoporteTicket, publico bool, cuerpo string, idem *string) (soportebd.SoporteTicketMensaje, error) {
 	actor := t.Actor()
 	p := soportebd.CrearMensajeParams{
 		TicketID: f.ID, EmpresaID: f.EmpresaID, Publico: publico, AutorTipo: "sistema",
-		AutorNombre: actor.Nombre, Canal: string(contexto.CanalDe(ctx)), Cuerpo: cuerpo,
+		AutorNombre: actor.Nombre, Canal: string(contexto.CanalDe(ctx)), Cuerpo: cuerpo, Idempotencia: idem,
 	}
 	if actor.EsUsuario() {
 		p.AutorTipo, p.AutorID = "usuario", &actor.ID
 	}
 	return q.CrearMensaje(ctx, p)
+}
+
+// mensajeRepetido busca el mensaje que dejó una ejecución anterior de la misma operación (la
+// clave se reclamó y la petición se repite): si existe, la acción no se vuelve a aplicar. El
+// actor debe poder ver el ticket.
+func mensajeRepetido(ctx context.Context, q *soportebd.Queries, id int64, idem *string, ahora time.Time) (*TicketConMensaje, error) {
+	if idem == nil {
+		return nil, nil
+	}
+	msj, err := q.MensajePorIdempotencia(ctx, soportebd.MensajePorIdempotenciaParams{TicketID: id, Idempotencia: idem})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	f, err := leer(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	return &TicketConMensaje{Ticket: aTicket(f, ahora), Mensaje: aMensaje(msj)}, nil
 }
 
 // abrirSiNuevo: la primera atención (asignar o responder) pasa el ticket de nuevo a abierto.

@@ -264,6 +264,7 @@ type SoporteTicket struct {
 	Version            int32
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	Idempotencia       *string
 }
 
 type SoporteTicketEvento struct {
@@ -284,18 +285,19 @@ type SoporteTicketEvento struct {
 }
 
 type SoporteTicketMensaje struct {
-	ID          int64
-	TicketID    int64
-	EmpresaID   *int64
-	Publico     bool
-	AutorTipo   string
-	AutorID     *int64
-	AutorNombre string
-	Canal       string
-	Cuerpo      string
-	Adjuntos    []uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           int64
+	TicketID     int64
+	EmpresaID    *int64
+	Publico      bool
+	AutorTipo    string
+	AutorID      *int64
+	AutorNombre  string
+	Canal        string
+	Cuerpo       string
+	Adjuntos     []uuid.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Idempotencia *string
 }
 
 type SoporteTicketSlaAlerta struct {

@@ -45,6 +45,12 @@ func (m *Modulo) nuevoFusionarTickets() *auditoria.Caso[EntradaFusionarTickets, 
 			if in.DestinoID == in.ID {
 				return ResultadoFusion{}, fusionInvalida("Un ticket no se fusiona consigo mismo")
 			}
+			// Acceso antes de bloquear: sin permiso sobre alguno de los dos, no se toma ningún
+			// candado (lectura sin candado; se verifica de nuevo con la fila bloqueada).
+			t.FijarEntidad("ticket", in.ID)
+			if err := accesoFusion(ctx, q, in.ID, in.DestinoID); err != nil {
+				return ResultadoFusion{}, err
+			}
 			// Candados en orden de id: dos fusiones cruzadas no se bloquean entre sí.
 			for _, id := range []int64{min(in.ID, in.DestinoID), max(in.ID, in.DestinoID)} {
 				if _, err := q.TicketPorIDParaActualizar(ctx, id); err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -65,11 +71,7 @@ func (m *Modulo) nuevoFusionarTickets() *auditoria.Caso[EntradaFusionarTickets, 
 			if err != nil {
 				return ResultadoFusion{}, err
 			}
-			if err := verificarAcceso(ctx, nucleo.PermTicketsFusionar, destino); err != nil {
-				var p *nucleo.Problema
-				if errors.As(err, &p) && p.Status == 404 {
-					return ResultadoFusion{}, fusionInvalida("El ticket destino no existe")
-				}
+			if err := accesoDestino(ctx, destino); err != nil {
 				return ResultadoFusion{}, err
 			}
 			if destino.Estado == EstadoCerrado {
@@ -111,7 +113,46 @@ func (m *Modulo) nuevoFusionarTickets() *auditoria.Caso[EntradaFusionarTickets, 
 			if err := t.Emitir("ticket.fusionado", map[string]any{"ticket_id": f.ID, "destino_id": destino.ID, "motivo": motivo}); err != nil {
 				return ResultadoFusion{}, err
 			}
+			// El destino recibió mensaje e historial: sube su versión (quien lo tenga abierto
+			// recarga) y se devuelve actualizado.
+			if destino, err = q.TocarTicket(ctx, destino.ID); err != nil {
+				return ResultadoFusion{}, err
+			}
 			return ResultadoFusion{Origen: aTicket(f, ahora), Destino: aTicket(destino, ahora)}, nil
 		},
 	})
+}
+
+// accesoFusion verifica, sin candados, que el actor puede fusionar el origen y el destino.
+func accesoFusion(ctx context.Context, q *soportebd.Queries, origenID, destinoID int64) error {
+	origen, err := q.TicketPorID(ctx, origenID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return noEncontrado()
+	}
+	if err != nil {
+		return err
+	}
+	if err := verificarAcceso(ctx, nucleo.PermTicketsFusionar, origen); err != nil {
+		return err
+	}
+	destino, err := q.TicketPorID(ctx, destinoID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fusionInvalida("El ticket destino no existe")
+	}
+	if err != nil {
+		return err
+	}
+	return accesoDestino(ctx, destino)
+}
+
+// accesoDestino: un destino que el actor no puede ver se reporta como inexistente (422).
+func accesoDestino(ctx context.Context, destino soportebd.SoporteTicket) error {
+	if err := verificarAcceso(ctx, nucleo.PermTicketsFusionar, destino); err != nil {
+		var p *nucleo.Problema
+		if errors.As(err, &p) && p.Status == 404 {
+			return fusionInvalida("El ticket destino no existe")
+		}
+		return err
+	}
+	return nil
 }

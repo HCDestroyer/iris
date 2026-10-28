@@ -44,7 +44,14 @@ ORDER BY nombre, id;
 -- Usuarios (lectura de nucleo para validar la asignación) -----------------------
 
 -- name: UsuarioAsignable :one
-SELECT id, nombre, activo FROM nucleo.usuarios WHERE id = @id;
+SELECT id, nombre, tipo, activo FROM nucleo.usuarios WHERE id = @id;
+
+-- name: AlcancesDePermisoDeUsuario :many
+-- Alcances con que el usuario tiene el permiso por sus roles (zona y cuadrilla null = global).
+SELECT ur.zona_id, ur.cuadrilla_id
+FROM nucleo.usuarios_roles ur
+JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+WHERE ur.usuario_id = @usuario_id AND rp.permiso = @permiso;
 
 -- Tickets ----------------------------------------------------------------------
 
@@ -53,17 +60,24 @@ INSERT INTO soporte.tickets (
     empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo,
     categoria_id, prioridad, origen, asunto, ticket_padre_id,
     sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min,
-    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion
+    riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, idempotencia
 ) VALUES (
     @empresa_id, @cliente_id, @servicio_id, @zona_id, @contacto_nombre, @contacto_telefono, @contacto_correo,
     @categoria_id, @prioridad, @origen, @asunto, @ticket_padre_id,
     @sla_id, @calendario_id, @sla_inicio, @sla_respuesta_min, @sla_resolucion_min,
-    @riesgo_respuesta, @vence_respuesta, @riesgo_resolucion, @vence_resolucion
+    @riesgo_respuesta, @vence_respuesta, @riesgo_resolucion, @vence_resolucion, sqlc.narg(idempotencia)
 )
 RETURNING *;
 
 -- name: TicketPorID :one
 SELECT * FROM soporte.tickets WHERE id = @id;
+
+-- name: TicketPorIdempotencia :one
+SELECT * FROM soporte.tickets WHERE idempotencia = @idempotencia;
+
+-- name: TicketPorIDCompartido :one
+-- Lectura con FOR SHARE: el ticket no cambia (p. ej. se cierra) hasta el COMMIT.
+SELECT * FROM soporte.tickets WHERE id = @id FOR SHARE;
 
 -- name: TicketPorIDParaActualizar :one
 SELECT * FROM soporte.tickets WHERE id = @id FOR UPDATE;
@@ -80,6 +94,12 @@ UPDATE soporte.tickets SET
     resuelto_en = @resuelto_en, cerrado_en = @cerrado_en, fusionado_en_id = @fusionado_en_id,
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: TocarTicket :one
+-- Sube la versión de un ticket que cambió sin tocar sus campos (p. ej. al recibir una fusión).
+UPDATE soporte.tickets SET version = version + 1, updated_at = now()
+WHERE id = @id
 RETURNING *;
 
 -- name: ListarTickets :many
@@ -108,9 +128,12 @@ LIMIT @limite;
 -- Mensajes e historial ---------------------------------------------------------
 
 -- name: CrearMensaje :one
-INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo)
-VALUES (@ticket_id, @empresa_id, @publico, @autor_tipo, @autor_id, @autor_nombre, @canal, @cuerpo)
+INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, idempotencia)
+VALUES (@ticket_id, @empresa_id, @publico, @autor_tipo, @autor_id, @autor_nombre, @canal, @cuerpo, sqlc.narg(idempotencia))
 RETURNING *;
+
+-- name: MensajePorIdempotencia :one
+SELECT * FROM soporte.ticket_mensajes WHERE ticket_id = @ticket_id AND idempotencia = @idempotencia;
 
 -- name: ListarMensajes :many
 SELECT * FROM soporte.ticket_mensajes
@@ -131,8 +154,9 @@ LIMIT @limite;
 -- Cron de SLA ------------------------------------------------------------------
 
 -- name: AlertasSLAPendientes :many
--- Relojes que cruzaron el 80 % o su vencimiento y todavía no se alertaron. Un reloj que ya
--- venció no emite «en riesgo» (si el cron estuvo detenido, solo sale el vencido).
+-- Relojes que cruzaron el 80 % o su vencimiento y todavía no se alertaron con ese vencimiento
+-- (si se corrió, el nuevo plazo vuelve a alertar). Un reloj que ya venció no emite «en riesgo»
+-- (si el cron estuvo detenido, solo sale el vencido).
 SELECT t.id AS ticket_id, t.empresa_id, r.sla::text AS sla, r.umbral::text AS umbral, r.vence_en::timestamptz AS vence_en
 FROM soporte.tickets t
 CROSS JOIN LATERAL (VALUES
@@ -152,7 +176,7 @@ WHERE (t.estado IN ('nuevo', 'abierto', 'en_espera'))
   AND r.aplica
   AND NOT EXISTS (
       SELECT 1 FROM soporte.ticket_sla_alertas a
-      WHERE a.ticket_id = t.id AND a.sla = r.sla AND a.umbral = r.umbral
+      WHERE a.ticket_id = t.id AND a.sla = r.sla AND a.umbral = r.umbral AND a.vence_en = r.vence_en
   )
 ORDER BY t.id, r.sla, r.umbral
 LIMIT @limite;

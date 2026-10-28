@@ -15,6 +15,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -55,7 +56,11 @@ func servidorConSoporte(t *testing.T, roles ...string) *clienteHTTP {
 		BD: pool, Identidad: id, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){soporte.Nuevo(soporte.Config{}).Registrar},
 	})
-	srv := httptest.NewServer(h)
+	// Simula el middleware de empresa activa (I1): toda petición llega con la empresa de prueba.
+	conEmpresa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(contexto.ConEmpresa(r.Context(), empresaPrueba)))
+	})
+	srv := httptest.NewServer(conEmpresa)
 	t.Cleanup(srv.Close)
 
 	correo := pruebas.Correo("http")

@@ -17,17 +17,51 @@ import (
 // EntradaCrearTicket es la entrada de tickets.crear. Cliente, servicio y zona son ids de Argos
 // (opcionales: sin conector se capturan los datos de contacto).
 type EntradaCrearTicket struct {
-	EmpresaID     *int64           `json:"empresaId,omitempty" minimum:"1" doc:"Empresa en Argos; por defecto, la activa"`
+	EmpresaID     *int64           `json:"empresaId,omitempty" minimum:"1" doc:"Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide. Solo una integración o el sistema sin empresa activa la eligen aquí"`
 	ClienteID     *int64           `json:"clienteId,omitempty" minimum:"1" doc:"Cliente en Argos"`
 	ServicioID    *int64           `json:"servicioId,omitempty" minimum:"1" doc:"Servicio en Argos (exige clienteId)"`
 	ZonaID        *int64           `json:"zonaId,omitempty" minimum:"1" doc:"Zona (Argos); define el alcance"`
 	Contacto      *EntradaContacto `json:"contacto,omitempty"`
 	CategoriaID   *int64           `json:"categoriaId,omitempty" minimum:"1"`
 	Prioridad     string           `json:"prioridad,omitempty" enum:"baja,media,alta,critica" doc:"media por defecto"`
-	Origen        string           `json:"origen,omitempty" enum:"panel,portal,correo,telegram,horus,argos,api" doc:"Por defecto, según el canal"`
+	Origen        string           `json:"origen,omitempty" enum:"panel,portal,correo,telegram,horus,argos,api" doc:"Por defecto, según el canal. correo, telegram, horus y argos solo para integraciones o el sistema; portal solo por el canal portal (si no, 422 origen_no_permitido)"`
 	Asunto        string           `json:"asunto" minLength:"3" maxLength:"200"`
 	Descripcion   string           `json:"descripcion,omitempty" maxLength:"20000" doc:"Primer mensaje público del ticket"`
 	TicketPadreID *int64           `json:"ticketPadreId,omitempty" minimum:"1" doc:"Incidente maestro al que se vincula"`
+
+	// ClaveIdempotencia es la Idempotency-Key de la petición (la pone el handler): si la
+	// misma operación ya creó un ticket, se devuelve ese en vez de crear otro.
+	ClaveIdempotencia string `json:"-"`
+}
+
+// origenesDeIntegracion son los orígenes que solo declara una integración o el sistema.
+var origenesDeIntegracion = []string{"correo", "telegram", "horus", "argos"}
+
+// validarOrigen impide que una persona se haga pasar por un canal automático.
+func validarOrigen(ctx context.Context, origen string) error {
+	switch {
+	case slices.Contains(origenesDeIntegracion, origen) && !esSistemaOIntegracion(ctx):
+		return nucleo.ReglaNegocio("origen_no_permitido", "El origen "+origen+" solo lo declara una integración o el sistema")
+	case origen == "portal" && contexto.CanalDe(ctx) != contexto.CanalPortal:
+		return nucleo.ReglaNegocio("origen_no_permitido", "El origen portal solo vale desde el portal")
+	}
+	return nil
+}
+
+// empresaDelTicket: el ticket es de la empresa activa (middleware de empresa activa de I1).
+// Sin empresa activa, una persona no puede crear (422 empresa_requerida); una integración o el
+// sistema usan la del cuerpo o ninguna (null: modo sin conector).
+func empresaDelTicket(ctx context.Context, pedida *int64) (*int64, error) {
+	if activa := contexto.EmpresaDe(ctx); activa != 0 {
+		if pedida != nil && *pedida != activa {
+			return nil, nucleo.ReglaNegocio("empresa_no_coincide", "La empresa del ticket debe ser la empresa activa")
+		}
+		return &activa, nil
+	}
+	if !esSistemaOIntegracion(ctx) {
+		return nil, nucleo.ReglaNegocio("empresa_requerida", "Elige una empresa activa para crear tickets")
+	}
+	return pedida, nil
 }
 
 func origenPorCanal(c contexto.Canal) string {
@@ -48,6 +82,24 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 			q := soportebd.New(t)
 			ahora := m.ahora()
 
+			// La misma operación repetida (clave reclamada tras una caída) devuelve su ticket.
+			idem := conIdempotencia(ctx, in.ClaveIdempotencia)
+			if idem != nil {
+				previo, err := q.TicketPorIdempotencia(ctx, idem)
+				if err == nil {
+					t.FijarEntidad("ticket", previo.ID)
+					if err := verificarAcceso(ctx, nucleo.PermTicketsVer, previo); err != nil {
+						return Ticket{}, err
+					}
+					t.FijarEmpresa(deref(previo.EmpresaID))
+					t.Anotar(map[string]any{"repetida": true})
+					return aTicket(previo, ahora), nil
+				}
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return Ticket{}, err
+				}
+			}
+
 			asunto, err := texto("asunto", in.Asunto, 3, 200)
 			if err != nil {
 				return Ticket{}, err
@@ -66,6 +118,9 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 			}
 			if !slices.Contains(Origenes, origen) {
 				return Ticket{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "origen", Message: "Origen desconocido", Rule: "enum"})
+			}
+			if err := validarOrigen(ctx, origen); err != nil {
+				return Ticket{}, err
 			}
 			if in.ServicioID != nil && in.ClienteID == nil {
 				return Ticket{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Un servicio exige su cliente", Rule: "required"})
@@ -87,13 +142,9 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 				}
 			}
 
-			// Empresa: la activa; otra distinta no se puede elegir.
-			empresa := in.EmpresaID
-			if activa := contexto.EmpresaDe(ctx); activa != 0 {
-				if empresa != nil && *empresa != activa {
-					return Ticket{}, nucleo.Prohibido("No puedes crear tickets de otra empresa")
-				}
-				empresa = &activa
+			empresa, err := empresaDelTicket(ctx, in.EmpresaID)
+			if err != nil {
+				return Ticket{}, err
 			}
 			t.FijarEmpresa(deref(empresa))
 
@@ -120,8 +171,11 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 				return Ticket{}, err
 			}
 			if in.TicketPadreID != nil {
-				padre, err := q.TicketPorID(ctx, *in.TicketPadreID)
-				if errors.Is(err, pgx.ErrNoRows) || (err == nil && (padre.Estado == EstadoCerrado || deref(padre.EmpresaID) != deref(empresa) || !enEmpresa(ctx, padre))) {
+				// FOR SHARE: el maestro no se cierra hasta el COMMIT. Si el actor no lo puede ver,
+				// el mismo 422 (no revela que existe).
+				padre, err := q.TicketPorIDCompartido(ctx, *in.TicketPadreID)
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && (padre.Estado == EstadoCerrado ||
+					!mismoID(padre.EmpresaID, empresa) || verificarAcceso(ctx, nucleo.PermTicketsVer, padre) != nil)) {
 					return Ticket{}, nucleo.ReglaNegocio("ticket_padre_invalido", "El incidente maestro no existe, está cerrado o es de otra empresa")
 				}
 				if err != nil {
@@ -157,7 +211,7 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 				SlaID: nuevo.SlaID, CalendarioID: nuevo.CalendarioID, SlaInicio: ahora,
 				SlaRespuestaMin: nuevo.SlaRespuestaMin, SlaResolucionMin: nuevo.SlaResolucionMin,
 				RiesgoRespuesta: nuevo.RiesgoRespuesta, VenceRespuesta: nuevo.VenceRespuesta,
-				RiesgoResolucion: nuevo.RiesgoResolucion, VenceResolucion: nuevo.VenceResolucion,
+				RiesgoResolucion: nuevo.RiesgoResolucion, VenceResolucion: nuevo.VenceResolucion, Idempotencia: idem,
 			})
 			if err != nil {
 				return Ticket{}, err

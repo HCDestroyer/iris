@@ -254,7 +254,7 @@ export interface paths {
         put?: never;
         /**
          * Escalar un ticket
-         * @description Permiso: `tickets.escalar`. Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA. Emite `ticket.escalado`.
+         * @description Permiso: `tickets.escalar`. Sube el nivel y, si viene, la prioridad (mayor que la actual; 422 `prioridad_no_mayor`); recalcula el SLA de los relojes que no se cumplieron. Emite `ticket.escalado`.
          */
         post: operations["escalarTicket"];
         delete?: never;
@@ -311,7 +311,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Conversación del ticket (mensajes y notas internas)
+         * Conversación del ticket (mensajes y, con tickets.ver_notas, notas internas)
          * @description Permiso: `tickets.ver`.
          */
         get: operations["listarMensajesTicket"];
@@ -694,11 +694,11 @@ export interface components {
             descripcion?: string;
             /**
              * Format: int64
-             * @description Empresa en Argos; por defecto, la activa
+             * @description Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide. Solo una integración o el sistema sin empresa activa la eligen aquí
              */
             empresaId?: number;
             /**
-             * @description Por defecto, según el canal
+             * @description Por defecto, según el canal. correo, telegram, horus y argos solo para integraciones o el sistema; portal solo por el canal portal (si no, 422 origen_no_permitido)
              * @enum {string}
              */
             origen?: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
@@ -976,7 +976,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "permisos.ver" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.ver";
+        Permiso: "permisos.ver" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -2289,7 +2289,7 @@ export interface operations {
                 cursor?: string;
                 /** @description Tamaño de página */
                 limit?: number;
-                /** @description Sin notas internas (lo que ve el cliente) */
+                /** @description Sin notas internas (lo que ve el cliente). Sin el permiso tickets.ver_notas, o por el canal portal, siempre es true */
                 soloPublicos?: boolean;
             };
             header?: never;

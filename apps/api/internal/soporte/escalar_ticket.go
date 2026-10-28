@@ -14,7 +14,8 @@ import (
 
 // EntradaEscalarTicket es la entrada de tickets.escalar: sube un nivel y, si viene, la
 // prioridad (que debe ser mayor). Con otra prioridad, los vencimientos del SLA se recalculan
-// con sus objetivos desde el inicio del ticket (descontando las pausas).
+// con sus objetivos desde el inicio del ticket (descontando las pausas), salvo los relojes ya
+// cumplidos (la primera respuesta ya dada), que conservan su objetivo y vencimiento.
 type EntradaEscalarTicket struct {
 	ID        int64   `json:"-"`
 	Version   int32   `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
@@ -51,14 +52,22 @@ func (m *Modulo) nuevoEscalarTicket() *auditoria.Caso[EntradaEscalarTicket, Tick
 				}
 				despues.Prioridad = *in.Prioridad
 				if antes.SlaID != nil {
+					var resp, resol *int32
 					obj, err := q.ObjetivoSLA(ctx, soportebd.ObjetivoSLAParams{SlaID: *antes.SlaID, Prioridad: despues.Prioridad})
 					switch {
 					case errors.Is(err, pgx.ErrNoRows):
-						despues.SlaRespuestaMin, despues.SlaResolucionMin = nil, nil
 					case err != nil:
 						return Ticket{}, err
 					default:
-						despues.SlaRespuestaMin, despues.SlaResolucionMin = &obj.RespuestaMin, &obj.ResolucionMin
+						resp, resol = &obj.RespuestaMin, &obj.ResolucionMin
+					}
+					// Un reloj ya cumplido conserva su objetivo y su vencimiento: escalar no
+					// cambia retroactivamente si se cumplió a tiempo.
+					if antes.PrimeraRespuestaEn == nil {
+						despues.SlaRespuestaMin = resp
+					}
+					if antes.ResueltoEn == nil {
+						despues.SlaResolucionMin = resol
 					}
 				}
 			}

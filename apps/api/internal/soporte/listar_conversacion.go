@@ -5,6 +5,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
 )
 
@@ -12,7 +13,13 @@ import (
 type EntradaListarMensajes struct {
 	nucleo.ParamsPagina
 	ID           int64 `path:"id" minimum:"1"`
-	SoloPublicos bool  `query:"soloPublicos" doc:"Sin notas internas (lo que ve el cliente)"`
+	SoloPublicos bool  `query:"soloPublicos" doc:"Sin notas internas (lo que ve el cliente). Sin el permiso tickets.ver_notas, o por el canal portal, siempre es true"`
+}
+
+// veNotas: las notas internas exigen tickets.ver_notas con alcance sobre el ticket y nunca
+// salen por el portal.
+func veNotas(ctx context.Context, f soportebd.SoporteTicket) bool {
+	return contexto.CanalDe(ctx) != contexto.CanalPortal && dentroDeAlcance(ctx, nucleo.PermTicketsVerNotas, f)
 }
 
 // EntradaListarEventos: historial del ticket en orden.
@@ -33,11 +40,12 @@ func (m *Modulo) nuevoListarMensajes() *auditoria.Caso[EntradaListarMensajes, nu
 				return nucleo.Pagina[Mensaje]{}, err
 			}
 			q := soportebd.New(t)
-			if _, err := leer(ctx, q, in.ID); err != nil {
+			f, err := leer(ctx, q, in.ID)
+			if err != nil {
 				return nucleo.Pagina[Mensaje]{}, err
 			}
 			filas, err := q.ListarMensajes(ctx, soportebd.ListarMensajesParams{
-				TicketID: in.ID, DespuesDe: despues, SoloPublicos: in.SoloPublicos,
+				TicketID: in.ID, DespuesDe: despues, SoloPublicos: in.SoloPublicos || !veNotas(ctx, f),
 				Limite: int32(in.Limite() + 1), //nolint:gosec // ≤ 201
 			})
 			if err != nil {
@@ -61,7 +69,8 @@ func (m *Modulo) nuevoListarEventos() *auditoria.Caso[EntradaListarEventos, nucl
 				return nucleo.Pagina[EventoTicket]{}, err
 			}
 			q := soportebd.New(t)
-			if _, err := leer(ctx, q, in.ID); err != nil {
+			f, err := leer(ctx, q, in.ID)
+			if err != nil {
 				return nucleo.Pagina[EventoTicket]{}, err
 			}
 			filas, err := q.ListarEventosTicket(ctx, soportebd.ListarEventosTicketParams{
@@ -70,7 +79,17 @@ func (m *Modulo) nuevoListarEventos() *auditoria.Caso[EntradaListarEventos, nucl
 			if err != nil {
 				return nucleo.Pagina[EventoTicket]{}, err
 			}
-			return nucleo.Paginar(filas, in.Limite(), aEventoTicket,
+			convertir := aEventoTicket
+			if !veNotas(ctx, f) {
+				// El motivo de una fusión es también el texto de su nota interna.
+				convertir = func(e soportebd.SoporteTicketEvento) EventoTicket {
+					if e.Tipo == "fusionado" {
+						e.Motivo = nil
+					}
+					return aEventoTicket(e)
+				}
+			}
+			return nucleo.Paginar(filas, in.Limite(), convertir,
 				func(f soportebd.SoporteTicketEvento) []any { return []any{f.ID} }), nil
 		},
 	})

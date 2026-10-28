@@ -48,16 +48,26 @@ var permisosTickets = []nucleo.Permiso{
 	nucleo.PermTicketsVer, nucleo.PermTicketsCrear, nucleo.PermTicketsAsignar, nucleo.PermTicketsResponder,
 	nucleo.PermTicketsNotaInterna, nucleo.PermTicketsEscalar, nucleo.PermTicketsPonerEnEspera,
 	nucleo.PermTicketsReanudar, nucleo.PermTicketsResolver, nucleo.PermTicketsReabrir,
-	nucleo.PermTicketsCerrar, nucleo.PermTicketsFusionar,
+	nucleo.PermTicketsCerrar, nucleo.PermTicketsFusionar, nucleo.PermTicketsVerNotas,
 }
+
+// empresaPrueba es la empresa activa de los contextos de prueba (la fija el middleware de
+// empresa activa de I1 en producción).
+const empresaPrueba int64 = 1
 
 var ident = identidad.Nuevo(identidad.Config{})
 
-// agente crea un usuario real (los mensajes y la asignación lo referencian).
+// agente crea un usuario real con el rol soporte (los mensajes y la asignación lo referencian).
 func agente(t *testing.T) int64 {
 	t.Helper()
+	return usuarioCon(t, identidad.AsignacionRol{Rol: "soporte"})
+}
+
+// usuarioCon crea un usuario persona con los roles dados.
+func usuarioCon(t *testing.T, roles ...identidad.AsignacionRol) int64 {
+	t.Helper()
 	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), identidad.EntradaCrearUsuario{
-		Nombre: "Agente", Correo: pruebas.Correo("agente"), Contrasena: "contrasena-larga-1",
+		Nombre: "Agente", Correo: pruebas.Correo("agente"), Contrasena: "contrasena-larga-1", Roles: roles,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,12 +76,12 @@ func agente(t *testing.T) int64 {
 }
 
 // como devuelve un contexto nuevo (request id propio) del usuario con todos los permisos de
-// tickets, o con los dados.
+// tickets, o con los dados, en la empresa de prueba.
 func como(t *testing.T, id int64, permisos ...nucleo.Permiso) context.Context {
 	if len(permisos) == 0 {
 		permisos = permisosTickets
 	}
-	return pruebas.ContextoUsuario(pruebas.Pool(t), id, permisos...)
+	return contexto.ConEmpresa(pruebas.ContextoUsuario(pruebas.Pool(t), id, permisos...), empresaPrueba)
 }
 
 // conAlcance: el usuario con permisos limitados (permiso → alcances).
@@ -197,7 +207,7 @@ func TestCrearAuditaYEmite(t *testing.T) {
 	}
 	p := es[0].Payload
 	if p["cliente_id"] != float64(501) || p["servicio_id"] != float64(9001) || p["categoria"] != "lentitud" ||
-		p["prioridad"] != "media" || p["origen"] != "panel" || p["empresa_id"] != nil {
+		p["prioridad"] != "media" || p["origen"] != "panel" || p["empresa_id"] != float64(empresaPrueba) {
 		t.Fatalf("payload de ticket.creado: %v", p)
 	}
 
@@ -511,7 +521,7 @@ func TestPermisosYAlcance(t *testing.T) {
 		t.Fatalf("el evento lleva la empresa: %+v", es)
 	}
 	_, err = m.CrearTicket.Ejecutar(contexto.ConEmpresa(como(t, yo), 77), soporte.EntradaCrearTicket{Asunto: "De otra", EmpresaID: ptr(int64(78))})
-	problema(t, err, 403, "prohibido")
+	problema(t, err, 422, "empresa_no_coincide")
 }
 
 func TestListarConFiltrosYCursor(t *testing.T) {

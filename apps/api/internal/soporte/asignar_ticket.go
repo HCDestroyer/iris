@@ -39,12 +39,10 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 			if mismoID(antes.AsignadoA, in.UsuarioID) && mismoID(antes.CuadrillaID, in.CuadrillaID) {
 				return Ticket{}, nucleo.ReglaNegocio("sin_cambios", "El ticket ya tiene esa asignación")
 			}
+			despues := antes
+			despues.AsignadoA, despues.CuadrillaID = in.UsuarioID, in.CuadrillaID
 			if in.UsuarioID != nil {
-				u, err := q.UsuarioAsignable(ctx, *in.UsuarioID)
-				if errors.Is(err, pgx.ErrNoRows) || (err == nil && !u.Activo) {
-					return Ticket{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "usuarioId", Message: "El usuario no existe o está inactivo", Rule: "usuario"})
-				}
-				if err != nil {
+				if err := validarAsignable(ctx, q, *in.UsuarioID, despues); err != nil {
 					return Ticket{}, err
 				}
 			}
@@ -52,8 +50,6 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 			if err != nil {
 				return Ticket{}, err
 			}
-			despues := antes
-			despues.AsignadoA, despues.CuadrillaID = in.UsuarioID, in.CuadrillaID
 			if in.UsuarioID != nil || in.CuadrillaID != nil {
 				abrirSiNuevo(&despues)
 			}
@@ -78,4 +74,37 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 			return aTicket(f, ahora), nil
 		},
 	})
+}
+
+// validarAsignable: el responsable es una persona activa que puede ver el ticket con su
+// alcance (global, la zona del ticket o la cuadrilla asignada). La cuadrilla no se valida
+// todavía: agenda.cuadrillas llega en la Fase 3 (I2), y entonces tendrá FK.
+func validarAsignable(ctx context.Context, q *soportebd.Queries, usuarioID int64, f soportebd.SoporteTicket) error {
+	invalido := func(detalle string) error {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "usuarioId", Message: detalle, Rule: "usuario"})
+	}
+	u, err := q.UsuarioAsignable(ctx, usuarioID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !u.Activo) {
+		return invalido("El usuario no existe o está inactivo")
+	}
+	if err != nil {
+		return err
+	}
+	if u.Tipo != "persona" {
+		return invalido("Solo se asigna a personas, no a integraciones")
+	}
+	alcances, err := q.AlcancesDePermisoDeUsuario(ctx, soportebd.AlcancesDePermisoDeUsuarioParams{
+		UsuarioID: usuarioID, Permiso: string(nucleo.PermTicketsVer),
+	})
+	if err != nil {
+		return err
+	}
+	for _, a := range alcances {
+		if (a.ZonaID == nil && a.CuadrillaID == nil) ||
+			(a.ZonaID != nil && f.ZonaID != nil && *a.ZonaID == *f.ZonaID) ||
+			(a.CuadrillaID != nil && f.CuadrillaID != nil && *a.CuadrillaID == *f.CuadrillaID) {
+			return nil
+		}
+	}
+	return invalido("El usuario no puede ver este ticket (tickets.ver con alcance sobre su zona o cuadrilla)")
 }

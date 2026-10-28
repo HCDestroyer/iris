@@ -40,6 +40,7 @@ const (
 	PermTicketsReabrir       Permiso = "tickets.reabrir"
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
+	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
 )
 
 // DefPermiso es una entrada del catálogo.
@@ -64,6 +65,7 @@ var Catalogo = []DefPermiso{
 	{PermTicketsResolver, "Resolver tickets con su solución"},
 	{PermTicketsResponder, "Responder al cliente en un ticket (mensaje público)"},
 	{PermTicketsVer, "Ver tickets, su conversación, historial, categorías y SLA"},
+	{PermTicketsVerNotas, "Ver las notas internas de los tickets"},
 	{PermTokensCrear, "Crear tokens de API (iris_pat_) para un usuario"},
 	{PermTokensRevocar, "Revocar tokens de API"},
 	{PermTokensVer, "Ver tokens de API (nunca el valor)"},
@@ -86,7 +88,7 @@ type DefRol struct {
 var permisosTickets = []Permiso{
 	PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsResponder, PermTicketsNotaInterna,
 	PermTicketsEscalar, PermTicketsPonerEnEspera, PermTicketsReanudar, PermTicketsResolver,
-	PermTicketsReabrir, PermTicketsCerrar, PermTicketsFusionar,
+	PermTicketsReabrir, PermTicketsCerrar, PermTicketsFusionar, PermTicketsVerNotas,
 }
 
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
@@ -96,7 +98,7 @@ var RolesBase = []DefRol{
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer}, permisosTickets...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
-		Permisos: []Permiso{PermUsuariosVer, PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna}},
+		Permisos: []Permiso{PermUsuariosVer, PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas}},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo"},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer}, permisosTickets...)},
