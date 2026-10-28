@@ -15,6 +15,12 @@ Outbox y entrega de eventos (CLAUDE.md §3).
 
 Los suscriptores deben ser idempotentes: un evento puede llegar más de una vez.
 
-**Eventos:** no emite eventos de negocio; transporta todos los del catálogo
+- `NuevoClienteInsercion` + `Encolar`: la API encola jobs de River dentro de la transacción del
+  caso de uso (`InsertTx`); `OpcionesWorker.Registrar` y `Periodicos` suman los de otros módulos.
+
+**Eventos:** el outbox no emite eventos de negocio; transporta todos los del catálogo
 (`.claude/integration/contratos/eventos.md`). Hoy no hay suscriptores internos registrados; los
-webhooks salientes a Argos y Horus llegan con la tarea 4 (conectores).
+webhooks salientes a Argos y Horus llegan con la Fase 2.
+
+**Conector Argos (lectura):** subpaquete `argos/` (ver su README): enlace de conexión, cliente
+HTTP, instantáneas y webhooks entrantes.
