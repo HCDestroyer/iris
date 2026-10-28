@@ -13,7 +13,7 @@ import (
 )
 
 const eventoPorID = `-- name: EventoPorID :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at FROM integracion.outbox WHERE id = $1
+SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at, fallido_en FROM integracion.outbox WHERE id = $1
 `
 
 func (q *Queries) EventoPorID(ctx context.Context, id uuid.UUID) (IntegracionOutbox, error) {
@@ -32,53 +32,13 @@ func (q *Queries) EventoPorID(ctx context.Context, id uuid.UUID) (IntegracionOut
 		&i.UltimoError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.FallidoEn,
 	)
 	return i, err
 }
 
-const eventosPendientes = `-- name: EventosPendientes :many
-SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at FROM integracion.outbox
-WHERE publicado_en IS NULL AND proximo_intento <= now()
-ORDER BY id
-LIMIT $1
-FOR UPDATE SKIP LOCKED
-`
-
-func (q *Queries) EventosPendientes(ctx context.Context, limite int32) ([]IntegracionOutbox, error) {
-	rows, err := q.db.Query(ctx, eventosPendientes, limite)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []IntegracionOutbox
-	for rows.Next() {
-		var i IntegracionOutbox
-		if err := rows.Scan(
-			&i.ID,
-			&i.Evento,
-			&i.EmpresaID,
-			&i.Payload,
-			&i.OcurridoEn,
-			&i.RequestID,
-			&i.PublicadoEn,
-			&i.Intentos,
-			&i.ProximoIntento,
-			&i.UltimoError,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const eventosPorRequest = `-- name: EventosPorRequest :many
-SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at FROM integracion.outbox WHERE request_id = $1 ORDER BY id
+SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at, fallido_en FROM integracion.outbox WHERE request_id = $1 ORDER BY id
 `
 
 func (q *Queries) EventosPorRequest(ctx context.Context, requestID string) ([]IntegracionOutbox, error) {
@@ -103,6 +63,7 @@ func (q *Queries) EventosPorRequest(ctx context.Context, requestID string) ([]In
 			&i.UltimoError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.FallidoEn,
 		); err != nil {
 			return nil, err
 		}
@@ -137,6 +98,22 @@ func (q *Queries) InsertarEvento(ctx context.Context, arg InsertarEventoParams) 
 		arg.OcurridoEn,
 		arg.RequestID,
 	)
+	return err
+}
+
+const marcarAgotado = `-- name: MarcarAgotado :exec
+UPDATE integracion.outbox
+SET intentos = intentos + 1, ultimo_error = $1, fallido_en = now(), updated_at = now()
+WHERE id = $2
+`
+
+type MarcarAgotadoParams struct {
+	UltimoError *string
+	ID          uuid.UUID
+}
+
+func (q *Queries) MarcarAgotado(ctx context.Context, arg MarcarAgotadoParams) error {
+	_, err := q.db.Exec(ctx, marcarAgotado, arg.UltimoError, arg.ID)
 	return err
 }
 
@@ -177,4 +154,34 @@ func (q *Queries) TomarCandadoRelay(ctx context.Context, clave int64) (bool, err
 	var tomado bool
 	err := row.Scan(&tomado)
 	return tomado, err
+}
+
+const tomarEventoPendiente = `-- name: TomarEventoPendiente :one
+SELECT id, evento, empresa_id, payload, ocurrido_en, request_id, publicado_en, intentos, proximo_intento, ultimo_error, created_at, updated_at, fallido_en FROM integracion.outbox
+WHERE publicado_en IS NULL AND fallido_en IS NULL AND proximo_intento <= now()
+ORDER BY id
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+`
+
+// Un evento por transacción corta: se entrega y se confirma solo.
+func (q *Queries) TomarEventoPendiente(ctx context.Context) (IntegracionOutbox, error) {
+	row := q.db.QueryRow(ctx, tomarEventoPendiente)
+	var i IntegracionOutbox
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.RequestID,
+		&i.PublicadoEn,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FallidoEn,
+	)
+	return i, err
 }

@@ -52,6 +52,7 @@ type IntegracionOutbox struct {
 	UltimoError    *string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	FallidoEn      *time.Time
 }
 
 type NucleoIdempotencium struct {

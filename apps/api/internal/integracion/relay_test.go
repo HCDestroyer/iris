@@ -210,3 +210,74 @@ func esperarListen(t *testing.T, pool *pgxpool.Pool) {
 	}
 	t.Fatal("el LISTEN del outbox no quedó activo")
 }
+
+// Regresión: cada evento se confirma solo. Si la corrida se corta (timeout del job) a mitad,
+// lo ya entregado queda publicado y el evento en curso cuenta su intento.
+func TestRelayConfirmaPorEvento(t *testing.T) {
+	pool := pruebas.Pool(t)
+	sis := pruebas.ContextoSistema(pool)
+	if _, err := emitir.Ejecutar(sis, "prueba.primero"); err != nil {
+		t.Fatal(err)
+	}
+	sis2 := pruebas.ContextoSistema(pool)
+	if _, err := emitir.Ejecutar(sis2, "prueba.corta"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancelar := context.WithCancel(context.Background())
+	defer cancelar()
+	primero := &receptor{}
+	bus := integracion.NuevoBus()
+	bus.Suscribir("primero", "prueba.primero", primero.fn)
+	bus.Suscribir("corta", "prueba.corta", func(ctx context.Context, _ integracion.Evento) error {
+		cancelar() // el job llega a su timeout mientras entrega este evento
+		return ctx.Err()
+	})
+	relay := &integracion.Relay{BD: pool, Bus: bus}
+	_, _ = relay.Ejecutar(ctx)
+
+	q := integracionbd.New(pool)
+	a, _ := q.EventosPorRequest(context.Background(), contexto.RequestIDDe(sis))
+	b, _ := q.EventosPorRequest(context.Background(), contexto.RequestIDDe(sis2))
+	if len(a) != 1 || a[0].PublicadoEn == nil || primero.cantidad() != 1 {
+		t.Fatalf("el evento entregado antes del corte debía quedar publicado: %+v", a)
+	}
+	if len(b) != 1 || b[0].PublicadoEn != nil || b[0].Intentos != 1 || b[0].UltimoError == nil {
+		t.Fatalf("el evento cortado debía contar su intento: %+v", b)
+	}
+	if _, err := relay.Ejecutar(context.Background()); err != nil || primero.cantidad() != 1 {
+		t.Fatalf("no se reentrega lo ya publicado: entregas=%d err=%v", primero.cantidad(), err)
+	}
+}
+
+// Regresión: al agotar MaxIntentos el evento queda fallido y no se vuelve a tomar.
+func TestRelayAgotaIntentos(t *testing.T) {
+	pool := pruebas.Pool(t)
+	sis := pruebas.ContextoSistema(pool)
+	if _, err := emitir.Ejecutar(sis, "prueba.agota"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE integracion.outbox SET intentos = 19 WHERE request_id = $1`, contexto.RequestIDDe(sis)); err != nil {
+		t.Fatal(err)
+	}
+	r := &receptor{fallar: true}
+	bus := integracion.NuevoBus()
+	bus.Suscribir("caido", "prueba.agota", r.fn)
+	relay := &integracion.Relay{BD: pool, Bus: bus}
+	if _, err := relay.Ejecutar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	filas, _ := integracionbd.New(pool).EventosPorRequest(context.Background(), contexto.RequestIDDe(sis))
+	if len(filas) != 1 || filas[0].FallidoEn == nil || filas[0].Intentos != 20 || filas[0].PublicadoEn != nil {
+		t.Fatalf("debía quedar fallido con 20 intentos: %+v", filas)
+	}
+	// Aunque llegue su próximo intento y el consumidor vuelva, no se toma.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE integracion.outbox SET proximo_intento = now() WHERE request_id = $1`, contexto.RequestIDDe(sis)); err != nil {
+		t.Fatal(err)
+	}
+	r.fallar = false
+	if _, err := relay.Ejecutar(context.Background()); err != nil || r.cantidad() != 0 {
+		t.Fatalf("un evento fallido no se reintenta: entregas=%d err=%v", r.cantidad(), err)
+	}
+}

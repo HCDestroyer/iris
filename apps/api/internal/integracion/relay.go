@@ -18,7 +18,7 @@ import (
 )
 
 // Suscriptor recibe un evento del outbox. Debe ser idempotente: un evento puede llegar más de
-// una vez (reintentos, caída del relay a mitad de lote). Si devuelve error, el evento se
+// una vez (reintentos, caída del relay entre la entrega y su COMMIT). Si devuelve error, el evento se
 // reintenta con espera exponencial para TODOS sus suscriptores.
 //
 // El ctx trae actor sistema, canal worker, el request id de la acción que emitió el evento y
@@ -65,74 +65,86 @@ func (b *Bus) para(evento string) []suscripcion {
 const candadoRelay int64 = 0x1715_0001
 
 // Relay publica los eventos pendientes del outbox a los suscriptores del Bus y marca
-// publicado_en. Procesa "todo lo pendiente hasta ahora" en lotes.
+// publicado_en. Procesa todo lo pendiente, un evento por transacción corta (FOR UPDATE SKIP
+// LOCKED): lo entregado queda confirmado aunque el relay se corte después. Un advisory lock,
+// tomado en una transacción aparte que dura toda la corrida, garantiza un solo relay a la vez.
 type Relay struct {
-	BD   nucleo.BD
-	Bus  *Bus
-	Lote int32
-	Log  *slog.Logger
+	BD  nucleo.BD
+	Bus *Bus
+	Log *slog.Logger
 	// EsperaMaxima acota el reintento exponencial (1 h por defecto).
 	EsperaMaxima time.Duration
+	// MaxIntentos: tras este número de entregas fallidas el evento queda fallido (fallido_en)
+	// y no se reintenta más; se registra como error en el log. 20 por defecto.
+	MaxIntentos int32
 }
 
 // Ejecutar corre el relay hasta vaciar lo pendiente. Si otro relay tiene el candado, sale sin
 // hacer nada. Devuelve cuántos eventos publicó.
 func (r *Relay) Ejecutar(ctx context.Context) (int, error) {
-	total := 0
-	for {
-		n, seguir, err := r.lote(ctx)
-		total += n
-		if err != nil || !seguir {
-			return total, err
+	ctx = nucleo.ConBD(ctx, r.BD)
+	base := ctx // sin transacción: cada evento y cada suscriptor abren la suya
+	publicados := 0
+	err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		tomado, err := integracionbd.New(tx).TomarCandadoRelay(ctx, candadoRelay)
+		if err != nil || !tomado {
+			return err
 		}
-	}
+		for base.Err() == nil {
+			hubo, publicado, err := r.uno(base)
+			if publicado {
+				publicados++
+			}
+			if err != nil || !hubo {
+				return err
+			}
+		}
+		return nil
+	})
+	return publicados, err
 }
 
-func (r *Relay) lote(ctx context.Context) (publicados int, seguir bool, err error) {
-	lote := r.Lote
-	if lote <= 0 {
-		lote = 100
-	}
+// uno toma un evento pendiente, lo entrega y registra el resultado en su propia transacción.
+// La marca se escribe aunque ctx se cancele durante la entrega (el fallo cuenta como intento).
+func (r *Relay) uno(ctx context.Context) (hubo, publicado bool, err error) {
 	log := r.Log
 	if log == nil {
 		log = slog.Default()
 	}
-	ctx = nucleo.ConBD(ctx, r.BD)
-	base := ctx // sin la transacción del relay: los suscriptores abren la suya
-
-	err = nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	maxIntentos := r.MaxIntentos
+	if maxIntentos <= 0 {
+		maxIntentos = 20
+	}
+	err = nucleo.EnTx(context.WithoutCancel(ctx), func(tctx context.Context, tx pgx.Tx) error {
 		q := integracionbd.New(tx)
-		tomado, err := q.TomarCandadoRelay(ctx, candadoRelay)
-		if err != nil || !tomado {
-			return err
+		f, err := q.TomarEventoPendiente(tctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
-		filas, err := q.EventosPendientes(ctx, lote)
 		if err != nil {
 			return err
 		}
-		seguir = int32(len(filas)) == lote //nolint:gosec // lote ≤ int32
-		for _, f := range filas {
-			e := desdeFila(f)
-			if errEntrega := r.entregar(base, e); errEntrega != nil {
-				espera := r.espera(e.Intentos)
-				log.WarnContext(ctx, "relay: evento no entregado", "evento", e.Evento, "id", e.ID,
-					"intentos", e.Intentos+1, "reintento_en", espera, "err", errEntrega)
-				msg := errEntrega.Error()
-				if err := q.MarcarFallido(ctx, integracionbd.MarcarFallidoParams{
-					ID: e.ID, UltimoError: &msg, ProximoIntento: time.Now().Add(espera),
-				}); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := q.MarcarPublicado(ctx, e.ID); err != nil {
-				return err
-			}
-			publicados++
+		hubo = true
+		e := desdeFila(f)
+		errEntrega := r.entregar(ctx, e)
+		if errEntrega == nil {
+			publicado = true
+			return q.MarcarPublicado(tctx, e.ID)
 		}
-		return nil
+		msg := errEntrega.Error()
+		if e.Intentos+1 >= maxIntentos {
+			log.ErrorContext(ctx, "relay: evento fallido tras agotar sus intentos; no se reintenta", "evento", e.Evento,
+				"id", e.ID, "intentos", e.Intentos+1, "err", errEntrega)
+			return q.MarcarAgotado(tctx, integracionbd.MarcarAgotadoParams{ID: e.ID, UltimoError: &msg})
+		}
+		espera := r.espera(e.Intentos)
+		log.WarnContext(ctx, "relay: evento no entregado", "evento", e.Evento, "id", e.ID,
+			"intentos", e.Intentos+1, "reintento_en", espera, "err", errEntrega)
+		return q.MarcarFallido(tctx, integracionbd.MarcarFallidoParams{
+			ID: e.ID, UltimoError: &msg, ProximoIntento: time.Now().Add(espera),
+		})
 	})
-	return publicados, seguir && err == nil, err
+	return hubo, publicado, err
 }
 
 func (r *Relay) entregar(ctx context.Context, e Evento) error {
