@@ -29,8 +29,8 @@ test.describe("menú por permisos", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
         await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Tickets/ }).click();
-        await expect(page).toHaveURL(/\/tickets$/);
+        await menu(page).getByRole("link", { name: /^Órdenes/ }).click();
+        await expect(page).toHaveURL(/\/ordenes$/);
         await expect(page.getByRole("heading", { name: "Próximamente" })).toBeVisible();
     });
 

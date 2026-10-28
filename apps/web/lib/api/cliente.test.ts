@@ -149,3 +149,43 @@ describe("resolver: errores problem+json", () => {
         expect(e.estado).toBe(0);
     });
 });
+
+describe("cliente: empresa activa", () => {
+    it("manda X-Iris-Empresa en toda petición si hay empresa elegida", async () => {
+        const { llamadas, fetchFalso } = falso(() => Response.json(yo));
+        const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerCookies: () => "iris_csrf=t", leerEmpresa: () => 20 });
+        await api.GET("/api/v1/yo");
+        await api.DELETE("/api/v1/sesion");
+        expect(llamadas.map((l) => l.cabeceras.get("X-Iris-Empresa"))).toEqual(["20", "20"]);
+    });
+
+    it("sin empresa elegida no manda la cabecera", async () => {
+        const { llamadas, fetchFalso } = falso(() => Response.json(yo));
+        const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerEmpresa: () => undefined });
+        await api.GET("/api/v1/yo");
+        expect(llamadas[0]?.cabeceras.has("X-Iris-Empresa")).toBe(false);
+    });
+
+    it("avisa de los 422/403 de empresa y no de otros errores", async () => {
+        const vistos: string[] = [];
+        let respuesta = () => problema({ type: "urn:iris:problema:empresa_requerida", title: "Elige una empresa", status: 422 });
+        const { fetchFalso } = falso(() => respuesta());
+        const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerEmpresa: () => undefined, alProblemaEmpresa: (p) => vistos.push(p) });
+        const e = (await resolver(api.GET("/api/v1/tickets")).catch((x: unknown) => x)) as ErrorApi;
+        expect(e.codigo).toBe("empresa_requerida");
+        respuesta = () => problema({ type: "urn:iris:problema:empresa_no_permitida", title: "Empresa no permitida", status: 403 });
+        await resolver(api.GET("/api/v1/yo")).catch(() => undefined);
+        respuesta = () => problema({ type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
+        await resolver(api.GET("/api/v1/yo")).catch(() => undefined);
+        expect(vistos).toEqual(["empresa_requerida", "empresa_no_permitida"]);
+    });
+
+    it("los arreglos de la query van separados por coma", async () => {
+        const { llamadas, fetchFalso } = falso(() => Response.json({ data: [], nextCursor: null }));
+        const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerEmpresa: () => undefined });
+        await api.GET("/api/v1/tickets", { params: { query: { estado: ["nuevo", "abierto"], prioridad: ["alta"] } } });
+        const url = new URL(llamadas[0]?.url ?? "");
+        expect(url.searchParams.getAll("estado")).toEqual(["nuevo,abierto"]);
+        expect(url.searchParams.get("prioridad")).toBe("alta");
+    });
+});
