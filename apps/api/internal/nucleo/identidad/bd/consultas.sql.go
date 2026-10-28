@@ -725,6 +725,24 @@ func (q *Queries) FallosMFASesion(ctx context.Context, id int64) (int32, error) 
 	return mfa_fallos, err
 }
 
+const fallosVigentes = `-- name: FallosVigentes :one
+SELECT coalesce((SELECT fallos FROM nucleo.intentos_login
+                 WHERE correo = $1 AND updated_at >= $2::timestamptz), 0)::integer AS fallos
+`
+
+type FallosVigentesParams struct {
+	Correo string
+	Desde  time.Time
+}
+
+// Fallos contados desde @desde (0 si no hay o si la cuenta ya venció).
+func (q *Queries) FallosVigentes(ctx context.Context, arg FallosVigentesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, fallosVigentes, arg.Correo, arg.Desde)
+	var fallos int32
+	err := row.Scan(&fallos)
+	return fallos, err
+}
+
 const guardarPermiso = `-- name: GuardarPermiso :exec
 INSERT INTO nucleo.permisos (codigo, descripcion) VALUES ($1, $2)
 ON CONFLICT (codigo) DO UPDATE SET descripcion = excluded.descripcion, updated_at = now()

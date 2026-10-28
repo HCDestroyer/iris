@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -117,10 +118,18 @@ func TestAdministrarSoloUsuariosDeEmpresasPropias(t *testing.T) {
 		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/desactivar", id), map[string]any{"version": 1, "motivo": "x"}).problema(t, 404, "no_encontrado")
 	}
 	// Empresas: a B no se le asigna 101 (opera en 102); a quien no tiene empresas tampoco; a AB
-	// no se le quita 101.
-	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idB), map[string]any{"empresaId": 101}).problema(t, 403, "prohibido")
-	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idNadie), map[string]any{"empresaId": 101}).problema(t, 403, "prohibido")
-	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/quitar-empresa", idAB), map[string]any{"empresaId": 101}).problema(t, 403, "prohibido")
+	// no se le quita 101. Están fuera de su alcance: 404, sin nombrar sus empresas.
+	for _, r := range []respuesta{
+		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idB), map[string]any{"empresaId": 101}),
+		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idNadie), map[string]any{"empresaId": 101}),
+		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/quitar-empresa", idAB), map[string]any{"empresaId": 101}),
+		bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", 999999999), map[string]any{"empresaId": 101}),
+	} {
+		r.problema(t, 404, "no_encontrado")
+		if strings.Contains(string(r.crudo), "102") {
+			t.Fatalf("el 404 nombra la empresa del usuario: %s", r.crudo)
+		}
+	}
 
 	// Tokens para integraciones: solo la de 101.
 	integ := func(empresa int64) int64 {
@@ -138,13 +147,22 @@ func TestAdministrarSoloUsuariosDeEmpresasPropias(t *testing.T) {
 	if r := bot.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "a", "usuarioId": integA}); r.status != 201 {
 		t.Fatalf("token para la integración de 101: %d %s", r.status, r.crudo)
 	}
-	bot.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "b", "usuarioId": integB}).problema(t, 403, "prohibido")
+	// Fuera de su alcance: 404 (no se revela si es integración ni sus empresas).
+	bot.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "b", "usuarioId": integB}).problema(t, 404, "no_encontrado")
+	bot.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "b", "usuarioId": idB}).problema(t, 404, "no_encontrado")
 	tkB := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "b", "usuarioId": integB})
 	if tkB.status != 201 {
 		t.Fatalf("token de B: %d %s", tkB.status, tkB.crudo)
 	}
 	idTkB := int64(tkB.cuerpo["token"].(map[string]any)["id"].(float64))
-	bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tokens/%d/revocar", idTkB), map[string]any{}).problema(t, 403, "prohibido")
+	// Revocar un token de un usuario fuera de su alcance: 404, igual que un token inexistente.
+	for _, id := range []int64{idTkB, 999999999} {
+		r := bot.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tokens/%d/revocar", id), map[string]any{})
+		r.problema(t, 404, "no_encontrado")
+		if strings.Contains(string(r.crudo), "102") {
+			t.Fatalf("el 404 nombra la empresa del dueño: %s", r.crudo)
+		}
+	}
 
 	// Crear usuarios: con empresa propia; sin empresa (quedaría huérfano) 422; ajena 403.
 	crear := func(empresas []int64) respuesta {
@@ -204,7 +222,7 @@ func TestEmpresasTodasConAlcanceNoEsGlobal(t *testing.T) {
 	}
 	zonal.pedir(http.MethodGet, "/api/v1/prueba/empresa", nil).problema(t, 403, "sin_empresa")
 	zonal.pedir(http.MethodGet, "/api/v1/prueba/empresa", nil, identidad.CabeceraEmpresa, "101").problema(t, 403, "empresa_no_permitida")
-	zonal.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idA), map[string]any{"empresaId": 102}).problema(t, 403, "prohibido")
+	zonal.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", idA), map[string]any{"empresaId": 102}).problema(t, 404, "no_encontrado") // fuera de su alcance
 	if ids := idsDe(t, zonal.pedir(http.MethodGet, "/api/v1/empresas", nil)); len(ids) != 0 {
 		t.Fatalf("lista de empresas con empresas.todas por zona: %v", ids)
 	}

@@ -140,7 +140,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ObtenerYo = nuevoObtenerYo()
 	m.ConfigurarMFA = nuevoConfigurarMFA(cfg)
 	m.ActivarMFA = nuevoActivarMFA(cfg)
-	m.CambiarContrasena = nuevoCambiarContrasena()
+	m.CambiarContrasena = nuevoCambiarContrasena(cfg)
 	m.ListarRoles = nuevoListarRoles()
 	m.ListarPermisos = nuevoListarPermisos()
 	m.ListarEmpresas = nuevoListarEmpresas()

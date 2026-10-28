@@ -229,6 +229,11 @@ SET fallos = CASE WHEN nucleo.intentos_login.updated_at < @desde::timestamptz TH
     updated_at = now()
 RETURNING fallos;
 
+-- name: FallosVigentes :one
+-- Fallos contados desde @desde (0 si no hay o si la cuenta ya venció).
+SELECT coalesce((SELECT fallos FROM nucleo.intentos_login
+                 WHERE correo = @correo AND updated_at >= @desde::timestamptz), 0)::integer AS fallos;
+
 -- name: BloquearLogin :exec
 UPDATE nucleo.intentos_login SET fallos = 0, bloqueado_hasta = @hasta, updated_at = now()
 WHERE correo = @correo;

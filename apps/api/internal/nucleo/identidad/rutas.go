@@ -156,8 +156,8 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ActivarMFA.Ejecutar(ctx, in.Body))
 		})
 
-	cambiar := operacion("cambiarContrasenaPropia", http.MethodPost, RutaCambiarContrasena, "Cambiar la contraseña propia", "", http.StatusOK)
-	cambiar.Description = "Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`."
+	cambiar := operacion("cambiarContrasenaPropia", http.MethodPost, RutaCambiarContrasena, "Cambiar la contraseña propia", "", http.StatusOK, http.StatusTooManyRequests)
+	cambiar.Description = "Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Límite como el login: tras 10 contraseñas actuales incorrectas seguidas (15 min) responde 429 `demasiados_intentos` con `Retry-After`, cierra la sesión y bloquea el cambio 15 min. Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`."
 	huma.Register(api, cambiar,
 		func(ctx context.Context, in *conClave[EntradaCambiarContrasena]) (*cuerpo[Usuario], error) {
 			return responder(m.CambiarContrasena.Ejecutar(ctx, in.Body))

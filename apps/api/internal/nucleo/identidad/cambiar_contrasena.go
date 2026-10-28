@@ -2,6 +2,12 @@ package identidad
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"strconv"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -17,7 +23,14 @@ type EntradaCambiarContrasena struct {
 	Nueva  string `json:"nueva" maxLength:"200" auditoria:"sensible" doc:"Nueva contraseña: mínimo 12 caracteres y distinta de la actual"`
 }
 
-func nuevoCambiarContrasena() *auditoria.Caso[EntradaCambiarContrasena, Usuario] {
+// claveIntentosContrasena: los fallos de la contraseña actual se cuentan por usuario en
+// nucleo.intentos_login, con el mismo mecanismo y los mismos límites que el login (no choca con
+// los correos: no lleva @).
+func claveIntentosContrasena(usuarioID int64) string {
+	return "usuario:" + strconv.FormatInt(usuarioID, 10)
+}
+
+func nuevoCambiarContrasena(cfg Config) *auditoria.Caso[EntradaCambiarContrasena, Usuario] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCambiarContrasena, Usuario]{
 		Accion: "yo.cambiar_contrasena",
 		Acceso: auditoria.Autenticado,
@@ -36,12 +49,44 @@ func nuevoCambiarContrasena() *auditoria.Caso[EntradaCambiarContrasena, Usuario]
 			if antes.ContrasenaHash == nil {
 				return Usuario{}, nucleo.ReglaNegocio("sin_contrasena", "El usuario no entra con contraseña")
 			}
+			// Límite de intentos (una cookie robada no prueba contraseñas sin fin): con el
+			// bloqueo vigente, 429 sin verificar (y sin gastar un argon2).
+			clave := claveIntentosContrasena(actor.ID)
+			if hasta, err := q.BloqueoLogin(ctx, clave); err == nil {
+				revocarSesionAlFallar(t, sesion.ID)
+				return Usuario{}, demasiadosIntentosContrasena(time.Until(hasta))
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return Usuario{}, err
+			}
 			bien, err := VerificarContrasena(in.Actual, *antes.ContrasenaHash)
 			if err != nil {
 				return Usuario{}, err
 			}
 			if !bien {
+				ahora := time.Now()
+				previos, err := q.FallosVigentes(ctx, identidadbd.FallosVigentesParams{Correo: clave, Desde: ahora.Add(-cfg.LoginVentana)})
+				if err != nil {
+					return Usuario{}, err
+				}
+				t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
+					_, err := identidadbd.New(tx).RegistrarFalloLogin(ctx, identidadbd.RegistrarFalloLoginParams{Correo: clave, Desde: ahora.Add(-cfg.LoginVentana)})
+					return err
+				})
+				if previos+1 >= cfg.LoginMaxFallos {
+					// Al llegar al máximo: bloqueo, la sesión se cierra y 429.
+					hasta := ahora.Add(cfg.LoginBloqueo)
+					t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
+						return identidadbd.New(tx).BloquearLogin(ctx, identidadbd.BloquearLoginParams{Correo: clave, Hasta: &hasta})
+					})
+					revocarSesionAlFallar(t, sesion.ID)
+					t.Anotar(map[string]any{"bloqueado_hasta": hasta.UTC(), "fallos": previos + 1})
+					slog.WarnContext(ctx, "identidad: cambio de contraseña bloqueado por fallos", "usuario", actor.ID, "fallos", previos+1, "hasta", hasta)
+					return Usuario{}, demasiadosIntentosContrasena(cfg.LoginBloqueo)
+				}
 				return Usuario{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "actual", Message: "La contraseña actual no es correcta", Rule: "incorrecta"})
+			}
+			if err := q.LimpiarIntentosLogin(ctx, clave); err != nil {
+				return Usuario{}, err
 			}
 			if in.Nueva == in.Actual {
 				return Usuario{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "nueva", Message: "Debe ser distinta de la actual", Rule: "distinta"})
@@ -73,4 +118,18 @@ func nuevoCambiarContrasena() *auditoria.Caso[EntradaCambiarContrasena, Usuario]
 			return aUsuario(despues, roles[actor.ID], empresas[actor.ID]), nil
 		},
 	})
+}
+
+// revocarSesionAlFallar cierra la sesión actual en la transacción de la fila de error (la de la
+// acción se revierte).
+func revocarSesionAlFallar(t *auditoria.Tx, sesionID int64) {
+	t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
+		_, err := identidadbd.New(tx).RevocarSesion(ctx, sesionID)
+		return err
+	})
+}
+
+func demasiadosIntentosContrasena(espera time.Duration) *nucleo.Problema {
+	return nucleo.DemasiadosIntentos("demasiados_intentos",
+		"Demasiados intentos con una contraseña actual incorrecta: la sesión se cerró; espera antes de volver a entrar", espera)
 }
