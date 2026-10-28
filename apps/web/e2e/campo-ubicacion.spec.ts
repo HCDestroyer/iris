@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
+import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -96,6 +96,7 @@ test.describe("en el teléfono", () => {
         await abrirCampo(page);
         await indicador(page).click();
         await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
+        await aceptarUbicacion(page);
         await expect.poll(() => puntosEnviados(api).length).toBe(1);
 
         api.limitarPosiciones(1, 30);
@@ -157,11 +158,67 @@ test.describe("en el teléfono", () => {
         await page.getByRole("button", { name: "En camino" }).click();
         await declinarUbicacion(page);
         await expect(page.getByText(/^En camino, sin ubicación/)).toBeVisible();
-        await expect(indicador(page)).toHaveText("Sin permiso");
-        await expect(indicador(page)).toHaveAttribute("data-tono", "warning");
+        // Sin aceptar la explicación el turno no empieza solo: nada se registra.
+        await expect(indicador(page)).toHaveText("Fuera de turno");
         await page.getByRole("button", { name: "Llegué" }).click();
         await expect(page.getByRole("dialog", { name: "¿Compartir tu ubicación?" })).toHaveCount(0);
         await expect.poll(() => api.ordenes.get(101)?.estado, { timeout: 15_000 }).toBe("en_sitio");
+        expect(api.intentosPosiciones).toHaveLength(0);
+    });
+
+    test("con el permiso ya concedido, «En camino» explica la primera vez, avisa que empieza el turno y no vuelve a explicar", async ({ page, context }) => {
+        await context.grantPermissions(["geolocation"]);
+        await context.setGeolocation(GUATE);
+        const api = await simularApiCampo(page);
+        await abrirCampo(page);
+        await page.getByRole("link", { name: /OT-000101/ }).click();
+        await page.getByRole("button", { name: "En camino" }).click();
+        // El permiso del navegador ya estaba dado (p. ej. desde antes de actualizar): igual se explica.
+        const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
+        await expect(explicacion).toContainText("Termina solo cuando ya no te quedan órdenes abiertas del día");
+        await expect(explicacion).toContainText("Fuera de turno no se registra nada");
+        expect(api.intentosPosiciones).toHaveLength(0);
+        await explicacion.getByRole("button", { name: "Permitir ubicación" }).click();
+        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno iniciado: se envía tu ubicación cada minuto");
+        await expect(indicador(page)).toHaveText("Ubicación activa");
+        await expect.poll(() => puntosEnviados(api).length).toBe(1);
+        expect(api.lotes.flatMap((l) => l.operaciones ?? [])[0]?.datos).toMatchObject({ lat: 14.6407, lon: -90.5133 });
+
+        // Terminado a mano, «Llegué» lo vuelve a empezar con aviso y sin explicación.
+        await indicador(page).click();
+        await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Terminar turno" }).click();
+        await page.keyboard.press("Escape");
+        await expect(indicador(page)).toHaveText("Fuera de turno");
+        await page.getByRole("button", { name: "Llegué" }).click();
+        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Llegada registrada con ubicación. Turno iniciado: se envía tu ubicación cada minuto");
+        await expect(explicacion).toHaveCount(0);
+        await expect(indicador(page)).toHaveText("Ubicación activa");
+    });
+
+    test("al cerrar la última orden abierta del día el turno termina solo y deja de enviar", async ({ page, context }) => {
+        test.setTimeout(60_000);
+        await context.grantPermissions(["geolocation"]);
+        await context.setGeolocation(GUATE);
+        await page.clock.install();
+        const api = await simularApiCampo(page, { ordenes: ordenesDelDia().filter((o) => o.id === 102) });
+        await page.goto("/campo");
+        await page.getByRole("link", { name: /OT-000102/ }).click();
+        await page.getByRole("button", { name: "Llegué" }).click();
+        await aceptarUbicacion(page);
+        await expect(indicador(page)).toHaveText("Ubicación activa");
+        await expect.poll(() => puntosEnviados(api).length).toBe(1);
+
+        await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
+        await page.getByRole("button", { name: "Cerrar orden" }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
+        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno terminado: no te quedan órdenes abiertas hoy");
+        await expect(indicador(page)).toHaveText("Fuera de turno");
+        await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
+
+        const enviados = puntosEnviados(api).length;
+        await page.clock.fastForward("05:00");
+        await page.waitForTimeout(500);
+        expect(puntosEnviados(api)).toHaveLength(enviados);
     });
 
     test("orden del día: por la cita de la agenda con su ventana; con ruta publicada, por sus paradas", async ({ page }) => {

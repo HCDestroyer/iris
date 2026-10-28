@@ -2,10 +2,10 @@
 
 import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
 import { abrirMotor, type MotorAbierto } from "@/lib/campo/motor";
-import { olvidarTurno } from "@/lib/campo/ubicacion";
+import { dependenciasNavegador, olvidarTurno, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import {
     cerrarSesionApi,
     cierrePendiente,
@@ -24,7 +24,7 @@ import {
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { Pantallas } from "./pantallas";
-import { ProveedorUbicacion } from "./ubicacion";
+import { FinDeTurnoPorOrdenes, ProveedorUbicacion } from "./ubicacion";
 
 type Arranque =
     | { fase: "cargando" }
@@ -253,12 +253,21 @@ function ConMotor({
         };
     }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena]);
 
+    // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
+    const rastreador = useMemo(
+        () => (abierto ? new RastreadorUbicacion(abierto.posiciones, dependenciasNavegador(sesion.usuarioId)) : null),
+        [abierto, sesion.usuarioId],
+    );
+
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
             if (!abierto) {
                 return;
             }
             const { motor, posiciones, almacen } = abierto;
+            // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
+            // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
+            rastreador?.terminarTurno();
             motor.detener();
             posiciones.detener();
             // El turno es de esta persona: el próximo que entre en el teléfono empieza fuera de turno.
@@ -279,7 +288,7 @@ function ConMotor({
                 alCerrarSesion(true);
             }
         },
-        [abierto, sesion.usuarioId, alCerrarSesion],
+        [abierto, rastreador, sesion.usuarioId, alCerrarSesion],
     );
 
     if (error) {
@@ -306,7 +315,7 @@ function ConMotor({
             </Centro>
         );
     }
-    if (!abierto) {
+    if (!abierto || !rastreador) {
         return (
             <Centro>
                 <MarcaIris />
@@ -315,8 +324,9 @@ function ConMotor({
         );
     }
     return (
-        <ProveedorUbicacion cola={abierto.posiciones} usuarioId={sesion.usuarioId}>
+        <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
+                <FinDeTurnoPorOrdenes />
                 <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
             </ProveedorCampo>
         </ProveedorUbicacion>

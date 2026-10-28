@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
-import { conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
+import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -114,6 +114,8 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     await page.getByRole("link", { name: /OT-000101/ }).click();
 
     await page.getByRole("button", { name: "En camino" }).click();
+    // Primera vez de este técnico: la explicación sale aunque el permiso ya esté dado.
+    await aceptarUbicacion(page);
     await expect(page.getByText("Se enviará al volver la señal")).toBeVisible();
     await page.getByRole("button", { name: "Llegué" }).click();
     await expect(page.getByRole("heading", { name: "OT-000101" })).toBeVisible();
@@ -214,12 +216,17 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
         errors: [{ field: "datos.texto", message: "El texto tiene caracteres no permitidos" }],
     });
     await abrirCampo(page);
+    // Las dos acciones se guardan sin señal para que salgan en el mismo lote.
+    api.sinRed = true;
+    await page.context().setOffline(true);
     await page.getByRole("link", { name: /OT-000102/ }).click();
     await page.getByRole("button", { name: "En camino" }).click();
     // Sin permiso de ubicación: la acción se registra igual, sin GPS.
     await declinarUbicacion(page);
     await page.getByLabel("Nueva nota").fill("Cliente pide llegar después de las 3");
     await page.getByRole("button", { name: "Agregar nota" }).click();
+    await expect(porEnviar(page)).toHaveText("2 pendientes por enviar");
+    await conSenal(page, api);
 
     await expect(page.getByText(/acciones rechazadas por el servidor/)).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Revisar" }).click();
@@ -269,8 +276,14 @@ test("faltan_adjuntos: el cierre espera hasta que termina de subir la foto", asy
 
     // Termina la subida → el cierre se reintenta solo.
     api.pausarSubidas = false;
-    await page.getByRole("button", { name: "Reintentar", exact: true }).click();
-    await expect(page.getByText("No queda nada por enviar desde este teléfono.")).toBeVisible({ timeout: 30_000 });
+    // «Reintentar» solo adelanta la espera: si la cola ya terminó sola, el botón desaparece.
+    const listo = page.getByText("No queda nada por enviar desde este teléfono.");
+    const reintentar = page.getByRole("button", { name: "Reintentar", exact: true });
+    await expect(reintentar.or(listo)).toBeVisible();
+    if (await reintentar.isVisible()) {
+        await reintentar.click({ timeout: 5_000 }).catch(() => undefined);
+    }
+    await expect(listo).toBeVisible({ timeout: 30_000 });
     expect(api.ordenes.get(102)?.estado).toBe("cerrada");
 });
 

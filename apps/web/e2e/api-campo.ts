@@ -55,6 +55,11 @@ export interface ApiCampo {
     limitarPosiciones: (veces: number, retryAfter?: number) => void;
 }
 
+/** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
+export async function aceptarUbicacion(page: Page) {
+    await page.getByRole("dialog", { name: "¿Compartir tu ubicación?" }).getByRole("button", { name: "Permitir ubicación" }).click();
+}
+
 /** Abre la explicación previa al permiso de ubicación y responde «Ahora no» (sin GPS). */
 export async function declinarUbicacion(page: Page) {
     await page.getByRole("dialog", { name: "¿Compartir tu ubicación?" }).getByRole("button", { name: "Ahora no" }).click();

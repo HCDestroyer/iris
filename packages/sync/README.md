@@ -74,7 +74,9 @@ se inyectan.
   (aceptado, duplicado o descartado por `vieja`/`futura`/`frecuencia`) sale de la cola; un 422
   borra ese lote y lo deja visible (`ultimoError`, `descartadas.invalida`); red y 5xx esperan con
   espera exponencial; 401/403 (`requiere_sesion_campo`, sesión de otra persona) detiene el bucle
-  con la cola intacta. Estado para React con `suscribir` / `obtenerEstado` (`EstadoPosiciones`).
+  con la cola intacta (`detenida`: hay que volver a entrar); otro 4xx que no se arregla solo (400,
+  403 de empresa, 404, 413…) deja el envío en pausa (`pausada`) hasta `reintentarAhora`.
+  `detener()` cierra la cola (`cerrada`): `agregar` devuelve `false` hasta `iniciar()`. Estado para React con `suscribir` / `obtenerEstado` (`EstadoPosiciones`).
 
 ## Uso (React)
 

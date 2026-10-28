@@ -50,6 +50,7 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
     await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
     await tarjeta.click();
     await page.getByRole("button", { name: "En camino" }).click();
+    await page.getByRole("dialog", { name: "¿Compartir tu ubicación?" }).getByRole("button", { name: "Permitir ubicación" }).click();
     await page.getByRole("button", { name: "Llegué" }).click();
     await expect(page.getByRole("heading", { name: "Checklist" })).toBeVisible();
     // Ítems obligatorios de la plantilla «instalación de fibra» de la semilla.
@@ -141,6 +142,10 @@ test("ubicación en vivo contra la API real: el lote llega, reenviar es seguro y
     if ((await indicador.textContent())?.includes("Fuera de turno")) {
         await indicador.click();
         await page.getByRole("dialog", { name: "Ubicación en vivo" }).getByRole("button", { name: "Iniciar turno" }).click();
+        const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
+        if (await explicacion.isVisible()) {
+            await explicacion.getByRole("button", { name: "Permitir ubicación" }).click();
+        }
     }
     const r = await respuesta;
     expect(r.status()).toBe(200);

@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import { AlmacenDexie } from "./almacen-dexie";
 import { AlmacenMemoria } from "./almacen-memoria";
 import type { PuntoPosicion } from "./contrato";
+import type { OperacionLocal, OrdenLocal } from "./modelo";
 import { errorSesionAjena, ErrorTransporte } from "./errores";
 import { ColaPosiciones, msDeRetryAfter, normalizarPunto, type AlmacenPosiciones, type OpcionesColaPosiciones } from "./posiciones";
+import { ordenDePrueba } from "./pruebas/fabricas";
 import { TransportePosicionesFalso } from "./pruebas/posiciones-falso";
 import { RelojManual, vaciarPromesas } from "./pruebas/reloj-manual";
 
@@ -252,6 +254,63 @@ describe("bucle de envío", () => {
     });
 });
 
+describe("cierre y errores que no se arreglan solos", () => {
+    it("tras detener() la cola está cerrada: agregar no guarda nada hasta iniciar()", async () => {
+        const { cola, almacen, reloj } = await montar();
+        cola.iniciar();
+        cola.detener();
+        expect(cola.obtenerEstado().cerrada).toBe(true);
+        expect(await cola.agregar(punto(reloj))).toBe(false);
+        expect((almacen as AlmacenMemoria).posiciones.size).toBe(0);
+        expect(cola.obtenerEstado().pendientes).toBe(0);
+
+        cola.iniciar();
+        expect(cola.obtenerEstado().cerrada).toBe(false);
+        expect(await cola.agregar(punto(reloj))).toBe(true);
+        cola.detener();
+    });
+
+    it.each([
+        [400, "validacion_cuerpo"],
+        [403, "empresa_no_permitida"],
+        [404, "no_encontrado"],
+        [413, "demasiado_grande"],
+    ])("un %i %s deja el envío en pausa (sin reintentos) hasta reintentarAhora", async (status, codigo) => {
+        const { cola, transporte, reloj } = await montar();
+        transporte.fallar(1, new ErrorTransporte("http", codigo, status, { type: `urn:iris:problema:${codigo}`, title: codigo, status }));
+        cola.iniciar();
+        await cola.agregar(punto(reloj, MINUTO));
+        await vaciarPromesas();
+        expect(cola.obtenerEstado()).toMatchObject({ pendientes: 1, pausada: true, detenida: false, proximoIntento: null, ultimoError: { status } });
+
+        // Ni el tiempo ni un punto nuevo la levantan.
+        await cola.agregar(punto(reloj));
+        await reloj.avanzar(30 * MINUTO);
+        expect(await cola.enviar()).toBeNull();
+        expect(transporte.lotes).toHaveLength(0);
+        expect(cola.obtenerEstado().pendientes).toBe(2);
+
+        cola.reintentarAhora();
+        await vaciarPromesas();
+        expect(transporte.lotes).toHaveLength(1);
+        expect(cola.obtenerEstado()).toMatchObject({ pendientes: 0, pausada: false, ultimoError: null });
+        cola.detener();
+    });
+
+    it("sin sesión (401) queda detenida y reintentarAhora no envía: hay que volver a entrar", async () => {
+        const { cola, transporte, reloj } = await montar();
+        transporte.fallar(1, new ErrorTransporte("http", "Sin sesión", 401, { type: "urn:iris:problema:no_autenticado", title: "Sin sesión", status: 401 }));
+        cola.iniciar();
+        await cola.agregar(punto(reloj));
+        await vaciarPromesas();
+        expect(cola.obtenerEstado()).toMatchObject({ detenida: true, pausada: false, pendientes: 1 });
+        cola.reintentarAhora();
+        await reloj.avanzar(10 * MINUTO);
+        expect(transporte.lotes).toHaveLength(0);
+        expect(cola.obtenerEstado().detenida).toBe(true);
+    });
+});
+
 describe("aislamiento por usuario y empresa (IndexedDB)", () => {
     const almacenDe = (usuario: number, empresa: number) => new AlmacenDexie({ nombre: `iris-campo-${usuario}-${empresa}`, dexie: { indexedDB, IDBKeyRange } });
 
@@ -275,12 +334,30 @@ describe("aislamiento por usuario y empresa (IndexedDB)", () => {
         const nombre = "iris-campo-9-1";
         const v2 = new Dexie(nombre, { indexedDB, IDBKeyRange });
         v2.version(2).stores({ operaciones: "id, secuencia, ordenId", ordenes: "id", adjuntos: "id, ordenId", bytes: "id", meta: "clave" });
+        const op: OperacionLocal = {
+            id: "0190f000-0000-7000-8000-000000000001",
+            tipo: "nota.agregar",
+            ordenId: 1,
+            versionBase: 1,
+            ocurridoEn: "2026-10-28T15:00:00.000Z",
+            datos: { texto: "hola" },
+            secuencia: 4,
+            estado: "pendiente",
+            error: null,
+            intentos: 0,
+        };
+        const orden: OrdenLocal = { id: 1, base: ordenDePrueba(1), reasignada: false };
+        await v2.table("operaciones").put(op);
+        await v2.table("ordenes").put(orden);
         await v2.table("meta").put({ clave: "secuencia", valor: 4 });
         v2.close();
 
         const v3 = new AlmacenDexie({ nombre, dexie: { indexedDB, IDBKeyRange } });
         await v3.escribirPosiciones({ poner: [{ ms: 1, lat: 1, lon: 1, registradaEn: new Date(1).toISOString() }] });
-        expect((await v3.cargar()).meta.secuencia).toBe(4);
+        const contenido = await v3.cargar();
+        expect(contenido.meta.secuencia).toBe(4);
+        expect(contenido.operaciones).toEqual([op]);
+        expect(contenido.ordenes).toEqual([orden]);
         expect(await v3.cargarPosiciones()).toHaveLength(1);
     });
 });

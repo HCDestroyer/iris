@@ -17,7 +17,7 @@ import { FotosOrden } from "./fotos";
 import { InsigniaOrden } from "./insignias";
 import { Materiales } from "./materiales";
 import { Notas } from "./notas";
-import { useUbicacion } from "./ubicacion";
+import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
 
 export function DetalleOrden({ id }: { id: number }) {
     const { navegar } = useCampo();
@@ -197,13 +197,17 @@ function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: 
         // la acción se registra igual en la cola sin conexión.
         const p = await ubicacion.posicionParaAccion();
         const datos = p ? { lat: p.lat, lon: p.lon, precision: p.precision } : {};
+        // Salir hacia el cliente o llegar es estar en turno: empieza la ubicación en vivo, con aviso
+        // (solo si el técnico aceptó la explicación y dio el permiso).
+        const empiezaTurno = ubicacion.turnoEmpezariaSolo();
+        const texto =
+            cual === "camino" ? (p ? "En camino, con ubicación" : "En camino, sin ubicación") : p ? "Llegada registrada con ubicación" : "Llegada registrada sin ubicación";
         const guardada = await ejecutar(
             () => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos),
-            cual === "camino" ? (p ? "En camino, con ubicación" : "En camino, sin ubicación") : p ? "Llegada registrada con ubicación" : "Llegada registrada sin ubicación",
+            empiezaTurno ? `${texto}. ${AVISO_TURNO_INICIADO}` : texto,
         );
-        if (guardada) {
-            // Salir hacia el cliente o llegar es estar en turno: empieza la ubicación en vivo.
-            await ubicacion.iniciarTurno({ explicar: false });
+        if (guardada && empiezaTurno) {
+            ubicacion.iniciarTurnoSolo();
         }
         setOcupado(null);
     };

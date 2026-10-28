@@ -2,11 +2,12 @@
 // mientras la app está abierta y el técnico está en turno, y lo guarda en la cola de posiciones de
 // `@iris/sync` (IndexedDB del usuario y la empresa), que lo envía en lote a `POST /campo/posiciones`.
 //
-// «En turno» lo decide el técnico («Iniciar turno» / «Terminar turno», o «En camino» / «Llegué»)
-// y dura hasta que lo termina o cambia el día en Guatemala: la app no conoce su turno de la agenda
-// (pedido a I2 en `.claude/integration/i4.md`). El permiso del navegador se pide solo después de
-// explicarlo (la pantalla llama `pedirPermiso` desde la explicación); si se niega, la app sigue
-// funcionando y la ubicación queda «Sin permiso».
+// «En turno»: lo empieza el técnico («Iniciar turno») o empieza solo con «En camino» / «Llegué»
+// (si ya aceptó la explicación y hay permiso, y con aviso). Termina cuando no le quedan órdenes
+// abiertas del día (cerró, falló, se canceló o se reasignó la última), cuando lo termina él o, como
+// red de seguridad, al cambiar el día en Guatemala: la app no conoce su turno de la agenda. La
+// explicación se muestra la primera vez por usuario aunque el permiso ya esté dado, y el navegador
+// pregunta solo después de ella; si se niega, la app sigue funcionando y queda «Sin permiso».
 import type { ColaPosiciones, PuntoPosicion } from "@iris/sync";
 import { borrarLocal, escribirLocal, leerLocal } from "@/lib/almacen";
 import { hoyEnGuatemala } from "./fechas";
@@ -35,6 +36,9 @@ export interface DependenciasUbicacion {
     /** Día del turno guardado (o `undefined`). */
     leerTurno: () => string | undefined;
     guardarTurno: (fecha: string | null) => void;
+    /** ¿Este usuario ya aceptó la explicación de la ubicación? */
+    leerExplicacion: () => string | undefined;
+    guardarExplicacion: (valor: "aceptada") => void;
     /** Cada cuánto se toma un punto (60 s). */
     intervaloMs: number;
     /** Espera máxima de una lectura (20 s). */
@@ -44,6 +48,7 @@ export interface DependenciasUbicacion {
 }
 
 const claveTurno = (usuarioId: number) => `iris-campo-turno-${usuarioId}`;
+const claveExplicacion = (usuarioId: number) => `iris-campo-ubicacion-explicada-${usuarioId}`;
 
 /** Turno guardado por usuario (comodidad local: si se pierde, el técnico lo inicia otra vez). */
 export function turnoGuardado(usuarioId: number) {
@@ -65,6 +70,8 @@ export function dependenciasNavegador(usuarioId: number): DependenciasUbicacion 
         permisos: hayNavegador && "permissions" in navigator && typeof navigator.permissions?.query === "function" ? navigator.permissions : null,
         hoy: () => hoyEnGuatemala(),
         ...turnoGuardado(usuarioId),
+        leerExplicacion: () => leerLocal(claveExplicacion(usuarioId)),
+        guardarExplicacion: (valor) => escribirLocal(claveExplicacion(usuarioId), valor),
         intervaloMs: 60_000,
         esperaLecturaMs: 20_000,
         documento: typeof document === "undefined" ? null : document,
@@ -100,6 +107,8 @@ export class RastreadorUbicacion {
     private leyendo = false;
     private montado = false;
     private estadoPermiso: PermissionStatus | null = null;
+    /** Órdenes abiertas del día vistas la última vez (`null` = aún no se vio ninguna lista). */
+    private abiertasPrevias: number | null = null;
     private readonly oyentes = new Set<Oyente>();
     private instantanea: EstadoUbicacion;
 
@@ -154,7 +163,32 @@ export class RastreadorUbicacion {
         }
         this.turno = this.deps.hoy();
         this.deps.guardarTurno(this.turno);
+        // Al empezar el turno se lee enseguida, aunque haya una lectura reciente (de la acción o del permiso).
+        this.leidaEn = null;
         this.actualizar();
+    }
+
+    /** La primera vez por usuario se explica aunque el permiso ya esté dado. */
+    explicacionAceptada(): boolean {
+        return this.deps.leerExplicacion() === "aceptada";
+    }
+
+    marcarExplicacionAceptada(): void {
+        this.deps.guardarExplicacion("aceptada");
+    }
+
+    /**
+     * El turno termina solo cuando el técnico se queda sin órdenes abiertas del día (pasa de alguna
+     * a ninguna: cerró, falló, se canceló o se reasignó la última). Devuelve si lo terminó.
+     */
+    alCambiarOrdenesAbiertas(abiertas: number): boolean {
+        const previas = this.abiertasPrevias;
+        this.abiertasPrevias = abiertas;
+        if (previas !== null && previas > 0 && abiertas === 0 && this.turno !== null) {
+            this.terminarTurno();
+            return true;
+        }
+        return false;
     }
 
     terminarTurno(): void {

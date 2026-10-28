@@ -7,17 +7,33 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { horaCorta } from "@/lib/campo/fechas";
 import { obtenerPosicion, type Posicion } from "@/lib/campo/gps";
 import { useEstadoPosiciones } from "@/lib/campo/motor";
-import { dependenciasNavegador, RastreadorUbicacion, type DependenciasUbicacion, type EstadoUbicacion } from "@/lib/campo/ubicacion";
+import type { EstadoUbicacion, RastreadorUbicacion } from "@/lib/campo/ubicacion";
+import { useCampo } from "./contexto";
+
+/** Aviso cada vez que el turno empieza solo («En camino» / «Llegué»). */
+export const AVISO_TURNO_INICIADO = "Turno iniciado: se envía tu ubicación cada minuto";
+const AVISO_TURNO_TERMINADO = "Turno terminado: no te quedan órdenes abiertas hoy. Ya no se envía tu ubicación.";
+const RUTA_VOLVER_A_ENTRAR = "/entrar?siguiente=%2Fcampo&motivo=expirada";
 
 type ContextoUbicacion = {
     estado: EstadoUbicacion;
     envio: EstadoPosiciones;
-    /** «Iniciar turno»: si el navegador aún no preguntó, primero la explicación. */
-    iniciarTurno: (opciones?: { explicar?: boolean }) => Promise<void>;
-    terminarTurno: () => void;
+    /** «Iniciar turno» a mano: primero la explicación si no se aceptó o el navegador aún no preguntó. */
+    iniciarTurno: () => Promise<void>;
     /**
-     * Posición para una acción («En camino», «Llegué», foto, cierre): si el navegador aún no
-     * preguntó, explica antes de pedir el permiso. Sin permiso, `null` (la acción sigue sin GPS).
+     * ¿«En camino» / «Llegué» empezarían el turno solo? Solo con la explicación aceptada, sin «Ahora
+     * no» en esta visita, con permiso y fuera de turno.
+     */
+    turnoEmpezariaSolo: () => boolean;
+    /** Empieza el turno solo (tras «En camino» / «Llegué»); devuelve si empezó. */
+    iniciarTurnoSolo: () => boolean;
+    terminarTurno: () => void;
+    /** Órdenes abiertas del día: sin ninguna (tras tener alguna), el turno termina solo. */
+    alCambiarOrdenesAbiertas: (abiertas: number) => boolean;
+    /**
+     * Posición para «En camino» / «Llegué»: la primera vez por usuario (o mientras no la acepte),
+     * la explicación antes, aunque el permiso ya esté dado. Sin permiso o con «Ahora no», `null`
+     * (la acción sigue sin GPS).
      */
     posicionParaAccion: (esperaMs?: number) => Promise<Posicion | null>;
     /** Posición solo si el permiso ya está dado (fotos y cierre, dentro de otros diálogos): nunca pregunta. */
@@ -39,14 +55,17 @@ const ISO = (ms: number | null) => (ms === null ? undefined : new Date(ms).toISO
 
 /** Lo que muestra el indicador: icono + texto + color. */
 export function resumenUbicacion(estado: EstadoUbicacion): { tono: Tono; icono: LucideIcon; texto: string } {
-    if (!estado.enTurno) {
-        return { tono: "neutral", icono: MapPinOff, texto: "Fuera de turno" };
+    if (estado.permiso === "denegado") {
+        return { tono: "error", icono: MapPinOff, texto: "Sin permiso" };
     }
     if (estado.permiso === "no_disponible") {
         return { tono: "neutral", icono: MapPinOff, texto: "Sin GPS" };
     }
+    if (!estado.enTurno) {
+        return { tono: "neutral", icono: MapPinOff, texto: "Fuera de turno" };
+    }
     if (estado.permiso !== "concedido") {
-        return { tono: estado.permiso === "denegado" ? "error" : "warning", icono: MapPinOff, texto: "Sin permiso" };
+        return { tono: "warning", icono: MapPinOff, texto: "Sin permiso" };
     }
     if (estado.gps === "sin_senal") {
         return { tono: "warning", icono: LocateOff, texto: "Sin señal GPS" };
@@ -71,17 +90,14 @@ const TEXTO_TONO: Record<Tono, string> = {
  */
 export function ProveedorUbicacion({
     cola,
-    usuarioId,
-    dependencias,
+    rastreador,
     children,
 }: {
     cola: ColaPosiciones;
-    usuarioId: number;
-    /** Solo pruebas; por defecto, las del navegador. */
-    dependencias?: DependenciasUbicacion;
+    /** Lo crea quien abre el motor (cerrar sesión termina su turno antes de esperar a la red). */
+    rastreador: RastreadorUbicacion;
     children: ReactNode;
 }) {
-    const [rastreador] = useState(() => new RastreadorUbicacion(cola, dependencias ?? dependenciasNavegador(usuarioId)));
     const estado = useSyncExternalStore(rastreador.suscribir, rastreador.obtenerEstado, rastreador.obtenerEstado);
     const envio = useEstadoPosiciones(cola);
     const [explicando, setExplicando] = useState(false);
@@ -114,6 +130,8 @@ export function ProveedorUbicacion({
     const cerrarExplicacion = useCallback(
         async (permitir: boolean) => {
             if (permitir) {
+                rastreador.marcarExplicacionAceptada();
+                declinado.current = false;
                 await rastreador.pedirPermiso();
             } else {
                 declinado.current = true;
@@ -127,25 +145,36 @@ export function ProveedorUbicacion({
 
     const sinPreguntar = (e: EstadoUbicacion) => e.permiso === "preguntar" || e.permiso === "desconocido";
 
-    const iniciarTurno = useCallback(
-        async ({ explicar: conExplicacion = true }: { explicar?: boolean } = {}) => {
-            rastreador.iniciarTurno();
-            if (conExplicacion && sinPreguntar(rastreador.obtenerEstado())) {
-                await explicar();
-            }
-        },
-        [rastreador, explicar],
-    );
+    const iniciarTurno = useCallback(async () => {
+        rastreador.iniciarTurno();
+        if (!rastreador.explicacionAceptada() || sinPreguntar(rastreador.obtenerEstado())) {
+            await explicar();
+        }
+    }, [rastreador, explicar]);
+
+    const turnoEmpezariaSolo = useCallback(() => {
+        const e = rastreador.obtenerEstado();
+        return !e.enTurno && e.permiso === "concedido" && rastreador.explicacionAceptada() && !declinado.current;
+    }, [rastreador]);
+
+    const iniciarTurnoSolo = useCallback(() => {
+        if (!turnoEmpezariaSolo()) {
+            return false;
+        }
+        rastreador.iniciarTurno();
+        return true;
+    }, [rastreador, turnoEmpezariaSolo]);
 
     const terminarTurno = useCallback(() => rastreador.terminarTurno(), [rastreador]);
+    const alCambiarOrdenesAbiertas = useCallback((abiertas: number) => rastreador.alCambiarOrdenesAbiertas(abiertas), [rastreador]);
 
     const posicionParaAccion = useCallback(
         async (esperaMs?: number) => {
-            if (sinPreguntar(rastreador.obtenerEstado()) && !declinado.current) {
+            if (!rastreador.explicacionAceptada() && !declinado.current) {
                 await explicar();
             }
             const permiso = rastreador.obtenerEstado().permiso;
-            if (permiso === "denegado" || permiso === "no_disponible" || (sinPreguntar(rastreador.obtenerEstado()) && declinado.current)) {
+            if (declinado.current || permiso === "denegado" || permiso === "no_disponible") {
                 return null;
             }
             return obtenerPosicion(esperaMs);
@@ -159,8 +188,19 @@ export function ProveedorUbicacion({
     );
 
     const valor = useMemo<ContextoUbicacion>(
-        () => ({ estado, envio, iniciarTurno, terminarTurno, posicionParaAccion, posicionSiPermitida, abrirPanel: () => setPanel(true) }),
-        [estado, envio, iniciarTurno, terminarTurno, posicionParaAccion, posicionSiPermitida],
+        () => ({
+            estado,
+            envio,
+            iniciarTurno,
+            turnoEmpezariaSolo,
+            iniciarTurnoSolo,
+            terminarTurno,
+            alCambiarOrdenesAbiertas,
+            posicionParaAccion,
+            posicionSiPermitida,
+            abrirPanel: () => setPanel(true),
+        }),
+        [estado, envio, iniciarTurno, turnoEmpezariaSolo, iniciarTurnoSolo, terminarTurno, alCambiarOrdenesAbiertas, posicionParaAccion, posicionSiPermitida],
     );
 
     return (
@@ -170,7 +210,12 @@ export function ProveedorUbicacion({
                 <DialogoContenido titulo="¿Compartir tu ubicación?" descripcion="Antes de que el teléfono te lo pregunte, esto es para qué la usa Iris.">
                     <ul className="grid list-disc gap-1.5 pl-5 text-sm">
                         <li>Registrar dónde marcas «En camino», «Llegué», las fotos y el cierre.</li>
-                        <li>Mientras estás en turno y la app está abierta, enviar tu ubicación cada minuto a despacho para asignarte órdenes cercanas.</li>
+                        <li>Mientras estás en turno y la app está abierta, enviar tu ubicación cada minuto a despacho.</li>
+                        <li>
+                            El turno empieza cuando tocas «Iniciar turno», o solo al marcar «En camino» o «Llegué» (te avisamos). Termina solo
+                            cuando ya no te quedan órdenes abiertas del día (cerraste o no se pudo la última, o te la cancelaron o
+                            reasignaron), cuando tú lo terminas o, como máximo, a medianoche.
+                        </li>
                         <li>Fuera de turno no se registra nada. Si no la permites, la app funciona igual.</li>
                     </ul>
                     <DialogoPie className="mt-4">
@@ -241,7 +286,7 @@ function PanelUbicacion({
                         {estado.enTurno ? <span className="text-muted-foreground">Turno iniciado hoy</span> : null}
                     </div>
 
-                    {estado.enTurno && estado.permiso === "denegado" ? (
+                    {estado.permiso === "denegado" ? (
                         <Aviso tono="warning" titulo="El navegador tiene bloqueada la ubicación">
                             Actívala en los ajustes del sitio (el candado junto a la dirección) y vuelve a abrir la app. Mientras tanto, todo lo demás funciona.
                         </Aviso>
@@ -276,7 +321,33 @@ function PanelUbicacion({
                     {esperaServidor !== null ? (
                         <p className="text-muted-foreground">Se envía a las {horaCorta(ISO(esperaServidor))} (límite de envíos por minuto del servidor).</p>
                     ) : null}
-                    {envio.ultimoError ? (
+                    {envio.detenida ? (
+                        <Aviso
+                            tono="error"
+                            titulo="Tu sesión terminó: las ubicaciones no se envían"
+                            accion={
+                                <Boton asChild variante="secundario">
+                                    <a href={RUTA_VOLVER_A_ENTRAR}>Vuelve a entrar</a>
+                                </Boton>
+                            }
+                        >
+                            Quedan guardadas en el teléfono ({envio.pendientes}) y se envían cuando vuelvas a entrar.
+                        </Aviso>
+                    ) : envio.pausada ? (
+                        <Aviso
+                            tono="warning"
+                            titulo="Envío de ubicaciones en pausa"
+                            accion={
+                                <Boton variante="secundario" onClick={() => cola.reintentarAhora()}>
+                                    <RefreshCw aria-hidden />
+                                    Reintentar
+                                </Boton>
+                            }
+                        >
+                            El servidor no las aceptó ({envio.ultimoError?.mensaje ?? "error"}). Quedan guardadas en el teléfono; reintenta cuando se
+                            resuelva o avisa a tu supervisor.
+                        </Aviso>
+                    ) : envio.ultimoError ? (
                         <Aviso
                             tono={envio.ultimoError.status === 422 ? "error" : "warning"}
                             titulo={envio.ultimoError.status === 422 ? "El servidor no aceptó un lote de ubicaciones" : "No se pudieron enviar las ubicaciones"}
@@ -317,4 +388,25 @@ function PanelUbicacion({
             </DialogoContenido>
         </Dialogo>
     );
+}
+
+const TERMINALES = new Set(["cerrada", "fallida", "cancelada"]);
+
+/**
+ * Termina el turno solo cuando el técnico se queda sin órdenes abiertas del día (cerró o falló la
+ * última, o se la cancelaron o reasignaron) y lo avisa. Va dentro de `ProveedorCampo`.
+ */
+export function FinDeTurnoPorOrdenes() {
+    const { estado, notificar } = useCampo();
+    const { alCambiarOrdenesAbiertas } = useUbicacion();
+    const abiertas = estado.ordenes.filter((o) => !TERMINALES.has(o.estado) && !o.reasignada).length;
+    useEffect(() => {
+        if (alCambiarOrdenesAbiertas(abiertas)) {
+            // Después del aviso de la acción que la cerró («Orden cerrada…»), para que no lo tape.
+            const t = setTimeout(() => notificar({ tono: "info", texto: AVISO_TURNO_TERMINADO }), 300);
+            return () => clearTimeout(t);
+        }
+        return undefined;
+    }, [abiertas, alCambiarOrdenesAbiertas, notificar]);
+    return null;
 }

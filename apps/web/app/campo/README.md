@@ -40,16 +40,21 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **Ubicación en vivo** (`lib/campo/ubicacion.ts`, `_componentes/ubicacion.tsx`): en turno y con
   la app abierta, un punto por minuto (`getCurrentPosition` sin caché) a la `ColaPosiciones` de
   `@iris/sync` (misma base del usuario y la empresa; sin señal se acumula y sale en lotes al
-  volver, respetando 6 lotes/min y `Retry-After`). «En turno» lo marca el técnico («Iniciar
-  turno» / «Terminar turno» en el indicador) o empieza solo con «En camino» o «Llegué»; dura hasta
-  terminarlo o hasta que cambia el día en Guatemala, y cerrar sesión lo olvida. El permiso del
-  navegador se pide solo tras la explicación «¿Compartir tu ubicación?» («Permitir ubicación» /
-  «Ahora no»); fotos y cierre nunca preguntan (usan el GPS solo si ya hay permiso). Indicador
-  discreto bajo la barra de conexión (icono + texto + color): «Ubicación activa», «Sin permiso»,
-  «Sin señal GPS», «Buscando GPS…», «Sin GPS», «Fuera de turno», y «Pendientes de enviar: n»; al
-  tocarlo, el panel con último envío, la espera del servidor y los errores con «Reintentar».
+  volver, respetando 6 lotes/min y `Retry-After`).
+  - **Explicación** «¿Compartir tu ubicación?» la primera vez por usuario, aunque el navegador ya
+    tenga el permiso (se recuerda al aceptarla; con «Ahora no» se vuelve a mostrar en la próxima
+    visita). El navegador pregunta solo tras «Permitir ubicación»; fotos y cierre nunca preguntan.
+  - **Turno:** empieza con «Iniciar turno» o solo con «En camino» / «Llegué» (con la explicación
+    aceptada y el permiso dado), con el aviso «Turno iniciado: se envía tu ubicación cada minuto».
+    Termina solo cuando no quedan órdenes abiertas del día (cerró o falló la última, o se la
+    cancelaron o reasignaron), a mano con «Terminar turno» o, como red de seguridad, a medianoche.
+    Cerrar sesión lo termina antes de esperar a la red y cierra la cola (no entran más puntos).
+  - **Indicador** bajo la barra de conexión (icono + texto + color): «Ubicación activa», «Sin
+    permiso», «Sin señal GPS», «Buscando GPS…», «Sin GPS», «Fuera de turno» y «Pendientes de
+    enviar: n». El panel muestra último envío, la espera del servidor, «Reintentar» tras una falla o
+    una pausa por 4xx, y «Vuelve a entrar» si la sesión terminó.
 - **«En camino»:** `orden.iniciar_camino` (con GPS si hay permiso) a la cola sin conexión, e inicia
-  el turno. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
+  el turno como se dice arriba. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
   `.claude/integration/i4.md`).
 - **Service worker** (Serwist, `app/sw.ts`, alcance `/campo`): precachea el shell y los estáticos;
   nunca toca `/api`. Manifest «Iris Campo» en `/campo/manifest.webmanifest`.

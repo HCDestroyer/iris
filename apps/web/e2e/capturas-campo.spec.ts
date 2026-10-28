@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { conSesionTecnico, simularApiCampo } from "./api-campo";
+import { aceptarUbicacion, conSesionTecnico, simularApiCampo } from "./api-campo";
 import { CABLE } from "./datos-campo";
 
 // Capturas de la app de campo para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto
@@ -56,6 +56,7 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     await context.setOffline(true);
     await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
     await page.getByRole("button", { name: "Llegué" }).click();
+    await aceptarUbicacion(page);
     await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
     await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
     await page.getByRole("button", { name: "Guardar Potencia óptica" }).click();

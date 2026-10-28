@@ -38,6 +38,7 @@ async function montar(opciones: { permiso?: PermissionState | null; turno?: stri
     const reloj = new RelojManual(INICIO);
     const cola = await ColaPosiciones.abrir({ almacen, transporte: new TransportePosicionesFalso(reloj) });
     let turno = opciones.turno;
+    let explicacion: string | undefined;
     const deps: DependenciasUbicacion = {
         geolocalizacion: opciones.sinGeo ? null : (geo as Geolocation),
         permisos: opciones.permiso === null ? null : permisosFalsos(opciones.permiso ?? "granted"),
@@ -45,6 +46,10 @@ async function montar(opciones: { permiso?: PermissionState | null; turno?: stri
         leerTurno: () => turno,
         guardarTurno: (f) => {
             turno = f ?? undefined;
+        },
+        leerExplicacion: () => explicacion,
+        guardarExplicacion: (v) => {
+            explicacion = v;
         },
         intervaloMs: 60_000,
         esperaLecturaMs: 20_000,
@@ -147,6 +152,55 @@ describe("ubicación en vivo (PWA)", () => {
         rastreador.iniciarTurno();
         expect(await rastreador.pedirPermiso()).toBe("no_disponible");
         expect(rastreador.obtenerEstado()).toMatchObject({ permiso: "no_disponible", activa: false });
+    });
+
+    it("el turno termina solo al quedarse sin órdenes abiertas (no si nunca hubo ninguna)", async () => {
+        const { geo, rastreador, turno } = await montar();
+        // Turno iniciado a mano sin órdenes: sigue.
+        rastreador.iniciarTurno();
+        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(false);
+        expect(rastreador.alCambiarOrdenesAbiertas(2)).toBe(false);
+        expect(rastreador.alCambiarOrdenesAbiertas(1)).toBe(false);
+        expect(rastreador.obtenerEstado().enTurno).toBe(true);
+        // Cierra (o falla, cancelan, reasignan) la última: termina y deja de leer.
+        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(true);
+        expect(rastreador.obtenerEstado()).toMatchObject({ enTurno: false, activa: false });
+        expect(turno()).toBeUndefined();
+        const lecturas = geo.lecturas;
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        expect(geo.lecturas).toBe(lecturas);
+        // Fuera de turno, otra vez sin órdenes no hace nada.
+        expect(rastreador.alCambiarOrdenesAbiertas(1)).toBe(false);
+        expect(rastreador.alCambiarOrdenesAbiertas(0)).toBe(false);
+    });
+
+    it("recuerda por usuario que aceptó la explicación", async () => {
+        const { rastreador } = await montar();
+        expect(rastreador.explicacionAceptada()).toBe(false);
+        rastreador.marcarExplicacionAceptada();
+        expect(rastreador.explicacionAceptada()).toBe(true);
+    });
+
+    it("al terminar el turno (cerrar sesión) una lectura en curso ya no se guarda", async () => {
+        const { geo, almacen, cola, rastreador } = await montar();
+        rastreador.iniciarTurno();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(almacen.posiciones.size).toBe(1);
+        // La respuesta del GPS llega después de «Cerrar sesión».
+        let responder: (() => void) | null = null;
+        geo.getCurrentPosition = (exito: PositionCallback) => {
+            responder = () => {
+                const coords = { latitude: 1, longitude: 1, accuracy: 5, altitude: null, altitudeAccuracy: null, heading: null, speed: null };
+                exito({ coords: { ...coords, toJSON: () => coords }, timestamp: Date.now(), toJSON: () => ({}) } as GeolocationPosition);
+            };
+        };
+        await vi.advanceTimersByTimeAsync(60_000);
+        rastreador.terminarTurno();
+        cola.detener();
+        (responder as (() => void) | null)?.();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(almacen.posiciones.size).toBe(1);
+        expect(await cola.agregar({ lat: 1, lon: 1, registradaEn: new Date().toISOString() })).toBe(false);
     });
 
     it("convierte la lectura del navegador en el punto del cable", () => {

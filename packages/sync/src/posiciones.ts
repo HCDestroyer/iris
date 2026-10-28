@@ -89,6 +89,13 @@ export interface EstadoPosiciones {
     ultimoError: ErrorVisible | null;
     /** Sin sesión o con la de otra persona: no se envía hasta que el dueño vuelva a entrar. */
     detenida: boolean;
+    /**
+     * La API respondió un 4xx que no se arregla solo (400, 403 de empresa, 404, 413…): no se envía
+     * hasta `reintentarAhora` (como el motor con `sin_empresa`). Los puntos se quedan.
+     */
+    pausada: boolean;
+    /** Tras `detener()` (p. ej. al cerrar sesión): `agregar` ya no guarda nada hasta `iniciar()`. */
+    cerrada: boolean;
     /** Lo que el teléfono descartó desde que se abrió la cola. */
     descartadas: DescartadasLocales;
 }
@@ -180,6 +187,8 @@ export class ColaPosiciones {
     private proximoIntento: number | null = null;
     private ultimoError: ErrorVisible | null = null;
     private detenida = false;
+    private pausada = false;
+    private cerrada = false;
     private readonly descartadas: DescartadasLocales = { tope: 0, vieja: 0, invalida: 0 };
 
     private cadena: Promise<unknown> = Promise.resolve();
@@ -189,6 +198,8 @@ export class ColaPosiciones {
     private sueno: AbortController | null = null;
     /** Esperando por una falla, un 429 o el límite: un punto nuevo no despierta el envío. */
     private enEspera = false;
+    /** Un punto llegó mientras el bucle enviaba (sin sueño que cortar): no dormir, otra pasada. */
+    private despertado = false;
 
     private constructor(opciones: OpcionesColaPosiciones) {
         this.almacen = opciones.almacen;
@@ -235,9 +246,12 @@ export class ColaPosiciones {
 
     /**
      * Guarda un punto (normalizado) y despierta el envío. Devuelve `false` si no sirve, si ya
-     * estaba (misma hora) o si tiene más de 24 h.
+     * estaba (misma hora), si tiene más de 24 h o si la cola está cerrada (`detener`).
      */
     async agregar(punto: PuntoPosicion): Promise<boolean> {
+        if (this.cerrada) {
+            return false;
+        }
         const limpio = normalizarPunto(punto);
         if (!limpio) {
             return false;
@@ -277,6 +291,9 @@ export class ColaPosiciones {
      */
     enviar(): Promise<number | null> {
         return this.serializar(async () => {
+            if (this.pausada) {
+                return null;
+            }
             const viejas = this.sobrantes();
             if (viejas.length > 0) {
                 await this.escribir({ borrar: viejas });
@@ -324,6 +341,9 @@ export class ColaPosiciones {
                             : { mensaje: e instanceof Error ? e.message : String(e), status: null, problema: null };
                     if (e instanceof ErrorTransporte && e.esDeSesion) {
                         this.detenida = true;
+                    } else if (e instanceof ErrorTransporte && e.tipo === "http" && !e.esReintentable && e.status !== null && e.status < 500) {
+                        // 400, 403 de empresa, 404, 413…: reintentar igual no sirve; se espera al técnico.
+                        this.pausada = true;
                     }
                     throw e;
                 }
@@ -333,8 +353,12 @@ export class ColaPosiciones {
         });
     }
 
-    /** Arranca el bucle de envío (con la app abierta). */
+    /** Arranca el bucle de envío (con la app abierta) y abre la cola si estaba cerrada. */
     iniciar(): void {
+        if (this.cerrada) {
+            this.cerrada = false;
+            this.emitir();
+        }
         if (this.bucle) {
             return;
         }
@@ -344,16 +368,28 @@ export class ColaPosiciones {
         void this.correrBucle(control.signal);
     }
 
+    /** Detiene el envío y cierra la cola: desde ahora `agregar` no guarda nada (hasta `iniciar`). */
     detener(): void {
+        this.cerrada = true;
         this.bucle?.abort();
         this.bucle = null;
         this.sueno?.abort();
+        this.emitir();
     }
 
-    /** Volvió la señal o el técnico pidió reintentar: corta la espera exponencial (no el `Retry-After`). */
+    /**
+     * Volvió la señal o el técnico pidió reintentar: corta la espera exponencial y la pausa por un
+     * 4xx (no el `Retry-After`). Sin sesión (`detenida`) no hace nada: hay que volver a entrar.
+     */
     reintentarAhora(): void {
+        if (this.pausada) {
+            this.pausada = false;
+            this.ultimoError = null;
+            this.emitir();
+        }
         this.enEspera = false;
         this.proximoIntento = null;
+        this.despertado = true;
         this.sueno?.abort();
     }
 
@@ -361,6 +397,7 @@ export class ColaPosiciones {
 
     private despertar(): void {
         if (!this.enEspera) {
+            this.despertado = true;
             this.sueno?.abort();
         }
     }
@@ -369,6 +406,7 @@ export class ColaPosiciones {
         let intento = 0;
         while (!senal.aborted) {
             let espera: number;
+            this.despertado = false;
             try {
                 const resto = await this.enviar();
                 intento = 0;
@@ -382,14 +420,24 @@ export class ColaPosiciones {
                     this.emitir();
                     break;
                 }
-                espera = calcularEspera(intento, this.espera);
-                intento += 1;
-                this.enEspera = true;
-                this.proximoIntento = this.reloj.ahora() + espera;
+                if (this.pausada) {
+                    // En pausa hasta `reintentarAhora` (ni el tiempo ni un punto nuevo la levantan).
+                    espera = 60 * MINUTO_MS;
+                    this.enEspera = true;
+                    this.proximoIntento = null;
+                } else {
+                    espera = calcularEspera(intento, this.espera);
+                    intento += 1;
+                    this.enEspera = true;
+                    this.proximoIntento = this.reloj.ahora() + espera;
+                }
             }
             this.emitir();
             if (senal.aborted) {
                 break;
+            }
+            if (this.despertado && !this.enEspera) {
+                continue;
             }
             const sueno = new AbortController();
             this.sueno = sueno;
@@ -467,6 +515,8 @@ export class ColaPosiciones {
             proximoIntento: this.proximoIntento,
             ultimoError: this.ultimoError,
             detenida: this.detenida,
+            pausada: this.pausada,
+            cerrada: this.cerrada,
             descartadas: { ...this.descartadas },
         };
     }
