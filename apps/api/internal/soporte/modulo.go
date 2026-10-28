@@ -7,10 +7,15 @@
 package soporte
 
 import (
+	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
 )
 
 // Tablas operativas con empresa_id que se adoptan (POST /empresas/{id}/adoptar-sin-empresa)
@@ -21,12 +26,47 @@ func init() {
 	nucleo.RegistrarTablaConEmpresa("soporte.tickets")
 	nucleo.RegistrarTablaConEmpresa("soporte.ticket_mensajes")
 	nucleo.RegistrarTablaConEmpresa("soporte.ticket_eventos")
+	nucleo.RegistrarTablaConEmpresa("soporte.buzones")
+	nucleo.RegistrarTablaConEmpresa("soporte.correos_entrantes")
+	nucleo.RegistrarTablaConEmpresa("soporte.correos_salientes")
 }
 
 // Config del módulo.
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
+	// Cifrador (IRIS_CLAVE_CIFRADO) cifra las contraseñas de los buzones. Sin él no se pueden
+	// crear ni activar buzones (422 cifrado_no_configurado).
+	Cifrador *nucleo.Cifrador
+	// Correo: red (SSRF, CA, tiempo) y límites de la entrada por correo.
+	Correo ConfigCorreo
+	// Encolar inserta un job de River en la transacción del caso de uso (en cmd/worker,
+	// river.Client.InsertTx). nil = no se encola (API sin worker, OpenAPI, pruebas).
+	Encolar func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error
+}
+
+// ConfigCorreo de la entrada y salida por correo.
+type ConfigCorreo struct {
+	Red correo.Opciones
+	// TamanoMax (IRIS_CORREO_TAMANO_MAX, bytes): un correo más grande solo se importa con sus
+	// cabeceras (10 MiB por defecto).
+	TamanoMax int64
+	// PlazoPrueba: tiempo total de buzones.probar (IMAP + SMTP; 20 s por defecto).
+	PlazoPrueba time.Duration
+}
+
+func (c ConfigCorreo) plazoPrueba() time.Duration {
+	if c.PlazoPrueba <= 0 {
+		return 20 * time.Second
+	}
+	return c.PlazoPrueba
+}
+
+func (c ConfigCorreo) tamanoMax() int64 {
+	if c.TamanoMax <= 0 {
+		return 10 << 20
+	}
+	return c.TamanoMax
 }
 
 // Modulo reúne los casos de uso de soporte.
@@ -53,6 +93,22 @@ type Modulo struct {
 	ListarSLAs       *auditoria.Caso[struct{}, nucleo.Pagina[SLA]]
 
 	RevisarSLA *auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]
+
+	CrearBuzon      *auditoria.Caso[EntradaCrearBuzon, Buzon]
+	EditarBuzon     *auditoria.Caso[EntradaEditarBuzon, Buzon]
+	ActivarBuzon    *auditoria.Caso[EntradaCambiarBuzon, Buzon]
+	DesactivarBuzon *auditoria.Caso[EntradaCambiarBuzon, Buzon]
+	VerBuzon        *auditoria.Caso[EntradaVerBuzon, Buzon]
+	ListarBuzones   *auditoria.Caso[EntradaListarBuzones, nucleo.Pagina[Buzon]]
+	ProbarBuzon     *ProbadorBuzon
+
+	// Internos del worker (actor sistema).
+	ProgramarLecturas *auditoria.Caso[EntradaProgramarLecturas, int]
+	RegistrarCorreo   *auditoria.Caso[EntradaRegistrarCorreo, ResultadoRegistrarCorreo]
+	CerrarLectura     *auditoria.Caso[EntradaCerrarLectura, struct{}]
+	ProcesarCorreo    *auditoria.Caso[EntradaProcesarCorreo, ResultadoProcesarCorreo]
+	EncolarRespuesta  *auditoria.Caso[EntradaEncolarRespuesta, ResultadoEncolarRespuesta]
+	RegistrarEnvio    *auditoria.Caso[EntradaRegistrarEnvio, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -79,6 +135,19 @@ func Nuevo(cfg Config) *Modulo {
 	m.ListarCategorias = nuevoListarCategorias()
 	m.ListarSLAs = nuevoListarSLAs()
 	m.RevisarSLA = m.nuevoRevisarSLA()
+	m.CrearBuzon = m.nuevoCrearBuzon()
+	m.EditarBuzon = m.nuevoEditarBuzon()
+	m.ActivarBuzon = m.nuevoCambiarBuzon(true)
+	m.DesactivarBuzon = m.nuevoCambiarBuzon(false)
+	m.VerBuzon = m.nuevoVerBuzon()
+	m.ListarBuzones = m.nuevoListarBuzones()
+	m.ProbarBuzon = m.nuevoProbarBuzon()
+	m.ProgramarLecturas = m.nuevoProgramarLecturas()
+	m.RegistrarCorreo = m.nuevoRegistrarCorreo()
+	m.CerrarLectura = m.nuevoCerrarLectura()
+	m.ProcesarCorreo = m.nuevoProcesarCorreo()
+	m.EncolarRespuesta = m.nuevoEncolarRespuesta()
+	m.RegistrarEnvio = m.nuevoRegistrarEnvio()
 	return m
 }
 

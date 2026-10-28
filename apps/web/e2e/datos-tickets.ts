@@ -74,7 +74,7 @@ function base(id: number, ahora: number, parcial: Partial<Ticket>): Ticket {
         clienteId: null,
         servicioId: null,
         zonaId: null,
-        contacto: { nombre: null, telefono: null, correo: null },
+        contacto: { nombre: null, telefono: null, correo: null, verificado: true },
         categoriaId: 2,
         prioridad: "media",
         estado: "abierto",
@@ -133,7 +133,7 @@ export function escenarioTickets(ahora: number, empresas: readonly number[]): Es
             asignadoA: 6,
             enEsperaDesde: iso(ahora - 30 * MIN),
             slaResolucion: reloj("pausado", ahora),
-            contacto: { nombre: "Jorge Méndez", telefono: "5555 0303", correo: "jorge@correo.test" },
+            contacto: { nombre: "Jorge Méndez", telefono: "5555 0303", correo: "jorge@correo.test", verificado: true },
         }),
         base(4, ahora, {
             asunto: "Solicitud de cambio de plan",

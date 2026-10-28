@@ -154,4 +154,6 @@ func (m *Modulo) Registrar(api huma.API) {
 		func(ctx context.Context, _ *vacio) (*cuerpo[nucleo.Pagina[SLA]], error) {
 			return responder(m.ListarSLAs.Ejecutar(ctx, struct{}{}))
 		})
+
+	m.registrarBuzones(api)
 }
