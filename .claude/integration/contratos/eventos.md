@@ -11,6 +11,7 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 | `usuario.creado` | `usuario_id`, `tipo` | Alta de un usuario (`usuarios.crear`, también desde `iris admin crear`). |
 | `usuario.actualizado` | `usuario_id`, `campos[]` (nombres de los campos que cambiaron) | `usuarios.editar`. |
 | `usuario.desactivado` | `usuario_id`, `motivo` | `usuarios.desactivar`. Revoca sus sesiones; sus tokens dejan de autenticar mientras esté inactivo, sin revocarse ni emitir `token.revocado`. |
+| `usuario.mfa_reiniciado` | `usuario_id`, `motivo`, `sesiones_cerradas` (número) | `usuarios.reiniciar_mfa` (un administrador, nunca el propio usuario): borra su secreto TOTP y revoca sus sesiones; sus tokens siguen valiendo. No se repite: un segundo reinicio sin MFA configurado es 422. |
 | `token.creado` | `token_id`, `usuario_id` | Alta de un token `iris_pat_`. |
 | `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`. |
 | `empresa.creada` | `empresa_id`, `origen` (`manual`) | `empresas.crear` (un administrador registra una empresa de Argos). Lleva `empresa_id` = la empresa. Las que registra el canje del conector no emiten este evento (van en `conector.creado`). |

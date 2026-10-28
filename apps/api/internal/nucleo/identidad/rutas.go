@@ -187,6 +187,15 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.DesactivarUsuario.Ejecutar(ctx, e))
 		})
 
+	reiniciarMFA := operacion("reiniciarMFAUsuario", http.MethodPost, "/api/v1/usuarios/{id}/reiniciar-mfa", "Reiniciar el MFA de otro usuario", nucleo.PermUsuariosReiniciarMFA, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar) y cierra sus sesiones; sus tokens siguen valiendo. El usuario entra con su contraseña y vuelve a configurar el MFA. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
+	huma.Register(api, reiniciarMFA,
+		func(ctx context.Context, in *conID[EntradaReiniciarMFA]) (*cuerpo[Usuario], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.ReiniciarMFA.Ejecutar(ctx, e))
+		})
+
 	// Empresas y membresía --------------------------------------------------------------
 	huma.Register(api, operacion("listarEmpresas", http.MethodGet, "/api/v1/empresas", "Listar las empresas registradas", nucleo.PermEmpresasVer, http.StatusOK),
 		func(ctx context.Context, in *nucleo.ParamsPagina) (*cuerpo[nucleo.Pagina[Empresa]], error) {

@@ -51,6 +51,14 @@ SET totp_activo = true, totp_ultimo_paso = @paso, version = version + 1, updated
 WHERE id = @id
 RETURNING *;
 
+-- name: ReiniciarMFA :one
+-- Reinicio por un administrador: borra el secreto (configurado o activo) y el paso usado.
+UPDATE nucleo.usuarios
+SET totp_secreto = NULL, totp_activo = false, totp_ultimo_paso = 0,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
 -- name: RegistrarPasoTOTP :execrows
 UPDATE nucleo.usuarios SET totp_ultimo_paso = @paso, updated_at = now()
 WHERE id = @id AND totp_ultimo_paso < @paso;

@@ -102,6 +102,8 @@ const (
 	PermEmpresasVer            Permiso = "empresas.ver"
 	PermUsuariosAsignarEmpresa Permiso = "usuarios.asignar_empresa"
 	PermUsuariosQuitarEmpresa  Permiso = "usuarios.quitar_empresa"
+	// PermUsuariosReiniciarMFA borra el TOTP de otro usuario y cierra sus sesiones (solo admin).
+	PermUsuariosReiniciarMFA Permiso = "usuarios.reiniciar_mfa"
 )
 
 // Conector Argos (lectura) e integraciones.
@@ -212,6 +214,7 @@ var Catalogo = []DefPermiso{
 	{PermUsuariosDesactivar, "Desactivar usuarios (no se borran)"},
 	{PermUsuariosEditar, "Editar usuarios, su contraseña y sus roles"},
 	{PermUsuariosQuitarEmpresa, "Quitar a un usuario una empresa (solo empresas en que operas tú)"},
+	{PermUsuariosReiniciarMFA, "Reiniciar el MFA de otro usuario (borra su TOTP y cierra sus sesiones)"},
 	{PermUsuariosVer, "Ver y buscar usuarios"},
 }
 

@@ -1169,6 +1169,41 @@ func (q *Queries) RegistrarPasoTOTP(ctx context.Context, arg RegistrarPasoTOTPPa
 	return result.RowsAffected(), nil
 }
 
+const reiniciarMFA = `-- name: ReiniciarMFA :one
+UPDATE nucleo.usuarios
+SET totp_secreto = NULL, totp_activo = false, totp_ultimo_paso = 0,
+    version = version + 1, updated_at = now()
+WHERE id = $1 AND version = $2
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at
+`
+
+type ReiniciarMFAParams struct {
+	ID      int64
+	Version int32
+}
+
+// Reinicio por un administrador: borra el secreto (configurado o activo) y el paso usado.
+func (q *Queries) ReiniciarMFA(ctx context.Context, arg ReiniciarMFAParams) (NucleoUsuario, error) {
+	row := q.db.QueryRow(ctx, reiniciarMFA, arg.ID, arg.Version)
+	var i NucleoUsuario
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Correo,
+		&i.Tipo,
+		&i.ContrasenaHash,
+		&i.TotpSecreto,
+		&i.TotpActivo,
+		&i.TotpUltimoPaso,
+		&i.Activo,
+		&i.UsuarioArgosID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const revocarSesion = `-- name: RevocarSesion :execrows
 UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
 WHERE id = $1 AND revocada_en IS NULL
