@@ -15,7 +15,7 @@ import (
 
 // EntradaCrearToken es la entrada de tokens.crear.
 type EntradaCrearToken struct {
-	UsuarioID int64            `json:"usuarioId,omitempty" minimum:"1" doc:"Dueño del token (por defecto, quien lo crea). Para Argos u Horus, su usuario de integración"`
+	UsuarioID int64            `json:"usuarioId,omitempty" minimum:"1" doc:"Dueño del token (por defecto, quien lo crea). Otro usuario solo si es de tipo integración (Argos, Horus); para una persona, 422 token_para_persona"`
 	Nombre    string           `json:"nombre" minLength:"1" maxLength:"120"`
 	Permisos  []nucleo.Permiso `json:"permisos,omitempty" maxItems:"200" doc:"Límite de permisos; sin él, los del usuario"`
 	ExpiraEn  *time.Time       `json:"expiraEn,omitempty" doc:"Vencimiento (opcional)"`
@@ -69,19 +69,8 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			if !u.Activo {
 				return TokenCreado{}, nucleo.ReglaNegocio("usuario_inactivo", "El usuario está desactivado")
 			}
-			// Nadie da más de lo que tiene: lo que el token podrá hacer (permisos del dueño ∩
-			// límite) debe estar en los permisos sin límite de quien lo crea.
-			if !actor.EsUsuario() || actor.ID != dueno {
-				efectivos, err := cargarPermisos(ctx, q, dueno, limite)
-				if err != nil {
-					return TokenCreado{}, err
-				}
-				quien := contexto.PermisosDe(ctx)
-				for _, p := range efectivos.Lista() {
-					if !quien.TieneGlobal(p) {
-						return TokenCreado{}, nucleo.Prohibido("El token tendría el permiso " + p + ", que no tienes sin límite de alcance; limita sus permisos")
-					}
-				}
+			if err := puedeEmitir(ctx, q, actor, u, limite); err != nil {
+				return TokenCreado{}, err
 			}
 
 			valor, err := NuevoTokenAPI()
@@ -107,4 +96,45 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			return TokenCreado{Valor: valor, Token: token}, nil
 		},
 	})
+}
+
+// puedeEmitir aplica «nadie da más de lo que tiene» a un token nuevo del usuario dueno con el
+// límite dado:
+//
+//   - para sí mismo con sesión (actor usuario): sin más reglas; el token nunca supera a su dueño;
+//   - para sí mismo desde un token o una integración: lo que podrá hacer el token nuevo (permisos
+//     del dueño ∩ límite) debe estar en los permisos del token que lo crea, con el mismo alcance;
+//     y si ese token tiene límite, el nuevo también (sin límite crecería con los roles del dueño);
+//   - para otro usuario: solo si es de tipo integración (un token de una persona actuaría a su
+//     nombre) y quien lo crea tiene sin límite de alcance cada permiso actual de ese usuario.
+func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Actor, dueno identidadbd.NucleoUsuario, limite []string) error {
+	quien := contexto.PermisosDe(ctx)
+	propio := actor.EsUsuario() && actor.ID == dueno.ID
+	switch {
+	case propio && actor.Tipo == contexto.ActorUsuario:
+		return nil
+	case propio:
+		if actor.TokenID != 0 {
+			padre, err := q.TokenPorID(ctx, actor.TokenID)
+			if err != nil {
+				return err
+			}
+			if padre.Permisos != nil && limite == nil {
+				return nucleo.Prohibido("Un token creado con un token limitado debe llevar permisos (subconjunto de los del token)")
+			}
+		}
+		efectivos, err := cargarPermisos(ctx, q, dueno.ID, limite)
+		if err != nil {
+			return err
+		}
+		if falta, ok := quien.Cubre(efectivos); !ok {
+			return nucleo.Prohibido("El token tendría el permiso " + falta + ", que el token con el que lo creas no tiene; limita sus permisos")
+		}
+		return nil
+	default:
+		if dueno.Tipo != "integracion" {
+			return nucleo.ReglaNegocio("token_para_persona", "Solo se crean tokens para otro usuario si es de tipo integración; cada persona crea los suyos")
+		}
+		return exigirSuperior(ctx, q, quien, dueno.ID, "crear tokens de este usuario")
+	}
 }

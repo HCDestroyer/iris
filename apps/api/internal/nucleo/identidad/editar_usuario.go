@@ -55,6 +55,18 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 					return Usuario{}, nucleo.Conflicto("correo_en_uso", "Ya existe un usuario con el correo "+correo)
 				}
 			}
+			// Tomar la cuenta (contraseña, correo) o quitar roles exige superar al objetivo; con
+			// sesión propia no (un token, aunque sea del mismo usuario, sí: no puede escalar a
+			// la sesión completa cambiando la contraseña).
+			quitaRoles := in.Roles != nil && quitaAsignaciones(rolesPrevios[in.ID], *in.Roles)
+			if in.Contrasena != nil || correo != antes.Correo || quitaRoles {
+				actor := contexto.ActorDe(ctx)
+				if actor.Tipo != contexto.ActorUsuario || actor.ID != in.ID {
+					if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "cambiar la contraseña, el correo o quitar roles a este usuario"); err != nil {
+						return Usuario{}, err
+					}
+				}
+			}
 			hash := antes.ContrasenaHash
 			if in.Contrasena != nil {
 				if antes.Tipo == "integracion" {
@@ -101,4 +113,18 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 			return aUsuario(despues, roles), nil
 		},
 	})
+}
+
+// quitaAsignaciones indica si alguna asignación previa no está en las nuevas.
+func quitaAsignaciones(previas, nuevas []AsignacionRol) bool {
+	quedan := map[string]bool{}
+	for _, r := range nuevas {
+		quedan[r.clave()] = true
+	}
+	for _, r := range previas {
+		if !quedan[r.clave()] {
+			return true
+		}
+	}
+	return false
 }

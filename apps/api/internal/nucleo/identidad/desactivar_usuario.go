@@ -37,6 +37,9 @@ func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 			if !antes.Activo {
 				return Usuario{}, nucleo.ReglaNegocio("usuario_inactivo", "El usuario ya está desactivado")
 			}
+			if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "desactivar a este usuario"); err != nil {
+				return Usuario{}, err
+			}
 			despues, err := q.DesactivarUsuario(ctx, identidadbd.DesactivarUsuarioParams{ID: in.ID, Version: in.Version})
 			if err != nil {
 				return Usuario{}, nucleo.VerificarVersion(err, "usuario", in.ID)

@@ -847,6 +847,30 @@ func (q *Queries) TocarToken(ctx context.Context, id int64) error {
 	return err
 }
 
+const tokenPorID = `-- name: TokenPorID :one
+SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api WHERE id = $1
+`
+
+func (q *Queries) TokenPorID(ctx context.Context, id int64) (NucleoTokensApi, error) {
+	row := q.db.QueryRow(ctx, tokenPorID, id)
+	var i NucleoTokensApi
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.Nombre,
+		&i.Prefijo,
+		&i.Hash,
+		&i.Permisos,
+		&i.ExpiraEn,
+		&i.UltimoUso,
+		&i.RevocadoEn,
+		&i.CreadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const tokenPorIDParaActualizar = `-- name: TokenPorIDParaActualizar :one
 SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api WHERE id = $1 FOR UPDATE
 `

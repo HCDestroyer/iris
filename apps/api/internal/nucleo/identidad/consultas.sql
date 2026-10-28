@@ -167,6 +167,9 @@ WHERE id > @despues_de AND (sqlc.narg(usuario_id)::bigint IS NULL OR usuario_id 
 ORDER BY id
 LIMIT @limite;
 
+-- name: TokenPorID :one
+SELECT * FROM nucleo.tokens_api WHERE id = @id;
+
 -- name: TokenPorIDParaActualizar :one
 SELECT * FROM nucleo.tokens_api WHERE id = @id FOR UPDATE;
 

@@ -117,6 +117,28 @@ func (p Permisos) Alcances(permiso string) (global bool, zonas, cuadrillas []int
 	return false, zonas, cuadrillas
 }
 
+// Cubre indica si p incluye a otro: cada permiso de otro, con cada uno de sus alcances, está en
+// p sin límite o con ese mismo alcance. Si no, devuelve el primer permiso que falta.
+func (p Permisos) Cubre(otro Permisos) (falta string, ok bool) {
+	if p.todos {
+		return "", true
+	}
+	if otro.todos {
+		return "*", false
+	}
+	for _, codigo := range otro.Lista() {
+		if p.TieneGlobal(codigo) {
+			continue
+		}
+		for _, a := range otro.mapa[codigo] {
+			if a.Global() || !slices.Contains(p.mapa[codigo], a) {
+				return codigo, false
+			}
+		}
+	}
+	return "", true
+}
+
 // Lista devuelve los códigos de permiso, ordenados.
 func (p Permisos) Lista() []string {
 	salida := make([]string, 0, len(p.mapa))
