@@ -464,15 +464,19 @@ describe("reloj", () => {
         motor.detener();
     });
 
-    it("sin sesión (401) no acelera los reintentos y lo informa", async () => {
+    it("sin sesión (401) detiene el bucle, conserva la cola y lo informa; iniciar lo retoma", async () => {
         const { motor, transporte, reloj } = await montar({ intervaloMs: 45_000 });
-        transporte.fallar(2, new ErrorTransporte("http", "Sin sesión", 401));
+        transporte.fallar(1, new ErrorTransporte("http", "Sin sesión", 401));
         await motor.registrar("nota.agregar", 1, { texto: "x" });
         motor.iniciar();
         await vaciarPromesas();
-        expect(motor.obtenerEstado().conexion).toBe("sin_sesion");
+        expect(motor.obtenerEstado()).toMatchObject({ conexion: "sin_sesion", pendientes: 1 });
         await reloj.avanzar(45_000);
-        expect(reloj.esperas).toEqual([45_000, 45_000]);
+        expect(reloj.esperas).toEqual([]);
+        expect(transporte.lotes).toHaveLength(1);
+        motor.iniciar();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().pendientes).toBe(0);
         motor.detener();
     });
 });

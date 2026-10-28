@@ -2,6 +2,14 @@ import type { Problema } from "./contrato";
 
 export const PREFIJO_PROBLEMA = "urn:iris:problema:";
 
+/** La sesión del navegador es de otra persona (o de otra empresa) que la dueña de la cola. */
+export const CODIGO_SESION_AJENA = "sesion_ajena";
+
+/** Error para `verificarIdentidad` cuando la sesión no es la del dueño de la cola. */
+export function errorSesionAjena(detalle = "La sesión abierta es de otro usuario"): ErrorTransporte {
+    return new ErrorTransporte("http", detalle, 401, { type: `${PREFIJO_PROBLEMA}${CODIGO_SESION_AJENA}`, title: "Sesión de otro usuario", status: 401, detail: detalle });
+}
+
 /** Código de un problema de la API (`urn:iris:problema:<codigo>`). */
 export function codigoProblema(problema: Problema | null | undefined): string | null {
     if (!problema) {
@@ -39,9 +47,14 @@ export class ErrorTransporte extends Error {
         return codigoProblema(this.problema);
     }
 
-    /** Sin sesión o sin permiso: no sirve reintentar hasta que el técnico vuelva a entrar. */
+    /**
+     * Sin sesión, sin permiso o con la de otra persona: no sirve reintentar hasta que entre el
+     * dueño de la cola. Incluye 409 `dispositivo_ajeno` (el teléfono es de otro usuario en la API)
+     * y `sesion_ajena` (la verificación de identidad del adaptador no coincide).
+     */
     get esDeSesion(): boolean {
-        return this.status === 401 || (this.status === 403 && !this.esDeEmpresa);
+        const c = this.codigo;
+        return this.status === 401 || (this.status === 403 && !this.esDeEmpresa) || c === "dispositivo_ajeno" || c === CODIGO_SESION_AJENA;
     }
 
     /** La empresa activa no vale (403 `empresa_no_permitida` / `sin_empresa`, 422 `empresa_requerida`). */

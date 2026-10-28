@@ -1,10 +1,11 @@
 // Reglas que dependen de la forma exacta de la API de I2 (lote) y de I1 (adjuntos).
 import { describe, expect, it } from "vitest";
 import type { Problema, ResultadoOperacion } from "./contrato";
-import { ErrorTransporte } from "./errores";
+import { ErrorTransporte, errorSesionAjena } from "./errores";
 import { cubreFaltante } from "./motor";
 import { itemDePrueba, ordenDePrueba } from "./pruebas/fabricas";
 import { CABLE, montar, paqueteDePrueba } from "./pruebas/montaje";
+import { vaciarPromesas } from "./pruebas/reloj-manual";
 
 const problema = (codigo: string, status = 422, errors: Problema["errors"] = null): Problema => ({
     type: `urn:iris:problema:${codigo}`,
@@ -31,16 +32,41 @@ describe("lote (I2)", () => {
         expect(motor.obtenerOrden(1)).toMatchObject({ bloqueada: true });
     });
 
-    it("409 dispositivo_ajeno: genera otro dispositivo y repite", async () => {
-        const { motor, transporte, almacen } = await montar();
+    it("409 dispositivo_ajeno: no regenera el dispositivo; sin sesión, cola intacta y bucle detenido", async () => {
+        const { motor, transporte, almacen, reloj } = await montar();
         const antes = motor.dispositivoId;
         transporte.fallar(1, new ErrorTransporte("http", "Dispositivo ajeno", 409, problema("dispositivo_ajeno", 409)));
-        await motor.registrar("nota.agregar", 1, { texto: "x" });
+        const { operacion } = await motor.registrar("nota.agregar", 1, { texto: "de A" });
+        motor.iniciar();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado()).toMatchObject({ conexion: "sin_sesion", pendientes: 1, proximoIntento: null });
+        expect(motor.dispositivoId).toBe(antes);
+        expect(almacen.meta.dispositivoId).toBe(antes);
+        expect(almacen.operaciones.get(operacion.id)).toMatchObject({ estado: "pendiente" });
+        // El bucle se detuvo: aunque pase el tiempo no reintenta.
+        await reloj.avanzar(10 * 60_000);
+        expect(transporte.lotes).toHaveLength(1);
+        motor.detener();
+    });
+
+    it("verificarIdentidad: con la sesión de otra persona no envía, no sube, no baja nada", async () => {
+        let duena = true;
+        const { motor, transporte, subidor } = await montar({
+            verificarIdentidad: () => (duena ? Promise.resolve() : Promise.reject(errorSesionAjena())),
+        });
+        await motor.registrar("nota.agregar", 1, { texto: "de A" });
+        await motor.agregarAdjunto({ ordenId: 1, tipo: "foto", datos: new Uint8Array(4), mime: "image/jpeg" });
+        transporte.llamadas.length = 0;
+        duena = false;
+        await expect(motor.sincronizar()).rejects.toMatchObject({ codigo: "sesion_ajena" });
+        await expect(motor.cargarPaquete("2026-10-28")).rejects.toMatchObject({ codigo: "sesion_ajena" });
+        expect(transporte.llamadas).toEqual([]);
+        expect(subidor.llamadas).toEqual([]);
+        expect(motor.obtenerEstado()).toMatchObject({ conexion: "sin_sesion", pendientes: 2 });
+        // Vuelve el dueño: se envía todo.
+        duena = true;
         await motor.sincronizar();
         expect(motor.obtenerEstado().pendientes).toBe(0);
-        expect(motor.dispositivoId).not.toBe(antes);
-        expect(almacen.meta.dispositivoId).toBe(motor.dispositivoId);
-        expect(transporte.lotes.map((l) => l.dispositivoId)).toEqual([antes, motor.dispositivoId]);
     });
 
     it("parte el lote por bytes (firma SVG grande)", async () => {
@@ -187,5 +213,25 @@ describe("adjuntos (I1)", () => {
         await motor.sincronizar();
         expect(transporte.lotes.flatMap((l) => l.operaciones ?? []).map((o) => o.tipo)).toEqual(["nota.agregar"]);
         expect(motor.obtenerEstado().adjuntos).toEqual([]);
+    });
+});
+
+describe("cerrar sesión con pendientes", () => {
+    it("olvidarDatosDelServidor deja solo la cola y los adjuntos pendientes", async () => {
+        const { motor, almacen, transporte, reabrir } = await montar();
+        transporte.sinRed = true;
+        const { operacion } = await motor.registrar("nota.agregar", 1, { texto: "sin enviar" });
+        const { adjunto } = await motor.agregarAdjunto({ ordenId: 1, tipo: "foto", datos: new Uint8Array(3), mime: "image/jpeg" });
+        await motor.olvidarDatosDelServidor();
+        expect(almacen.ordenes.size).toBe(0);
+        expect(almacen.meta).toMatchObject({ existencias: null, ruta: null, fecha: null, cursor: null });
+        expect(almacen.operaciones.has(operacion.id)).toBe(true);
+        expect(almacen.bytes.has(adjunto.id)).toBe(true);
+        const otra = await reabrir();
+        expect(otra.obtenerEstado()).toMatchObject({ ordenes: [], pendientes: 2 });
+        // Al volver el dueño, la cola se envía aunque la orden ya no esté en el teléfono.
+        transporte.sinRed = false;
+        await otra.sincronizar();
+        expect(otra.obtenerEstado().pendientes).toBe(0);
     });
 });

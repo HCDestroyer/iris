@@ -54,6 +54,12 @@ export interface OpcionesMotor {
     /** Cada cuánto el bucle pide cambios con la app abierta (60 s). */
     intervaloMs?: number;
     sha256?: (datos: Uint8Array) => Promise<string>;
+    /**
+     * Comprueba, antes de cada llamada que envía o baja datos (lote, alta y tus de adjuntos,
+     * paquete y cambios), que la sesión abierta sigue siendo la del dueño de esta cola. Debe
+     * lanzar `ErrorTransporte` (`errorSesionAjena()` si es otra persona). Sin ella no se comprueba.
+     */
+    verificarIdentidad?: () => Promise<void>;
 }
 
 /**
@@ -220,6 +226,7 @@ export class MotorSync {
     private readonly caducidadMs: number;
     private readonly intervaloMs: number;
     private readonly sha256: (datos: Uint8Array) => Promise<string>;
+    private readonly verificarIdentidad: (() => Promise<void>) | null;
 
     private readonly ops = new Map<string, OperacionLocal>();
     private readonly ordenes = new Map<number, OrdenLocal>();
@@ -256,6 +263,7 @@ export class MotorSync {
         this.caducidadMs = opciones.caducidadMs ?? 7 * DIA_MS;
         this.intervaloMs = opciones.intervaloMs ?? 60_000;
         this.sha256 = opciones.sha256 ?? sha256Sistema;
+        this.verificarIdentidad = opciones.verificarIdentidad ?? null;
         this.meta = meta;
         this.instantanea = this.calcularEstado();
     }
@@ -507,11 +515,29 @@ export class MotorSync {
         return nuevo;
     }
 
+    /**
+     * Al cerrar sesión con cosas por enviar: borra del teléfono todo lo que vino del servidor
+     * (órdenes con datos del cliente, existencias, ruta, cursor) y conserva solo la cola y los
+     * adjuntos pendientes, que la app no muestra sin una sesión verificada del dueño.
+     */
+    async olvidarDatosDelServidor(): Promise<void> {
+        this.detener();
+        await this.serializar(() =>
+            this.guardar({
+                ordenes: { borrar: [...this.ordenes.keys()] },
+                adjuntos: { borrar: [...this.adjuntos.values()].filter((a) => a.estado === "subido").map((a) => a.id) },
+                meta: { cursor: null, fecha: null, existencias: null, ruta: null },
+            }),
+        );
+        this.emitir();
+    }
+
     // --- Red ----------------------------------------------------------------------------------
 
     /** Baja el paquete del día (`GET /campo/paquete`) y reemplaza lo del servidor. */
     cargarPaquete(fecha: string): Promise<void> {
         return this.serializar(async () => {
+            await this.verificar();
             const { datos: paquete } = await this.llamar(() => this.transporte.obtenerPaquete(fecha));
             const ordenes = paquete.ordenes ?? [];
             const enPaquete = new Set(ordenes.map((o) => o.id));
@@ -606,8 +632,16 @@ export class MotorSync {
                 if (!(e instanceof ErrorTransporte)) {
                     this.ultimoError = { mensaje: e instanceof Error ? e.message : String(e), status: null, problema: null };
                 }
-                if (e instanceof ErrorTransporte && (e.esDeSesion || e.esDeEmpresa)) {
-                    // Sin sesión no sirve insistir: espera a `reintentarAhora` (o al intervalo).
+                if (e instanceof ErrorTransporte && e.esDeSesion) {
+                    // Sin sesión, o con la de otra persona: el bucle se detiene con la cola intacta
+                    // hasta que el dueño vuelva a entrar (la app crea otro motor o llama `iniciar`).
+                    this.bucle = null;
+                    this.proximoIntento = null;
+                    this.emitir();
+                    break;
+                }
+                if (e instanceof ErrorTransporte && e.esDeEmpresa) {
+                    // Sin empresa válida no sirve insistir: espera a `reintentarAhora` (o al intervalo).
                     espera = this.intervaloMs;
                 } else {
                     espera = calcularEspera(intento, this.espera);
@@ -665,6 +699,17 @@ export class MotorSync {
                 );
             }
             throw e;
+        }
+    }
+
+    /** `verificarIdentidad` con el mismo manejo de errores que una llamada a la API. */
+    private async verificar(): Promise<void> {
+        const fn = this.verificarIdentidad;
+        if (fn) {
+            await this.llamar(async () => {
+                await fn();
+                return { datos: null, horaServidor: null };
+            });
         }
     }
 
@@ -741,6 +786,7 @@ export class MotorSync {
             await this.guardar({ adjuntos: { poner: [adjunto] } });
             this.emitir();
         };
+        await this.verificar();
         if (adjunto.estado === "por_crear") {
             // El alta es idempotente por id: repetida devuelve lo recibido para retomar.
             const creado = await llamarSubida(() => subidor.crear(this.entradaAlta(adjunto)));
@@ -963,28 +1009,20 @@ export class MotorSync {
 
     /**
      * `POST /sync/lote` con `enviadoEn` del mismo reloj que `ocurridoEn` (la API mide el desfase y
-     * corrige cada hora). Un 409 `dispositivo_ajeno` (el id es de otro usuario) genera otro
-     * dispositivo y repite una vez.
+     * corrige cada hora). Un 409 `dispositivo_ajeno` (el dispositivo es de otro usuario en la API:
+     * la sesión abierta no es la del dueño de la cola) es error de sesión: no se regenera el
+     * dispositivo, la cola queda intacta y el bucle se detiene.
      */
     private async enviarLote(lote: readonly OperacionLocal[]) {
-        for (let intento = 0; ; intento += 1) {
-            const peticion = {
-                dispositivoId: this.dispositivoId,
-                plataforma: this.plataforma,
-                enviadoEn: new Date(this.reloj.ahora()).toISOString(),
-                operaciones: lote.map(aCable),
-                ...(this.meta.cursor !== null ? { cursor: this.meta.cursor } : {}),
-            };
-            try {
-                return (await this.llamar(() => this.transporte.enviarLote(peticion))).datos;
-            } catch (e) {
-                if (intento === 0 && e instanceof ErrorTransporte && e.codigo === "dispositivo_ajeno") {
-                    await this.guardar({ meta: { dispositivoId: this.generarId() } });
-                    continue;
-                }
-                throw e;
-            }
-        }
+        await this.verificar();
+        const peticion = {
+            dispositivoId: this.dispositivoId,
+            plataforma: this.plataforma,
+            enviadoEn: new Date(this.reloj.ahora()).toISOString(),
+            operaciones: lote.map(aCable),
+            ...(this.meta.cursor !== null ? { cursor: this.meta.cursor } : {}),
+        };
+        return (await this.llamar(() => this.transporte.enviarLote(peticion))).datos;
     }
 
     private async contarIntento(lote: readonly OperacionLocal[]): Promise<void> {
@@ -1080,6 +1118,9 @@ export class MotorSync {
 
     private async traerCambios(): Promise<void> {
         let cursor = this.meta.cursor;
+        if (cursor !== null) {
+            await this.verificar();
+        }
         for (let pagina = 0; cursor !== null && pagina < 50; pagina += 1) {
             const actual: string = cursor;
             const { datos } = await this.llamar(() => this.transporte.obtenerCambios(actual));

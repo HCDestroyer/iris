@@ -5,7 +5,7 @@ export * from "./contrato";
 export type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 export { AlmacenMemoria } from "./almacen-memoria";
 export { aplicarOperacion, bodegaDeOrden, descontarExistencias, fusionarMarca, valorDe, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
-export { codigoProblema, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
+export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
 export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi } from "./http";
 export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
 export {
