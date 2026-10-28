@@ -88,16 +88,24 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   - Material por encima de la existencia de la bodega (según Argos): se acepta con
     `aviso: existencia_insuficiente` y `excede_existencia` en `orden.cerrada`.
 
-## Enlaces con I1 (se conectan al integrar las ramas)
+## Enlaces con I1 (conectados)
 
-- `Config.Adjuntos` (`Faltantes(ctx, ordenID, []Requisito)`, `AdjuntoDeOrden(ctx, adjuntoID,
-  ordenID)`) → `adjuntos.Faltantes` / `adjuntos.DeEntidad`. Por defecto `SinAdjuntosObligatorios`
-  (**pendiente**: hoy el cierre no verifica subidas). Requisitos: una foto por ítem foto
-  obligatorio (`ClaveChecklist` = código del ítem) y la firma si la plantilla la pide.
-- `campo.AccesoAdjuntos(ctx, db, ordenID string, subir bool) (empresaID, error)` →
-  `adjuntos.RegistrarEntidadAdjuntable("orden", …)` (UsoSubir → `subir = true`).
-- `Config.Inventario` → conector de Argos (`GET /servicios/:id/equipos`, `/inventario/existencias`).
-- `campo.orden_adjuntos.id` es el uuid del adjunto de I1 (sin FK hasta que exista su tabla).
+- **Adjuntos** (`enlaces.go`): `campo.RegistrarAdjuntos()` (en `cmd/iris` y `cmd/worker`) registra
+  la entidad `orden` en `nucleo/adjuntos` con `AccesoAdjuntos` (ver = la orden es visible; subir =
+  además `ordenes.registrar` con alcance; si no, 404). `Config.Adjuntos` es `AdjuntosNucleo` por
+  defecto: `Faltantes` → `adjuntos.Faltantes` (solo adjuntos completos, verificados por sha256;
+  claves `foto:<código del ítem>` y `firma`: el teléfono da de alta la foto con
+  `claveChecklist` = código del ítem y la firma PNG con `tipo: firma`) y `AdjuntoDeOrden` →
+  `adjuntos.DeEntidad` (en `adjunto.registrar` y en los valores de los ítems foto del checklist;
+  basta con el alta). `SinAdjuntosObligatorios` queda solo para pruebas que lo pidan.
+- **Inventario** (`InventarioDeArgos`, sobre `integracion/argos/inventario.go`): comodato con
+  `GET /servicios/:id/equipos` (antes `GET /servicios/:id` confirma la empresa), existencias con
+  `GET /inventario/existencias?bodega_id=` y la bodega con `GET /bodegas/:id` (supuesto, pendiente
+  con Argos). Cliente anti-SSRF del conector activo; lo de otra empresa se descarta o es error.
+  Conector apagado → `ErrSinConector`: paquete con `motivo: sin_conector`, retiros sin validar
+  (`equipos_validados: false`), bodega distinta rechazada.
+- **Pendientes:** `orden.cerrada` lo consume `integracion/pendientes` (I1); probado de punta a
+  punta en `integracion_test.go` contra un Argos falso.
 
 ## Eventos
 

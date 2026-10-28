@@ -18,8 +18,16 @@ describe("menú por permisos", () => {
 
     it("sin permisos: solo Inicio y los módulos «Próximamente» sin permiso", () => {
         const visibles = menuVisible([]).map((e) => e.etiqueta);
-        expect(visibles).toEqual(["Inicio", "Órdenes", "Agenda", "Despacho", "Comercial"]);
+        expect(visibles).toEqual(["Inicio", "Agenda", "Despacho", "Comercial"]);
         expect(menuVisible(null)).toEqual(menuVisible([]));
+    });
+
+    it("ordenes.ver u ordenes.ver_propias muestran Órdenes (aún «Próximamente»)", () => {
+        for (const p of ["ordenes.ver", "ordenes.ver_propias"] as const) {
+            const ordenes = menuVisible([p]).find((e) => e.href === "/ordenes");
+            expect(ordenes?.proximamente).toBe(true);
+        }
+        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/ordenes");
     });
 
     it("tickets.ver muestra Tickets", () => {

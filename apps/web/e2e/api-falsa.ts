@@ -67,6 +67,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "clientes.ver",
     "empresas.adoptar",
     "empresas.todas",
+    "ordenes.ver",
     "permisos.ver",
     "roles.ver",
     ...PERMISOS_TICKETS,
