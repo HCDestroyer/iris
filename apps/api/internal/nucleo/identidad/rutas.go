@@ -171,6 +171,13 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ListarUsuarios.Ejecutar(ctx, *in))
 		})
 
+	verUsuario := operacion("verUsuario", http.MethodGet, "/api/v1/usuarios/{id}", "Ver un usuario", nucleo.PermUsuariosVer, http.StatusOK, http.StatusNotFound)
+	verUsuario.Description += " Mismo alcance que la lista: " + descPorEmpresa + " Fuera de eso, 404 como un id inexistente."
+	huma.Register(api, verUsuario,
+		func(ctx context.Context, in *EntradaVerUsuario) (*cuerpo[Usuario], error) {
+			return responder(m.VerUsuario.Ejecutar(ctx, *in))
+		})
+
 	huma.Register(api, operacion("crearUsuario", http.MethodPost, "/api/v1/usuarios", "Crear un usuario", nucleo.PermUsuariosCrear, http.StatusCreated, http.StatusConflict),
 		func(ctx context.Context, in *conClave[EntradaCrearUsuario]) (*cuerpo[Usuario], error) {
 			return responder(m.CrearUsuario.Ejecutar(ctx, in.Body))

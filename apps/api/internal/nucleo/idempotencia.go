@@ -3,7 +3,6 @@ package nucleo
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -36,7 +35,11 @@ type OpcionesIdempotencia struct {
 	// proceso cayó entre el COMMIT y guardar la respuesta). 2 min por defecto: más que el
 	// WriteTimeout del servidor (60 s), para no retomar una petición que sigue viva.
 	Reclamo time.Duration
-	Log     *slog.Logger
+	// Claves HMAC del hash de la petición (ClavesIdempotencia): con la primera se escribe; las
+	// demás (la anterior durante una rotación) solo se usan para comparar. Vacía = una clave
+	// aleatoria del proceso (desarrollo sin IRIS_CLAVE_CIFRADO).
+	Claves []ClaveIdempotencia
+	Log    *slog.Logger
 }
 
 type claveNoRepetible int
@@ -76,7 +79,13 @@ func claveDeActor(a contexto.Actor) string {
 //     residual: la acción puede correr dos veces; los casos de uso lo toleran con version,
 //     unicidad o reglas de estado (un 409/422 en el reintento);
 //   - si la respuesta llevaba un secreto (NoRepetible), no se guarda su cuerpo y repetir la
-//     clave responde 409 idempotencia_no_repetible.
+//     clave responde 409 idempotencia_no_repetible;
+//   - si la fila se guardó con una clave HMAC que el servidor ya no conoce (se rotó
+//     IRIS_CLAVE_CIFRADO y se quitó la anterior), no se puede comparar: 422
+//     idempotencia_no_verificable (no se ejecuta otra vez a ciegas).
+//
+// El cuerpo se guarda como HMAC-SHA256 con clave del servidor, nunca como hash plano (puede
+// llevar contraseñas): ver idempotencia_hash.go.
 //
 // Las claves son por credencial (claveDeActor): dos usuarios, o dos tokens, pueden usar la
 // misma. Las peticiones anónimas no se guardan (la respuesta podría servirse a otro). Va
@@ -94,6 +103,10 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 	if op.Log == nil {
 		op.Log = slog.Default()
 	}
+	if len(op.Claves) == 0 {
+		op.Claves = []ClaveIdempotencia{ClaveIdempotenciaAleatoria()}
+	}
+	actual := op.Claves[0]
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clave := r.Header.Get(CabeceraIdempotencia)
@@ -130,10 +143,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			r.Body = io.NopCloser(bytes.NewReader(cuerpo))
 
 			ruta := r.URL.RequestURI()
-			h := sha256.New()
-			_, _ = fmt.Fprintf(h, "%s\n%s\n", r.Method, ruta)
-			h.Write(cuerpo)
-			hash := h.Sum(nil)
+			hash := actual.hashPeticion(r.Method, ruta, cuerpo)
 
 			q := nucleobd.New(bd)
 			claveActor := claveDeActor(actor)
@@ -144,7 +154,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}
 			filas, err := q.ReservarIdempotencia(bdCtx, nucleobd.ReservarIdempotenciaParams{
 				Actor: claveActor, Clave: clave, Metodo: r.Method, Ruta: ruta,
-				HashPeticion: hash, ExpiraEn: time.Now().Add(op.Vigencia),
+				HashPeticion: hash, HashClaveID: actual.id, ExpiraEn: time.Now().Add(op.Vigencia),
 			})
 			if err != nil {
 				op.Log.ErrorContext(ctx, "idempotencia: reservar clave", "err", err)
@@ -159,7 +169,8 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 					EscribirProblema(w, ErrorInterno())
 					return
 				}
-				if !op.responderPrevia(ctx, w, q, previa, hash) {
+				igual, verificable := compararPeticion(op.Claves, previa.HashFormato, previa.HashClaveID, previa.HashPeticion, r.Method, ruta, cuerpo)
+				if !op.responderPrevia(ctx, w, q, previa, igual, verificable, hash, actual.id) {
 					return
 				}
 				// Clave abandonada en en_proceso: esta petición la retomó y se ejecuta.
@@ -201,9 +212,18 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 
 // responderPrevia responde a una clave ya reservada. Devuelve true solo si la clave estaba
 // abandonada en en_proceso y esta petición (la misma) la retomó: entonces hay que ejecutarla.
-func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.ResponseWriter, q *nucleobd.Queries, previa nucleobd.NucleoIdempotencium, hash []byte) bool {
+func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.ResponseWriter, q *nucleobd.Queries,
+	previa nucleobd.NucleoIdempotencium, igual, verificable bool, hash, idClave []byte,
+) bool {
 	switch {
-	case !bytes.Equal(previa.HashPeticion, hash):
+	case !verificable:
+		// La fila es de una clave HMAC que ya no se conoce: no se sabe si es la misma petición.
+		// Ejecutarla de nuevo podría repetir la acción (lo que la idempotencia evita): 422.
+		EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, "idempotencia_no_verificable",
+			"Clave de idempotencia no verificable",
+			"La clave se usó antes de un cambio de la clave del servidor y no se puede comparar la petición; "+
+				"revisa si la operación ya se hizo y, si no, repítela con otra Idempotency-Key"))
+	case !igual:
 		EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, "idempotencia_reutilizada",
 			"Clave de idempotencia reutilizada",
 			"La clave ya se usó con otra petición (método, ruta o cuerpo distintos)"))
@@ -214,7 +234,7 @@ func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.Respo
 	case previa.Estado == "en_proceso":
 		ahora := time.Now()
 		filas, err := q.ReclamarIdempotencia(context.WithoutCancel(ctx), nucleobd.ReclamarIdempotenciaParams{
-			Actor: previa.Actor, Clave: previa.Clave, HashPeticion: hash,
+			Actor: previa.Actor, Clave: previa.Clave, HashPeticion: hash, HashClaveID: idClave, HashPrevio: previa.HashPeticion,
 			Antes: ahora.Add(-op.Reclamo), ExpiraEn: ahora.Add(op.Vigencia),
 		})
 		if err != nil {

@@ -228,9 +228,18 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
+	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
+	// (y la anterior, para comparar durante una rotación).
+	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
+	if err != nil {
+		return err
+	}
+	if len(clavesIdem) == 0 {
+		log.Warn("IRIS_CLAVE_CIFRADO vacía: la idempotencia usa una clave aleatoria del proceso (tras reiniciar, una Idempotency-Key repetida responde 422)")
+	}
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
-		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
