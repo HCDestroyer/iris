@@ -450,7 +450,9 @@ func nuevoCambiarURLPublica(n *Nucleo) *auditoria.Caso[EntradaURLPublica, Conect
 
 func nuevoObtenerEnlaces(n *Nucleo) *auditoria.Caso[struct{}, EnlacesExternos] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, EnlacesExternos]{
-		Accion: "integraciones.enlaces", Acceso: auditoria.Autenticado,
+		// Mismo permiso que ver los datos de Argos (los enlaces llevan a sus fichas): un token o
+		// usuario sin clientes.ver no conoce los orígenes de Argos ni de Horus. No es operativa.
+		Accion: "integraciones.enlaces", Permiso: nucleo.PermClientesVer, SinEmpresa: true,
 		AuditarExito: soloLecturas[EnlacesExternos],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EnlacesExternos, error) {
 			filas, err := conectorbd.New(t).ConectoresActivos(ctx)

@@ -317,7 +317,7 @@ export interface paths {
         };
         /**
          * Orígenes de Argos y Horus para los enlaces «Ver en …»
-         * @description Cualquier usuario o token autenticado. Sin secretos: solo la URL pública de cada sistema con conector activo (null si no hay).
+         * @description Permiso: `clientes.ver`. No exige empresa activa. Sin secretos: solo la URL pública de cada sistema con conector activo (ausente si no hay).
          */
         get: operations["obtenerEnlacesExternos"];
         put?: never;
@@ -460,7 +460,7 @@ export interface paths {
         put?: never;
         /**
          * Entrar al portal con el ticket de acceso
-         * @description Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Tras 20 canjes fallidos desde una IP en 15 min, esa IP queda bloqueada 15 min: 429 `demasiados_intentos` con `Retry-After`, aun con un ticket válido.
+         * @description Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), el resto de ese minuto responde 429 `demasiados_intentos` con `Retry-After`.
          */
         post: operations["entrarPortal"];
         /**
@@ -3251,6 +3251,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

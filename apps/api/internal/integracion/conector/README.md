@@ -16,7 +16,7 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   `POST /integraciones/conectores/{id}/activar|desactivar` (uno activo por sistema, 409
   `otro_conector_activo`; `Sistema.AlActivar` corre en la misma transacción),
   `POST /integraciones/conectores/{id}/url-publica` (`integraciones.conectar`) y
-  `GET /integraciones/enlaces` (cualquier autenticado: URL pública de cada sistema activo, para
+  `GET /integraciones/enlaces` (`clientes.ver`, sin empresa activa: URL pública de cada sistema activo, para
   «Ver en Argos/Horus»).
 - **Webhooks** (`webhook.go`): `POST /integraciones/<sistema>/webhook/{conector_id}`, máximo 1 MiB,
   HMAC-SHA256 en tiempo constante sobre el cuerpo crudo, firma antes que ventana, `id` del cuerpo

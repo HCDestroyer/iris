@@ -72,11 +72,11 @@ type HallazgoAbierto struct {
 	EntranteID       int64     `json:"entrante_id"`
 }
 
-// HallazgoResuelto es el payload de horus.hallazgo_resuelto.
+// HallazgoResuelto es el payload de horus.hallazgo_resuelto. Sin IP ni cliente (minimización):
+// soporte lo vincula por hallazgo_id con el ticket que abrió horus.hallazgo_abierto.
 type HallazgoResuelto struct {
 	HallazgoID string    `json:"hallazgo_id"`
 	Categoria  string    `json:"categoria"`
-	IP         *string   `json:"ip"`
 	Resumen    string    `json:"resumen"`
 	OcurridoEn time.Time `json:"ocurrido_en"`
 	EmpresaID  *int64    `json:"empresa_id"`
@@ -284,7 +284,7 @@ func normalizar(e conector.Entrante, origenes ...string) (*normalizado, string) 
 		}
 		if e.Evento == EventoHallazgoResuelto {
 			return &normalizado{evento: e.Evento, payload: &HallazgoResuelto{
-				HallazgoID: id, Categoria: categoria, IP: ipPtr, Resumen: resumen, OcurridoEn: ocurrido, EmpresaID: empresa, EntranteID: e.ID,
+				HallazgoID: id, Categoria: categoria, Resumen: resumen, OcurridoEn: ocurrido, EmpresaID: empresa, EntranteID: e.ID,
 			}}, ""
 		}
 		if categoria == "" {

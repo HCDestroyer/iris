@@ -625,8 +625,8 @@ func TestHallazgosConClienteResueltoPorArgos(t *testing.T) {
 	}
 
 	// Hallazgo resuelto.
-	_, ev = e.procesar(id, secreto, horus.EventoHallazgoResuelto, map[string]any{"hallazgo_id": 77, "categoria": "equipo_infectado", "empresa_id": 1})
-	if ev["_evento"] != horus.EventoHallazgoResuelto || ev["hallazgo_id"] != "77" || ev["empresa_id"] != float64(1) {
+	_, ev = e.procesar(id, secreto, horus.EventoHallazgoResuelto, map[string]any{"hallazgo_id": 77, "categoria": "equipo_infectado", "empresa_id": 1, "ip": "100.64.10.20"})
+	if _, conIP := ev["ip"]; ev["_evento"] != horus.EventoHallazgoResuelto || ev["hallazgo_id"] != "77" || ev["empresa_id"] != float64(1) || conIP {
 		t.Fatalf("resuelto: %v", ev)
 	}
 	// La auditoría del job anota el cliente resuelto (lectura de datos de Argos).
@@ -763,6 +763,8 @@ func TestEnlacesExternosYURLPublica(t *testing.T) {
 		t.Fatalf("sin conectores: %d %s", r.status, r.crudo)
 	}
 	e.anonimo().pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil).problema(t, 401, "no_autenticado")
+	// Sin clientes.ver no conoce los orígenes de Argos ni de Horus.
+	e.usuario("integracion_horus").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil).problema(t, 403, "prohibido")
 	admin, id, _ := e.conectarHorus()
 	e.conectarArgos(admin)
 	r := lectura.pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil)
