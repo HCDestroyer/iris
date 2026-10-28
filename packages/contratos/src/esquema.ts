@@ -89,7 +89,7 @@ export interface paths {
         put?: never;
         /**
          * Iniciar sesión
-         * @description Valida correo y contraseña y abre la sesión: cookie `iris_sesion` (HttpOnly, SameSite=Lax) y `iris_csrf` (para la cabecera `X-CSRF-Token`). Con MFA activo la sesión queda pendiente hasta `POST /api/v1/sesion/mfa`.
+         * @description Valida correo y contraseña y abre la sesión: cookie `iris_sesion` (HttpOnly, SameSite=Lax) y `iris_csrf` (para la cabecera `X-CSRF-Token`). Con MFA activo la sesión queda pendiente hasta `POST /api/v1/sesion/mfa`. Tras 10 fallos seguidos con un correo (exista o no) en 15 min, ese correo queda bloqueado 15 min: 429 `demasiados_intentos` con `Retry-After`, aun con la contraseña correcta. Entrar bien reinicia la cuenta.
          */
         post: operations["iniciarSesion"];
         /** Cerrar la sesión */
@@ -110,7 +110,7 @@ export interface paths {
         put?: never;
         /**
          * Completar el inicio de sesión con el código TOTP
-         * @description Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva.
+         * @description Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva. Al 5.º código inválido (o ya usado) la sesión pendiente se revoca (401 `mfa_bloqueado`) y hay que volver a iniciar sesión.
          */
         post: operations["verificarMFA"];
         delete?: never;
@@ -134,7 +134,7 @@ export interface paths {
         put?: never;
         /**
          * Crear un token de API
-         * @description Permiso: `tokens.crear`.
+         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["crearToken"];
         delete?: never;
@@ -253,7 +253,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Generar el secreto TOTP del usuario */
+        /**
+         * Generar el secreto TOTP del usuario
+         * @description La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         */
         post: operations["configurarMFA"];
         delete?: never;
         options?: never;
@@ -311,7 +314,7 @@ export interface components {
             permisos?: components["schemas"]["Permiso"][] | null;
             /**
              * Format: int64
-             * @description Dueño del token (por defecto, quien lo crea). Para Argos u Horus, su usuario de integración
+             * @description Dueño del token (por defecto, quien lo crea). Otro usuario solo si es de tipo integración (Argos, Horus); para una persona, 422 token_para_persona
              */
             usuarioId?: number;
         };
@@ -973,6 +976,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -1420,7 +1432,10 @@ export interface operations {
     configurarMFA: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1437,6 +1452,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
