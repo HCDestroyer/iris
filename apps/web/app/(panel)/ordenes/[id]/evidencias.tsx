@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Camera, CircleCheck, CircleDashed, CircleX, ExternalLink, MapPin, PackageCheck, PackageMinus, PackagePlus, ShieldCheck, ShieldQuestion, TriangleAlert } from "lucide-react";
+import { Camera, CircleCheck, CircleDashed, CircleX, ExternalLink, Gauge, MessageSquareText, MapPin, PackageCheck, PackageMinus, PackagePlus, ShieldCheck, ShieldQuestion, TriangleAlert } from "lucide-react";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { Galeria, ImagenConReintento, type Foto } from "@/componentes/ordenes/imagen-adjunto";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
@@ -59,7 +59,7 @@ export function Checklist({ orden, usuarios, yo }: { orden: OrdenDetalle; usuari
                                         {valor ? (
                                             <InsigniaEstado
                                                 tono={valor.tono}
-                                                icono={i.tipo === "foto" ? Camera : valor.tono === "success" ? CircleCheck : valor.tono === "error" ? CircleX : CircleCheck}
+                                                icono={i.tipo === "foto" ? Camera : i.tipo === "texto" ? MessageSquareText : i.tipo === "si_no" ? (valor.tono === "error" ? CircleX : CircleCheck) : Gauge}
                                                 texto={valor.texto}
                                                 className="max-w-full whitespace-normal"
                                             />
