@@ -1,16 +1,8 @@
 // Registros locales que guarda el teléfono (en el `Almacen`).
-import type {
-    DatosPorTipo,
-    Existencia,
-    OrdenCampo,
-    Problema,
-    RutaPublicada,
-    TipoAdjunto,
-    TipoOperacion,
-} from "./contrato-sync";
+import type { DatosPorTipo, Existencias, OrdenCampo, Problema, RutaCampo, TipoAdjunto, TipoOperacion } from "./contrato";
 
 /**
- * - `pendiente`: por enviar (o bloqueada detrás de un rechazo de su orden).
+ * - `pendiente`: por enviar (o retenida detrás de un rechazo de su orden).
  * - `rechazada`: la API la rechazó; espera que el técnico la descarte o la rehaga.
  * - `esperando_adjuntos`: `orden.cerrar` rechazada con `faltan_adjuntos` cuyos adjuntos aún se
  *   suben desde este teléfono; vuelve sola a `pendiente` cuando terminan.
@@ -19,10 +11,12 @@ export type EstadoOperacionLocal = "pendiente" | "rechazada" | "esperando_adjunt
 
 export type OperacionLocal = {
     [T in TipoOperacion]: {
+        /** UUID v7 del teléfono: idempotencia en la API. */
         id: string;
         tipo: T;
-        ordenId: string;
+        ordenId: number;
         versionBase: number;
+        /** Hora del teléfono sin corregir (la API la corrige con `enviadoEn`). */
         ocurridoEn: string;
         datos: DatosPorTipo[T];
         /** Orden de la cola: se conserva al rehacer o reintentar con un id nuevo. */
@@ -35,31 +29,43 @@ export type OperacionLocal = {
 }[TipoOperacion];
 
 export interface OrdenLocal {
-    id: string;
+    id: number;
     /** Última versión conocida del servidor (paquete, cambios o resultados del lote). */
     base: OrdenCampo;
     /** El servidor la quitó de este técnico; se conserva mientras haya operaciones suyas. */
     reasignada: boolean;
 }
 
-export type EstadoSubida = "por_crear" | "subiendo" | "subido";
+/**
+ * - `por_crear`: falta el alta (`POST /adjuntos`).
+ * - `subiendo`: alta hecha; faltan bytes (tus).
+ * - `subido`: completo en el servidor; los bytes ya se borraron del teléfono.
+ * - `rechazado`: la API no lo acepta (tipo, tamaño, sha256…); el técnico lo descarta o lo rehace.
+ */
+export type EstadoSubida = "por_crear" | "subiendo" | "subido" | "rechazado";
 
 export interface AdjuntoLocal {
     id: string;
-    ordenId: string;
+    ordenId: number;
     tipo: TipoAdjunto;
-    /** El checklist que lo exige (ítem tipo `foto`), si aplica. */
-    checklistItemId: string | null;
+    /** Código del ítem foto del checklist que respalda (`claveChecklist` del alta). */
+    claveChecklist: string | null;
+    /** Cuenta para el cierre: `orden.cerrar` no sale mientras no esté subido. */
     obligatorio: boolean;
     mime: string;
     tamano: number;
     sha256: string;
+    lat: number | null;
+    lon: number | null;
+    /** Hora de captura del teléfono sin corregir (EXIF o reloj). */
+    tomadoEn: string | null;
     estado: EstadoSubida;
-    urlSubida: string | null;
     /** Bytes confirmados por el servidor. */
     offset: number;
     intentos: number;
     ultimoError: string | null;
+    /** Problema de la API si quedó `rechazado`. */
+    problema: Problema | null;
 }
 
 export interface MetaSync {
@@ -70,8 +76,8 @@ export interface MetaSync {
     desfaseMs: number;
     cursor: string | null;
     fecha: string | null;
-    existencias: Existencia[];
-    ruta: RutaPublicada | null;
+    existencias: Existencias | null;
+    ruta: RutaCampo | null;
     /** Último contacto correcto con la API (hora del teléfono). */
     ultimaSincronizacion: number | null;
 }
@@ -82,7 +88,7 @@ export const META_INICIAL: MetaSync = {
     desfaseMs: 0,
     cursor: null,
     fecha: null,
-    existencias: [],
+    existencias: null,
     ruta: null,
     ultimaSincronizacion: null,
 };

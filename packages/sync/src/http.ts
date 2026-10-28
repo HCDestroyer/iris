@@ -1,107 +1,66 @@
-// Adaptadores con `fetch` (estándar WHATWG: navegador, Node 22 y React Native). Provisionales
-// hasta que `packages/contratos` publique los endpoints de campo: entonces `Transporte` se
-// implementa con el cliente `openapi-fetch` de `@iris/contratos` y este archivo se reduce al tus.
-import type {
-    EntradaCrearAdjunto,
-    PaqueteDia,
-    PeticionLote,
-    Problema,
-    RespuestaCambios,
-    RespuestaCrearAdjunto,
-    RespuestaLote,
-} from "./contrato-sync";
+// Transporte y subidor reales sobre el cliente `openapi-fetch` de `@iris/contratos`: las rutas,
+// los parámetros y las respuestas los tipa el OpenAPI de la API. Quien crea el cliente decide
+// las credenciales (cookie + `X-CSRF-Token` en la PWA, Bearer en Expo) y la empresa activa
+// (`X-Iris-Empresa`); aquí se agrega el canal `X-Iris-Canal: campo` a toda petición.
+import type { ClienteIris } from "@iris/contratos";
+import type { Problema } from "./contrato";
 import { ErrorTransporte } from "./errores";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 
-type Cabeceras = Record<string, string>;
-
-export interface OpcionesHttp {
-    /** Origen de la API, sin `/api/v1` (vacío = mismo origen). */
-    baseUrl?: string;
-    fetch?: typeof fetch;
-    /** Cabeceras por petición (p. ej. `X-CSRF-Token`, `X-Iris-Empresa`). */
-    cabeceras?: () => Cabeceras | Promise<Cabeceras>;
-}
-
+export const CABECERA_CANAL = "X-Iris-Canal";
+const CANAL = { [CABECERA_CANAL]: "campo" } as const;
 const VERSION_TUS = "1.0.0";
 
-async function leerProblema(respuesta: Response): Promise<Problema | null> {
-    try {
-        const cuerpo: unknown = await respuesta.json();
-        if (cuerpo && typeof cuerpo === "object" && "type" in cuerpo && "status" in cuerpo) {
-            return cuerpo as Problema;
-        }
-    } catch {
-        // Sin cuerpo JSON: solo queda el status.
-    }
-    return null;
+type Resultado<D> = { data?: D; error?: unknown; response: Response };
+
+function esProblema(valor: unknown): valor is Problema {
+    return typeof valor === "object" && valor !== null && "type" in valor && "status" in valor && "title" in valor;
 }
 
-function horaDe(respuesta: Response): number | null {
-    const fecha = respuesta.headers.get("Date");
-    const ms = fecha ? Date.parse(fecha) : Number.NaN;
+function msDe(texto: string | null | undefined): number | null {
+    const ms = texto ? Date.parse(texto) : Number.NaN;
     return Number.isNaN(ms) ? null : ms;
 }
 
-class ClienteHttp {
-    private readonly baseUrl: string;
-    private readonly fetchFn: typeof fetch;
-    private readonly cabeceras: () => Cabeceras | Promise<Cabeceras>;
-
-    constructor(opciones: OpcionesHttp) {
-        this.baseUrl = opciones.baseUrl ?? "";
-        this.fetchFn = opciones.fetch ?? ((entrada, init) => globalThis.fetch(entrada, init));
-        this.cabeceras = opciones.cabeceras ?? (() => ({}));
+/** Espera una llamada del cliente: `data` o `ErrorTransporte` (`red` sin respuesta, `http` con ella). */
+async function resolver<D>(llamada: Promise<Resultado<D>>): Promise<{ datos: D; respuesta: Response }> {
+    let r: Resultado<D>;
+    try {
+        r = await llamada;
+    } catch (e) {
+        // fetch rechazado (sin señal, CORS, cortado) o cuerpo ilegible: se reintenta.
+        throw new ErrorTransporte("red", e instanceof Error ? e.message : "Sin conexión");
     }
-
-    url(ruta: string): string {
-        return /^https?:\/\//.test(ruta) ? ruta : `${this.baseUrl}${ruta}`;
+    if (!r.response.ok) {
+        const problema = esProblema(r.error) ? r.error : null;
+        throw new ErrorTransporte("http", problema?.title ?? `HTTP ${r.response.status}`, r.response.status, problema, r.response.headers);
     }
-
-    async pedir(ruta: string, init: RequestInit): Promise<Response> {
-        const cabeceras = new Headers(init.headers);
-        for (const [k, v] of Object.entries(await this.cabeceras())) {
-            cabeceras.set(k, v);
-        }
-        cabeceras.set("X-Iris-Canal", "campo");
-        let respuesta: Response;
-        try {
-            respuesta = await this.fetchFn(this.url(ruta), { credentials: "include", ...init, headers: cabeceras });
-        } catch (e) {
-            throw new ErrorTransporte("red", e instanceof Error ? e.message : "Sin conexión");
-        }
-        if (!respuesta.ok) {
-            const problema = await leerProblema(respuesta);
-            throw new ErrorTransporte("http", problema?.title ?? `HTTP ${respuesta.status}`, respuesta.status, problema);
-        }
-        return respuesta;
-    }
-
-    async json<T>(ruta: string, init: RequestInit): Promise<RespuestaApi<T>> {
-        const respuesta = await this.pedir(ruta, init);
-        let datos: T;
-        try {
-            datos = (await respuesta.json()) as T;
-        } catch (e) {
-            throw new ErrorTransporte("red", e instanceof Error ? e.message : "Respuesta cortada");
-        }
-        return { datos, horaServidor: horaDe(respuesta) };
-    }
+    return { datos: r.data as D, respuesta: r.response };
 }
 
-export function crearTransporteHttp(opciones: OpcionesHttp = {}): Transporte {
-    const http = new ClienteHttp(opciones);
+function conHora<D>(datos: D, respuesta: Response, servidorEn?: string): RespuestaApi<D> {
+    return { datos, horaServidor: msDe(servidorEn) ?? msDe(respuesta.headers.get("Date")) };
+}
+
+/** `POST /sync/lote`, `GET /campo/paquete` y `GET /campo/cambios` con el cliente de la API. */
+export function crearTransporteApi(cliente: ClienteIris): Transporte {
     return {
-        enviarLote: (peticion: PeticionLote) =>
-            http.json<RespuestaLote>("/api/v1/sync/lote", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(peticion),
-            }),
-        obtenerPaquete: (fecha: string) =>
-            http.json<PaqueteDia>(`/api/v1/campo/paquete?fecha=${encodeURIComponent(fecha)}`, { method: "GET" }),
-        obtenerCambios: (cursor: string) =>
-            http.json<RespuestaCambios>(`/api/v1/campo/cambios?cursor=${encodeURIComponent(cursor)}`, { method: "GET" }),
+        async enviarLote(peticion) {
+            const { datos, respuesta } = await resolver(cliente.POST("/api/v1/sync/lote", { body: peticion, headers: CANAL }));
+            return conHora(datos, respuesta, datos.servidorEn);
+        },
+        async obtenerPaquete(fecha) {
+            const { datos, respuesta } = await resolver(
+                cliente.GET("/api/v1/campo/paquete", { params: { query: { fecha } }, headers: CANAL }),
+            );
+            return conHora(datos, respuesta, datos.servidorEn);
+        },
+        async obtenerCambios(cursor) {
+            const { datos, respuesta } = await resolver(
+                cliente.GET("/api/v1/campo/cambios", { params: { query: { cursor } }, headers: CANAL }),
+            );
+            return conHora(datos, respuesta);
+        },
     };
 }
 
@@ -114,36 +73,39 @@ function offsetDe(respuesta: Response): number {
     return valor;
 }
 
-/** Subidor tus 1.0 (núcleo del protocolo: HEAD y PATCH) sobre `POST /api/v1/adjuntos`. */
-export function crearSubidorTus(opciones: OpcionesHttp = {}): Subidor {
-    const http = new ClienteHttp(opciones);
+/** Alta (`POST /adjuntos`) y tus 1.0 (`HEAD`/`PATCH /adjuntos/{id}/subida`) con el cliente de la API. */
+export function crearSubidorApi(cliente: ClienteIris): Subidor {
     return {
-        crear: async (entrada: EntradaCrearAdjunto) =>
-            (
-                await http.json<RespuestaCrearAdjunto>("/api/v1/adjuntos", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Idempotency-Key": entrada.id },
-                    body: JSON.stringify(entrada),
-                })
-            ).datos,
-        consultarOffset: async (urlSubida: string) =>
-            offsetDe(
-                await http.pedir(urlSubida, {
-                    method: "HEAD",
-                    headers: { "Tus-Resumable": VERSION_TUS, "Cache-Control": "no-store" },
+        async crear(entrada) {
+            const { datos } = await resolver(
+                cliente.POST("/api/v1/adjuntos", {
+                    body: entrada,
+                    params: { header: { "Idempotency-Key": entrada.id } },
+                    headers: CANAL,
                 }),
-            ),
-        enviarParte: async (urlSubida: string, offset: number, parte: Uint8Array) =>
-            offsetDe(
-                await http.pedir(urlSubida, {
-                    method: "PATCH",
-                    headers: {
-                        "Tus-Resumable": VERSION_TUS,
-                        "Upload-Offset": String(offset),
-                        "Content-Type": "application/offset+octet-stream",
-                    },
-                    body: parte as Uint8Array<ArrayBuffer>,
+            );
+            return datos;
+        },
+        async consultarOffset(id) {
+            const { respuesta } = await resolver(
+                cliente.HEAD("/api/v1/adjuntos/{id}/subida", {
+                    params: { path: { id }, header: { "Tus-Resumable": VERSION_TUS } },
+                    headers: { ...CANAL, "Cache-Control": "no-store" },
                 }),
-            ),
+            );
+            return offsetDe(respuesta);
+        },
+        async enviarParte(id, offset, parte) {
+            const { respuesta } = await resolver(
+                cliente.PATCH("/api/v1/adjuntos/{id}/subida", {
+                    params: { path: { id }, header: { "Tus-Resumable": VERSION_TUS, "Upload-Offset": offset } },
+                    headers: { ...CANAL, "Content-Type": "application/offset+octet-stream" },
+                    // El OpenAPI declara el cuerpo como texto binario: van los bytes tal cual.
+                    body: "",
+                    bodySerializer: () => parte as Uint8Array<ArrayBuffer>,
+                }),
+            );
+            return offsetDe(respuesta);
+        },
     };
 }

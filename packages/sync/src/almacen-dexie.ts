@@ -16,14 +16,14 @@ interface FilaBytes {
 
 class BaseSync extends Dexie {
     operaciones!: Table<OperacionLocal, string>;
-    ordenes!: Table<OrdenLocal, string>;
+    ordenes!: Table<OrdenLocal, number>;
     adjuntos!: Table<AdjuntoLocal, string>;
     bytes!: Table<FilaBytes, string>;
     meta!: Table<FilaMeta, string>;
 
     constructor(nombre: string, opciones?: DexieOptions) {
         super(nombre, opciones);
-        // Versión 1 del esquema local. Un cambio de forma = nueva `version(n)` con su `upgrade`.
+        // Un cambio de forma = nueva `version(n)` con su `upgrade`.
         this.version(1).stores({
             operaciones: "id, secuencia, ordenId",
             ordenes: "id",
@@ -31,10 +31,24 @@ class BaseSync extends Dexie {
             bytes: "id",
             meta: "clave",
         });
+        // Versión 2: ids de orden numéricos (los del OpenAPI). La 1 solo existió en desarrollo,
+        // con ids de texto provisionales: lo del servidor se descarta y se baja el paquete otra vez.
+        this.version(2)
+            .stores({
+                operaciones: "id, secuencia, ordenId",
+                ordenes: "id",
+                adjuntos: "id, ordenId",
+                bytes: "id",
+                meta: "clave",
+            })
+            .upgrade(async (tx) => {
+                await tx.table("ordenes").clear();
+                await tx.table("meta").bulkDelete(["cursor", "fecha", "existencias", "ruta"]);
+            });
     }
 }
 
-async function aplicar<T>(tabla: Table<T, string>, cambios: CambiosTabla<T> | undefined): Promise<void> {
+async function aplicar<T, K extends string | number>(tabla: Table<T, K>, cambios: CambiosTabla<T, K> | undefined): Promise<void> {
     if (cambios?.borrar?.length) {
         await tabla.bulkDelete(cambios.borrar);
     }
@@ -44,7 +58,7 @@ async function aplicar<T>(tabla: Table<T, string>, cambios: CambiosTabla<T> | un
 }
 
 export interface OpcionesAlmacenDexie {
-    /** Nombre de la base IndexedDB; una por usuario (`iris-campo-<usuario>`). */
+    /** Nombre de la base IndexedDB; una por usuario y empresa (`iris-campo-<usuario>-<empresa>`). */
     nombre: string;
     /** `indexedDB` e `IDBKeyRange` propios (p. ej. `fake-indexeddb` en pruebas). */
     dexie?: DexieOptions;

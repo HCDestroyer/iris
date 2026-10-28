@@ -5,4 +5,4 @@ export { RelojManual, vaciarPromesas } from "./reloj-manual";
 export { TransporteFalso, type Llamada } from "./transporte-falso";
 export { SubidorFalso } from "./subidor-falso";
 export { ordenDePrueba, itemDePrueba } from "./fabricas";
-export { FECHA, montar, paqueteDePrueba, type Montaje } from "./montaje";
+export { CABLE, FECHA, montar, paqueteDePrueba, type Montaje } from "./montaje";

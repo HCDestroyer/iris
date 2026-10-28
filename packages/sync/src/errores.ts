@@ -1,34 +1,53 @@
-import type { Problema } from "./contrato-sync";
+import type { Problema } from "./contrato";
+
+export const PREFIJO_PROBLEMA = "urn:iris:problema:";
 
 /** Código de un problema de la API (`urn:iris:problema:<codigo>`). */
 export function codigoProblema(problema: Problema | null | undefined): string | null {
     if (!problema) {
         return null;
     }
-    const prefijo = "urn:iris:problema:";
-    return problema.type.startsWith(prefijo) ? problema.type.slice(prefijo.length) : problema.type;
+    return problema.type.startsWith(PREFIJO_PROBLEMA) ? problema.type.slice(PREFIJO_PROBLEMA.length) : problema.type;
 }
 
 /**
  * Falla al hablar con la API. `red`: sin señal o sin respuesta (se reintenta con espera);
- * `http`: la API respondió con error (`status` y, si vino, el problema RFC 9457).
+ * `http`: la API respondió con error (`status`, el problema RFC 9457 si vino y sus cabeceras).
  */
 export class ErrorTransporte extends Error {
     readonly tipo: "red" | "http";
     readonly status: number | null;
     readonly problema: Problema | null;
+    readonly cabeceras: Headers | null;
 
-    constructor(tipo: "red" | "http", mensaje: string, status: number | null = null, problema: Problema | null = null) {
+    constructor(
+        tipo: "red" | "http",
+        mensaje: string,
+        status: number | null = null,
+        problema: Problema | null = null,
+        cabeceras: Headers | null = null,
+    ) {
         super(mensaje);
         this.name = "ErrorTransporte";
         this.tipo = tipo;
         this.status = status;
         this.problema = problema;
+        this.cabeceras = cabeceras;
+    }
+
+    get codigo(): string | null {
+        return codigoProblema(this.problema);
     }
 
     /** Sin sesión o sin permiso: no sirve reintentar hasta que el técnico vuelva a entrar. */
     get esDeSesion(): boolean {
-        return this.status === 401 || this.status === 403;
+        return this.status === 401 || (this.status === 403 && !this.esDeEmpresa);
+    }
+
+    /** La empresa activa no vale (403 `empresa_no_permitida` / `sin_empresa`, 422 `empresa_requerida`). */
+    get esDeEmpresa(): boolean {
+        const c = this.codigo;
+        return c === "empresa_no_permitida" || c === "sin_empresa" || c === "empresa_requerida";
     }
 
     /** Red, 408, 429 y 5xx: vale la pena reintentar con espera. */
@@ -43,7 +62,9 @@ export type CodigoErrorLocal =
     | "orden_cancelada"
     | "orden_terminada"
     | "operacion_desconocida"
-    | "operacion_no_rechazada";
+    | "operacion_no_rechazada"
+    | "adjunto_desconocido"
+    | "adjunto_no_rechazado";
 
 /** El teléfono no acepta la acción (antes de encolarla). */
 export class ErrorSync extends Error {
