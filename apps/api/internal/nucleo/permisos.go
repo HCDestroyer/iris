@@ -48,6 +48,26 @@ const (
 	PermBuzonesDesactivar Permiso = "buzones.desactivar"
 	PermBuzonesEditar     Permiso = "buzones.editar"
 	PermBuzonesVer        Permiso = "buzones.ver"
+
+	// Órdenes de trabajo (I2): una acción explícita por permiso, POST /ordenes/{id}/<acción>.
+	// ordenes.ver_propias: solo las órdenes asignadas al actor (técnico); ordenes.registrar:
+	// checklist, notas, materiales, equipos, firma y adjuntos de la orden.
+	PermOrdenesAsignar       Permiso = "ordenes.asignar"
+	PermOrdenesCancelar      Permiso = "ordenes.cancelar"
+	PermOrdenesCerrar        Permiso = "ordenes.cerrar"
+	PermOrdenesCrear         Permiso = "ordenes.crear"
+	PermOrdenesFallar        Permiso = "ordenes.fallar"
+	PermOrdenesIniciarCamino Permiso = "ordenes.iniciar_camino"
+	PermOrdenesLlegar        Permiso = "ordenes.llegar"
+	PermOrdenesProgramar     Permiso = "ordenes.programar"
+	PermOrdenesReabrir       Permiso = "ordenes.reabrir"
+	PermOrdenesRegistrar     Permiso = "ordenes.registrar"
+	PermOrdenesReprogramar   Permiso = "ordenes.reprogramar"
+	PermOrdenesVer           Permiso = "ordenes.ver"
+	PermOrdenesVerPropias    Permiso = "ordenes.ver_propias"
+
+	// App de campo (I2): paquete del día, cambios y lote de sincronización (contratos/sync.md).
+	PermCampoSincronizar Permiso = "campo.sincronizar"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -89,6 +109,7 @@ var Catalogo = []DefPermiso{
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
 	{PermBuzonesEditar, "Editar un buzón de correo y probar su conexión (nunca ver la contraseña)"},
 	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
+	{PermCampoSincronizar, "Usar la app de campo: paquete del día, cambios y lote de sincronización"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -100,6 +121,19 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
+	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
+	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
+	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
+	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
+	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
+	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
+	{PermOrdenesLlegar, "Marcar la llegada al sitio de una orden"},
+	{PermOrdenesProgramar, "Programar órdenes pendientes (técnico y fecha)"},
+	{PermOrdenesReabrir, "Reabrir órdenes fallidas o canceladas"},
+	{PermOrdenesRegistrar, "Registrar el trabajo de una orden: checklist, notas, materiales, equipos, firma y adjuntos"},
+	{PermOrdenesReprogramar, "Reprogramar órdenes (nueva fecha o técnico)"},
+	{PermOrdenesVer, "Ver órdenes de trabajo (según el alcance) y su historial"},
+	{PermOrdenesVerPropias, "Ver solo las órdenes de trabajo asignadas a uno mismo (técnico)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
@@ -143,6 +177,13 @@ var permisosTickets = []Permiso{
 	PermTicketsReabrir, PermTicketsCerrar, PermTicketsFusionar, PermTicketsVerNotas,
 }
 
+// permisosOrdenes son todos los de órdenes de trabajo (despacho, supervisor).
+var permisosOrdenes = []Permiso{
+	PermOrdenesVer, PermOrdenesVerPropias, PermOrdenesCrear, PermOrdenesAsignar, PermOrdenesProgramar,
+	PermOrdenesReprogramar, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
+	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
+}
+
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
 // sincronizan en cada `iris migrar`: lo que no está aquí se les quita.
 var RolesBase = []DefRol{
@@ -150,13 +191,17 @@ var RolesBase = []DefRol{
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
-			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar}, permisosTickets...)},
+			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
+			slices.Concat(permisosTickets, permisosOrdenes)...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
-		Permisos: []Permiso{PermUsuariosVer,
+		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer,
-			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas}},
+			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas},
+			permisosOrdenes...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
-		Permisos: []Permiso{PermClientesVer}},
+		Permisos: []Permiso{PermClientesVer,
+			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
+			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta}, permisosTickets...)},
@@ -164,16 +209,16 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermClientesVer, PermClientesEstadoCuenta}},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
-			PermClientesVer, PermTicketsVer}},
+			PermClientesVer, PermTicketsVer, PermOrdenesVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
-	//  - Argos: tickets.ver y tickets.crear (contratos/argosisp.md §1.2); ordenes.ver y
-	//    sso.emitir (también §1.2) se agregan cuando existan esos permisos. portal.emitir NO es
+	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir
+	//    (también §1.2) se agrega cuando exista ese permiso. portal.emitir NO es
 	//    del §1.2: es el pedido A9 (botón «Soporte» del portal de Argos), propuesto por Iris y
 	//    pendiente de acordar con Argos; se deja por decisión del líder.
 	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
-		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermPortalEmitir}},
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

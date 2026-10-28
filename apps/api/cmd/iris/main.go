@@ -24,8 +24,10 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -83,8 +85,13 @@ func correr(args []string) error {
 			return errors.New(usoIntegracion)
 		}
 		return crearIntegracion(ctx, cfg, args[1:])
+	case "campo":
+		if len(args) == 0 || args[0] != "semilla" {
+			return errors.New(usoSemillaCampo)
+		}
+		return semillaCampo(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear, campo semilla)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -190,6 +197,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
 			sop.Registrar,
+			campo.Nuevo(campo.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})
@@ -380,4 +388,67 @@ func crearIntegracion(ctx context.Context, cfg config.Config, args []string) err
 	fmt.Printf("Usuario de integración %s: id %d, %s, rol %s, empresas %v\n", estado, r.Usuario.ID, r.Usuario.Correo, identidad.RolesIntegracion[*sistema], r.Usuario.Empresas)
 	fmt.Printf("Token (no se vuelve a mostrar; entrégalo a %s): %s\n", *sistema, r.Token.Valor)
 	return nil
+}
+
+const usoSemillaCampo = "uso: iris campo semilla [--correo tecnico@iris.local] [--empresa <id de Argos>] [--ordenes 3]"
+
+// semillaCampo prepara datos de desarrollo para la app de campo (I2): un técnico (rol tecnico;
+// se crea si no existe, con una contraseña que se muestra una vez) y órdenes del día
+// programadas para él, por los casos de uso (actor sistema, canal consola, auditado). Con
+// empresas registradas, --empresa es obligatoria (el técnico recibe esa empresa).
+func semillaCampo(ctx context.Context, cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("campo semilla", flag.ContinueOnError)
+	correo := fs.String("correo", "tecnico@iris.local", "correo del técnico")
+	empresa := fs.Int64("empresa", 0, "empresa de Argos (obligatoria si hay empresas registradas)")
+	cuantas := fs.Int("ordenes", 3, "órdenes del día")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	pool, err := conectar(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
+		return err
+	}
+	id, err := modulo(cfg)
+	if err != nil {
+		return err
+	}
+	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	var empresaID *int64
+	empresas := []int64{}
+	if *empresa > 0 {
+		empresaID = empresa
+		empresas = append(empresas, *empresa)
+	}
+	var tecnicoID int64
+	err = pool.QueryRow(ctx, "SELECT id FROM nucleo.usuarios WHERE lower(correo) = lower($1)", *correo).Scan(&tecnicoID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		s, err := identidad.NuevoSecreto()
+		if err != nil {
+			return err
+		}
+		u, err := id.CrearUsuario.Ejecutar(cctx, identidad.EntradaCrearUsuario{
+			Nombre: "Técnico de prueba", Correo: *correo, Contrasena: s[:24], Tipo: "persona",
+			Roles: []identidad.AsignacionRol{{Rol: "tecnico"}}, Empresas: empresas,
+		})
+		if err != nil {
+			return err
+		}
+		tecnicoID = u.ID
+		fmt.Printf("Técnico creado: id %d, %s\nContraseña (no se vuelve a mostrar): %s\n", u.ID, u.Correo, s[:24])
+	} else if err != nil {
+		return err
+	} else {
+		fmt.Printf("Técnico existente: id %d, %s\n", tecnicoID, *correo)
+	}
+	ordenes, err := campo.Nuevo(campo.Config{}).SemillaDesarrollo(cctx, campo.OpcionesSemilla{
+		TecnicoID: tecnicoID, EmpresaID: empresaID, Ordenes: *cuantas,
+	})
+	for _, o := range ordenes {
+		fmt.Printf("Orden %s (%s) programada %s\n", o.Numero, o.Tipo, o.ProgramadaInicio.Format(time.RFC3339))
+	}
+	return err
 }

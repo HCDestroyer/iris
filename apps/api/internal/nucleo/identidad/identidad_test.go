@@ -76,10 +76,10 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo) {
 		t.Fatalf("admin tiene todos los permisos: %v", porCodigo["admin"].Permisos)
 	}
-	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermClientesVer, nucleo.PermPermisosVer, nucleo.PermRolesVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
+	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermClientesVer, nucleo.PermOrdenesVer, nucleo.PermPermisosVer, nucleo.PermRolesVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
-	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermPortalEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
+	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermOrdenesVer, nucleo.PermPortalEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
 		t.Fatalf("integracion_argos: %v", porCodigo["integracion_argos"].Permisos)
 	}
 	if !slices.Equal(porCodigo["integracion_horus"].Permisos, []nucleo.Permiso{nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {

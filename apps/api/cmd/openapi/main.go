@@ -17,6 +17,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -46,6 +47,7 @@ func escribir(salida string) error {
 			conectorArgos.Registrar,
 			horus.Nuevo(horus.Config{Argos: conectorArgos}).Registrar,
 			soporte.Nuevo(soporte.Config{}).Registrar,
+			campo.Nuevo(campo.Config{}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()
