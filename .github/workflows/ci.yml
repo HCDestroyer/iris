@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Versiones fijadas de las herramientas de Go (las mismas que el Makefile)
+  GOLANGCI_LINT_VERSION: v2.5.0
+  SQLC_VERSION: 1.30.0
+
+jobs:
+  # Qué partes del monorepo existen. Los jobs de Go y web se saltan (en gris, no en rojo) mientras
+  # I1 e I3 no creen apps/api y apps/web.
+  detectar:
+    name: Detectar apps
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.d.outputs.api }}
+      web: ${{ steps.d.outputs.web }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: d
+        run: |
+          api=false; web=false
+          [ -f apps/api/go.mod ] && api=true
+          [ -f apps/web/package.json ] && web=true
+          echo "api=$api" >>"$GITHUB_OUTPUT"
+          echo "web=$web" >>"$GITHUB_OUTPUT"
+          echo "apps/api: $api · apps/web: $web" >>"$GITHUB_STEP_SUMMARY"
+
+  go:
+    name: Go (golangci-lint, pruebas con Postgres y sqlc diff)
+    needs: detectar
+    if: needs.detectar.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: iris
+          POSTGRES_PASSWORD: iris
+          POSTGRES_DB: iris_test
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U iris -d iris_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      TZ: UTC
+      IRIS_DB_URL: postgres://iris:iris@localhost:5432/iris_test?sslmode=disable
+
+    defaults:
+      run:
+        working-directory: apps/api
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: apps/api
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Pruebas (Postgres real)
+        run: go test -count=1 -race ./...
+
+      - uses: sqlc-dev/setup-sqlc@v4
+        with:
+          sqlc-version: ${{ env.SQLC_VERSION }}
+
+      # El código de sqlc está commiteado y al día con las consultas y el esquema
+      - name: sqlc diff
+        run: |
+          if [ -f sqlc.yaml ] || [ -f sqlc.yml ] || [ -f sqlc.json ]; then
+            sqlc diff
+          else
+            echo "Sin configuración de sqlc en apps/api; se omite sqlc diff."
+          fi
+
+  web:
+    name: Web (lint, typecheck, pruebas y build)
+    needs: detectar
+    if: needs.detectar.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TZ: UTC
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      # Versión de pnpm desde "packageManager" del package.json raíz
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Pruebas
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  # packages/contratos al día: tipos regenerados desde el openapi.json commiteado y, cuando existe
+  # apps/api, el openapi.json regenerado desde la API (make openapi).
+  contratos:
+    name: Contratos al día
+    needs: detectar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - uses: actions/setup-go@v6
+        if: needs.detectar.outputs.api == 'true'
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: make openapi
+        if: needs.detectar.outputs.api == 'true'
+        run: make openapi
+
+      - name: pnpm contratos:build
+        run: pnpm contratos:build
+
+      - name: Contratos commiteados
+        run: |
+          if ! git diff --exit-code -- packages/contratos \
+            || [ -n "$(git status --porcelain --untracked-files=all -- packages/contratos)" ]; then
+            echo "::error::packages/contratos cambió al regenerarlo. Corre 'make contratos' y commitea el resultado."
+            git status --short -- packages/contratos
+            exit 1
+          fi
+
+  infra:
+    name: Infra (compose y scripts)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: docker compose config
+        run: docker compose -f infra/docker-compose.yml --env-file .env.example --profile app config --quiet
+
+      - name: bash -n y shellcheck
+        run: |
+          for s in scripts/*.sh infra/osrm/*.sh infra/minio/*.sh; do bash -n "$s"; done
+          shellcheck scripts/*.sh infra/osrm/*.sh infra/minio/*.sh
