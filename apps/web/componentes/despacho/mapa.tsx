@@ -48,19 +48,20 @@ function estilo(oscuro: boolean): StyleSpecification {
                 source: "osm",
                 paint: oscuro ? { "raster-brightness-max": 0.62, "raster-saturation": -0.55, "raster-contrast": 0.1 } : {},
             },
-            {
-                id: "ruta-real",
-                type: "line",
-                source: "rutas",
-                filter: ["==", ["get", "id"], "real"],
-                paint: { "line-color": token("--hx-primary", "#0f766e"), "line-width": 4, "line-opacity": 0.9 },
-                layout: { "line-cap": "round", "line-join": "round" },
-            },
+            // Propuesta: continua, color de marca. Real (GPS): punteada, neutra encima.
             {
                 id: "ruta-propuesta",
                 type: "line",
                 source: "rutas",
                 filter: ["==", ["get", "id"], "propuesta"],
+                paint: { "line-color": token("--hx-primary", "#0f766e"), "line-width": 4, "line-opacity": 0.85 },
+                layout: { "line-cap": "round", "line-join": "round" },
+            },
+            {
+                id: "ruta-real",
+                type: "line",
+                source: "rutas",
+                filter: ["==", ["get", "id"], "real"],
                 paint: { "line-color": token("--hx-text-muted", "#6b7280"), "line-width": 3, "line-dasharray": [2, 2] },
             },
         ],
@@ -146,8 +147,8 @@ export function MapaDespacho({
         // Los tokens cambian con la clase .dark: se leen después de que next-themes la aplica.
         requestAnimationFrame(() => {
             if (mapa.current !== m) return;
-            m.setPaintProperty("ruta-real", "line-color", token("--hx-primary", "#0f766e"));
-            m.setPaintProperty("ruta-propuesta", "line-color", token("--hx-text-muted", "#6b7280"));
+            m.setPaintProperty("ruta-propuesta", "line-color", token("--hx-primary", "#0f766e"));
+            m.setPaintProperty("ruta-real", "line-color", token("--hx-text-muted", "#6b7280"));
         });
     }, [oscuro, listo]);
 
@@ -212,7 +213,17 @@ export function MapaDespacho({
 
     return (
         <div className={cn("relative overflow-hidden rounded-lg border border-border bg-elevated", className)}>
-            <div ref={contenedor} role="region" aria-label="Mapa del despacho" className="h-full min-h-72 w-full" data-testid="mapa" data-listo={listo ? "si" : "no"} />
+            <div
+                ref={contenedor}
+                role="region"
+                aria-label="Mapa del despacho"
+                className="h-full min-h-72 w-full" data-testid="mapa"
+                data-listo={listo ? "si" : "no"}
+                data-lineas={lineas
+                    .filter((l) => l.coordenadas.length >= 2)
+                    .map((l) => l.id)
+                    .join(" ")}
+            />
             {fallo ? (
                 <div className="absolute inset-0 grid place-items-center p-4">
                     <Aviso tono="warning" titulo="Mapa no disponible">

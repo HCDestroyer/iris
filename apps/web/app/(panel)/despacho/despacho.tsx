@@ -7,16 +7,15 @@ import { AgendaTecnicos } from "@/componentes/despacho/agenda-tecnicos";
 import { Seccion } from "@/componentes/despacho/calendario";
 import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
 import { FiltrosAgenda, NavegacionDias } from "@/componentes/despacho/controles";
-import { useAhora, useCatalogosAgenda, useDatosAgenda, useOrdenesDelTecnico, usePosiciones, type DatosAgenda, type FiltrosDespacho } from "@/componentes/despacho/datos";
+import { useAhora, useCatalogosAgenda, useDatosAgenda, usePosiciones, type DatosAgenda, type FiltrosDespacho } from "@/componentes/despacho/datos";
 import { MapaDespacho, type Enfoque, type LineaRuta, type PuntoOrden, type PuntoTecnico } from "@/componentes/despacho/mapa";
-import { RutaComparada } from "@/componentes/despacho/ruta-comparada";
+import { RutaDelTecnico } from "@/componentes/despacho/ruta-tecnico";
 import { TecnicosEnVivo, type PosicionVista } from "@/componentes/despacho/tecnicos-en-vivo";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { filasDeTecnicos, type Cuadrilla, type Zona } from "@/lib/despacho/calendario";
 import { diaDesdeIso, etiquetaDiaLarga, horaDe, hoyGuatemala, type Dia } from "@/lib/despacho/fechas";
 import { INTERVALO_POSICIONES_MS, antiguedadAhora, frescura, iniciales, textoPosicion } from "@/lib/despacho/posiciones";
-import { paradasReales, type ParadaReal } from "@/lib/despacho/rutas";
 import { useSesion } from "@/lib/sesion";
 
 export function PantallaDespacho() {
@@ -50,15 +49,14 @@ function Consola({ dia, filtros, zonas, cuadrillas }: { dia: Dia; filtros: Filtr
     const verPosiciones = puede(["campo.ver_posiciones"]);
     // Una sola lectura de posiciones y una del recorrido: el mapa y las listas nunca difieren.
     const posiciones = usePosicionesVista(filtros, verPosiciones);
-    const recorrido = useOrdenesDelTecnico(tecnicoRuta, dia);
-    const reales = recorrido.estado === "listo" && recorrido.datos ? paradasReales(recorrido.datos) : [];
+    const [lineas, setLineas] = useState<LineaRuta[]>([]);
     const filas = datos.tecnicos.estado === "listo" && datos.agenda.estado === "listo" ? filasDeTecnicos(datos.tecnicos.datos.lista, datos.agenda.datos.citas ?? [], datos.agenda.datos.ausencias ?? []) : [];
 
     return (
         <div className="grid gap-4 [&>*]:min-w-0">
             <div className="grid gap-4 [&>*]:min-w-0 lg:grid-cols-[minmax(0,1.6fr)_minmax(18rem,1fr)]">
                 <Seccion titulo={`Mapa · ${etiquetaDiaLarga(dia)}`} descripcion="Órdenes del día con coordenadas y la última posición de cada técnico." data-testid="seccion-mapa">
-                    <MapaConDatos datos={datos} dia={dia} posiciones={verPosiciones ? posiciones.vista : null} enfoque={enfoque} reales={reales} />
+                    <MapaConDatos datos={datos} dia={dia} posiciones={verPosiciones ? posiciones.vista : null} enfoque={enfoque} lineas={lineas} />
                 </Seccion>
                 <Seccion titulo="Técnicos en vivo" descripcion="Última posición enviada por la app de campo." data-testid="seccion-en-vivo">
                     {verPosiciones ? (
@@ -70,8 +68,19 @@ function Consola({ dia, filtros, zonas, cuadrillas }: { dia: Dia; filtros: Filtr
                     )}
                 </Seccion>
             </div>
-            <Seccion titulo="Ruta propuesta frente a la real" descripcion="Paradas del técnico en el orden en que llegó." data-testid="seccion-ruta">
-                <RutaComparada filas={filas} tecnicoId={tecnicoRuta} alElegir={setTecnicoRuta} ordenes={puede(["ordenes.ver"]) ? recorrido : null} propuesta={null} reales={reales} />
+            <Seccion
+                titulo="Ruta propuesta frente a la real"
+                descripcion="Llegada estimada de cada parada frente a la real; en el mapa, la ruta propuesta (línea continua) y el recorrido real (punteada)."
+                data-testid="seccion-ruta"
+            >
+                <RutaDelTecnico
+                    filas={filas}
+                    dia={dia}
+                    citas={datos.agenda.estado === "listo" ? (datos.agenda.datos.citas ?? []) : []}
+                    tecnicoId={tecnicoRuta}
+                    alElegir={setTecnicoRuta}
+                    alLineas={setLineas}
+                />
             </Seccion>
             <Seccion titulo="Calendario del día" descripcion="Arrastra una cita a otra hora o a otro técnico; en el teléfono, «Mover a…»." data-testid="seccion-calendario">
                 <AgendaTecnicos datos={datos} vista="dia" desde={dia} zonas={zonas} cuadrillas={cuadrillas} />
@@ -123,13 +132,13 @@ function MapaConDatos({
     dia,
     posiciones,
     enfoque,
-    reales,
+    lineas,
 }: {
     datos: DatosAgenda;
     dia: Dia;
     posiciones: readonly PosicionVista[] | null;
     enfoque: Enfoque | null;
-    reales: readonly ParadaReal[];
+    lineas: readonly LineaRuta[];
 }) {
     const agenda = datos.agenda;
     const citas = useMemo(() => (agenda.estado === "listo" ? (agenda.datos.citas ?? []).filter((c) => diaDesdeIso(c.inicio) === dia) : []), [agenda, dia]);
@@ -143,10 +152,6 @@ function MapaConDatos({
     const tecnicos: PuntoTecnico[] = useMemo(
         () => (posiciones ?? []).map((p) => ({ tecnicoId: p.tecnicoId, nombre: p.nombre, iniciales: iniciales(p.nombre), lat: p.lat, lon: p.lon, frescura: frescura(p.antiguedad), texto: textoPosicion(p.antiguedad) })),
         [posiciones],
-    );
-    const lineas: LineaRuta[] = useMemo(
-        () => [{ id: "real", coordenadas: reales.filter((p) => p.lat !== null && p.lon !== null).map((p): [number, number] => [p.lon ?? 0, p.lat ?? 0]) }],
-        [reales],
     );
     const sinCoordenadas = citas.length - ordenes.length;
 

@@ -74,6 +74,8 @@ test.describe("agenda", () => {
         }
         await expect(cita(page, "OT-000004")).toContainText("En camino");
         await expect(cita(page, "OT-000004")).toHaveAttribute("data-estado", "en_camino");
+        if (enTelefono(info)) await expect(cita(page, "OT-000001")).toContainText("llegó 08:30");
+        else await expect(cita(page, "OT-000001")).toHaveAttribute("title", /llegó 08:30/);
         await expect(fila(page, JORGE).locator('[data-cita="OT-000040"]').filter({ visible: true })).toBeVisible();
         await expect(fila(page, ROSA)).toContainText("Vacaciones");
         if (enTelefono(info)) {
@@ -178,7 +180,7 @@ test.describe("agenda", () => {
 
         await d.getByLabel("Técnico", { exact: true }).selectOption(String(JORGE));
         await d.getByLabel("Hora", { exact: true }).fill("14:30");
-        await expect(d.getByTestId("disponibilidad")).toContainText("Ese horario no está libre para Jorge Méndez (60 min). Libre: 07:00–14:00 y 15:00–17:00.");
+        await expect(d.getByTestId("disponibilidad")).toContainText("Ese horario no está libre para Jorge Méndez (60 min). Libre: 07:00–08:00, 09:00–14:00 y 15:00–17:00.");
         await expect(enviar).toBeDisabled();
         await captura(page, info, "43-mover-no-disponible");
 
@@ -346,11 +348,11 @@ test.describe("despacho", () => {
         await expect(page).toHaveURL(/\/despacho$/);
 
         await expect(page.getByTestId("mapa")).toHaveAttribute("data-listo", "si", { timeout: 20_000 });
-        for (const n of ["OT-000001", "OT-000003", "OT-000004", "OT-000005", "OT-000040"]) {
+        for (const n of ["OT-000001", "OT-000003", "OT-000004", "OT-000005", "OT-000040", "OT-000041"]) {
             await expect(page.locator(`[data-marcador-orden="${n}"]`)).toBeAttached();
         }
         await expect(page.locator('[data-marcador-orden="OT-000006"]')).toHaveCount(0);
-        await expect(page.getByTestId("leyenda-mapa")).toHaveText("5 órdenes en el mapa · 1 sin coordenadas · 3 técnicos con posición");
+        await expect(page.getByTestId("leyenda-mapa")).toHaveText("6 órdenes en el mapa · 1 sin coordenadas · 3 técnicos con posición");
         await expect(page.locator(`[data-marcador-tecnico="${LUCIA}"]`)).toHaveAttribute("data-frescura", "en_vivo");
         await expect(page.locator(`[data-marcador-tecnico="${JORGE}"]`)).toHaveAttribute("data-frescura", "retrasada");
         await expect(page.locator(`[data-marcador-tecnico="${ROSA}"]`)).toHaveAttribute("aria-label", /Rosa Ajú · Sin señal reciente · hace 5 h/);
@@ -364,15 +366,28 @@ test.describe("despacho", () => {
         await expect(vivo.getByTestId("posiciones-leidas")).toContainText("se actualizan cada 30 s");
         await vivo.getByRole("button", { name: "Ver a Lucía Ramírez en el mapa" }).click();
 
+        // Ruta publicada de Lucía: llegada estimada frente a la real, desvío y los dos trazos.
         const ruta = page.getByTestId("seccion-ruta");
-        await expect(ruta.getByTestId("ruta-propuesta-pendiente")).toContainText("Ruta propuesta: todavía no disponible");
         await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Lucía Ramírez" });
-        await expect(ruta.locator("[data-parada]")).toHaveCount(2);
-        await expect(ruta.locator("[data-parada]").nth(0)).toContainText("OT-000001");
-        await expect(ruta.locator("[data-parada]").nth(0)).toContainText("llegó 08:30");
-        await expect(ruta.locator("[data-parada]").nth(1)).toContainText("OT-000005");
-        await expect(ruta.locator("[data-parada]").nth(1)).toContainText("Sin propuesta");
-        expect(ultima(api, "/api/v1/ordenes")?.query.get("tecnicoId")).toBe(String(LUCIA));
+        await expect(ruta.locator('[data-estado-ruta="publicada"]')).toBeVisible();
+        expect(ultima(api, "/api/v1/rutas")?.query.get("tecnicoId")).toBe(String(LUCIA));
+        expect(ultima(api, "/api/v1/rutas")?.query.get("fecha")).toBe(hoyGt());
+        const paradas = ruta.locator("[data-parada]");
+        await expect(paradas).toHaveCount(4);
+        await expect(paradas.nth(0)).toContainText("OT-000001");
+        await expect(paradas.nth(0)).toContainText("Estimada: 08:00");
+        await expect(paradas.nth(0)).toContainText("Real: 08:30");
+        await expect(paradas.nth(0)).toContainText("30 min tarde");
+        await expect(paradas.nth(0)).toContainText("Fija");
+        await expect(ruta.locator('[data-parada="OT-000005"]')).toContainText("6 min tarde");
+        await expect(ruta.locator('[data-parada="OT-000003"]')).toContainText("Real: aún no llega");
+        await expect(ruta.locator('[data-parada="OT-000003"] [data-desvio]')).toHaveCount(0);
+        await expect(ruta.getByTestId("recorrido-real")).toContainText("Recorrido real: 3 posiciones");
+        await expect(page.getByTestId("mapa")).toHaveAttribute("data-lineas", "propuesta real");
+        await expect(ruta.getByRole("button", { name: "Publicar" })).toHaveCount(0);
+        await expect(ruta.getByRole("button", { name: "Volver a proponer" })).toBeVisible();
+        // La llegada real también se ve en la agenda (enSitioEn de la cita), sin leer órdenes aparte.
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/ordenes" && p.query.get("tecnicoId"))).toBe(false);
 
         await expect(page.getByTestId("seccion-calendario").locator('[data-cita="OT-000040"]').filter({ visible: true })).toBeVisible();
         await sinDesborde(page);
@@ -416,5 +431,76 @@ test.describe("despacho", () => {
         await page.clock.fastForward("00:10");
         await expect.poll(lecturas).toBeGreaterThan(antes);
         await expect(lucia).toContainText(/En vivo · hace 4\d s/);
+    });
+
+    test("borrador degradado, desactualizado y con parada oculta: sin trazo; volver a proponer, reordenar y publicar (409 + Recargar)", async ({ page, context, baseURL }, info) => {
+        const api = await simularApi(page, { despacho: true });
+        await simularTeselas(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/despacho");
+        const ruta = page.getByTestId("seccion-ruta");
+        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Jorge Méndez" });
+        await expect(ruta.locator('[data-estado-ruta="borrador"]')).toBeVisible();
+        await expect(ruta.getByTestId("ruta-degradada")).toContainText("Tiempos aproximados");
+        await expect(ruta.getByTestId("ruta-degradada")).toContainText("no hay servicio de rutas configurado");
+        await expect(ruta.getByTestId("ruta-desactualizada")).toContainText("OT-000040 cambió de hora después de proponer la ruta.");
+        const oculta = ruta.locator('[data-parada="oculta"]');
+        await expect(oculta).toHaveText(/1\s*Parada fuera de tu alcance/);
+        await expect(oculta.getByRole("link")).toHaveCount(0);
+        await expect(ruta.getByRole("button", { name: "Publicar" })).toBeDisabled();
+        await expect(ruta.getByRole("button", { name: /^Subir|^Bajar/ })).toHaveCount(0);
+        await expect(ruta.getByTestId("recorrido-real")).toContainText("La app de campo no envió ubicación ese día");
+        await expect(page.getByTestId("mapa")).toHaveAttribute("data-listo", "si", { timeout: 20_000 });
+        await expect(page.getByTestId("mapa")).toHaveAttribute("data-lineas", "");
+        await captura(page, info, "48-ruta-desactualizada");
+
+        const hoy = hoyGt();
+        await ruta.getByRole("button", { name: "Volver a proponer" }).click();
+        await expect(ruta.getByTestId("ruta-hecha")).toContainText("Ruta de Jorge Méndez propuesta.");
+        const propuesta = ultima(api, "/api/v1/rutas/proponer", "POST");
+        expect(propuesta?.cuerpo).toEqual({ tecnicoId: JORGE, fecha: hoy, version: 1 });
+        expect(propuesta?.idempotencia).toBeTruthy();
+        await expect(ruta.getByTestId("ruta-desactualizada")).toHaveCount(0);
+        await expect(ruta.locator("[data-parada]").nth(0)).toContainText("OT-000041");
+        await expect(page.getByTestId("mapa")).toHaveAttribute("data-lineas", "propuesta");
+
+        await ruta.getByRole("button", { name: "Bajar OT-000041" }).click();
+        await expect(ruta.getByTestId("ruta-hecha")).toContainText("Orden de las paradas actualizado.");
+        expect(ultima(api, "/api/v1/rutas/proponer", "POST")?.cuerpo).toEqual({ tecnicoId: JORGE, fecha: hoy, version: 2, ordenIds: [40, 41] });
+        await expect(ruta.locator("[data-parada]").nth(0)).toContainText("OT-000040");
+        await expect(ruta).toContainText("orden manual");
+
+        api.responderProblema("/api/v1/rutas/702/publicar", { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409 }, 1);
+        await ruta.getByRole("button", { name: "Publicar" }).click();
+        await expect(ruta.getByText("La ruta cambió mientras la veías")).toBeVisible();
+        await ruta.getByRole("button", { name: "Recargar" }).click();
+        await expect(ruta.getByText("La ruta cambió mientras la veías")).toHaveCount(0);
+        await ruta.getByRole("button", { name: "Publicar" }).click();
+        await expect(ruta.getByTestId("ruta-hecha")).toContainText("Ruta de Jorge Méndez publicada");
+        expect(ultima(api, "/api/v1/rutas/702/publicar", "POST")?.cuerpo).toEqual({ version: 3 });
+        await expect(ruta.locator('[data-estado-ruta="publicada"]')).toBeVisible();
+        await captura(page, info, "49-ruta-publicada");
+    });
+
+    test("sin ruta: proponer muestra el 422 de la API; con solo rutas.ver no hay botones", async ({ page, context, baseURL }) => {
+        await simularApi(page, { despacho: true });
+        await simularTeselas(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/despacho");
+        const ruta = page.getByTestId("seccion-ruta");
+        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Rosa Ajú" });
+        await expect(ruta.getByTestId("sin-ruta")).toContainText("Rosa Ajú no tiene ruta para este día.");
+        await ruta.getByRole("button", { name: "Proponer ruta" }).click();
+        await expect(ruta.getByRole("alert")).toContainText("Rosa Ajú no tiene citas programadas ese día");
+
+        await context.clearCookies();
+        await conSesion(context, baseURL ?? "", CONSULTA.correo);
+        await page.goto("/despacho");
+        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Jorge Méndez" });
+        await expect(ruta.locator('[data-estado-ruta="borrador"]')).toBeVisible();
+        await expect(ruta.getByRole("button", { name: /proponer|publicar|subir|bajar/i })).toHaveCount(0);
+        await ruta.getByLabel("Técnico de la ruta").selectOption({ label: "Rosa Ajú" });
+        await expect(ruta.getByTestId("sin-ruta")).toBeVisible();
+        await expect(ruta.getByRole("button", { name: "Proponer ruta" })).toHaveCount(0);
     });
 });

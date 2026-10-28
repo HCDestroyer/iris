@@ -211,6 +211,7 @@ export function apiAgenda(ahora: number, ordenes: EscenarioOrdenes, empresa: num
                         zonaId: o.zonaId,
                         cuadrillaId: o.cuadrillaId,
                         direccion: o.direccion,
+                        enSitioEn: o.enSitioEn,
                         lat: o.lat,
                         lon: o.lon,
                         clienteId: o.clienteId,

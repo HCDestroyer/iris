@@ -1,10 +1,9 @@
-import type { Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
 import { ausenciasDelDia, citasDelDia, filasDeTecnicos, horarioDelDia, minutosEnFraccion, nombreDe, tramoEnHorario, type CitaAgenda, type Tecnico } from "./calendario";
 import { diaDesdeIso, esDia, etiquetaDia, horaDe, hoyGuatemala, inicioSemana, isoDesdeDia, minutosEnDia, rangoUtc, sumarDias, textoAntiguedad } from "./fechas";
 import { accionMover, arrastrePermitido, comprobarDestino, entradaAsignar, entradaProgramar, esquemaMover, movibleDeCita, sePuedeMover, valoresIniciales, type Asignable } from "./mover";
 import { antiguedadAhora, frescura, iniciales, textoPosicion } from "./posiciones";
-import { compararRutas, paradasReales, RUTAS_EN_CONTRATO, type ParadaPropuesta, type ParadaReal } from "./rutas";
+import { coordenadasDeGeometria, coordenadasReales, llegadasDeCitas, ordenTrasMover, presentacionDesvio, rutasDelDia, sePuedeReordenar, type ParadaRuta, type Ruta, type RutaDetalle } from "./rutas";
 
 const cita = (p: Partial<CitaAgenda>): CitaAgenda => ({
     ordenId: 3,
@@ -246,35 +245,87 @@ describe("posiciones en vivo", () => {
 });
 
 describe("ruta propuesta frente a la real", () => {
-    it("la API de rutas aún no está en el contrato", () => {
-        expect(RUTAS_EN_CONTRATO).toBe(false);
+    const parada = (p: Partial<ParadaRuta> & Pick<ParadaRuta, "posicion" | "ordenId">): ParadaRuta => ({
+        numero: `OT-${p.ordenId}`,
+        tipo: "visita",
+        estado: "programada",
+        oculta: false,
+        vigente: true,
+        direccion: "",
+        lat: null,
+        lon: null,
+        sinCoordenadas: false,
+        duracionMin: 60,
+        ventanaInicio: null,
+        ventanaFin: null,
+        citaInicio: null,
+        fija: false,
+        llegadaEstimada: null,
+        salidaEstimada: null,
+        viajeSeg: 0,
+        distanciaM: 0,
+        esperaSeg: 0,
+        retrasoSeg: 0,
+        fueraDeVentana: false,
+        enCaminoEn: null,
+        llegadaReal: null,
+        finalizadaEn: null,
+        desvioSeg: null,
+        ...p,
     });
 
-    const orden = (id: number, enSitioEn: string | null) => ({ id, numero: `OT-${id}`, enSitioEn, lat: 14.6, lon: -90.5 }) as unknown as Schema<"Orden">;
+    it("borrador y publicada del día", () => {
+        const r = (id: number, estado: Ruta["estado"]) => ({ id, estado }) as Ruta;
+        expect(rutasDelDia([r(1, "publicada"), r(2, "borrador")])).toEqual({ borrador: r(2, "borrador"), publicada: r(1, "publicada") });
+        expect(rutasDelDia([])).toEqual({ borrador: null, publicada: null });
+    });
 
-    it("paradas reales por hora de llegada", () => {
-        const reales = paradasReales([orden(5, "2026-10-28T19:10:00Z"), orden(3, null), orden(4, "2026-10-28T17:00:00Z")]);
-        expect(reales.map((r) => [r.ordenId, r.posicion])).toEqual([
-            [4, 1],
-            [5, 2],
+    it("desvío: a tiempo (±5 min), tarde o antes; sin dato, nada", () => {
+        expect(presentacionDesvio(null)).toBeNull();
+        expect(presentacionDesvio(300)?.texto).toBe("A tiempo");
+        expect(presentacionDesvio(-120)?.tono).toBe("success");
+        expect(presentacionDesvio(720)).toMatchObject({ tono: "warning", texto: "12 min tarde" });
+        expect(presentacionDesvio(-900)).toMatchObject({ tono: "info", texto: "15 min antes" });
+    });
+
+    it("reordenar: solo en borrador, sin ocultas, y sin mover ni saltar las fijas", () => {
+        const paradas = [parada({ posicion: 1, ordenId: 1, fija: true }), parada({ posicion: 2, ordenId: 2 }), parada({ posicion: 3, ordenId: 3 })];
+        expect(sePuedeReordenar({ estado: "borrador", paradas })).toBe(true);
+        expect(sePuedeReordenar({ estado: "publicada", paradas })).toBe(false);
+        expect(sePuedeReordenar({ estado: "borrador", paradas: [...paradas, parada({ posicion: 4, ordenId: 0, oculta: true })] })).toBe(false);
+        expect(ordenTrasMover(paradas, 1, 1)).toEqual([1, 3, 2]);
+        expect(ordenTrasMover(paradas, 2, -1)).toEqual([1, 3, 2]);
+        expect(ordenTrasMover(paradas, 1, -1)).toBeNull();
+        expect(ordenTrasMover(paradas, 2, 1)).toBeNull();
+    });
+
+    it("geometría solo si es un LineString válido; recorrido real solo si está disponible", () => {
+        expect(coordenadasDeGeometria(null)).toBeNull();
+        expect(coordenadasDeGeometria({ type: "Point", coordinates: [1, 2] })).toBeNull();
+        expect(coordenadasDeGeometria({ type: "LineString", coordinates: [[-90.5, 14.6], ["x", 1]] })).toBeNull();
+        expect(coordenadasDeGeometria({ type: "LineString", coordinates: [[-90.5, 14.6], [-90.4, 14.7]] })).toEqual([
+            [-90.5, 14.6],
+            [-90.4, 14.7],
+        ]);
+        const real = (p: Partial<RutaDetalle["real"]>): RutaDetalle["real"] => ({ disponible: true, motivo: null, puntos: [], totalPuntos: 0, distanciaM: 0, primeraEn: null, ultimaEn: null, ordenVisitado: [], ...p });
+        expect(coordenadasReales(real({ disponible: false, motivo: "sin_posiciones" }))).toBeNull();
+        expect(
+            coordenadasReales(
+                real({
+                    puntos: [
+                        { lat: 14.6, lon: -90.5, registradaEn: "x" },
+                        { lat: 14.7, lon: -90.4, registradaEn: "y" },
+                    ],
+                }),
+            ),
+        ).toEqual([
+            [-90.5, 14.6],
+            [-90.4, 14.7],
         ]);
     });
 
-    it("sin propuesta no se calcula desvío", () => {
-        const reales: ParadaReal[] = [{ ordenId: 4, numero: "OT-4", posicion: 1, llegadaEn: "x", lat: null, lon: null }];
-        expect(compararRutas(null, reales)).toEqual([{ ordenId: 4, numero: "OT-4", propuesta: null, real: 1, resultado: "sin_propuesta" }]);
-    });
-
-    it("compara parada por parada: en orden, antes, después, sin visitar y fuera de la propuesta", () => {
-        const p = (ordenId: number, posicion: number): ParadaPropuesta => ({ ordenId, numero: `OT-${ordenId}`, posicion, llegadaEstimada: null, lat: null, lon: null });
-        const r = (ordenId: number, posicion: number): ParadaReal => ({ ordenId, numero: `OT-${ordenId}`, posicion, llegadaEn: "x", lat: null, lon: null });
-        const filas = compararRutas([p(1, 1), p(2, 2), p(3, 3), p(4, 4)], [r(1, 1), r(9, 2), r(3, 3), r(2, 4)]);
-        expect(filas.map((f) => [f.ordenId, f.resultado])).toEqual([
-            [1, "en_orden"],
-            [2, "despues"],
-            [3, "antes"],
-            [4, "sin_visitar"],
-            [9, "fuera_de_propuesta"],
-        ]);
+    it("llegadas reales desde la agenda (enSitioEn), en orden", () => {
+        const citas = [cita({ ordenId: 5, enSitioEn: "2026-10-28T19:06:00Z" }), cita({ ordenId: 1, enSitioEn: "2026-10-28T14:30:00Z" }), cita({ ordenId: 3 }), cita({ ordenId: 9, tecnicoId: 11, enSitioEn: "2026-10-28T15:00:00Z" })];
+        expect(llegadasDeCitas(citas, 3).map((c) => c.ordenId)).toEqual([1, 5]);
     });
 });

@@ -57,7 +57,8 @@ const HORA_POR_DEFECTO = 8 * 60;
 
 function textoCita(c: CitaAgenda): string {
     const ventana = c.ventanaInicio && c.ventanaFin ? ` · ventana ${horaDe(c.ventanaInicio)}–${horaDe(c.ventanaFin)}` : "";
-    return `${c.numero} · ${TIPOS_ORDEN[c.tipo].texto} · ${horaDe(c.inicio)}–${horaDe(c.fin)} · ${ESTADOS_ORDEN[c.estado].texto}${ventana}`;
+    const llego = c.enSitioEn ? ` · llegó ${horaDe(c.enSitioEn)}` : "";
+    return `${c.numero} · ${TIPOS_ORDEN[c.tipo].texto} · ${horaDe(c.inicio)}–${horaDe(c.fin)} · ${ESTADOS_ORDEN[c.estado].texto}${ventana}${llego}`;
 }
 
 /** Hace arrastrable un elemento que representa una orden. */
@@ -406,6 +407,7 @@ function ListaTelefono({ dias, comun }: { dias: Dia[]; comun: Comun }) {
                                                 <span className="w-full min-w-0 truncate text-xs text-muted-foreground">
                                                     {TIPOS_ORDEN[c.tipo].texto} · {c.direccion || "Sin dirección"}
                                                     {c.ventanaInicio && c.ventanaFin ? ` · ventana ${horaDe(c.ventanaInicio)}–${horaDe(c.ventanaFin)}` : ""}
+                                                    {c.enSitioEn ? ` · llegó ${horaDe(c.enSitioEn)}` : ""}
                                                 </span>
                                                 {sePuedeMover(c.estado, puede) ? (
                                                     <Boton variante="secundario" tamano="sm" className="ml-auto" aria-label={`Mover a… ${c.numero}`} onClick={() => comun.alMover(movibleDeCita(c))}>

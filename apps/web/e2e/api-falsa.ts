@@ -2,6 +2,7 @@ import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiOrdenes } from "./api-ordenes";
+import { apiRutas, type ApiRutas } from "./api-rutas";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
 import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
@@ -89,6 +90,9 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "agenda.ver",
     "campo.ver_posiciones",
     "integraciones.reintentar",
+    "rutas.proponer",
+    "rutas.publicar",
+    "rutas.ver",
     "integraciones.ver_pendientes",
     ...PERMISOS_ORDENES,
     "clientes.estado_cuenta",
@@ -112,10 +116,10 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
@@ -181,6 +185,8 @@ export type ApiFalsa = {
     cambiarVersionPendiente: (pendienteId: number) => void;
     /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
     agenda: ApiAgenda["escenario"];
+    /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
+    rutas: ApiRutas["rutas"];
 };
 
 const OPERATIVAS = [
@@ -195,6 +201,7 @@ const OPERATIVAS = [
     "/api/v1/agenda",
     "/api/v1/tecnicos",
     "/api/v1/campo/posiciones",
+    "/api/v1/rutas",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -238,6 +245,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     );
     const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     enlace.agenda = agenda;
+    const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -529,6 +537,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
             return;
         }
+        if (await rutas.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
+            return;
+        }
 
         if (
             await ordenes.manejar({
@@ -663,6 +674,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
+        rutas: rutas.rutas,
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

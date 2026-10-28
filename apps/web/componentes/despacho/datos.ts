@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import type { ErrorApi } from "@/lib/api/errores";
 import type { Calendario, Cuadrilla, Tecnico, Zona } from "@/lib/despacho/calendario";
@@ -144,23 +144,4 @@ export function useAhora(ms: number): number {
         return () => clearInterval(t);
     }, [ms]);
     return ahora;
-}
-
-/** Órdenes del técnico programadas en el día (para la ruta real: llegadas `enSitioEn`); relee al cambiar de técnico. */
-export function useOrdenesDelTecnico(tecnicoId: number | null, dia: Dia) {
-    const { puede } = useSesion();
-    const permitido = puede(["ordenes.ver"]);
-    const lectura = useLectura<Orden[] | null>(async (signal) => {
-        if (tecnicoId === null || !permitido) return null;
-        const p = await resolver(api().GET("/api/v1/ordenes", { params: { query: { tecnicoId, ...rangoUtc(dia, 1), limit: 100 } }, signal }));
-        return p.data ?? [];
-    });
-    const { reintentar } = lectura;
-    const anterior = useRef(tecnicoId);
-    useEffect(() => {
-        if (anterior.current === tecnicoId) return;
-        anterior.current = tecnicoId;
-        reintentar();
-    }, [tecnicoId, reintentar]);
-    return lectura;
 }

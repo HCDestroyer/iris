@@ -109,6 +109,20 @@ function prepararOrdenes(ordenes: EscenarioOrdenes, empresa: number | null, t: (
             version: 2,
         };
         ordenes.ordenes.push(nueva);
+        // Segunda cita de Jorge (temprano), para poder reordenar su ruta.
+        ordenes.ordenes.push({
+            ...nueva,
+            id: 41,
+            numero: "OT-000041",
+            tipo: "mantenimiento",
+            tipoId: 5,
+            direccion: "6a avenida 8-12, zona 9",
+            lat: 14.6052,
+            lon: -90.5203,
+            programadaInicio: t(8),
+            programadaFin: t(9),
+            version: 1,
+        });
     }
 }
 
