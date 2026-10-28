@@ -584,7 +584,7 @@ export interface paths {
         put?: never;
         /**
          * Entrar al portal con el ticket de acceso
-         * @description Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), el resto de ese minuto responde 429 `demasiados_intentos` con `Retry-After`.
+         * @description Canjea el ticket de `/soporte/entrar#<ticket>` (60 s, un solo uso; 401 `ticket_invalido`) y abre la sesión del cliente: cookie `iris_portal` (HttpOnly, SameSite=Lax) e `iris_portal_csrf` (para `X-CSRF-Token`), de 2 h. La cookie solo vale en `/api/v1/portal/…`, donde a su vez la sesión del panel no cuenta. Sin límite por IP; freno global de abuso: pasados 1000 canjes fallidos en un minuto (de todos), los fallidos de ese minuto responden 429 `demasiados_intentos` con `Retry-After`; un ticket válido entra siempre.
          */
         post: operations["entrarPortal"];
         /**
@@ -608,7 +608,7 @@ export interface paths {
         put?: never;
         /**
          * Emitir un acceso al portal de soporte para un cliente de Argos
-         * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente y es de otra empresa, 422 `empresa_no_coincide`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["emitirAccesoPortal"];
         delete?: never;

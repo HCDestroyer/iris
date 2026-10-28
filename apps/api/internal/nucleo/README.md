@@ -14,7 +14,7 @@ cursor, `version` → 409, `Idempotency-Key`, cifrado de secretos y el catálogo
   soporte** (`portal.go`): Argos emite un acceso de un solo uso (`POST /portal/tickets-acceso`,
   permiso `portal.emitir`, 60 s), el canje (`POST /portal/sesion`) abre una sesión de actor
   cliente (cookie `iris_portal` + CSRF `iris_portal_csrf`, 2 h, solo válida en `/api/v1/portal/…`;
-  sin límite por IP; freno global de 1000 canjes fallidos por minuto → 429), `GET`/`DELETE
+  sin límite por IP; freno global: pasados 1000 canjes fallidos por minuto los fallidos dan 429; un ticket válido entra siempre), `GET`/`DELETE
   /portal/sesion`. Consola: `iris portal acceso --cliente <id> --empresa <id>`. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y
   `iris integracion crear --sistema argosisp|horus --empresa …` (usuario + token).
