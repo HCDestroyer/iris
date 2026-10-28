@@ -1,0 +1,68 @@
+/*
+ * Identidad Horus para Tailwind 4. La app la importa después de `tailwindcss`:
+ *
+ *   @import "tailwindcss";
+ *   @import "@iris/ui/estilos.css";
+ *   @source "<ruta a>/packages/ui/src";
+ *
+ * horus-tokens.css es copia exacta de docs/marca/horus-tokens.css (una prueba lo verifica).
+ * Aquí solo se exponen esos tokens como utilidades de Tailwind (bg-primary, text-muted-foreground…).
+ * Nunca colores crudos en componentes: solo estos nombres semánticos.
+ */
+@import "./horus-tokens.css";
+
+/* Tema oscuro por clase en <html> (next-themes) o data-theme, como los tokens. */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+    --font-sans: var(--hx-font-sans);
+    --font-mono: var(--hx-font-mono);
+
+    --color-background: var(--hx-bg);
+    --color-foreground: var(--hx-text);
+    --color-muted: var(--hx-bg-muted);
+    --color-muted-foreground: var(--hx-text-muted);
+    --color-dimmed: var(--hx-text-dimmed);
+    --color-elevated: var(--hx-bg-elevated);
+    --color-card: var(--hx-card);
+    --color-card-foreground: var(--hx-text);
+    --color-border: var(--hx-border);
+    --color-input: var(--hx-border);
+    --color-ring: var(--hx-primary);
+
+    --color-primary: var(--hx-primary);
+    --color-primary-hover: var(--hx-primary-hover);
+    --color-primary-foreground: var(--hx-on-primary);
+    --color-secondary: var(--hx-secondary);
+
+    --color-success: var(--hx-success);
+    --color-info: var(--hx-info);
+    --color-warning: var(--hx-warning);
+    --color-error: var(--hx-error);
+
+    --radius-sm: calc(var(--hx-radius) * 0.75);
+    --radius-md: var(--hx-radius);
+    --radius-lg: calc(var(--hx-radius) * 1.5);
+    --radius-card: var(--hx-radius-card);
+
+    --shadow-glow: 0 0 18px var(--hx-glow-brand);
+    --shadow-glow-fuerte: 0 0 26px var(--hx-glow-brand);
+}
+
+@layer base {
+    *,
+    ::before,
+    ::after {
+        border-color: var(--hx-border);
+    }
+
+    body {
+        min-height: 100dvh;
+    }
+
+    /* El contenido se pinta sobre el aura (z-index 0). */
+    .app-aura ~ * {
+        position: relative;
+        z-index: 1;
+    }
+}
