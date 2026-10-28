@@ -67,11 +67,11 @@ SELECT * FROM integracion.argos_servicios WHERE id = ANY(@ids::bigint[]);
 INSERT INTO campo.ordenes (
     empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id,
     cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion,
-    creado_por, idempotencia
+    creado_por, idempotencia, origen
 ) VALUES (
     @empresa_id, @tipo_id, @plantilla_id, @ticket_id, @prospecto_id, @cliente_id, @servicio_id, @zona_id,
     @cuadrilla_id, @bodega_id, @direccion, @lat, @lon, @contacto_nombre, @contacto_telefono, @descripcion,
-    @creado_por, sqlc.narg(idempotencia)
+    @creado_por, sqlc.narg(idempotencia), @origen
 )
 RETURNING *;
 
@@ -305,3 +305,106 @@ SELECT * FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id AND id > @despu
 -- name: TuvoOrden :one
 -- La orden estuvo asignada al técnico (para distinguir «reasignada» de «no existe»).
 SELECT EXISTS (SELECT 1 FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id AND orden_id = @orden_id);
+
+-- Agenda (lectura de agenda.*) ------------------------------------------------------
+
+-- name: BodegaDeTecnico :one
+-- La bodega de Argos de la ficha de agenda del técnico (usuario).
+SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
+
+-- name: CitasDeOrdenes :many
+SELECT * FROM agenda.citas WHERE orden_id = ANY(@ordenes::bigint[]);
+
+-- Retiro automático (argos.servicio_retirado) ----------------------------------------
+
+-- name: CandadoRetiroServicio :exec
+SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.retiro:', @servicio_id::bigint), 0));
+
+-- name: RetiroAbiertoDeServicio :one
+-- Una orden de retiro del servicio que no terminó (una fallida también cuenta: se reprograma).
+SELECT o.id FROM campo.ordenes o
+JOIN campo.tipos_orden tp ON tp.id = o.tipo_id
+WHERE o.servicio_id = @servicio_id AND tp.codigo = 'retiro'
+  AND o.estado NOT IN ('cerrada', 'cancelada')
+  AND (sqlc.narg(empresa_id)::bigint IS NULL AND o.empresa_id IS NULL OR o.empresa_id = sqlc.narg(empresa_id))
+ORDER BY o.id
+LIMIT 1;
+
+-- Posiciones en vivo ------------------------------------------------------------------
+
+-- name: AsegurarParticionPosiciones :exec
+SELECT campo.asegurar_particion_posiciones(@fecha::timestamptz);
+
+-- name: ContarLotePosiciones :one
+-- Ventana fija de un minuto por técnico: devuelve los lotes de la ventana contando este.
+INSERT INTO campo.posiciones_limite AS l (tecnico_id, ventana_inicio, lotes)
+VALUES (@tecnico_id, @ahora, 1)
+ON CONFLICT (tecnico_id) DO UPDATE SET
+    lotes = (CASE WHEN l.ventana_inicio <= EXCLUDED.ventana_inicio - interval '1 minute' THEN 1 ELSE l.lotes + 1 END),
+    ventana_inicio = (CASE WHEN l.ventana_inicio <= EXCLUDED.ventana_inicio - interval '1 minute'
+                           THEN EXCLUDED.ventana_inicio ELSE l.ventana_inicio END),
+    updated_at = now()
+RETURNING lotes, ventana_inicio;
+
+-- name: InsertarPosiciones :execrows
+-- Un punto por técnico y hora (reenviar un lote no duplica).
+INSERT INTO campo.posiciones (tecnico_id, empresa_id, lat, lon, precision_m, velocidad, rumbo, dispositivo_id, registrada_en)
+SELECT @tecnico_id, sqlc.narg(empresa_id)::bigint, p.lat, p.lon, p.precision_m, p.velocidad, p.rumbo, sqlc.narg(dispositivo_id)::text, p.registrada_en
+FROM jsonb_to_recordset(@puntos::jsonb)
+     AS p (lat double precision, lon double precision, precision_m double precision, velocidad double precision,
+           rumbo double precision, registrada_en timestamptz)
+ON CONFLICT (tecnico_id, registrada_en) DO NOTHING;
+
+-- name: GuardarUltimaPosicion :exec
+-- La más reciente por técnico y empresa (solo si es más nueva que la guardada).
+INSERT INTO campo.posiciones_ultimas (tecnico_id, empresa_id, lat, lon, precision_m, velocidad, rumbo, dispositivo_id, registrada_en, recibida_en)
+VALUES (@tecnico_id, sqlc.narg(empresa_id), @lat, @lon, sqlc.narg(precision_m), sqlc.narg(velocidad), sqlc.narg(rumbo), sqlc.narg(dispositivo_id), @registrada_en, @recibida_en)
+ON CONFLICT (tecnico_id, empresa_id) DO UPDATE SET
+    lat = EXCLUDED.lat, lon = EXCLUDED.lon, precision_m = EXCLUDED.precision_m, velocidad = EXCLUDED.velocidad,
+    rumbo = EXCLUDED.rumbo, dispositivo_id = EXCLUDED.dispositivo_id, registrada_en = EXCLUDED.registrada_en,
+    recibida_en = EXCLUDED.recibida_en, updated_at = now()
+WHERE campo.posiciones_ultimas.registrada_en < EXCLUDED.registrada_en;
+
+-- name: UltimasPosiciones :many
+-- Última posición de cada técnico en la empresa, según el alcance del actor (cuadrilla del
+-- técnico o las zonas que atiende su cuadrilla, de la empresa activa; una cuadrilla sin zonas no
+-- la ve quien tiene alcance por zona).
+SELECT p.*, u.nombre, t.id AS ficha_id, t.cuadrilla_id
+FROM campo.posiciones_ultimas p
+JOIN nucleo.usuarios u ON u.id = p.tecnico_id
+LEFT JOIN agenda.tecnicos t ON t.usuario_id = p.tecnico_id
+WHERE (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND p.empresa_id IS NULL)
+       OR p.empresa_id = sqlc.narg(empresa_id))
+  AND p.registrada_en >= @desde
+  AND (sqlc.narg(tecnico_id)::bigint IS NULL OR p.tecnico_id = sqlc.narg(tecnico_id))
+  AND (sqlc.narg(cuadrilla_id)::bigint IS NULL OR t.cuadrilla_id = sqlc.narg(cuadrilla_id))
+  AND (sqlc.narg(zona_id)::bigint IS NULL
+       OR (t.cuadrilla_id IS NOT NULL
+           AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
+                OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = sqlc.narg(zona_id)))))
+  AND (@alcance_global::boolean
+       OR EXISTS (SELECT 1 FROM agenda.cuadrillas c
+                  WHERE c.id = t.cuadrilla_id
+                    AND (c.empresa_id = sqlc.narg(empresa_id) OR (c.empresa_id IS NULL AND @cuadrilla_comun::boolean))
+                    AND (c.id = ANY(@cuadrillas::bigint[])
+                         OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                                    WHERE cz.cuadrilla_id = c.id AND cz.zona_id = ANY(@zonas::bigint[])))))
+ORDER BY u.nombre, p.tecnico_id
+LIMIT 1000;
+
+-- name: PurgarPosiciones :one
+SELECT campo.purgar_posiciones(@limite::timestamptz)::integer;
+
+-- name: PurgarUltimasPosiciones :execrows
+DELETE FROM campo.posiciones_ultimas WHERE registrada_en < @limite;
+
+-- name: CandadoPosicionesTecnico :exec
+-- Serializa los lotes de un técnico (el intervalo mínimo se mide contra lo ya guardado).
+SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.posiciones:', @tecnico_id::bigint), 0));
+
+-- name: PosicionesCercanas :many
+-- Horas de las posiciones guardadas del técnico en [desde, hasta], en orden.
+SELECT registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en BETWEEN @desde AND @hasta
+ORDER BY registrada_en;

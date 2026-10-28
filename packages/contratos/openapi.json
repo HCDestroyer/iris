@@ -196,6 +196,124 @@
         ],
         "type": "object"
       },
+      "Asignable": {
+        "additionalProperties": false,
+        "properties": {
+          "ausencias": {
+            "items": {
+              "$ref": "#/components/schemas/Franja"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "capacidad": {
+            "items": {
+              "$ref": "#/components/schemas/UsoCapacidad"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "disponible": {
+            "description": "Tiene turno, no está ausente todo el día, le queda capacidad y un hueco del largo del tipo",
+            "type": "boolean"
+          },
+          "habilidades": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "libres": {
+            "description": "Huecos dentro del turno sin citas vivas ni ausencias",
+            "items": {
+              "$ref": "#/components/schemas/Franja"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minutosLibres": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "motivo": {
+            "description": "Por qué no está disponible",
+            "enum": [
+              "sin_turno",
+              "ausente",
+              "capacidad_completa",
+              "sin_espacio"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "ocupado": {
+            "description": "Citas del día (también las cerradas, que cuentan para la capacidad)",
+            "items": {
+              "$ref": "#/components/schemas/Ocupacion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Ficha de agenda",
+            "format": "int64",
+            "type": "integer"
+          },
+          "turnos": {
+            "items": {
+              "$ref": "#/components/schemas/Franja"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "usuarioId": {
+            "description": "Usuario: es el tecnicoId de POST /ordenes/{id}/programar",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tecnicoId",
+          "usuarioId",
+          "nombre",
+          "cuadrillaId",
+          "habilidades",
+          "disponible",
+          "motivo",
+          "turnos",
+          "ausencias",
+          "ocupado",
+          "libres",
+          "minutosLibres",
+          "capacidad"
+        ],
+        "type": "object"
+      },
       "AsignacionRol": {
         "additionalProperties": false,
         "properties": {
@@ -220,6 +338,106 @@
         },
         "required": [
           "rol"
+        ],
+        "type": "object"
+      },
+      "Ausencia": {
+        "additionalProperties": false,
+        "properties": {
+          "anuladaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detalle": {
+            "type": "string"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "enum": [
+              "vacaciones",
+              "enfermedad",
+              "capacitacion",
+              "permiso",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Ficha",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tecnicoId",
+          "inicio",
+          "fin",
+          "motivo",
+          "detalle",
+          "anuladaEn",
+          "version",
+          "creadoEn"
+        ],
+        "type": "object"
+      },
+      "AusenciaAgenda": {
+        "additionalProperties": false,
+        "properties": {
+          "fichaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "type": "string"
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tecnicoId",
+          "fichaId",
+          "inicio",
+          "fin",
+          "motivo"
         ],
         "type": "object"
       },
@@ -325,6 +543,44 @@
         ],
         "type": "object"
       },
+      "Calendario": {
+        "additionalProperties": false,
+        "properties": {
+          "ausencias": {
+            "items": {
+              "$ref": "#/components/schemas/AusenciaAgenda"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "citas": {
+            "items": {
+              "$ref": "#/components/schemas/CitaAgenda"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "desde": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hasta": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "desde",
+          "hasta",
+          "citas",
+          "ausencias"
+        ],
+        "type": "object"
+      },
       "CambioOrden": {
         "additionalProperties": false,
         "properties": {
@@ -379,6 +635,51 @@
           "cambios",
           "cursor",
           "hayMas"
+        ],
+        "type": "object"
+      },
+      "Capacidad": {
+        "additionalProperties": false,
+        "properties": {
+          "cupos": {
+            "description": "Citas por día; null = sin límite de cupos",
+            "format": "int32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minutos": {
+            "description": "Minutos programados por día; null = sin límite de minutos",
+            "format": "int32",
+            "maximum": 10080,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tipo": {
+            "description": "Tipo de orden; null = todos los tipos",
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tipo",
+          "cupos",
+          "minutos"
         ],
         "type": "object"
       },
@@ -444,6 +745,207 @@
           "id",
           "codigo",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "CitaAgenda": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cuadrillaId": {
+            "description": "Cuadrilla de la orden",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "direccion": {
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "programada",
+              "en_camino",
+              "en_sitio",
+              "cerrada",
+              "fallida",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "numero": {
+            "type": "string"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ordenVersion": {
+            "description": "Versión de la orden (para reprogramar)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "servicioId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "instalacion",
+              "visita",
+              "retiro",
+              "cambio_equipo",
+              "mantenimiento"
+            ],
+            "type": "string"
+          },
+          "ventanaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ventanaInicio": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ordenId",
+          "numero",
+          "tipo",
+          "estado",
+          "ordenVersion",
+          "tecnicoId",
+          "inicio",
+          "fin",
+          "ventanaInicio",
+          "ventanaFin",
+          "zonaId",
+          "cuadrillaId",
+          "direccion",
+          "lat",
+          "lon",
+          "clienteId",
+          "servicioId"
+        ],
+        "type": "object"
+      },
+      "CitaEnConflicto": {
+        "additionalProperties": false,
+        "properties": {
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "numero": {
+            "description": "Vacío si la orden es de otra empresa",
+            "type": "string"
+          },
+          "ordenId": {
+            "description": "0 si la orden es de otra empresa (solo el horario)",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordenId",
+          "numero",
+          "inicio",
+          "fin"
+        ],
+        "type": "object"
+      },
+      "CitaOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tecnicoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ventanaFin": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ventanaInicio": {
+            "description": "Ventana de llegada acordada con el cliente",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tecnicoId",
+          "inicio",
+          "fin",
+          "ventanaInicio",
+          "ventanaFin"
         ],
         "type": "object"
       },
@@ -823,6 +1325,73 @@
         ],
         "type": "object"
       },
+      "Cuadrilla": {
+        "additionalProperties": false,
+        "properties": {
+          "activa": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "capacidad": {
+            "description": "Capacidad diaria de la cuadrilla (suma de sus técnicos)",
+            "items": {
+              "$ref": "#/components/schemas/Capacidad"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "zonaIds": {
+            "description": "Zonas que atiende; vacío = todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "nombre",
+          "activa",
+          "zonaIds",
+          "capacidad",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "CuerpoWebhook": {
         "additionalProperties": false,
         "properties": {
@@ -1035,17 +1604,36 @@
         ],
         "type": "object"
       },
+      "EntradaAnularAusencia": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída de la ausencia; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaAsignarOrden": {
         "additionalProperties": false,
         "properties": {
           "bodegaId": {
-            "description": "Bodega del técnico en Argos (hasta que agenda la tenga); ausente = se conserva",
+            "description": "Bodega del técnico en Argos; ausente = se conserva",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
           },
           "cuadrillaId": {
-            "description": "Cuadrilla; ausente = ninguna",
+            "description": "Cuadrilla (catálogo de agenda: activa y de la empresa de la orden); ausente = ninguna",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -1072,7 +1660,7 @@
         "additionalProperties": false,
         "properties": {
           "cuadrillaId": {
-            "description": "Cuadrilla; ausente = ninguna",
+            "description": "Cuadrilla (catálogo de agenda: activa y de la empresa del ticket); ausente = ninguna",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -1386,6 +1974,32 @@
         ],
         "type": "object"
       },
+      "EntradaCrearCuadrilla": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "zonaIds": {
+            "description": "Zonas que atiende (vacío = todas)",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "type": "object"
+      },
       "EntradaCrearEmpresa": {
         "additionalProperties": false,
         "properties": {
@@ -1505,6 +2119,55 @@
         },
         "required": [
           "tipo"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "baseLat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "baseLon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "habilidades": {
+            "description": "Códigos libres (fibra, inalambrico, altura…)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "usuarioId": {
+            "description": "Usuario persona con ordenes.ver_propias u ordenes.ver",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "usuarioId"
         ],
         "type": "object"
       },
@@ -1712,6 +2375,25 @@
         ],
         "type": "object"
       },
+      "EntradaCrearZona": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "poligono": {
+            "additionalProperties": {},
+            "description": "GeoJSON Polygon o MultiPolygon ([lon, lat]), hasta 5000 vértices",
+            "type": "object"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "type": "object"
+      },
       "EntradaDesactivarUsuario": {
         "additionalProperties": false,
         "properties": {
@@ -1787,6 +2469,40 @@
         ],
         "type": "object"
       },
+      "EntradaEditarCuadrilla": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "zonaIds": {
+            "description": "Zonas que atiende (vacío = todas); reemplaza las anteriores",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "nombre",
+          "zonaIds"
+        ],
+        "type": "object"
+      },
       "EntradaEditarEmpresa": {
         "additionalProperties": false,
         "properties": {
@@ -1808,6 +2524,53 @@
         },
         "required": [
           "nombre",
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaEditarTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "baseLat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "baseLon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "bodegaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "habilidades": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
           "version"
         ],
         "type": "object"
@@ -1836,6 +2599,36 @@
             },
             "maxItems": 50,
             "type": "array"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaEditarZona": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "description": "No se edita en las zonas de Argos (vienen de su catálogo)",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "poligono": {
+            "additionalProperties": {},
+            "description": "GeoJSON Polygon o MultiPolygon; ausente = se conserva",
+            "type": "object"
+          },
+          "quitarPoligono": {
+            "description": "Borra el polígono",
+            "type": "boolean"
           },
           "version": {
             "description": "Versión leída; si cambió, 409",
@@ -2021,6 +2814,60 @@
         "required": [
           "version",
           "motivoFalla"
+        ],
+        "type": "object"
+      },
+      "EntradaFijarCapacidad": {
+        "additionalProperties": false,
+        "properties": {
+          "capacidad": {
+            "description": "Una línea por tipo (o null = todos); vacío = sin límite",
+            "items": {
+              "$ref": "#/components/schemas/Capacidad"
+            },
+            "maxItems": 6,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Versión leída de la ficha o la cuadrilla; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "capacidad"
+        ],
+        "type": "object"
+      },
+      "EntradaFijarTurnos": {
+        "additionalProperties": false,
+        "properties": {
+          "turnos": {
+            "description": "Vacío = sin turnos (no se le puede programar)",
+            "items": {
+              "$ref": "#/components/schemas/Turno"
+            },
+            "maxItems": 28,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Versión leída de la ficha; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "turnos"
         ],
         "type": "object"
       },
@@ -2284,11 +3131,40 @@
         ],
         "type": "object"
       },
+      "EntradaPosiciones": {
+        "additionalProperties": false,
+        "properties": {
+          "dispositivoId": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "enviadoEn": {
+            "description": "Hora del teléfono al enviar (mismo reloj que registradaEn): corrige el desfase",
+            "format": "date-time",
+            "type": "string"
+          },
+          "puntos": {
+            "items": {
+              "$ref": "#/components/schemas/PuntoPosicion"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "puntos"
+        ],
+        "type": "object"
+      },
       "EntradaProgramarOrden": {
         "additionalProperties": false,
         "properties": {
           "bodegaId": {
-            "description": "Bodega del técnico en Argos; ausente = se conserva",
+            "description": "Bodega del técnico en Argos; ausente = la de su ficha de agenda o se conserva",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -2309,10 +3185,20 @@
             "type": "string"
           },
           "tecnicoId": {
-            "description": "Técnico; obligatorio si la orden no tiene. Otro distinto la reasigna",
+            "description": "Técnico (usuario); obligatorio si la orden no tiene. Otro distinto la reasigna",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
+          },
+          "ventanaFin": {
+            "description": "Fin de la ventana (hasta 24 h después de su inicio)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "ventanaInicio": {
+            "description": "Ventana de llegada acordada con el cliente (va con ventanaFin); el inicio debe caer dentro. Al reprogramar sin ventana se conserva la anterior si el nuevo inicio cae en ella",
+            "format": "date-time",
+            "type": "string"
           },
           "version": {
             "description": "Versión leída; si cambió, 409",
@@ -2479,6 +3365,41 @@
         "required": [
           "adjuntoId",
           "tipo"
+        ],
+        "type": "object"
+      },
+      "EntradaRegistrarAusencia": {
+        "additionalProperties": false,
+        "properties": {
+          "detalle": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "fin": {
+            "description": "Posterior al inicio; hasta 366 días",
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "description": "UTC (RFC 3339)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "motivo": {
+            "enum": [
+              "vacaciones",
+              "enfermedad",
+              "capacitacion",
+              "permiso",
+              "otro"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "inicio",
+          "fin",
+          "motivo"
         ],
         "type": "object"
       },
@@ -2681,6 +3602,25 @@
         },
         "required": [
           "codigo"
+        ],
+        "type": "object"
+      },
+      "EntradaVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -3020,6 +3960,7 @@
             "type": "integer"
           },
           "tipo": {
+            "description": "aviso_incidente: Iris avisó al cliente de este ticket hijo sobre su incidente de red (motivo: «Incidente TK-… resuelto|reabierto»)",
             "enum": [
               "creado",
               "estado",
@@ -3027,7 +3968,8 @@
               "escalado",
               "fusionado",
               "sla_en_riesgo",
-              "sla_vencido"
+              "sla_vencido",
+              "aviso_incidente"
             ],
             "type": "string"
           }
@@ -3206,6 +4148,24 @@
           "documento",
           "adjuntoId",
           "ocurridoEn"
+        ],
+        "type": "object"
+      },
+      "Franja": {
+        "additionalProperties": false,
+        "properties": {
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inicio",
+          "fin"
         ],
         "type": "object"
       },
@@ -3676,6 +4636,40 @@
         ],
         "type": "object"
       },
+      "Ocupacion": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "description": "Estado de la orden; «ocupado» si es de otra empresa",
+            "type": "string"
+          },
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "numero": {
+            "description": "Vacío si la orden es de otra empresa",
+            "type": "string"
+          },
+          "ordenId": {
+            "description": "0 si la orden es de otra empresa",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordenId",
+          "numero",
+          "estado",
+          "inicio",
+          "fin"
+        ],
+        "type": "object"
+      },
       "OperacionLote": {
         "additionalProperties": false,
         "properties": {
@@ -3864,6 +4858,16 @@
             "description": "Número legible (OT-000123)",
             "type": "string"
           },
+          "origen": {
+            "description": "De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema",
+            "enum": [
+              "panel",
+              "api",
+              "argos",
+              "sistema"
+            ],
+            "type": "string"
+          },
           "plantillaId": {
             "description": "Plantilla de checklist",
             "format": "int64",
@@ -4041,6 +5045,10 @@
               "null"
             ]
           },
+          "cita": {
+            "$ref": "#/components/schemas/CitaOrden",
+            "description": "Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"
+          },
           "cliente": {
             "$ref": "#/components/schemas/ClienteCampo",
             "description": "Instantánea de Argos; ausente si Iris no la tiene"
@@ -4183,6 +5191,16 @@
           },
           "numero": {
             "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "origen": {
+            "description": "De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema",
+            "enum": [
+              "panel",
+              "api",
+              "argos",
+              "sistema"
+            ],
             "type": "string"
           },
           "plantillaId": {
@@ -4376,6 +5394,10 @@
               "null"
             ]
           },
+          "cita": {
+            "$ref": "#/components/schemas/CitaOrden",
+            "description": "Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"
+          },
           "clienteId": {
             "description": "Cliente en Argos",
             "format": "int64",
@@ -4511,6 +5533,16 @@
           },
           "numero": {
             "description": "Número legible (OT-000123)",
+            "type": "string"
+          },
+          "origen": {
+            "description": "De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema",
+            "enum": [
+              "panel",
+              "api",
+              "argos",
+              "sistema"
+            ],
             "type": "string"
           },
           "plantillaId": {
@@ -4761,6 +5793,32 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/Conector"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaCuadrilla": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Cuadrilla"
             },
             "type": [
               "array",
@@ -5041,6 +6099,32 @@
         ],
         "type": "object"
       },
+      "PaginaTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Tecnico"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaTicket": {
         "additionalProperties": false,
         "properties": {
@@ -5171,6 +6255,32 @@
         ],
         "type": "object"
       },
+      "PaginaZona": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Zona"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "Paquete": {
         "additionalProperties": false,
         "properties": {
@@ -5197,7 +6307,7 @@
           },
           "ruta": {
             "$ref": "#/components/schemas/RutaCampo",
-            "description": "Ruta publicada (fase 3: hoy siempre ausente)"
+            "description": "Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas)"
           },
           "servidorEn": {
             "description": "Hora del servidor al armar el paquete",
@@ -5377,12 +6487,31 @@
         "enum": [
           "adjuntos.subir",
           "adjuntos.ver",
+          "agenda.activar_cuadrilla",
+          "agenda.activar_tecnico",
+          "agenda.activar_zona",
+          "agenda.anular_ausencia",
+          "agenda.crear_cuadrilla",
+          "agenda.crear_tecnico",
+          "agenda.crear_zona",
+          "agenda.desactivar_cuadrilla",
+          "agenda.desactivar_tecnico",
+          "agenda.desactivar_zona",
+          "agenda.editar_cuadrilla",
+          "agenda.editar_tecnico",
+          "agenda.editar_zona",
+          "agenda.fijar_capacidad",
+          "agenda.fijar_turnos",
+          "agenda.registrar_ausencia",
+          "agenda.ver",
           "buzones.activar",
           "buzones.crear",
           "buzones.desactivar",
           "buzones.editar",
           "buzones.ver",
+          "campo.registrar_posiciones",
           "campo.sincronizar",
+          "campo.ver_posiciones",
           "clientes.estado_cuenta",
           "clientes.ver",
           "empresas.adoptar",
@@ -5489,6 +6618,93 @@
         ],
         "type": "object"
       },
+      "PosicionTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "antiguedadSeg": {
+            "description": "Segundos desde registradaEn",
+            "format": "int64",
+            "type": "integer"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fichaId": {
+            "description": "Ficha de agenda",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lat": {
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "precision": {
+            "description": "Metros",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "recibidaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registradaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rumbo": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tecnicoId": {
+            "description": "Usuario técnico",
+            "format": "int64",
+            "type": "integer"
+          },
+          "velocidad": {
+            "description": "m/s",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tecnicoId",
+          "fichaId",
+          "nombre",
+          "cuadrillaId",
+          "lat",
+          "lon",
+          "precision",
+          "velocidad",
+          "rumbo",
+          "registradaEn",
+          "recibidaEn",
+          "antiguedadSeg"
+        ],
+        "type": "object"
+      },
       "Problema": {
         "additionalProperties": false,
         "properties": {
@@ -5592,6 +6808,55 @@
         ],
         "type": "object"
       },
+      "PuntoPosicion": {
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "precision": {
+            "description": "Metros",
+            "format": "double",
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "registradaEn": {
+            "description": "Hora del punto (reloj del teléfono; se corrige con enviadoEn)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "rumbo": {
+            "description": "Grados",
+            "format": "double",
+            "maximum": 360,
+            "minimum": 0,
+            "type": "number"
+          },
+          "velocidad": {
+            "description": "m/s",
+            "format": "double",
+            "maximum": 150,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "registradaEn"
+        ],
+        "type": "object"
+      },
       "RelojSLA": {
         "additionalProperties": false,
         "properties": {
@@ -5649,6 +6914,64 @@
         ],
         "type": "object"
       },
+      "RespuestaAsignables": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Asignable"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "duracionMin": {
+            "description": "Duración del tipo (0 sin tipo)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "fecha": {
+            "type": "string"
+          },
+          "tipo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "fecha",
+          "tipo",
+          "duracionMin",
+          "data"
+        ],
+        "type": "object"
+      },
+      "RespuestaAusencia": {
+        "additionalProperties": false,
+        "properties": {
+          "ausencia": {
+            "$ref": "#/components/schemas/Ausencia"
+          },
+          "citasEnConflicto": {
+            "description": "Citas vivas del técnico dentro de la ausencia: reprográmalas",
+            "items": {
+              "$ref": "#/components/schemas/CitaEnConflicto"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ausencia",
+          "citasEnConflicto"
+        ],
+        "type": "object"
+      },
       "RespuestaLote": {
         "additionalProperties": false,
         "properties": {
@@ -5678,6 +7001,51 @@
         "required": [
           "resultados",
           "cursor",
+          "servidorEn",
+          "desfaseMs"
+        ],
+        "type": "object"
+      },
+      "RespuestaPosiciones": {
+        "additionalProperties": false,
+        "properties": {
+          "aceptadas": {
+            "description": "Puntos nuevos guardados",
+            "format": "int64",
+            "type": "integer"
+          },
+          "descartadas": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "desfaseMs": {
+            "description": "servidorEn − enviadoEn (0 sin enviadoEn)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "duplicadas": {
+            "description": "Ya estaban (mismo técnico y hora): reenviar un lote es seguro",
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivos": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Descartados por motivo: vieja (más de 24 h), futura (adelantada) o frecuencia (más seguidos que el intervalo mínimo)",
+            "type": "object"
+          },
+          "servidorEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "aceptadas",
+          "duplicadas",
+          "descartadas",
+          "motivos",
           "servidorEn",
           "desfaseMs"
         ],
@@ -6218,6 +7586,219 @@
         ],
         "type": "object"
       },
+      "Tecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "description": "Ficha activa y usuario activo",
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "baseLat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseLon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "correo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "habilidades": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Id de la ficha",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "description": "Usuario (es el tecnicoId de las órdenes)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "usuarioId",
+          "nombre",
+          "correo",
+          "cuadrillaId",
+          "bodegaId",
+          "habilidades",
+          "baseLat",
+          "baseLon",
+          "activo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "TecnicoDetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "description": "Ficha activa y usuario activo",
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ausencias": {
+            "description": "Vigentes o futuras, sin anular",
+            "items": {
+              "$ref": "#/components/schemas/Ausencia"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "baseLat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseLon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "bodegaId": {
+            "description": "Bodega del técnico en Argos",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "capacidad": {
+            "items": {
+              "$ref": "#/components/schemas/Capacidad"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "correo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cuadrillaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "habilidades": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Id de la ficha",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "turnos": {
+            "items": {
+              "$ref": "#/components/schemas/Turno"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "usuarioId": {
+            "description": "Usuario (es el tecnicoId de las órdenes)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turnos",
+          "capacidad",
+          "ausencias",
+          "id",
+          "usuarioId",
+          "nombre",
+          "correo",
+          "cuadrillaId",
+          "bodegaId",
+          "habilidades",
+          "baseLat",
+          "baseLon",
+          "activo",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "Ticket": {
         "additionalProperties": false,
         "properties": {
@@ -6717,6 +8298,107 @@
         ],
         "type": "object"
       },
+      "Turno": {
+        "additionalProperties": false,
+        "properties": {
+          "dia": {
+            "description": "1 = lunes … 7 = domingo",
+            "format": "int32",
+            "maximum": 7,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "fin": {
+            "description": "HH:MM (hasta 24:00); posterior al inicio",
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "type": "string"
+          },
+          "inicio": {
+            "description": "HH:MM",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dia",
+          "inicio",
+          "fin"
+        ],
+        "type": "object"
+      },
+      "UltimasPosiciones": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PosicionTecnico"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "servidorEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "servidorEn",
+          "data"
+        ],
+        "type": "object"
+      },
+      "UsoCapacidad": {
+        "additionalProperties": false,
+        "properties": {
+          "cupos": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cuposUsados": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "de": {
+            "enum": [
+              "tecnico",
+              "cuadrilla"
+            ],
+            "type": "string"
+          },
+          "minutos": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minutosUsados": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tipo": {
+            "description": "null = todos los tipos",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "de",
+          "tipo",
+          "cupos",
+          "cuposUsados",
+          "minutos",
+          "minutosUsados"
+        ],
+        "type": "object"
+      },
       "Usuario": {
         "additionalProperties": false,
         "properties": {
@@ -6881,6 +8563,80 @@
           "modoEmpresa",
           "todasLasEmpresas",
           "hayDatosSinEmpresa"
+        ],
+        "type": "object"
+      },
+      "Zona": {
+        "additionalProperties": false,
+        "properties": {
+          "activa": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa en Argos; null = todas (o sin conector)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Id de Argos (origen argos) o local (desde 10^12)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "origen": {
+            "description": "argos: espejo del catálogo de Argos; local: creada en Iris; migrada: id que ya estaba en uso sin catálogo",
+            "enum": [
+              "argos",
+              "local",
+              "migrada"
+            ],
+            "type": "string"
+          },
+          "poligono": {
+            "additionalProperties": {},
+            "description": "GeoJSON Polygon o MultiPolygon ([lon, lat]) propio de Iris",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "sincronizadoEn": {
+            "description": "Último refresco desde Argos",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "origen",
+          "nombre",
+          "poligono",
+          "activa",
+          "sincronizadoEn",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
         ],
         "type": "object"
       }
@@ -7584,6 +9340,139 @@
           "adjuntos"
         ],
         "x-permiso": "adjuntos.subir"
+      }
+    },
+    "/api/v1/agenda": {
+      "get": {
+        "description": "Permiso: `agenda.ver`. Citas (con su orden, ventana y estado) de la empresa activa según el alcance (zona o cuadrilla de la orden, o cuadrilla del técnico), y ausencias de los técnicos visibles. Hasta 31 días.",
+        "operationId": "calendarioAgenda",
+        "parameters": [
+          {
+            "description": "UTC (RFC 3339)",
+            "explode": false,
+            "in": "query",
+            "name": "desde",
+            "required": true,
+            "schema": {
+              "description": "UTC (RFC 3339)",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "UTC; hasta 31 días después de desde",
+            "explode": false,
+            "in": "query",
+            "name": "hasta",
+            "required": true,
+            "schema": {
+              "description": "UTC; hasta 31 días después de desde",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Usuario técnico",
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "description": "Usuario técnico",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cuadrilla del técnico o de la orden",
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "description": "Cuadrilla del técnico o de la orden",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Zona de la orden",
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "description": "Zona de la orden",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Calendario"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Calendario de despacho: citas y ausencias en un rango",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
       }
     },
     "/api/v1/buzones": {
@@ -8438,7 +10327,7 @@
     },
     "/api/v1/campo/paquete": {
       "get": {
-        "description": "Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), ruta (fase 3) y el cursor de cambios.",
+        "description": "Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente) y el cursor de cambios.",
         "operationId": "paqueteCampo",
         "parameters": [
           {
@@ -8518,6 +10407,217 @@
           "campo"
         ],
         "x-permiso": "campo.sincronizar"
+      }
+    },
+    "/api/v1/campo/posiciones": {
+      "post": {
+        "description": "Permiso: `campo.registrar_posiciones`. Solo el técnico con sesión de la app de campo (`X-Iris-Canal: campo`; si no, 403 `requiere_sesion_campo`). Hasta 500 puntos; lotes por minuto limitados por técnico (429 `demasiadas_posiciones` con `Retry-After`). Puntos de más de 24 h, adelantados o más seguidos que el intervalo mínimo se descartan (se cuentan en `motivos`); un punto repetido (misma hora) no se duplica. Sin auditoría por fila.",
+        "operationId": "registrarPosiciones",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPosiciones"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPosiciones"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Lote de posiciones GPS del técnico (ubicación en vivo)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.registrar_posiciones"
+      }
+    },
+    "/api/v1/campo/posiciones/ultimas": {
+      "get": {
+        "description": "Permiso: `campo.ver_posiciones`. De la empresa activa y según el alcance (cuadrilla del técnico o zonas que atiende su cuadrilla). Por defecto, las de las últimas 24 h.",
+        "operationId": "ultimasPosiciones",
+        "parameters": [
+          {
+            "description": "Usuario técnico",
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "description": "Usuario técnico",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Técnicos cuya cuadrilla atiende la zona",
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "description": "Técnicos cuya cuadrilla atiende la zona",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Solo las posiciones de los últimos N minutos (1440 por defecto)",
+            "explode": false,
+            "in": "query",
+            "name": "maxAntiguedadMin",
+            "schema": {
+              "description": "Solo las posiciones de los últimos N minutos (1440 por defecto)",
+              "format": "int32",
+              "maximum": 10080,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UltimasPosiciones"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Última posición de cada técnico (despacho)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "campo.ver_posiciones"
       }
     },
     "/api/v1/categorias": {
@@ -8963,6 +11063,672 @@
           "clientes"
         ],
         "x-permiso": "clientes.ver"
+      }
+    },
+    "/api/v1/cuadrillas": {
+      "get": {
+        "description": "Permiso: `agenda.ver`.",
+        "operationId": "listarCuadrillas",
+        "parameters": [
+          {
+            "description": "Incluye las inactivas",
+            "explode": false,
+            "in": "query",
+            "name": "todas",
+            "schema": {
+              "description": "Incluye las inactivas",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaCuadrilla"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cuadrillas con sus zonas y capacidad",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      },
+      "post": {
+        "description": "Permiso: `agenda.crear_cuadrilla`. Exige el permiso sin límite de zona o cuadrilla. Emite `cuadrilla.creada`.",
+        "operationId": "crearCuadrilla",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearCuadrilla"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuadrilla"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una cuadrilla",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.crear_cuadrilla"
+      }
+    },
+    "/api/v1/cuadrillas/{id}/activar": {
+      "post": {
+        "description": "Permiso: `agenda.activar_cuadrilla`.",
+        "operationId": "activarCuadrilla",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuadrilla"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar una cuadrilla",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.activar_cuadrilla"
+      }
+    },
+    "/api/v1/cuadrillas/{id}/capacidad": {
+      "post": {
+        "description": "Permiso: `agenda.fijar_capacidad`. Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día, sumando sus técnicos.",
+        "operationId": "capacidadCuadrilla",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFijarCapacidad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuadrilla"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar la capacidad diaria de una cuadrilla",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.fijar_capacidad"
+      }
+    },
+    "/api/v1/cuadrillas/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `agenda.desactivar_cuadrilla`.",
+        "operationId": "desactivarCuadrilla",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuadrilla"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar una cuadrilla",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.desactivar_cuadrilla"
+      }
+    },
+    "/api/v1/cuadrillas/{id}/editar": {
+      "post": {
+        "description": "Permiso: `agenda.editar_cuadrilla`. Nombre y zonas (reemplaza). Emite `cuadrilla.actualizada`.",
+        "operationId": "editarCuadrilla",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarCuadrilla"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuadrilla"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar una cuadrilla",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.editar_cuadrilla"
       }
     },
     "/api/v1/empresas": {
@@ -11579,7 +14345,7 @@
     },
     "/api/v1/ordenes/{id}/asignar": {
       "post": {
-        "description": "Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente; otro técnico en camino la deja programada. Emite `orden.asignada`.",
+        "description": "Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).",
         "operationId": "asignarOrden",
         "parameters": [
           {
@@ -13173,7 +15939,7 @@
     },
     "/api/v1/ordenes/{id}/programar": {
       "post": {
-        "description": "Permiso: `ordenes.programar`. pendiente → programada. Emite `orden.programada` (y `orden.asignada` si cambia el técnico).",
+        "description": "Permiso: `ordenes.programar`. pendiente → programada. La agenda valida la cita (ficha del técnico, turno, ausencia, solape, capacidad y ventana: 422 `tecnico_sin_agenda`, `fuera_de_turno`, `tecnico_ausente`, `solape`, `capacidad_excedida`, `fuera_de_ventana`) y emite `orden.programada` (y campo `orden.asignada` si cambia el técnico).",
         "operationId": "programarOrden",
         "parameters": [
           {
@@ -13419,7 +16185,7 @@
     },
     "/api/v1/ordenes/{id}/reprogramar": {
       "post": {
-        "description": "Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Emite `orden.programada`.",
+        "description": "Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.",
         "operationId": "reprogramarOrden",
         "parameters": [
           {
@@ -15156,6 +17922,1365 @@
           "campo"
         ],
         "x-permiso": "campo.sincronizar"
+      }
+    },
+    "/api/v1/tecnicos": {
+      "get": {
+        "description": "Permiso: `agenda.ver`.",
+        "operationId": "listarTecnicos",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cuadrilla",
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "description": "Cuadrilla",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Técnicos que atienden la zona (por su cuadrilla)",
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "description": "Técnicos que atienden la zona (por su cuadrilla)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "La ficha de ese usuario",
+            "explode": false,
+            "in": "query",
+            "name": "usuarioId",
+            "schema": {
+              "description": "La ficha de ese usuario",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Solo activos (true) o inactivos (false)",
+            "explode": false,
+            "in": "query",
+            "name": "activo",
+            "schema": {
+              "description": "Solo activos (true) o inactivos (false)",
+              "enum": [
+                "true",
+                "false",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "habilidad",
+            "schema": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Nombre o correo",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Nombre o correo",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaTecnico"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fichas de técnicos (según el alcance)",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      },
+      "post": {
+        "description": "Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. Emite `tecnico.creado`.",
+        "operationId": "crearTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearTecnico"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dar de alta la ficha de agenda de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.crear_tecnico"
+      }
+    },
+    "/api/v1/tecnicos/asignables": {
+      "get": {
+        "description": "Permiso: `agenda.ver`. Técnicos activos que atienden la zona (su cuadrilla) y pueden ver sus órdenes, con turnos, ausencias, citas, huecos libres y capacidad usada del día (hora de Guatemala). Los disponibles primero.",
+        "operationId": "tecnicosAsignables",
+        "parameters": [
+          {
+            "description": "Zona de la orden: técnicos que la atienden (cuadrilla) y la pueden ver (alcance)",
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "description": "Zona de la orden: técnicos que la atienden (cuadrilla) y la pueden ver (alcance)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Día en hora de Guatemala (YYYY-MM-DD); hoy por defecto",
+            "explode": false,
+            "in": "query",
+            "name": "fecha",
+            "schema": {
+              "description": "Día en hora de Guatemala (YYYY-MM-DD); hoy por defecto",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tipo de orden: duración y capacidad por tipo",
+            "explode": false,
+            "in": "query",
+            "name": "tipo",
+            "schema": {
+              "description": "Tipo de orden: duración y capacidad por tipo",
+              "enum": [
+                "instalacion",
+                "visita",
+                "retiro",
+                "cambio_equipo",
+                "mantenimiento",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "habilidad",
+            "schema": {
+              "maxLength": 40,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Orden que se va a reprogramar: su cita actual no cuenta como ocupada",
+            "explode": false,
+            "in": "query",
+            "name": "ordenId",
+            "schema": {
+              "description": "Orden que se va a reprogramar: su cita actual no cuenta como ocupada",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAsignables"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Técnicos asignables con su disponibilidad del día",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      }
+    },
+    "/api/v1/tecnicos/{id}": {
+      "get": {
+        "description": "Permiso: `agenda.ver`.",
+        "operationId": "verTecnico",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ficha de un técnico con turnos, capacidad y ausencias",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      }
+    },
+    "/api/v1/tecnicos/{id}/activar": {
+      "post": {
+        "description": "Permiso: `agenda.activar_tecnico`.",
+        "operationId": "activarTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar la ficha de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.activar_tecnico"
+      }
+    },
+    "/api/v1/tecnicos/{id}/ausencias": {
+      "post": {
+        "description": "Permiso: `agenda.registrar_ausencia`. Devuelve las citas vivas que quedan dentro (no se mueven solas: reprográmalas). Emite `tecnico.ausencia_registrada`.",
+        "operationId": "registrarAusencia",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRegistrarAusencia"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAusencia"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar una ausencia del técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.registrar_ausencia"
+      }
+    },
+    "/api/v1/tecnicos/{id}/ausencias/{ausenciaId}/anular": {
+      "post": {
+        "description": "Permiso: `agenda.anular_ausencia`. Queda en el historial. Emite `tecnico.ausencia_anulada`.",
+        "operationId": "anularAusencia",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ausenciaId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAnularAusencia"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ausencia"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Anular una ausencia",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.anular_ausencia"
+      }
+    },
+    "/api/v1/tecnicos/{id}/capacidad": {
+      "post": {
+        "description": "Permiso: `agenda.fijar_capacidad`. Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día.",
+        "operationId": "capacidadTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFijarCapacidad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar la capacidad diaria de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.fijar_capacidad"
+      }
+    },
+    "/api/v1/tecnicos/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `agenda.desactivar_tecnico`. Deja de ser asignable; sus citas no se mueven.",
+        "operationId": "desactivarTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar la ficha de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.desactivar_tecnico"
+      }
+    },
+    "/api/v1/tecnicos/{id}/editar": {
+      "post": {
+        "description": "Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.",
+        "operationId": "editarTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarTecnico"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar la ficha de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.editar_tecnico"
+      }
+    },
+    "/api/v1/tecnicos/{id}/turnos": {
+      "post": {
+        "description": "Permiso: `agenda.fijar_turnos`. Reemplaza los turnos (hora de Guatemala, sin cruces en un día). Las citas ya programadas no se mueven.",
+        "operationId": "turnosTecnico",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaFijarTurnos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fijar los turnos semanales de un técnico",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.fijar_turnos"
       }
     },
     "/api/v1/tickets": {
@@ -18375,6 +22500,549 @@
         "tags": [
           "identidad"
         ]
+      }
+    },
+    "/api/v1/zonas": {
+      "get": {
+        "description": "Permiso: `agenda.ver`.",
+        "operationId": "listarZonas",
+        "parameters": [
+          {
+            "description": "Incluye las inactivas",
+            "explode": false,
+            "in": "query",
+            "name": "todas",
+            "schema": {
+              "description": "Incluye las inactivas",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaZona"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Zonas (espejo de Argos y locales)",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.ver"
+      },
+      "post": {
+        "description": "Permiso: `agenda.crear_zona`. Exige el permiso sin límite de zona o cuadrilla. Las zonas de Argos llegan solas (espejo del catálogo). Emite `zona.creada`.",
+        "operationId": "crearZona",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearZona"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Zona"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una zona local",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.crear_zona"
+      }
+    },
+    "/api/v1/zonas/{id}/activar": {
+      "post": {
+        "description": "Permiso: `agenda.activar_zona`.",
+        "operationId": "activarZona",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Zona"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar una zona",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.activar_zona"
+      }
+    },
+    "/api/v1/zonas/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `agenda.desactivar_zona`. Una zona inactiva no se puede usar en tickets ni órdenes nuevos.",
+        "operationId": "desactivarZona",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Zona"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar una zona",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.desactivar_zona"
+      }
+    },
+    "/api/v1/zonas/{id}/editar": {
+      "post": {
+        "description": "Permiso: `agenda.editar_zona`. Nombre (solo locales y migradas) y polígono GeoJSON. Emite `zona.actualizada`.",
+        "operationId": "editarZona",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarZona"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Zona"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar una zona",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.editar_zona"
       }
     }
   }

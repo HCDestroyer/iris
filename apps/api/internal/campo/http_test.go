@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -50,9 +52,10 @@ func (r respuesta) problema(t *testing.T, status int, codigo string) {
 
 func nuevoServidor(t *testing.T) string {
 	t.Helper()
+	cmp := campo.Nuevo(campo.Config{})
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pruebas.Pool(t), Identidad: ident, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Modulos: []func(huma.API){soporte.Nuevo(soporte.Config{}).Registrar, campo.Nuevo(campo.Config{}).Registrar},
+		Modulos: []func(huma.API){soporte.Nuevo(soporte.Config{}).Registrar, cmp.Registrar, cmp.Agenda().Registrar},
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -73,6 +76,10 @@ func entrar(t *testing.T, base string, roles ...string) *clienteHTTP {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if slices.Contains(roles, "tecnico") {
+		conAgenda(t, u.ID)
+	}
+	asegurarZona(t, 3)
 	jar, _ := cookiejar.New(nil)
 	c := &clienteHTTP{t: t, base: base, http: &http.Client{Jar: jar}, id: u.ID}
 	r := c.pedir(http.MethodPost, "/api/v1/sesion", map[string]any{"correo": correo, "contrasena": contrasena})
@@ -208,4 +215,48 @@ func TestLoteConcurrenteMismaOperacion(t *testing.T) {
 	if aplicadas != 1 || contar(t, "SELECT count(*) FROM campo.orden_notas WHERE orden_id = $1", o.ID) != 1 {
 		t.Fatalf("una sola aplicación: %v", estadosVistos)
 	}
+}
+
+// Por HTTP: posiciones solo con la cabecera de la app de campo y esquema validado; despacho ve
+// la última, la agenda (calendario) y los asignables.
+func TestHTTPPosicionesYAgenda(t *testing.T) {
+	base := nuevoServidor(t)
+	d := entrar(t, base, "despacho")
+	tec := entrar(t, base, "tecnico")
+	ahora := time.Now().UTC()
+	lote := map[string]any{"dispositivoId": "pwa-1", "puntos": []map[string]any{
+		{"lat": 14.6, "lon": -90.5, "precision": 12, "registradaEn": ahora.Add(-time.Minute).Format(time.RFC3339)}}}
+	tec.pedir(http.MethodPost, "/api/v1/campo/posiciones", lote).problema(t, 403, "requiere_sesion_campo")
+	if r := tec.pedir(http.MethodPost, "/api/v1/campo/posiciones", lote, "X-Iris-Canal", "campo"); r.status != 200 || r.cuerpo["aceptadas"] != float64(1) {
+		t.Fatalf("posiciones: %d %s", r.status, r.crudo)
+	}
+	malo := map[string]any{"puntos": []map[string]any{{"lat": 91, "lon": -90.5, "registradaEn": ahora.Format(time.RFC3339)}}}
+	tec.pedir(http.MethodPost, "/api/v1/campo/posiciones", malo, "X-Iris-Canal", "campo").problema(t, 422, "validacion")
+	d.pedir(http.MethodPost, "/api/v1/campo/posiciones", lote, "X-Iris-Canal", "campo").problema(t, 403, "prohibido")
+	r := d.pedir(http.MethodGet, fmt.Sprintf("/api/v1/campo/posiciones/ultimas?tecnicoId=%d", tec.id), nil)
+	if r.status != 200 || len(r.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("últimas: %d %s", r.status, r.crudo)
+	}
+	tec.pedir(http.MethodGet, "/api/v1/campo/posiciones/ultimas", nil).problema(t, 403, "prohibido")
+	// Límite de lotes por minuto: 429 con Retry-After.
+	var ultimo respuesta
+	for range 7 {
+		ultimo = tec.pedir(http.MethodPost, "/api/v1/campo/posiciones", lote, "X-Iris-Canal", "campo")
+	}
+	ultimo.problema(t, 429, "demasiadas_posiciones")
+	if ultimo.h.Get("Retry-After") == "" {
+		t.Fatal("Retry-After")
+	}
+
+	// Agenda: asignables (ruta fija antes que /tecnicos/{id}) y calendario.
+	if r := d.pedir(http.MethodGet, "/api/v1/tecnicos/asignables?zonaId=3&tipo=visita", nil); r.status != 200 || r.cuerpo["duracionMin"] != float64(60) {
+		t.Fatalf("asignables: %d %s", r.status, r.crudo)
+	}
+	desde, hasta := ahora.Add(-time.Hour).Format(time.RFC3339), ahora.Add(24*time.Hour).Format(time.RFC3339)
+	if r := d.pedir(http.MethodGet, "/api/v1/agenda?desde="+desde+"&hasta="+hasta, nil); r.status != 200 || r.cuerpo["citas"] == nil {
+		t.Fatalf("agenda: %d %s", r.status, r.crudo)
+	}
+	d.pedir(http.MethodGet, "/api/v1/agenda?desde=ayer&hasta="+hasta, nil).problema(t, 422, "validacion")
+	d.pedir(http.MethodGet, "/api/v1/tecnicos/99999999", nil).problema(t, 404, "no_encontrado")
+	tec.pedir(http.MethodGet, "/api/v1/zonas", nil).problema(t, 403, "prohibido")
 }

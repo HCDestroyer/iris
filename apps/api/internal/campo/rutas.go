@@ -59,6 +59,11 @@ type conID[T any] struct {
 
 type vacio struct{}
 
+// cuerpoPosiciones: el lote de posiciones no lleva Idempotency-Key (es idempotente por punto).
+type cuerpoPosiciones struct {
+	Body EntradaPosiciones
+}
+
 func responder[T any](v T, err error) (*cuerpo[T], error) {
 	if err != nil {
 		return nil, err
@@ -132,13 +137,13 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	registrarAccion(api, accion("asignarOrden", "asignar", "Asignar una orden a un técnico o cuadrilla",
-		"pendiente, programada o en_camino. Sin técnico vuelve a pendiente; otro técnico en camino la deja programada. Emite `orden.asignada`.",
+		"pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).",
 		nucleo.PermOrdenesAsignar), m.AsignarOrden.Ejecutar, func(e *EntradaAsignarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("programarOrden", "programar", "Programar una orden (técnico y fecha)",
-		"pendiente → programada. Emite `orden.programada` (y `orden.asignada` si cambia el técnico).",
+		"pendiente → programada. La agenda valida la cita (ficha del técnico, turno, ausencia, solape, capacidad y ventana: 422 `tecnico_sin_agenda`, `fuera_de_turno`, `tecnico_ausente`, `solape`, `capacidad_excedida`, `fuera_de_ventana`) y emite `orden.programada` (y campo `orden.asignada` si cambia el técnico).",
 		nucleo.PermOrdenesProgramar), m.ProgramarOrden.Ejecutar, func(e *EntradaProgramarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("reprogramarOrden", "reprogramar", "Reprogramar una orden",
-		"programada, en_camino o fallida → programada, con motivo. Emite `orden.programada`.",
+		"programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.",
 		nucleo.PermOrdenesReprogramar), m.ReprogramarOrden.Ejecutar, func(e *EntradaProgramarOrden, id int64) { e.ID = id })
 	registrarAccion(api, accion("iniciarCaminoOrden", "iniciar-camino", "Marcar la orden en camino",
 		"programada → en_camino, con GPS opcional. Emite `orden.estado_cambiada`.",
@@ -182,7 +187,7 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	// App de campo (contratos/sync.md).
 	paquete := operacion("paqueteCampo", http.MethodGet, "/api/v1/campo/paquete", "Paquete del día del técnico", nucleo.PermCampoSincronizar, http.StatusOK)
-	paquete.Description += " Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), ruta (fase 3) y el cursor de cambios."
+	paquete.Description += " Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente) y el cursor de cambios."
 	huma.Register(api, paquete, func(ctx context.Context, in *EntradaPaquete) (*cuerpo[Paquete], error) {
 		return responder(m.Paquete(contexto.ConCanal(ctx, contexto.CanalCampo), *in))
 	})
@@ -191,6 +196,17 @@ func (m *Modulo) Registrar(api huma.API) {
 	cambios.Description += " Órdenes nuevas, actualizadas, reprogramadas, canceladas o reasignadas (sin orden: quitarla del teléfono). El cursor es del técnico y solo trae las órdenes de la empresa activa: al cambiar de empresa (X-Iris-Empresa), vuelve a pedir el paquete y usa su cursor."
 	huma.Register(api, cambios, func(ctx context.Context, in *EntradaCambios) (*cuerpo[Cambios], error) {
 		return responder(m.Cambios(contexto.ConCanal(ctx, contexto.CanalCampo), *in))
+	})
+
+	pos := operacion("registrarPosiciones", http.MethodPost, "/api/v1/campo/posiciones", "Lote de posiciones GPS del técnico (ubicación en vivo)", nucleo.PermCampoRegistrarPosiciones, http.StatusOK, http.StatusTooManyRequests)
+	pos.Description += " Solo el técnico con sesión de la app de campo (`X-Iris-Canal: campo`; si no, 403 `requiere_sesion_campo`). Hasta 500 puntos; lotes por minuto limitados por técnico (429 `demasiadas_posiciones` con `Retry-After`). Puntos de más de 24 h, adelantados o más seguidos que el intervalo mínimo se descartan (se cuentan en `motivos`); un punto repetido (misma hora) no se duplica. Sin auditoría por fila."
+	huma.Register(api, pos, func(ctx context.Context, in *cuerpoPosiciones) (*cuerpo[RespuestaPosiciones], error) {
+		return responder(m.RegistrarPosiciones.Ejecutar(ctx, in.Body))
+	})
+	ultimas := operacion("ultimasPosiciones", http.MethodGet, "/api/v1/campo/posiciones/ultimas", "Última posición de cada técnico (despacho)", nucleo.PermCampoVerPosiciones, http.StatusOK)
+	ultimas.Description += " De la empresa activa y según el alcance (cuadrilla del técnico o zonas que atiende su cuadrilla). Por defecto, las de las últimas 24 h."
+	huma.Register(api, ultimas, func(ctx context.Context, in *EntradaUltimasPosiciones) (*cuerpo[UltimasPosiciones], error) {
+		return responder(m.UltimasPosiciones.Ejecutar(ctx, *in))
 	})
 
 	lote := operacion("loteSync", http.MethodPost, "/api/v1/sync/lote", "Lote de operaciones de la app de campo", nucleo.PermCampoSincronizar, http.StatusOK)

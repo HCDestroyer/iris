@@ -66,8 +66,31 @@ const (
 	PermOrdenesVer           Permiso = "ordenes.ver"
 	PermOrdenesVerPropias    Permiso = "ordenes.ver_propias"
 
-	// App de campo (I2): paquete del día, cambios y lote de sincronización (contratos/sync.md).
-	PermCampoSincronizar Permiso = "campo.sincronizar"
+	// App de campo (I2): paquete del día, cambios y lote de sincronización (contratos/sync.md);
+	// posiciones en vivo (el técnico las envía; despacho ve la última de cada técnico).
+	PermCampoSincronizar         Permiso = "campo.sincronizar"
+	PermCampoRegistrarPosiciones Permiso = "campo.registrar_posiciones"
+	PermCampoVerPosiciones       Permiso = "campo.ver_posiciones"
+
+	// Agenda (I2): catálogos (zonas, cuadrillas, técnicos con turnos, ausencias y capacidad) y
+	// calendario de citas. Una acción explícita por permiso.
+	PermAgendaVer                 Permiso = "agenda.ver"
+	PermAgendaCrearZona           Permiso = "agenda.crear_zona"
+	PermAgendaEditarZona          Permiso = "agenda.editar_zona"
+	PermAgendaActivarZona         Permiso = "agenda.activar_zona"
+	PermAgendaDesactivarZona      Permiso = "agenda.desactivar_zona"
+	PermAgendaCrearCuadrilla      Permiso = "agenda.crear_cuadrilla"
+	PermAgendaEditarCuadrilla     Permiso = "agenda.editar_cuadrilla"
+	PermAgendaActivarCuadrilla    Permiso = "agenda.activar_cuadrilla"
+	PermAgendaDesactivarCuadrilla Permiso = "agenda.desactivar_cuadrilla"
+	PermAgendaCrearTecnico        Permiso = "agenda.crear_tecnico"
+	PermAgendaEditarTecnico       Permiso = "agenda.editar_tecnico"
+	PermAgendaActivarTecnico      Permiso = "agenda.activar_tecnico"
+	PermAgendaDesactivarTecnico   Permiso = "agenda.desactivar_tecnico"
+	PermAgendaFijarTurnos         Permiso = "agenda.fijar_turnos"
+	PermAgendaFijarCapacidad      Permiso = "agenda.fijar_capacidad"
+	PermAgendaRegistrarAusencia   Permiso = "agenda.registrar_ausencia"
+	PermAgendaAnularAusencia      Permiso = "agenda.anular_ausencia"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -114,12 +137,31 @@ type DefPermiso struct {
 var Catalogo = []DefPermiso{
 	{PermAdjuntosSubir, "Registrar y subir adjuntos (fotos, firmas, documentos) de las órdenes y tickets que puedes trabajar"},
 	{PermAdjuntosVer, "Ver y descargar los adjuntos de las órdenes y tickets que puedes ver (lectura auditada)"},
+	{PermAgendaActivarCuadrilla, "Activar una cuadrilla"},
+	{PermAgendaActivarTecnico, "Activar la ficha de agenda de un técnico"},
+	{PermAgendaActivarZona, "Activar una zona"},
+	{PermAgendaAnularAusencia, "Anular una ausencia registrada de un técnico"},
+	{PermAgendaCrearCuadrilla, "Crear cuadrillas y las zonas que atienden"},
+	{PermAgendaCrearTecnico, "Dar de alta la ficha de agenda de un técnico (cuadrilla, bodega, habilidades, base)"},
+	{PermAgendaCrearZona, "Crear zonas locales (sin conector o fuera del catálogo de Argos)"},
+	{PermAgendaDesactivarCuadrilla, "Desactivar una cuadrilla"},
+	{PermAgendaDesactivarTecnico, "Desactivar la ficha de agenda de un técnico (deja de ser asignable)"},
+	{PermAgendaDesactivarZona, "Desactivar una zona"},
+	{PermAgendaEditarCuadrilla, "Editar una cuadrilla y sus zonas"},
+	{PermAgendaEditarTecnico, "Editar la ficha de agenda de un técnico"},
+	{PermAgendaEditarZona, "Editar una zona (nombre de las locales y polígono)"},
+	{PermAgendaFijarCapacidad, "Fijar la capacidad diaria por tipo de orden de un técnico o una cuadrilla"},
+	{PermAgendaFijarTurnos, "Fijar los turnos semanales de un técnico"},
+	{PermAgendaRegistrarAusencia, "Registrar ausencias de un técnico (vacaciones, enfermedad…)"},
+	{PermAgendaVer, "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)"},
 	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
 	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
 	{PermBuzonesEditar, "Editar un buzón de correo y probar su conexión (nunca ver la contraseña)"},
 	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
+	{PermCampoRegistrarPosiciones, "Enviar la ubicación en vivo desde la app de campo (solo el técnico con sesión de campo)"},
 	{PermCampoSincronizar, "Usar la app de campo: paquete del día, cambios y lote de sincronización"},
+	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -196,6 +238,15 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
 }
 
+// permisosAgenda son todos los de agenda (supervisor).
+var permisosAgenda = []Permiso{
+	PermAgendaVer, PermAgendaCrearZona, PermAgendaEditarZona, PermAgendaActivarZona, PermAgendaDesactivarZona,
+	PermAgendaCrearCuadrilla, PermAgendaEditarCuadrilla, PermAgendaActivarCuadrilla, PermAgendaDesactivarCuadrilla,
+	PermAgendaCrearTecnico, PermAgendaEditarTecnico, PermAgendaActivarTecnico, PermAgendaDesactivarTecnico,
+	PermAgendaFijarTurnos, PermAgendaFijarCapacidad, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
+	PermCampoVerPosiciones,
+}
+
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
 // sincronizan en cada `iris migrar`: lo que no está aquí se les quita.
 var RolesBase = []DefRol{
@@ -205,16 +256,18 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
-			slices.Concat(permisosTickets, permisosOrdenes)...)},
+			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda)...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
-			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas},
+			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
+			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
+			PermCampoVerPosiciones},
 			permisosOrdenes...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
-			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar}},
+			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},
@@ -222,7 +275,7 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermClientesVer, PermClientesEstadoCuenta}},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
-			PermClientesVer, PermTicketsVer, PermOrdenesVer}},
+			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir

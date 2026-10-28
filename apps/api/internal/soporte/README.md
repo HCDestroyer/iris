@@ -38,12 +38,15 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
 - **Origen:** `correo`, `telegram`, `horus` y `argos` solo los declara una integración o el
   sistema; `portal`, solo el canal portal (422 `origen_no_permitido`).
 - **Asignar:** el responsable es una persona activa con `tickets.ver` y alcance sobre el ticket
-  (global, su zona o la cuadrilla asignada); si no, 422 en `usuarioId`.
+  (global, su zona o la cuadrilla asignada); si no, 422 en `usuarioId`. La cuadrilla es del
+  catálogo de agenda: existe, activa y de la empresa del ticket (si no, 422 en `cuadrillaId`).
 - **Idempotencia:** `crear`, `responder` y `nota-interna` guardan la `Idempotency-Key` (por
   credencial, índice único). Si la clave se reclama y la petición se repite, devuelven lo que
   ya se creó en vez de duplicarlo; las demás acciones lo toleran con `version` y su estado.
 - **Argos:** guarda `cliente_id`, `servicio_id` y `zona_id` (opcionales) y, sin conector, los
-  datos de contacto capturados a mano. No llama a Argos.
+  datos de contacto capturados a mano. No llama a Argos. `zona_id` y `cuadrilla_id` tienen llave
+  foránea al catálogo de agenda: la zona indicada debe existir, estar activa y ser de la empresa
+  (422 en `zonaId`); la del portal sale de la ficha de Argos y se copia al catálogo si falta.
 
 ## Entrada por correo (IMAP) y respuesta por SMTP
 
@@ -149,8 +152,8 @@ el conector (I1): `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado
   en tandas de 200 (`TandaAvisos`, una transacción cada una) a cada hijo no cerrado: mensaje público
   de Iris con la solución, `ticket.respondido` (si el hijo vino por correo, sale por correo al
   contacto: la salida acepta mensajes públicos de agente o de Iris), `TocarTicket` (sube su
-  versión) y historial `aviso_incidente` (todavía fuera del listado `/eventos`: el enum del contrato
-  se amplía cuando el panel lo muestre). Idempotente por `soporte.avisos_hijos`. Los hijos no
+  versión) y historial `aviso_incidente` (en `GET /tickets/{id}/eventos`, en el enum de
+  `EventoTicket`). Idempotente por `soporte.avisos_hijos`. Los hijos no
   cambian de estado. Lo mismo con «reabierto» cuando Horus reabre el maestro.
 - **Hallazgo abierto:** solo si la categoría tiene regla **activa** en `soporte.reglas_hallazgos`
   (`categoria_horus` → `categoria_id` y prioridad de Iris; la de la empresa gana a la global, aunque

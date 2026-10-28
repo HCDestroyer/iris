@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -44,6 +45,22 @@ type EntradaCrearOrden struct {
 	// ClaveIdempotencia es la Idempotency-Key de la petición (la pone el handler): si la misma
 	// operación ya creó una orden, se devuelve esa.
 	ClaveIdempotencia string `json:"-"`
+	// Origen lo fija el caso interno (argos: retiro automático); si no, sale del canal.
+	Origen string `json:"-"`
+}
+
+// origenDe: de dónde viene la orden (panel, api o sistema).
+func origenDe(ctx context.Context, fijo string) string {
+	if fijo != "" {
+		return fijo
+	}
+	switch {
+	case contexto.ActorDe(ctx).Tipo == contexto.ActorSistema:
+		return "sistema"
+	case contexto.CanalDe(ctx) == contexto.CanalPanel:
+		return "panel"
+	}
+	return "api"
 }
 
 // conIdempotencia identifica la operación por la credencial y su Idempotency-Key. nil sin
@@ -208,6 +225,24 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			if err := completarDesdeArgos(ctx, q, &datos, empresa); err != nil {
 				return Orden{}, err
 			}
+			// Zona y cuadrilla del catálogo de agenda (llaves foráneas): la indicada debe existir,
+			// estar activa y ser de la empresa; la que viene de la instantánea de Argos se copia
+			// al catálogo si falta (la del ticket ya está en él).
+			switch {
+			case in.ZonaID != nil:
+				if err := agenda.ValidarZona(ctx, t, "zonaId", *in.ZonaID, empresa); err != nil {
+					return Orden{}, err
+				}
+			case datos.ZonaID != nil && (ticket == nil || !mismoID(ticket.ZonaID, datos.ZonaID)):
+				if datos.ZonaID, err = agenda.ZonaDeArgos(ctx, t, datos.ZonaID, empresa); err != nil {
+					return Orden{}, err
+				}
+			}
+			if in.CuadrillaID != nil {
+				if err := agenda.ValidarCuadrilla(ctx, t, "cuadrillaId", *in.CuadrillaID, empresa); err != nil {
+					return Orden{}, err
+				}
+			}
 
 			direccion, err := textoOpcional("direccion", datos.Direccion, 300)
 			if err != nil {
@@ -242,6 +277,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				BodegaID: datos.BodegaID, Direccion: *direccion, Lat: datos.Lat, Lon: datos.Lon,
 				ContactoNombre: contacto.Nombre, ContactoTelefono: contacto.Telefono,
 				Descripcion: strings.TrimSpace(in.Descripcion), CreadoPor: actorUsuario(t), Idempotencia: idem,
+				Origen: origenDe(ctx, in.Origen),
 			})
 			if err != nil {
 				return Orden{}, err
@@ -254,7 +290,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			if err := t.Emitir("orden.creada", map[string]any{
 				"orden_id": f.ID, "numero": f.Numero, "tipo": tipo.Codigo, "empresa_id": f.EmpresaID,
 				"ticket_id": f.TicketID, "prospecto_id": f.ProspectoID, "cliente_id": f.ClienteID,
-				"servicio_id": f.ServicioID, "zona_id": f.ZonaID,
+				"servicio_id": f.ServicioID, "zona_id": f.ZonaID, "origen": f.Origen,
 			}); err != nil {
 				return Orden{}, err
 			}

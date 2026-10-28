@@ -5,7 +5,9 @@
 // correo de soporte (lectura de buzones IMAP cada minuto, proceso de correos y envío de
 // respuestas por SMTP), los tickets que abre Horus (suscriptor de los eventos horus.*) y la cola
 // de pendientes hacia Argos (suscriptor de orden.cerrada y su job, cada minuto) y la purga de
-// subidas de adjuntos abandonadas (cada hora).
+// subidas de adjuntos abandonadas (cada hora), la orden de retiro automática (suscriptor de
+// argos.servicio_retirado), el mantenimiento de las particiones de posiciones (cada 6 h) y el
+// espejo de zonas de Argos en la agenda (cada 10 min).
 package main
 
 import (
@@ -21,6 +23,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -108,6 +111,15 @@ func correr() error {
 	adj := adjuntos.Nuevo(adjuntos.Config{Abandono: cfg.AdjuntosAbandono})
 	// La orden como entidad adjuntable (mismo registro que la API).
 	campo.RegistrarAdjuntos()
+	// Campo: orden de retiro automática desde argos.servicio_retirado (si el servicio tiene equipos
+	// en comodato según Argos) y mantenimiento de las particiones de posiciones (retención). Su
+	// agenda refresca el espejo de zonas desde el catálogo de Argos.
+	lpos, err := campo.LimitesPosicionesDesdeEntorno()
+	if err != nil {
+		return err
+	}
+	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos})
+	cmp.SuscribirRetiros(bus, pool, log)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
@@ -117,10 +129,13 @@ func correr() error {
 			registrarSoporte(w)
 			pend.RegistrarWorkers(w, pool)
 			adj.RegistrarWorkers(w, pool)
+			cmp.RegistrarTrabajos(pool)(w)
+			cmp.Agenda().RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute),
-			adjuntos.TrabajoPeriodico(time.Hour)),
+			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
+			agenda.TrabajoPeriodicoZonas(10*time.Minute)),
 	})
 	if err != nil {
 		return err

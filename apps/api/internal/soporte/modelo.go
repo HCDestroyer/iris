@@ -159,7 +159,7 @@ func aMensaje(m soportebd.SoporteTicketMensaje) Mensaje {
 type EventoTicket struct {
 	ID          int64          `json:"id"`
 	TicketID    int64          `json:"ticketId"`
-	Tipo        string         `json:"tipo" enum:"creado,estado,asignado,escalado,fusionado,sla_en_riesgo,sla_vencido"`
+	Tipo        string         `json:"tipo" enum:"creado,estado,asignado,escalado,fusionado,sla_en_riesgo,sla_vencido,aviso_incidente" doc:"aviso_incidente: Iris avisó al cliente de este ticket hijo sobre su incidente de red (motivo: «Incidente TK-… resuelto|reabierto»)"`
 	De          *string        `json:"de" nullable:"true"`
 	A           *string        `json:"a" nullable:"true"`
 	Motivo      *string        `json:"motivo" nullable:"true"`

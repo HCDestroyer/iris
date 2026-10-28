@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -207,6 +208,13 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 		return cero, err
 	}
 	t.FijarEmpresa(deref(empresa))
+	// La zona es del catálogo de agenda (llave foránea): existe, activa y de la empresa. La del
+	// portal ya viene del espejo de Argos (agenda.ZonaDeArgos).
+	if in.ZonaID != nil && contexto.ActorDe(ctx).Tipo != contexto.ActorCliente {
+		if err := agenda.ValidarZona(ctx, t, "zonaId", *in.ZonaID, empresa); err != nil {
+			return cero, err
+		}
+	}
 
 	// Al crear no hay cuadrilla: un alcance limitado se juzga por la zona. El actor cliente no
 	// tiene permisos de usuario: su alcance es su propio cliente (lo fija el portal).

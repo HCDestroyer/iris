@@ -11,6 +11,101 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AgendaAusencia struct {
+	ID         int64
+	TecnicoID  int64
+	Inicio     time.Time
+	Fin        time.Time
+	Motivo     string
+	Detalle    string
+	CreadaPor  *int64
+	AnuladaEn  *time.Time
+	AnuladaPor *int64
+	Version    int32
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type AgendaCapacidade struct {
+	ID          int64
+	TecnicoID   *int64
+	CuadrillaID *int64
+	TipoID      *int64
+	Cupos       *int32
+	Minutos     *int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type AgendaCita struct {
+	ID            int64
+	OrdenID       int64
+	EmpresaID     *int64
+	TecnicoID     int64
+	TipoID        int64
+	Inicio        time.Time
+	Fin           time.Time
+	VentanaInicio *time.Time
+	VentanaFin    *time.Time
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type AgendaCuadrilla struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Activa    bool
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AgendaCuadrillaZona struct {
+	CuadrillaID int64
+	ZonaID      int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type AgendaTecnico struct {
+	ID          int64
+	UsuarioID   int64
+	CuadrillaID *int64
+	BodegaID    *int64
+	Habilidades []string
+	BaseLat     *float64
+	BaseLon     *float64
+	Activo      bool
+	Version     int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type AgendaTurno struct {
+	ID        int64
+	TecnicoID int64
+	Dia       int16
+	Inicio    pgtype.Time
+	Fin       pgtype.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AgendaZona struct {
+	ID             int64
+	EmpresaID      *int64
+	Origen         string
+	Nombre         string
+	Poligono       []byte
+	Activa         bool
+	SincronizadoEn *time.Time
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type AuditoriaAccione struct {
 	ID          int64
 	ActorTipo   string
@@ -230,6 +325,7 @@ type CampoOrdene struct {
 	Version          int32
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	Origen           string
 }
 
 type CampoPlantillaItem struct {
@@ -246,29 +342,74 @@ type CampoPlantillaItem struct {
 }
 
 type CampoPlantillasChecklist struct {
-	ID            int64
-	Codigo        string
-	Nombre        string
-	TipoCodigo    string
-	RequiereFirma bool
-	Activa        bool
-	Version       int32
+	ID               int64
+	Codigo           string
+	Nombre           string
+	TipoCodigo       string
+	RequiereFirma    bool
+	Activa           bool
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Cobrar           *bool
+	CargoProductoID  *int64
+	CargoMonto       pgtype.Numeric
+	CargoDescripcion string
+}
+
+type CampoPosicione struct {
+	TecnicoID     int64
+	EmpresaID     *int64
+	Lat           float64
+	Lon           float64
+	PrecisionM    *float64
+	Velocidad     *float64
+	Rumbo         *float64
+	DispositivoID *string
+	RegistradaEn  time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type CampoPosicionesLimite struct {
+	TecnicoID     int64
+	VentanaInicio time.Time
+	Lotes         int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type CampoPosicionesUltima struct {
+	TecnicoID     int64
+	EmpresaID     *int64
+	Lat           float64
+	Lon           float64
+	PrecisionM    *float64
+	Velocidad     *float64
+	Rumbo         *float64
+	DispositivoID *string
+	RegistradaEn  time.Time
+	RecibidaEn    time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 type CampoTiposOrden struct {
-	ID            int64
-	Codigo        string
-	Nombre        string
-	DuracionMin   int32
-	PlantillaID   *int64
-	ExigeInstalar bool
-	ExigeRetirar  bool
-	Activo        bool
-	Version       int32
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               int64
+	Codigo           string
+	Nombre           string
+	DuracionMin      int32
+	PlantillaID      *int64
+	ExigeInstalar    bool
+	ExigeRetirar     bool
+	Activo           bool
+	Version          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Cobrar           bool
+	CargoProductoID  *int64
+	CargoMonto       pgtype.Numeric
+	CargoDescripcion string
 }
 
 type IntegracionArgosCliente struct {

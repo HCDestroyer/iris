@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -99,6 +100,12 @@ type Config struct {
 	Inventario Inventario
 	// ZonaHoraria para el día del paquete (America/Guatemala por defecto).
 	ZonaHoraria *time.Location
+	// Agenda valida y guarda la cita al programar, reprogramar o cambiar el técnico (turno,
+	// ausencia, solape, capacidad) y emite orden.programada. Por defecto, una con el mismo reloj
+	// y zona horaria.
+	Agenda *agenda.Modulo
+	// Posiciones: límites de la ingesta de ubicación en vivo (LimitesPosicionesDesdeEntorno).
+	Posiciones LimitesPosiciones
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -135,6 +142,12 @@ type Modulo struct {
 	LeerCambios          *auditoria.Caso[EntradaCambios, Cambios]
 	RegistrarDispositivo *auditoria.Caso[EntradaDispositivo, InicioLote]
 	RegistrarRechazo     *auditoria.Caso[EntradaRechazo, *EstadoOrden]
+
+	// Ubicación en vivo (posiciones.go) y retiro automático (retiro.go).
+	RegistrarPosiciones *auditoria.Caso[EntradaPosiciones, RespuestaPosiciones]
+	UltimasPosiciones   *auditoria.Caso[EntradaUltimasPosiciones, UltimasPosiciones]
+	MantenerPosiciones  *auditoria.Caso[struct{}, ResultadoMantenimiento]
+	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
 }
 
 // Nuevo arma el módulo.
@@ -154,6 +167,10 @@ func Nuevo(cfg Config) *Modulo {
 		}
 		cfg.ZonaHoraria = loc
 	}
+	if cfg.Agenda == nil {
+		cfg.Agenda = agenda.Nuevo(agenda.Config{Reloj: cfg.Reloj, ZonaHoraria: cfg.ZonaHoraria})
+	}
+	cfg.Posiciones = cfg.Posiciones.conDefectos()
 	m := &Modulo{cfg: cfg}
 	m.CrearOrden = m.nuevoCrearOrden()
 	m.AsignarOrden = m.nuevoAsignarOrden()
@@ -183,8 +200,15 @@ func Nuevo(cfg Config) *Modulo {
 	m.LeerCambios = m.nuevoLeerCambios()
 	m.RegistrarDispositivo = m.nuevoRegistrarDispositivo()
 	m.RegistrarRechazo = m.nuevoRegistrarRechazo()
+	m.RegistrarPosiciones = m.nuevoRegistrarPosiciones()
+	m.UltimasPosiciones = m.nuevoUltimasPosiciones()
+	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
+	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
 	return m
 }
+
+// Agenda devuelve el módulo de agenda con que programa (para registrar sus rutas con el mismo).
+func (m *Modulo) Agenda() *agenda.Modulo { return m.cfg.Agenda }
 
 // ahora es la hora del módulo en UTC, truncada a microsegundos (la precisión de Postgres).
 func (m *Modulo) ahora() time.Time { return m.cfg.Reloj().UTC().Truncate(time.Microsecond) }
