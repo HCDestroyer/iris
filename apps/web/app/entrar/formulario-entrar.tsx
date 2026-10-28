@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { Schema } from "@iris/contratos";
 import { Aviso, Boton, Campo } from "@iris/ui";
 import { ArrowLeft, Clock, LogIn, ShieldCheck } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { esRutaCampo, requiereCambio, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import {
     esquemaCodigoMFA,
     esquemaInicioSesion,
@@ -92,10 +94,16 @@ export function FormularioEntrar() {
         defaultValues: { codigo: "" },
     });
 
-    function entrar() {
+    function entrar(usuario?: Schema<"Usuario">) {
+        // Contraseña temporal (tras un reinicio de MFA): la API solo deja cambiarla; se va directo
+        // a esa pantalla, que luego vuelve a `siguiente` (también a /campo).
+        if (requiereCambio(usuario)) {
+            router.replace(rutaCambiarContrasena(siguiente));
+            return;
+        }
         // La app de campo se carga entera (no por el router): así queda bajo su service worker
         // desde la primera visita y abre sin señal la próxima vez.
-        if (siguiente === "/campo" || siguiente.startsWith("/campo?") || siguiente.startsWith("/campo/")) {
+        if (esRutaCampo(siguiente)) {
             window.location.assign(siguiente);
             return;
         }
@@ -113,7 +121,7 @@ export function FormularioEntrar() {
                 setPaso("mfa");
                 return;
             }
-            entrar();
+            entrar(sesion.usuario);
         } catch (error) {
             if (error instanceof ErrorApi && error.estado === 429) {
                 bloqueo.bloquear(error.reintentarEn ?? 15 * 60);
@@ -134,8 +142,8 @@ export function FormularioEntrar() {
     async function enviarCodigo(datos: DatosCodigoMFA) {
         setAviso(null);
         try {
-            await resolver(api().POST("/api/v1/sesion/mfa", { body: datos }));
-            entrar();
+            const sesion = await resolver(api().POST("/api/v1/sesion/mfa", { body: datos }));
+            entrar(sesion.usuario);
         } catch (error) {
             if (error instanceof ErrorApi && error.codigo === "codigo_invalido") {
                 mfa.setError("codigo", { message: "Código incorrecto o ya usado. Revisa tu app de autenticación." });
