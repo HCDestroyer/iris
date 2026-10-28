@@ -24,6 +24,14 @@ export type ExistenciasBodega = Schema<"ExistenciasBodega">;
 export type Existencia = Schema<"Existencia">;
 export type RutaCampo = Schema<"RutaCampo">;
 export type Cambios = Schema<"Cambios">;
+/** Turno del técnico ese día según la agenda, sin las ausencias (`Paquete.turno`, I2). */
+export type TurnoCampo = Schema<"TurnoCampo">;
+export type TramoCampo = Schema<"TramoCampo">;
+/**
+ * `GET /campo/cambios` aún no trae el turno; si la API lo agrega con la misma forma del paquete,
+ * el motor lo toma sin cambios (hasta entonces solo cuenta el del paquete).
+ */
+export type CambiosConTurno = Cambios & { turno?: TurnoCampo };
 export type CitaOrden = Schema<"CitaOrden">;
 
 /** Ubicación en vivo del técnico (`POST /campo/posiciones`, I2). */

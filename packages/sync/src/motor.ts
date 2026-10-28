@@ -5,6 +5,7 @@
 import type { Almacen, LoteEscritura } from "./almacen";
 import { aplicarOperacion, bodegaDeOrden, descontarExistencias, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
 import type {
+    CambiosConTurno,
     DatosPorTipo,
     Existencias,
     OperacionCable,
@@ -16,7 +17,7 @@ import type {
     TipoOperacion,
 } from "./contrato";
 import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
-import type { AdjuntoLocal, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
+import type { AdjuntoLocal, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 import { crearGeneradorUuid7 } from "./uuid7";
@@ -115,6 +116,8 @@ export interface EstadoSync {
     /** Existencias de las bodegas del técnico menos lo usado en la cola (`null` sin paquete). */
     existencias: Existencias | null;
     ruta: RutaCampo | null;
+    /** Turno de la agenda del día del paquete (`null` si no hay o ese día no trabaja). */
+    turno: TurnoDelDia | null;
     fecha: string | null;
     ultimaSincronizacion: number | null;
     /** Pasaron 7 días sin sincronizar: se borró lo del servidor y hay que bajar el paquete. */
@@ -544,7 +547,7 @@ export class MotorSync {
             this.guardar({
                 ordenes: { borrar: [...this.ordenes.keys()] },
                 adjuntos: { borrar: [...this.adjuntos.values()].filter((a) => a.estado === "subido").map((a) => a.id) },
-                meta: { cursor: null, fecha: null, existencias: null, ruta: null },
+                meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null },
             }),
         );
         this.emitir();
@@ -568,6 +571,8 @@ export class MotorSync {
                     fecha: paquete.fecha,
                     existencias: paquete.existencias,
                     ruta: paquete.ruta ?? null,
+                    // Sin `turno` = ese día no trabaja según la agenda (o no tiene ficha).
+                    turno: paquete.turno ? { ...paquete.turno, fecha: paquete.fecha } : null,
                 },
             });
         });
@@ -749,7 +754,7 @@ export class MotorSync {
         const conOps = this.ordenesConOps();
         await this.guardar({
             ordenes: { borrar: [...this.ordenes.keys()].filter((id) => !conOps.has(id)) },
-            meta: { cursor: null, fecha: null, existencias: null, ruta: null },
+            meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null },
         });
     }
 
@@ -1163,9 +1168,12 @@ export class MotorSync {
                     poner.set(local.id, { ...local, base: { ...local.base, estado: "cancelada" } });
                 }
             }
+            // Si la API manda el turno (hoy solo viene en el paquete), es el del día del paquete.
+            const { turno } = datos as CambiosConTurno;
+            const fecha = this.meta.fecha;
             await this.guardar({
                 ordenes: { poner: [...poner.values()], borrar: [...borrar] },
-                meta: { cursor: datos.cursor },
+                meta: { cursor: datos.cursor, ...(turno && fecha !== null ? { turno: { ...turno, fecha } } : {}) },
             });
             this.emitir();
             if (!datos.hayMas || datos.cursor === actual) {
@@ -1293,6 +1301,7 @@ export class MotorSync {
             ordenes,
             existencias: descontarExistencias(this.meta.existencias, pendientes, bodegaDe),
             ruta: this.meta.ruta,
+            turno: this.meta.turno,
             fecha: this.meta.fecha,
             ultimaSincronizacion: this.meta.ultimaSincronizacion,
             caducado: this.meta.fecha === null && this.meta.ultimaSincronizacion !== null,

@@ -43,8 +43,12 @@ se inyectan.
   (`ruta.ordenIds`) o, sin ruta, por cita (`programadaInicio`) y número. Existencias por bodega:
   `material.usar` descuenta de la bodega de su orden (o la única del técnico). El desfase se mide
   con `servidorEn` (paquete y lote) o la cabecera `Date` (cambios).
+- **Turno de la agenda:** `estado.turno` = `Paquete.turno` con la `fecha` del paquete
+  (`TurnoDelDia`), en `meta` (sobrevive sin señal). Sin `turno` en el paquete queda `null` (ese día
+  no trabaja). Si `GET /campo/cambios` llega a traer `turno` (`CambiosConTurno`), lo reemplaza con
+  la fecha del paquete; hoy no lo trae. Quien lo usa decide el día (la PWA lo ignora si no es hoy).
 - **Caducidad:** 7 días sin contacto con la API borran lo que vino del servidor (paquete,
-  existencias, ruta, cursor) y `estado.caducado` pide bajar el paquete. La cola y los adjuntos
+  existencias, ruta, turno, cursor) y `estado.caducado` pide bajar el paquete. La cola y los adjuntos
   sin subir **nunca** se borran.
 - **Adjuntos (I1):** `agregarAdjunto` guarda los bytes y encola `adjunto.registrar` en una sola
   escritura. Alta `POST /adjuntos` (`entidad: "orden"`, `claveChecklist` = código del ítem foto,

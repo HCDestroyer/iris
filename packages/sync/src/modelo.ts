@@ -1,5 +1,5 @@
 // Registros locales que guarda el teléfono (en el `Almacen`).
-import type { DatosPorTipo, Existencias, OrdenCampo, Problema, RutaCampo, TipoAdjunto, TipoOperacion } from "./contrato";
+import type { DatosPorTipo, Existencias, OrdenCampo, Problema, RutaCampo, TipoAdjunto, TipoOperacion, TurnoCampo } from "./contrato";
 
 /**
  * - `pendiente`: por enviar (o retenida detrás de un rechazo de su orden).
@@ -68,6 +68,9 @@ export interface AdjuntoLocal {
     problema: Problema | null;
 }
 
+/** Turno de la agenda guardado con el día del paquete al que pertenece (`YYYY-MM-DD`, Guatemala). */
+export type TurnoDelDia = TurnoCampo & { fecha: string };
+
 export interface MetaSync {
     dispositivoId: string | null;
     /** Contador de `secuencia` de la cola. */
@@ -78,6 +81,8 @@ export interface MetaSync {
     fecha: string | null;
     existencias: Existencias | null;
     ruta: RutaCampo | null;
+    /** Turno del día según la agenda; `null` = sin paquete o ese día no trabaja según la agenda. */
+    turno: TurnoDelDia | null;
     /** Último contacto correcto con la API (hora del teléfono). */
     ultimaSincronizacion: number | null;
 }
@@ -90,5 +95,6 @@ export const META_INICIAL: MetaSync = {
     fecha: null,
     existencias: null,
     ruta: null,
+    turno: null,
     ultimaSincronizacion: null,
 };

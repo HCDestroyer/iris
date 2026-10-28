@@ -206,7 +206,8 @@ function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: 
             () => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos),
             empiezaTurno ? `${texto}. ${AVISO_TURNO_INICIADO}` : texto,
         );
-        if (guardada && empiezaTurno) {
+        if (guardada) {
+            // Fuera de turno lo empieza (si puede); en turno, lo mantiene hasta la última orden.
             ubicacion.iniciarTurnoSolo();
         }
         setOcupado(null);

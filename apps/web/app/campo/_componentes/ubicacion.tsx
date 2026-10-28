@@ -3,16 +3,21 @@
 import type { ColaPosiciones, EstadoPosiciones } from "@iris/sync";
 import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, InsigniaEstado, type Tono } from "@iris/ui";
 import { Locate, LocateOff, MapPin, MapPinOff, Play, RefreshCw, Square, type LucideIcon } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { horaCorta } from "@/lib/campo/fechas";
 import { obtenerPosicion, type Posicion } from "@/lib/campo/gps";
 import { useEstadoPosiciones } from "@/lib/campo/motor";
-import type { EstadoUbicacion, RastreadorUbicacion } from "@/lib/campo/ubicacion";
-import { useCampo } from "./contexto";
+import type { AvisoTurno, EstadoUbicacion, RastreadorUbicacion } from "@/lib/campo/ubicacion";
+import { useCampo, type Notificacion } from "./contexto";
 
-/** Aviso cada vez que el turno empieza solo («En camino» / «Llegué»). */
+/** Aviso cada vez que el turno empieza solo («En camino» / «Llegué» o el inicio de un tramo de la agenda). */
 export const AVISO_TURNO_INICIADO = "Turno iniciado: se envía tu ubicación cada minuto";
-const AVISO_TURNO_TERMINADO = "Turno terminado: no te quedan órdenes abiertas hoy. Ya no se envía tu ubicación.";
+const AVISOS: Record<AvisoTurno, Notificacion> = {
+    iniciado_por_agenda: { tono: "info", texto: AVISO_TURNO_INICIADO },
+    terminado_por_agenda: { tono: "info", texto: "Turno terminado: terminó tu horario de la agenda. Ya no se envía tu ubicación." },
+    terminado_por_ordenes: { tono: "info", texto: "Turno terminado: no tienes órdenes en curso. Ya no se envía tu ubicación." },
+    terminado_por_tope: { tono: "warning", texto: "Turno terminado: pasaron 2 h de tu horario; vuelve a iniciarlo si sigues trabajando" },
+};
 const RUTA_VOLVER_A_ENTRAR = "/entrar?siguiente=%2Fcampo&motivo=expirada";
 
 type ContextoUbicacion = {
@@ -25,11 +30,12 @@ type ContextoUbicacion = {
      * no» en esta visita, con permiso y fuera de turno.
      */
     turnoEmpezariaSolo: () => boolean;
-    /** Empieza el turno solo (tras «En camino» / «Llegué»); devuelve si empezó. */
+    /**
+     * Tras «En camino» / «Llegué»: fuera de turno lo empieza solo (si puede); en turno, lo mantiene
+     * hasta la última orden aunque termine el tramo. Devuelve si empezó.
+     */
     iniciarTurnoSolo: () => boolean;
     terminarTurno: () => void;
-    /** Órdenes abiertas del día: sin ninguna (tras tener alguna), el turno termina solo. */
-    alCambiarOrdenesAbiertas: (abiertas: number) => boolean;
     /**
      * Posición para «En camino» / «Llegué»: la primera vez por usuario (o mientras no la acepte),
      * la explicación antes, aunque el permiso ya esté dado. Sin permiso o con «Ahora no», `null`
@@ -52,6 +58,34 @@ export function useUbicacion(): ContextoUbicacion {
 }
 
 const ISO = (ms: number | null) => (ms === null ? undefined : new Date(ms).toISOString());
+
+/**
+ * Turno de la agenda junto al estado: «En turno hasta 17:00», «Fuera de turno · empieza 08:00».
+ * Sin turno en la agenda hoy, nada.
+ */
+export function textoTurno(estado: EstadoUbicacion): string | null {
+    if (estado.tramos === null) {
+        return null;
+    }
+    if (estado.enTurno) {
+        if (estado.hasta !== null) {
+            return `En turno hasta ${horaCorta(ISO(estado.hasta))}`;
+        }
+        return estado.tope !== null ? `En turno fuera de horario, máx. ${horaCorta(ISO(estado.tope))}` : "En turno fuera de horario";
+    }
+    return estado.empieza !== null ? `empieza ${horaCorta(ISO(estado.empieza))}` : null;
+}
+
+/** Texto completo del indicador: estado de la ubicación y, con agenda, el turno. */
+export function textoIndicador(estado: EstadoUbicacion): string {
+    const r = resumenUbicacion(estado);
+    const turno = textoTurno(estado);
+    if (turno === null) {
+        return r.texto;
+    }
+    // «Fuera de turno · empieza 08:00»; en turno, «Ubicación activa · En turno hasta 17:00».
+    return `${r.texto} · ${turno}`;
+}
 
 /** Lo que muestra el indicador: icono + texto + color. */
 export function resumenUbicacion(estado: EstadoUbicacion): { tono: Tono; icono: LucideIcon; texto: string } {
@@ -103,8 +137,6 @@ export function ProveedorUbicacion({
     const [explicando, setExplicando] = useState(false);
     const [panel, setPanel] = useState(false);
     const resolverExplicacion = useRef<(() => void) | null>(null);
-    /** «Ahora no» en esta visita: las acciones no vuelven a preguntar. */
-    const declinado = useRef(false);
 
     useEffect(() => rastreador.montar(), [rastreador]);
 
@@ -131,10 +163,10 @@ export function ProveedorUbicacion({
         async (permitir: boolean) => {
             if (permitir) {
                 rastreador.marcarExplicacionAceptada();
-                declinado.current = false;
                 await rastreador.pedirPermiso();
             } else {
-                declinado.current = true;
+                // «Ahora no» en esta visita: las acciones no vuelven a preguntar ni el turno se enciende solo.
+                rastreador.declinarEnVisita();
             }
             setExplicando(false);
             resolverExplicacion.current?.();
@@ -152,29 +184,17 @@ export function ProveedorUbicacion({
         }
     }, [rastreador, explicar]);
 
-    const turnoEmpezariaSolo = useCallback(() => {
-        const e = rastreador.obtenerEstado();
-        return !e.enTurno && e.permiso === "concedido" && rastreador.explicacionAceptada() && !declinado.current;
-    }, [rastreador]);
-
-    const iniciarTurnoSolo = useCallback(() => {
-        if (!turnoEmpezariaSolo()) {
-            return false;
-        }
-        rastreador.iniciarTurno();
-        return true;
-    }, [rastreador, turnoEmpezariaSolo]);
-
+    const turnoEmpezariaSolo = useCallback(() => rastreador.puedeEmpezarSolo(), [rastreador]);
+    const iniciarTurnoSolo = useCallback(() => rastreador.alTrabajar(), [rastreador]);
     const terminarTurno = useCallback(() => rastreador.terminarTurno(), [rastreador]);
-    const alCambiarOrdenesAbiertas = useCallback((abiertas: number) => rastreador.alCambiarOrdenesAbiertas(abiertas), [rastreador]);
 
     const posicionParaAccion = useCallback(
         async (esperaMs?: number) => {
-            if (!rastreador.explicacionAceptada() && !declinado.current) {
+            if (!rastreador.explicacionAceptada() && !rastreador.declinadoEnVisita()) {
                 await explicar();
             }
             const permiso = rastreador.obtenerEstado().permiso;
-            if (declinado.current || permiso === "denegado" || permiso === "no_disponible") {
+            if (rastreador.declinadoEnVisita() || permiso === "denegado" || permiso === "no_disponible") {
                 return null;
             }
             return obtenerPosicion(esperaMs);
@@ -195,12 +215,11 @@ export function ProveedorUbicacion({
             turnoEmpezariaSolo,
             iniciarTurnoSolo,
             terminarTurno,
-            alCambiarOrdenesAbiertas,
             posicionParaAccion,
             posicionSiPermitida,
             abrirPanel: () => setPanel(true),
         }),
-        [estado, envio, iniciarTurno, turnoEmpezariaSolo, iniciarTurnoSolo, terminarTurno, alCambiarOrdenesAbiertas, posicionParaAccion, posicionSiPermitida],
+        [estado, envio, iniciarTurno, turnoEmpezariaSolo, iniciarTurnoSolo, terminarTurno, posicionParaAccion, posicionSiPermitida],
     );
 
     return (
@@ -212,10 +231,15 @@ export function ProveedorUbicacion({
                         <li>Registrar dónde marcas «En camino», «Llegué», las fotos y el cierre.</li>
                         <li>Mientras estás en turno y la app está abierta, enviar tu ubicación cada minuto a despacho.</li>
                         <li>
-                            El turno empieza cuando tocas «Iniciar turno», o solo al marcar «En camino» o «Llegué» (te avisamos). Termina solo
-                            cuando ya no te quedan órdenes abiertas del día (cerraste o no se pudo la última, o te la cancelaron o
-                            reasignaron), cuando tú lo terminas o, como máximo, a medianoche.
+                            Si tienes turno en la agenda, empieza y termina solo a esas horas (te avisamos). Si al terminar tienes una orden en
+                            curso (en camino o en sitio), sigue hasta que no quede ninguna en curso, como máximo 2 horas después.
                         </li>
+                        <li>
+                            Sin turno en la agenda, empieza cuando tocas «Iniciar turno», o solo al marcar «En camino» o «Llegué» (te
+                            avisamos), y termina solo cuando no queda ninguna orden en curso (en camino o en sitio).
+                        </li>
+                        <li>Las órdenes pendientes, programadas o pausadas que no has empezado no mantienen el turno.</li>
+                        <li>Siempre puedes terminarlo tú; como máximo, termina a medianoche.</li>
                         <li>Fuera de turno no se registra nada. Si no la permites, la app funciona igual.</li>
                     </ul>
                     <DialogoPie className="mt-4">
@@ -238,6 +262,7 @@ export function ProveedorUbicacion({
 export function IndicadorUbicacion({ className }: { className?: string }) {
     const { estado, envio, abrirPanel } = useUbicacion();
     const r = resumenUbicacion(estado);
+    const turno = textoTurno(estado);
     const Icono = r.icono;
     return (
         <Boton
@@ -247,10 +272,15 @@ export function IndicadorUbicacion({ className }: { className?: string }) {
             data-tono={r.tono}
             className={cn("h-auto min-h-8 gap-1.5 px-2 py-1 whitespace-normal text-left text-xs font-semibold", className)}
             onClick={abrirPanel}
-            aria-label={`Ubicación: ${r.texto}${envio.pendientes > 0 ? `. Pendientes de enviar: ${envio.pendientes}` : ""}. Ver detalle`}
+            aria-label={`Ubicación: ${textoIndicador(estado)}${envio.pendientes > 0 ? `. Pendientes de enviar: ${envio.pendientes}` : ""}. Ver detalle`}
         >
             <Icono aria-hidden className={cn("size-4 shrink-0", TEXTO_TONO[r.tono])} />
-            <span className={TEXTO_TONO[r.tono]}>{r.texto}</span>
+            <span className={TEXTO_TONO[r.tono]}>{r.texto}</span>{" "}
+            {turno !== null ? (
+                <span className="font-normal text-foreground" data-testid="turno-ubicacion">
+                    · {turno}
+                </span>
+            ) : null}{" "}
             {envio.pendientes > 0 ? <span className="font-normal text-muted-foreground">· Pendientes de enviar: {envio.pendientes}</span> : null}
         </Boton>
     );
@@ -283,8 +313,30 @@ function PanelUbicacion({
                 <div className="grid gap-4 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                         <InsigniaEstado tono={r.tono} icono={r.icono} texto={r.texto} data-testid="estado-ubicacion" />
-                        {estado.enTurno ? <span className="text-muted-foreground">Turno iniciado hoy</span> : null}
+                        {textoTurno(estado) !== null ? (
+                            <span className="text-muted-foreground">{textoTurno(estado)}</span>
+                        ) : estado.enTurno ? (
+                            <span className="text-muted-foreground">Turno iniciado hoy</span>
+                        ) : null}
                     </div>
+                    <p className="text-muted-foreground" data-testid="turno-agenda">
+                        {estado.tramos === null ? (
+                            "Hoy no tienes turno en la agenda: el turno lo inicias tú, o «En camino» y «Llegué»."
+                        ) : (
+                            <>
+                                Tu turno de hoy en la agenda:{" "}
+                                {estado.tramos.map((t, i) => (
+                                    <Fragment key={t.inicio}>
+                                        {i > 0 ? ", " : null}
+                                        <span className="whitespace-nowrap tabular-nums">
+                                            {horaCorta(ISO(t.inicio))}–{horaCorta(ISO(t.fin))}
+                                        </span>
+                                    </Fragment>
+                                ))}
+                                .
+                            </>
+                        )}
+                    </p>
 
                     {estado.permiso === "denegado" ? (
                         <Aviso tono="warning" titulo="El navegador tiene bloqueada la ubicación">
@@ -390,23 +442,42 @@ function PanelUbicacion({
     );
 }
 
-const TERMINALES = new Set(["cerrada", "fallida", "cancelada"]);
+/** En curso: el técnico va en camino o está en sitio (una pausada, pendiente o programada no cuenta). */
+const EN_CURSO = new Set(["en_camino", "en_sitio"]);
 
 /**
- * Termina el turno solo cuando el técnico se queda sin órdenes abiertas del día (cerró o falló la
- * última, o se la cancelaron o reasignaron) y lo avisa. Va dentro de `ProveedorCampo`.
+ * Turno automático (va dentro de `ProveedorCampo`): pasa al rastreador el turno de la agenda que
+ * guarda el motor y las órdenes en curso, y avisa lo que el rastreador hizo solo
+ * (encender o apagar al empezar o terminar un tramo, al quedarse sin órdenes en curso o al tope).
  */
-export function FinDeTurnoPorOrdenes() {
+export function TurnoAutomatico({ rastreador }: { rastreador: RastreadorUbicacion }) {
     const { estado, notificar } = useCampo();
-    const { alCambiarOrdenesAbiertas } = useUbicacion();
-    const abiertas = estado.ordenes.filter((o) => !TERMINALES.has(o.estado) && !o.reasignada).length;
+    const enCurso = estado.ordenes.filter((o) => EN_CURSO.has(o.estado) && !o.reasignada).length;
+    const pendiente = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(
+        () => {
+            const quitar = rastreador.alAvisar((aviso) => {
+                if (pendiente.current) {
+                    clearTimeout(pendiente.current);
+                }
+                // Después del aviso de la acción que lo provocó («Orden cerrada…»), para que no lo tape.
+                pendiente.current = setTimeout(() => notificar(AVISOS[aviso]), 300);
+            });
+            return () => {
+                quitar();
+                if (pendiente.current) {
+                    clearTimeout(pendiente.current);
+                }
+            };
+        },
+        [rastreador, notificar],
+    );
+
+    // Primero las órdenes en curso: al pasar la agenda ya se sabe si algo mantiene el turno.
     useEffect(() => {
-        if (alCambiarOrdenesAbiertas(abiertas)) {
-            // Después del aviso de la acción que la cerró («Orden cerrada…»), para que no lo tape.
-            const t = setTimeout(() => notificar({ tono: "info", texto: AVISO_TURNO_TERMINADO }), 300);
-            return () => clearTimeout(t);
-        }
-        return undefined;
-    }, [abiertas, alCambiarOrdenesAbiertas, notificar]);
+        rastreador.alCambiarOrdenesEnCurso(enCurso);
+    }, [rastreador, enCurso]);
+    useEffect(() => rastreador.establecerAgenda(estado.turno), [rastreador, estado.turno]);
     return null;
 }

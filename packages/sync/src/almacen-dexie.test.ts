@@ -79,7 +79,8 @@ describe("AlmacenDexie", () => {
     it("el motor funciona de punta a punta sobre IndexedDB y sobrevive al reinicio", async () => {
         const nombre = `iris-campo-prueba-${++n}`;
         const transporte = new TransporteFalso();
-        transporte.paquete = (fecha) => paqueteDePrueba(fecha);
+        const turno = { inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T23:00:00Z", tramos: [{ inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T23:00:00Z" }] };
+        transporte.paquete = (fecha) => ({ ...paqueteDePrueba(fecha), turno });
         const reloj = new RelojManual();
         const subidor = new SubidorFalso();
         const motor = await MotorSync.abrir({ almacen: nuevoAlmacen(nombre), transporte, reloj, subidor });
@@ -90,7 +91,7 @@ describe("AlmacenDexie", () => {
 
         const reabierto = await MotorSync.abrir({ almacen: nuevoAlmacen(nombre), transporte, reloj, subidor });
         expect(reabierto.dispositivoId).toBe(motor.dispositivoId);
-        expect(reabierto.obtenerEstado()).toMatchObject({ pendientes: 2, fecha: FECHA });
+        expect(reabierto.obtenerEstado()).toMatchObject({ pendientes: 2, fecha: FECHA, turno: { ...turno, fecha: FECHA } });
         expect(reabierto.obtenerOrden(1)?.estado).toBe("en_camino");
 
         transporte.sinRed = false;

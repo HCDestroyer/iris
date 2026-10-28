@@ -175,7 +175,9 @@ test.describe("en el teléfono", () => {
         await page.getByRole("button", { name: "En camino" }).click();
         // El permiso del navegador ya estaba dado (p. ej. desde antes de actualizar): igual se explica.
         const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
-        await expect(explicacion).toContainText("Termina solo cuando ya no te quedan órdenes abiertas del día");
+        await expect(explicacion).toContainText("Si tienes turno en la agenda, empieza y termina solo a esas horas");
+        await expect(explicacion).toContainText("termina solo cuando no queda ninguna orden en curso (en camino o en sitio)");
+        await expect(explicacion).toContainText("Las órdenes pendientes, programadas o pausadas que no has empezado no mantienen el turno.");
         await expect(explicacion).toContainText("Fuera de turno no se registra nada");
         expect(api.intentosPosiciones).toHaveLength(0);
         await explicacion.getByRole("button", { name: "Permitir ubicación" }).click();
@@ -195,7 +197,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Ubicación activa");
     });
 
-    test("al cerrar la última orden abierta del día el turno termina solo y deja de enviar", async ({ page, context }) => {
+    test("al cerrar la última orden en curso el turno termina solo y deja de enviar", async ({ page, context }) => {
         test.setTimeout(60_000);
         await context.grantPermissions(["geolocation"]);
         await context.setGeolocation(GUATE);
@@ -211,7 +213,7 @@ test.describe("en el teléfono", () => {
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
         await page.getByRole("button", { name: "Cerrar orden" }).click();
         await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
-        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno terminado: no te quedan órdenes abiertas hoy");
+        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno terminado: no tienes órdenes en curso");
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
 
