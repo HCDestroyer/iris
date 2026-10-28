@@ -3,23 +3,78 @@
 import { Aviso, Boton, Esqueleto, Hoja, HojaContenido, HojaDisparador, MarcaIris } from "@iris/ui";
 import { LogOut, Menu, RotateCw } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuVisible } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
-import { ErrorLectura } from "./error-lectura";
+import { ErrorLectura, SinEmpresa } from "./error-lectura";
 import { Navegacion } from "./navegacion";
+import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
 import { SelectorTema } from "./selector-tema";
 
-/** Layout autenticado: lee `GET /yo` y, solo si salió bien, arma el menú con sus permisos. */
+/**
+ * Layout autenticado: lee `GET /yo` y, solo si salió bien, arma el menú con sus permisos.
+ * También gobierna la empresa activa: la elegida va en `X-Iris-Empresa` (lib/empresa.ts) y los
+ * 422/403 de empresa de cualquier petición llegan aquí.
+ */
+/** Rutas administrativas: la API no exige empresa activa para ellas (i1.md). */
+const RUTAS_SIN_EMPRESA = ["/usuarios", "/administracion"];
+
 export function Panel({ children }: { children: ReactNode }) {
     const yo = useYo();
+    const ruta = usePathname();
+    const administrativa = RUTAS_SIN_EMPRESA.some((r) => ruta === r || ruta.startsWith(`${r}/`));
+    const { refrescar } = yo;
+    const [pedida, setPedida] = useState(false);
+    const [noPermitida, setNoPermitida] = useState(false);
+
+    useEffect(
+        () =>
+            suscribirProblemasEmpresa((problema) => {
+                if (problema === "empresa_no_permitida") {
+                    // La guardada ya no es suya (o no hay conector): se olvida y se vuelve a preguntar.
+                    limpiarEmpresa();
+                    setNoPermitida(true);
+                } else if (problema === "empresa_requerida") {
+                    setPedida(true);
+                }
+                void refrescar();
+            }),
+        [refrescar],
+    );
+
+    const elegirEmpresa = useCallback(
+        (id: number) => {
+            guardarEmpresa(id);
+            setPedida(false);
+            setNoPermitida(false);
+            void refrescar();
+        },
+        [refrescar],
+    );
+    const pedirEmpresa = useCallback(() => setPedida(true), []);
+    const refrescarSesion = useCallback(() => void refrescar(), [refrescar]);
+
     if (yo.estado === "listo") {
+        const datos = yo.datos;
+        const varias = (datos.empresas?.length ?? 0) > 1;
+        const elegir = !administrativa && (datos.modoEmpresa === "por_elegir" || (varias && (pedida || datos.empresaActiva === undefined)));
+        // La clave remonta la pantalla al cambiar de empresa: todo se vuelve a leer.
+        const clave = `${datos.modoEmpresa}-${datos.empresaActiva?.id ?? 0}`;
         return (
-            <ProveedorSesion yo={yo.datos}>
-                <Estructura>{children}</Estructura>
+            <ProveedorSesion yo={datos} elegirEmpresa={elegirEmpresa} pedirEmpresa={pedirEmpresa} refrescarSesion={refrescarSesion}>
+                <Estructura>
+                    {datos.modoEmpresa === "sin_empresa" && !administrativa ? (
+                        <SinEmpresa />
+                    ) : elegir ? (
+                        <ElegirEmpresa motivo={noPermitida ? "no_permitida" : undefined} />
+                    ) : (
+                        <div key={clave}>{children}</div>
+                    )}
+                </Estructura>
             </ProveedorSesion>
         );
     }
@@ -60,7 +115,9 @@ function EsqueletoPanel() {
 }
 
 function Estructura({ children }: { children: ReactNode }) {
-    const { yo, permisos } = useSesion();
+    const { yo, permisos, puede } = useSesion();
+    const ruta = usePathname();
+    const avisoAdopcion = yo.hayDatosSinEmpresa && puede(["empresas.adoptar"]) && !ruta.startsWith("/administracion/datos-sin-empresa");
     const router = useRouter();
     const entradas = menuVisible(permisos);
     const [menuAbierto, setMenuAbierto] = useState(false);
@@ -121,7 +178,8 @@ function Estructura({ children }: { children: ReactNode }) {
                     <MarcaIris />
                 </Link>
                 <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-                    <div className="hidden min-w-0 text-right sm:grid">
+                    <SelectorEmpresa />
+                    <div className="hidden min-w-0 text-right md:grid">
                         <span className="truncate text-sm font-medium" data-testid="usuario-nombre">
                             {yo.usuario.nombre}
                         </span>
@@ -157,6 +215,7 @@ function Estructura({ children }: { children: ReactNode }) {
                         {mensajeDeError(errorCerrar).detalle}
                     </Aviso>
                 ) : null}
+                {avisoAdopcion ? <AvisoDatosSinEmpresa /> : null}
                 {children}
             </main>
         </div>

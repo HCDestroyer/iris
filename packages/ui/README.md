@@ -22,7 +22,9 @@ oscuro con la clase `.dark` en `<html>` (variante `dark:`).
 ## Componentes
 
 `Boton` (primario con halo, secundario, contorno, fantasma, enlace; `asChild`), `Entrada`,
-`Etiqueta`, `Campo` (etiqueta + entrada + error con `aria-describedby`), `Tarjeta*`, `Aviso`
+`Etiqueta`, `Campo` (etiqueta + entrada + error con `aria-describedby`), `AreaTexto` / `CampoArea`,
+`Selector` / `CampoSelector` (`<select>` nativo: en el teléfono abre el selector del sistema),
+`Dialogo*` (modal en vidrio fuerte; en el teléfono sube desde abajo, `DialogoPie`), `Tarjeta*`, `Aviso`
 (tono + icono + título + acción, p. ej. «Reintentar»), `InsigniaEstado` (icono + texto + color),
 `EstadoVacio`, `Esqueleto`, `Cargando`, `GrupoSegmentado` (radiogroup), `Hoja*` (panel lateral),
 `Tabla*`, `LogoIris`, `MarcaIris`, `cn`. Tonos: `neutral | info | success | warning | error`

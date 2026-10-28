@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
+import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
 
 /*
  * API falsa para Playwright, con fixtures tipados con packages/contratos. Reproduce lo que
@@ -34,12 +35,35 @@ export function usuario(datos: Partial<Schema<"Usuario">> & Pick<Schema<"Usuario
 export const ADMIN = usuario({ id: 1, nombre: "Ana López", correo: "ana@iris.test", roles: [{ rol: "admin" }] });
 export const CON_MFA = usuario({ id: 2, nombre: "Mario Pérez", correo: "mario@iris.test", mfaActivo: true, roles: [{ rol: "supervisor" }] });
 export const LECTOR = usuario({ id: 3, nombre: "Lucía Ramírez", correo: "lucia@iris.test", roles: [{ rol: "tecnico", zonaId: 4 }] });
+export const SOPORTE = usuario({ id: 6, nombre: "Sofía Morales", correo: "sofia@iris.test", roles: [{ rol: "soporte" }] });
+/** Rol lectura: ve tickets, pero no notas internas ni acciones. */
+export const CONSULTA = usuario({ id: 7, nombre: "Carlos Ruiz", correo: "carlos@iris.test", roles: [{ rol: "lectura" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
+const PERMISOS_TICKETS: Permiso[] = [
+    "tickets.asignar",
+    "tickets.cerrar",
+    "tickets.crear",
+    "tickets.escalar",
+    "tickets.fusionar",
+    "tickets.nota_interna",
+    "tickets.poner_en_espera",
+    "tickets.reabrir",
+    "tickets.reanudar",
+    "tickets.resolver",
+    "tickets.responder",
+    "tickets.ver",
+    "tickets.ver_notas",
+];
+
 export const PERMISOS_ADMIN: Permiso[] = [
+    "clientes.estado_cuenta",
+    "clientes.ver",
+    "empresas.adoptar",
+    "empresas.todas",
     "permisos.ver",
     "roles.ver",
-    "tickets.ver",
+    ...PERMISOS_TICKETS,
     "tokens.crear",
     "tokens.revocar",
     "tokens.ver",
@@ -53,11 +77,13 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [ADMIN.correo]: PERMISOS_ADMIN,
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
+    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
+    [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
 };
-const usuarios = [ADMIN, CON_MFA, LECTOR];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
-    data: [ADMIN, CON_MFA, LECTOR],
+    data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
     nextCursor: "cursor-2",
 };
 export const PAGINA_2: Schema<"PaginaUsuario"> = {
@@ -68,12 +94,38 @@ export const PAGINA_2: Schema<"PaginaUsuario"> = {
     nextCursor: null,
 };
 
+export const EMPRESAS: Schema<"EmpresaResumen">[] = [
+    { id: 10, nombre: "Cable Norte" },
+    { id: 20, nombre: "Fibra Sur" },
+];
+
+export type OpcionesApi = {
+    /** Empresas registradas en que opera el usuario. Vacío (por defecto): modo sin conector. */
+    empresas?: Schema<"EmpresaResumen">[];
+    /** Hay empresas registradas pero el usuario no tiene ninguna (403 `sin_empresa`). */
+    sinEmpresa?: boolean;
+    /** `GET /yo` trae `hayDatosSinEmpresa` (solo si el usuario tiene `empresas.adoptar`). */
+    hayDatosSinEmpresa?: boolean;
+    /** Conector con Argos apagado: `/clientes*` responde 503 `conector_apagado`. */
+    conectorApagado?: boolean;
+};
+
+export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
+
 export type ApiFalsa = {
     /** Peticiones que cambiaron estado: método, ruta y X-CSRF-Token recibido. */
     mutaciones: { metodo: string; ruta: string; csrf: string | undefined }[];
+    /** Todas las peticiones a la API (con `X-Iris-Empresa` e `Idempotency-Key`). */
+    peticiones: Peticion[];
     /** Hace fallar `GET /yo` o `GET /usuarios` las próximas `n` veces con 500. */
     fallar: (ruta: "/api/v1/yo" | "/api/v1/usuarios", n: number) => void;
+    /** Responde `problema` en las próximas `n` peticiones cuya ruta empiece con `prefijo`. */
+    responderProblema: (prefijo: string, p: Problema, n: number) => void;
+    /** Otra persona cambió el ticket: sube su versión (la próxima acción con la vieja da 409). */
+    cambiarVersion: (ticketId: number) => void;
 };
+
+const OPERATIVAS = ["/api/v1/tickets", "/api/v1/categorias", "/api/v1/slas", "/api/v1/clientes"];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
     return route.fulfill({
@@ -95,10 +147,17 @@ export async function conSesion(context: BrowserContext, baseURL: string, correo
     ]);
 }
 
-export async function simularApi(page: Page): Promise<ApiFalsa> {
+export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promise<ApiFalsa> {
     const mutaciones: ApiFalsa["mutaciones"] = [];
+    const peticiones: Peticion[] = [];
     const fallos = new Map<string, number>();
+    const problemas: { prefijo: string; p: Problema; n: number }[] = [];
     const mfaPendiente = new Map<string, number>();
+    const empresas = opciones.sinEmpresa ? [] : (opciones.empresas ?? []);
+    const hayRegistradas = opciones.sinEmpresa === true || empresas.length > 0;
+    let hayDatosSinEmpresa = opciones.hayDatosSinEmpresa ?? false;
+    const esc = escenarioTickets(Date.now(), empresas.map((e) => e.id));
+    let siguienteTicket = 1000;
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -113,6 +172,18 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
 
         if (metodo !== "GET") {
             mutaciones.push({ metodo, ruta, csrf });
+        }
+        let cuerpo: unknown = undefined;
+        try {
+            cuerpo = req.postDataJSON();
+        } catch {
+            cuerpo = undefined;
+        }
+        peticiones.push({ metodo, ruta, query: url.searchParams, empresa: cabeceras["x-iris-empresa"], idempotencia: cabeceras["idempotency-key"], cuerpo });
+        const forzado = problemas.find((x) => x.n > 0 && ruta.startsWith(x.prefijo));
+        if (forzado) {
+            forzado.n--;
+            return problema(route, forzado.p);
         }
         const pendientes = fallos.get(ruta) ?? 0;
         if (pendientes > 0) {
@@ -203,6 +274,32 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
         }
         const permisos = permisosPorCorreo[actual.correo] ?? [];
 
+        // Empresa activa, como identidad.MiddlewareEmpresa (i1.md).
+        const cabeceraEmpresa = cabeceras["x-iris-empresa"];
+        let activa: Schema<"EmpresaResumen"> | undefined;
+        if (cabeceraEmpresa !== undefined) {
+            activa = empresas.find((e) => String(e.id) === cabeceraEmpresa);
+            if (!activa) {
+                return problema(route, { type: "urn:iris:problema:empresa_no_permitida", title: "Empresa no permitida", status: 403, detail: "No operas en esa empresa" });
+            }
+        } else if (empresas.length === 1) {
+            activa = empresas[0];
+        }
+        const modo: Schema<"Yo">["modoEmpresa"] = !hayRegistradas ? "sin_conector" : empresas.length === 0 ? "sin_empresa" : activa ? "activa" : "por_elegir";
+        if (OPERATIVAS.some((r) => ruta.startsWith(r))) {
+            if (modo === "sin_empresa") {
+                return problema(route, { type: "urn:iris:problema:sin_empresa", title: "Sin empresa", status: 403, detail: "No tienes empresas asignadas" });
+            }
+            if (modo === "por_elegir") {
+                return problema(route, { type: "urn:iris:problema:empresa_requerida", title: "Elige una empresa", status: 422, detail: "Indica la empresa con X-Iris-Empresa" });
+            }
+        }
+        const empresaId = activa?.id ?? null;
+        const visibles = esc.tickets.filter((t) => t.empresaId === empresaId);
+        const puede = (p: Permiso) => permisos.includes(p);
+        const prohibido = () => problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
+        const noEncontrado = () => problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 });
+
         if (metodo === "DELETE" && ruta === "/api/v1/sesion") {
             return route.fulfill({
                 status: 204,
@@ -215,7 +312,16 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
             });
         }
         if (metodo === "GET" && ruta === "/api/v1/yo") {
-            const yo: Schema<"Yo"> = { actor: "usuario", usuario: actual, permisos, empresas: [], modoEmpresa: "sin_conector", todasLasEmpresas: false, hayDatosSinEmpresa: false };
+            const yo: Schema<"Yo"> = {
+                actor: "usuario",
+                usuario: actual,
+                permisos,
+                empresas,
+                ...(activa ? { empresaActiva: activa } : {}),
+                modoEmpresa: modo,
+                todasLasEmpresas: puede("empresas.todas"),
+                hayDatosSinEmpresa: hayDatosSinEmpresa && puede("empresas.adoptar"),
+            };
             return route.fulfill({ json: yo });
         }
         if (metodo === "GET" && ruta === "/api/v1/usuarios") {
@@ -224,11 +330,141 @@ export async function simularApi(page: Page): Promise<ApiFalsa> {
             }
             return route.fulfill({ json: url.searchParams.get("cursor") === PAGINA_1.nextCursor ? PAGINA_2 : PAGINA_1 });
         }
-        return problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 });
+
+        const adopcion = /^\/api\/v1\/empresas\/(\d+)\/adoptar-sin-empresa$/.exec(ruta);
+        if (metodo === "POST" && adopcion) {
+            if (!puede("empresas.adoptar")) return prohibido();
+            hayDatosSinEmpresa = false;
+            const datos: Schema<"DatosAdoptados"> = { empresaId: Number(adopcion[1]), filas: { "soporte.tickets": 12, "soporte.ticket_mensajes": 30, "soporte.ticket_eventos": 41 }, total: 83 };
+            return route.fulfill({ json: datos });
+        }
+
+        if (metodo === "GET" && ruta === "/api/v1/categorias") {
+            if (!puede("tickets.ver")) return prohibido();
+            return route.fulfill({ json: { data: CATEGORIAS, nextCursor: null } satisfies Schema<"PaginaCategoria"> });
+        }
+
+        if (ruta.startsWith("/api/v1/clientes")) {
+            if (!puede("clientes.ver")) return prohibido();
+            if (opciones.conectorApagado) {
+                return problema(route, { type: "urn:iris:problema:conector_apagado", title: "Conector con Argos apagado", status: 503, detail: "No hay un conector de Argos activo" }, { "Retry-After": "60" });
+            }
+            if (ruta === "/api/v1/clientes") {
+                const q = (url.searchParams.get("q") ?? "").toLowerCase();
+                const data = CLIENTES.filter((c) => c.nombre.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q));
+                return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
+            }
+            const id = Number(ruta.split("/").pop());
+            const f = ficha(id, id === 502);
+            return f ? route.fulfill({ json: f }) : noEncontrado();
+        }
+
+        if (ruta === "/api/v1/tickets") {
+            if (metodo === "GET") {
+                if (!puede("tickets.ver")) return prohibido();
+                const q = url.searchParams;
+                // La API lee los arreglos separados por coma (explode=false): `estado=nuevo,abierto`.
+                if (q.getAll("estado").length > 1 || q.getAll("prioridad").length > 1) {
+                    return problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, detail: "estado repetido" });
+                }
+                const estados = q.get("estado")?.split(",");
+                const prioridades = q.get("prioridad")?.split(",");
+                const texto = q.get("q")?.toLowerCase();
+                let lista = visibles
+                    .filter((t) => !estados || estados.includes(t.estado))
+                    .filter((t) => !prioridades || prioridades.includes(t.prioridad))
+                    .filter((t) => !q.get("categoriaId") || t.categoriaId === Number(q.get("categoriaId")))
+                    .filter((t) => !q.get("asignadoA") || t.asignadoA === Number(q.get("asignadoA")))
+                    .filter((t) => q.get("sinAsignar") !== "true" || t.asignadoA === null)
+                    .filter((t) => !texto || t.numero.toLowerCase().includes(texto) || t.asunto.toLowerCase().includes(texto))
+                    // El orden es cosa de la API (id desc); aquí ascendente para que los casos de SLA salgan en la primera página.
+                    .sort((a, b) => a.id - b.id);
+                const desde = Number(q.get("cursor")?.replace("c:", "") ?? 0);
+                const limite = Number(q.get("limit") ?? 50);
+                lista = lista.slice(desde, desde + limite + 1);
+                const hayMas = lista.length > limite;
+                const pagina: Schema<"PaginaTicket"> = { data: lista.slice(0, limite), nextCursor: hayMas ? `c:${desde + limite}` : null };
+                return route.fulfill({ json: pagina });
+            }
+            if (metodo === "POST") {
+                if (!puede("tickets.crear")) return prohibido();
+                const entrada = cuerpo as Schema<"EntradaCrearTicket">;
+                if (!entrada.asunto || entrada.asunto.length < 3) {
+                    return problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "body.asunto", message: "mínimo 3 caracteres" }] });
+                }
+                const id = siguienteTicket++;
+                const ahora = new Date().toISOString();
+                const base = esc.tickets[4];
+                if (!base) return noEncontrado();
+                const nuevo: Schema<"Ticket"> = {
+                    ...base,
+                    id,
+                    numero: `TK-${String(id).padStart(6, "0")}`,
+                    empresaId,
+                    asunto: entrada.asunto,
+                    prioridad: entrada.prioridad ?? "media",
+                    categoriaId: entrada.categoriaId ?? null,
+                    clienteId: entrada.clienteId ?? null,
+                    contacto: { nombre: entrada.contacto?.nombre ?? null, telefono: entrada.contacto?.telefono ?? null, correo: entrada.contacto?.correo ?? null },
+                    estado: "nuevo",
+                    asignadoA: null,
+                    version: 1,
+                    creadoEn: ahora,
+                    actualizadoEn: ahora,
+                };
+                esc.tickets.push(nuevo);
+                esc.eventos.push({ id: 5000 + id, ticketId: id, tipo: "creado", de: null, a: "nuevo", motivo: null, datos: {}, actorTipo: "usuario", actorId: actual.id, actorNombre: actual.nombre, creadoEn: ahora });
+                if (entrada.descripcion) {
+                    esc.mensajes.push({ id: 5000 + id, ticketId: id, publico: true, autorTipo: "usuario", autorId: actual.id, autorNombre: actual.nombre, canal: "panel", cuerpo: entrada.descripcion, adjuntos: null, creadoEn: ahora });
+                }
+                return route.fulfill({ status: 201, json: nuevo });
+            }
+        }
+
+        const deTicket = /^\/api\/v1\/tickets\/(\d+)(?:\/([a-z-]+))?$/.exec(ruta);
+        if (deTicket) {
+            if (!puede("tickets.ver")) return prohibido();
+            const t = visibles.find((x) => x.id === Number(deTicket[1]));
+            if (!t) return noEncontrado();
+            const sub = deTicket[2];
+            if (metodo === "GET" && !sub) {
+                return route.fulfill({ json: t });
+            }
+            if (metodo === "GET" && sub === "mensajes") {
+                const soloPublicos = url.searchParams.get("soloPublicos") === "true" || !puede("tickets.ver_notas");
+                const data = esc.mensajes.filter((m) => m.ticketId === t.id && (m.publico || !soloPublicos));
+                return route.fulfill({ json: { data, nextCursor: null } satisfies Schema<"PaginaMensaje"> });
+            }
+            if (metodo === "GET" && sub === "eventos") {
+                const data = esc.eventos.filter((e) => e.ticketId === t.id);
+                return route.fulfill({ json: { data, nextCursor: null } satisfies Schema<"PaginaEventoTicket"> });
+            }
+            if (metodo === "POST" && sub) {
+                const permiso = `tickets.${sub.replaceAll("-", "_")}` as Permiso;
+                if (!puede(permiso)) return prohibido();
+                if (!cabeceras["idempotency-key"]) {
+                    return problema(route, { type: "urn:iris:problema:validacion", title: "Falta Idempotency-Key", status: 422 });
+                }
+                const r = aplicarAccion(esc, t, sub, (cuerpo ?? {}) as Record<string, unknown>, actual);
+                return route.fulfill({ status: r.estado, contentType: r.estado >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(r.cuerpo) });
+            }
+        }
+        return noEncontrado();
     });
 
     return {
         mutaciones,
+        peticiones,
+        responderProblema: (prefijo, p, n) => {
+            problemas.push({ prefijo, p, n });
+        },
+        cambiarVersion: (ticketId) => {
+            const t = esc.tickets.find((x) => x.id === ticketId);
+            if (t) {
+                t.version++;
+                t.prioridad = "alta";
+            }
+        },
         fallar: (ruta, n) => {
             fallos.set(ruta, n);
         },
