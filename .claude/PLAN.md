@@ -80,7 +80,7 @@ Los cambios en ArgosISP y Horus Flow **no** los hace ningún agente de Iris. Se 
 
 1. **I2:** comercial.
     - Prospectos y su origen.
-    - Factibilidad: coordenadas → cobertura, con nodo/router y caja NAP sugeridos desde Argos y Horus.
+    - Factibilidad: coordenadas → cobertura. Mientras no exista la fase 6, la distancia al router más cercano de la instantánea de Argos; con la fase 6, viabilidad de OZmap.
     - Cotización con planes de Argos.
     - Contrato con firma digital.
     - `ganar`: crea el cliente y el servicio en Argos y abre la orden de instalación.
@@ -94,6 +94,16 @@ Los cambios en ArgosISP y Horus Flow **no** los hace ningún agente de Iris. Se 
 - Respaldo y restauración ensayados en CI.
 - Expo (`apps/movil`) con `packages/sync` y `packages/contratos`: cámara, escaneo y GPS en segundo plano.
 
+## Fase 6 · Planta externa con OZmap (al final del plan)
+
+Decisión del PM (28 oct): la planta externa de fibra vive en OZmap, no en Argos (reemplaza el pedido A5). Se arranca solo después de las fases anteriores.
+
+- **Puerto «planta externa»** en `internal/integracion`, con un adaptador OZmap intercambiable (por si algún día se cambia a NetBox u otro). Sin el conector, Iris sigue funcionando con la factibilidad por distancia.
+- Conector con la API oficial de OZmap y token creado en su panel, guardado cifrado como los demás conectores. El sandbox se pide a integracoes@ozmap.com.br.
+- **Al vender:** viabilidad por radio o por coordenada, cajas con puertos libres, splitters de la caja y viabilidad por puerto (OLT, slot, PON).
+- **Al cerrar una instalación:** registrar el cliente en su puerto con la potencia medida (por la cola de pendientes) y mandar la referencia a Argos (pedido A9).
+- Contrato propio en `contratos/ozmap.md` (solo del lado de Iris: OZmap es un sistema externo).
+
 ## Pedidos a otros sistemas
 
 Viven en §5 de cada contrato. Resumen inicial:
@@ -104,6 +114,6 @@ Viven en §5 de cada contrato. Resumen inicial:
     - consumo de inventario por técnico;
     - comodato;
     - alta de cliente y servicio desde un prospecto;
-    - cobertura (routers/NAP por coordenada);
+    - referencia de planta en el servicio (A9; la cobertura A5 pasó a OZmap);
     - autologin.
 - **Horus Flow:** webhook de router caído o hallazgo de seguridad hacia Iris, y autologin.

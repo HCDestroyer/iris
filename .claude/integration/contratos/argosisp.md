@@ -1,4 +1,4 @@
-Versión: 0.1.0 (borrador) · Iris ↔ ArgosISP
+Versión: 0.2.0 (borrador) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP
 
@@ -85,7 +85,7 @@ Todas las llamadas llevan `Idempotency-Key`. Cada una queda en `integracion.pend
 
 | Hecho en Iris | Llamada a Argos | Idempotency-Key |
 | --- | --- | --- |
-| Instalación cerrada como exitosa | `POST /servicios/:id/activar-instalacion` (pedido A1) y, por cada equipo instalado, `POST /servicios/:id/equipos` con `{ unidad_id }` o `{ serie }` | `iris:instalacion:<orden_id>` · `iris:comodato:<orden_id>:<serie>` |
+| Instalación cerrada como exitosa | `POST /servicios/:id/activar-instalacion` (pedido A1), con `planta` si la orden la trae (pedido A9) y, por cada equipo instalado, `POST /servicios/:id/equipos` con `{ unidad_id }` o `{ serie }` | `iris:instalacion:<orden_id>` · `iris:comodato:<orden_id>:<serie>` |
 | Materiales usados en una orden | `POST /inventario/consumos` con `{ bodega_id: bodega del técnico, lineas[], servicio_id, origen_tipo: 'iris_orden', origen_id }` | `iris:consumo:<orden_id>` |
 | Retiro con equipo recuperado | `POST /servicios/:id/equipos/:unidad_id/devolver` con `{ bodega_id, condicion }` | `iris:devolucion:<orden_id>:<unidad_id>` |
 | Retiro sin equipo (perdido) | `POST /servicios/:id/equipos/:unidad_id/perdida` | `iris:perdida:<orden_id>:<unidad_id>` |
@@ -99,7 +99,10 @@ Iris nunca registra pagos ni asientos. Solo pide a Argos el cargo único, y Argo
 
 ## 4. Versionado
 
-Semver. Esta versión 0.1.0 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.2.0 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+
+- **0.2.0** (28 oct): A5 pasa a reemplazado por la integración Iris ↔ OZmap; nuevo pedido A9 (referencia de planta al activar la instalación).
+- **0.1.0:** borrador inicial.
 
 ## 5. Solicitudes
 
@@ -111,9 +114,10 @@ Semver. Esta versión 0.1.0 es un borrador hasta que los dos lados lo aprueben; 
 | A2 | **Conector Iris** en Argos, como el de Horus: token del usuario técnico «Iris» con los permisos de §1.1, enlace de conexión, webhooks de §2.3 y autologin hacia `ticket`, `orden` y `prospecto`. | solicitado |
 | A3 | **Origen en los movimientos de inventario:** aceptar `origen_tipo = 'iris_orden'` y `origen_id` en consumos, comodatos y devoluciones, y mostrarlos en el kardex con enlace a Iris. | solicitado |
 | A4 | **Cargo único desde una orden:** el endpoint `POST /facturas/cargo-unico` ya existe. Solo falta aceptar `origen_tipo = 'iris_orden'`/`origen_id` (como A3) y dar el permiso al usuario técnico «Iris». | solicitado |
-| A5 | **Cobertura por coordenada:** `POST /cobertura/consultar { lat, lon }` → routers, zonas y cajas NAP cercanas con capacidad libre. Si Argos no lleva cajas NAP, se define juntos. | solicitado |
+| A5 | ~~Cobertura por coordenada.~~ **Reemplazado por la integración Iris ↔ OZmap** (decisión del PM, 28 oct): la planta externa de fibra (cajas, splitters, OLT/slot/PON, potencias y viabilidad) vive en OZmap, y Argos no la lleva. | reemplazado |
 | A6 | **Webhook de caídas repetidas** de un servicio (n sesiones cortadas en x horas) para tickets proactivos. Opcional. | solicitado |
 | A8 | **Resolver IP con la IP en el cuerpo** para el conector Iris (`POST /integraciones/iris/resolver`), igual que el de Horus. | solicitado |
+| A9 | **Referencia de planta en el servicio.** `POST /servicios/:id/activar-instalacion` acepta un objeto opcional `planta { caja, puerto, olt, slot, pon, potencia_dbm }` (todos los campos opcionales; `potencia_dbm` decimal). Argos lo guarda tal cual en el servicio y lo muestra en su ficha. Es una referencia de lectura: la fuente de verdad sigue siendo OZmap. | solicitado |
 | A7 | **Ficha del cliente en Argos con sus tickets y órdenes de Iris**, leyendo `GET /api/v1/tickets?cliente_id=` con el token de §1.2, y botón «Ver en Iris». | solicitado |
 
 ### 5.2 ArgosISP solicita a Iris
