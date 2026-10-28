@@ -15,14 +15,20 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   superior (varias empresas), nombre (una) o nada (sin conector). La elegida se guarda en
   `localStorage` (`iris-empresa`) y va en `X-Iris-Empresa`; cambiarla relee `/yo` y remonta la
   pantalla. 422 `empresa_requerida` → elegir; 403 `empresa_no_permitida` → se olvida y se vuelve
-  a elegir; 403 `sin_empresa` → estado vacío. `/usuarios` y `/administracion/*` no exigen empresa.
+  a elegir; 403 `sin_empresa` → estado vacío. `/usuarios` y `/administracion/*` no exigen empresa (salvo `/administracion/buzones`).
   Con `hayDatosSinEmpresa`, aviso y `/administracion/datos-sin-empresa` (adopción con confirmación).
 - **Tickets** (`/tickets`, `/tickets/[id]`): bandeja (tabla / tarjetas en teléfono) con filtros,
   vistas guardadas en `localStorage`, cursor «Cargar más» y SLA visible (`lib/tickets/sla.ts`);
   detalle con conversación (notas internas solo con `tickets.ver_notas`), historial, ficha de
   Argos (`stale`, `conector_apagado`) y acciones explícitas (diálogos con `react-hook-form` + zod
   espejo de la API, `version` + `Idempotency-Key`, 409 → «Recargar»); alta rápida con búsqueda de
-  cliente en Argos o contacto a mano.
+  cliente en Argos o contacto a mano. «Contacto sin verificar» (correo sin DMARC/DKIM) y correos
+  retenidos como nota interna; «Ver en Argos/Horus» (`GET /integraciones/enlaces`, `clientes.ver`)
+  con `rel="noopener noreferrer"`; incidente maestro y sus tickets.
+- **Administración** (`/administracion`): índice por permisos y **buzones de correo**
+  (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
+  cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por
+  alcance explicado.
 - **Usuarios** (`/usuarios`): lista de solo lectura con paginación por cursor.
 - **Cliente HTTP** (`lib/api/cliente.ts`): `openapi-fetch` de `@iris/contratos`, cookies,
   `X-CSRF-Token` (cookie `iris_csrf`) en todo método que cambia estado y `X-Iris-Empresa`; los

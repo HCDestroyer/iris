@@ -26,7 +26,7 @@ oscuro con la clase `.dark` en `<html>` (variante `dark:`).
 `Selector` / `CampoSelector` (`<select>` nativo: en el teléfono abre el selector del sistema),
 `Dialogo*` (modal en vidrio fuerte; en el teléfono sube desde abajo, `DialogoPie`), `Tarjeta*`, `Aviso`
 (tono + icono + título + acción, p. ej. «Reintentar»), `InsigniaEstado` (icono + texto + color),
-`EstadoVacio`, `Esqueleto`, `Cargando`, `GrupoSegmentado` (radiogroup), `Hoja*` (panel lateral),
+`EstadoVacio`, `Esqueleto`, `Cargando`, `GrupoSegmentado` (radiogroup), `Casilla` (checkbox con etiqueta), `Hoja*` (panel lateral),
 `Tabla*`, `LogoIris`, `MarcaIris`, `cn`. Tonos: `neutral | info | success | warning | error`
 (nunca `primary` como estado). Íconos solo de Lucide.
 

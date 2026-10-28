@@ -1,5 +1,8 @@
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
+
+const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
 const filas = (page: Page) => page.locator("[data-ticket]").filter({ visible: true });
 const fila = (page: Page, numero: string) => page.locator(`[data-ticket="${numero}"]`).filter({ visible: true });
@@ -219,4 +222,85 @@ test.describe("alta rápida", () => {
             contacto: { nombre: "Pedro Pérez", telefono: "5555 0909", correo: "pedro@correo.test" },
         });
     });
+});
+
+test.describe("«Ver en Argos/Horus» y contacto sin verificar", () => {
+    const ENLACES = {
+        argosisp: { conectorId: 1, urlPublica: "https://argos.isp.gt/" },
+        horus: { conectorId: 2, urlPublica: "https://horus.isp.gt" },
+    };
+
+    test("con clientes.ver y conectores: botones a la base de cada sistema en otra pestaña", async ({ page, context, baseURL }) => {
+        await simularApi(page, { enlaces: ENLACES });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/33");
+        await expect(page.getByRole("heading", { name: "Router RB-Norte-01 caído" })).toBeVisible();
+        const argos = page.getByRole("link", { name: /Ver en Argos/ });
+        await expect(argos).toHaveAttribute("href", "https://argos.isp.gt");
+        await expect(argos).toHaveAttribute("target", "_blank");
+        await expect(argos).toHaveAttribute("rel", "noopener noreferrer");
+        const horus = page.getByRole("link", { name: /Ver en Horus/ });
+        await expect(horus).toHaveAttribute("href", "https://horus.isp.gt");
+        await expect(horus).toHaveAttribute("rel", "noopener noreferrer");
+        // Incidente maestro: lista sus tickets hijos.
+        await expect(page.getByRole("list", { name: "Tickets del incidente" })).toContainText("Sin servicio en zona norte");
+
+        // Un ticket que no viene de Horus no ofrece «Ver en Horus».
+        await page.goto("/tickets/1");
+        await expect(page.getByRole("link", { name: /Ver en Argos/ })).toBeVisible();
+        await expect(page.getByRole("link", { name: /Ver en Horus/ })).toHaveCount(0);
+
+        await page.goto("/tickets/34");
+        await page.getByRole("link", { name: "Ver el incidente maestro" }).click();
+        await expect(page.getByRole("heading", { name: "Router RB-Norte-01 caído" })).toBeVisible();
+    });
+
+    test("sin conectores activos no hay botones", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/33");
+        await expect(page.getByTestId("ficha-cliente")).toContainText("María Castillo");
+        await expect(page.getByRole("link", { name: /Ver en (Argos|Horus)/ })).toHaveCount(0);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/integraciones/enlaces")).toBe(true);
+    });
+
+    test("sin clientes.ver no se piden los enlaces ni hay botones", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page, { enlaces: ENLACES });
+        await conSesion(context, baseURL ?? "", SUPERVISOR_ZONA.correo);
+        await page.goto("/tickets/33");
+        await expect(page.getByRole("heading", { name: "Router RB-Norte-01 caído" })).toBeVisible();
+        await expect(page.getByRole("link", { name: /Ver en (Argos|Horus)/ })).toHaveCount(0);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/integraciones/enlaces")).toBe(false);
+    });
+
+    test("contacto sin verificar e insignia del correo retenido", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/32");
+        const insignia = page.getByTestId("contacto-sin-verificar");
+        await expect(insignia).toContainText("Contacto sin verificar");
+        await expect(insignia.locator("svg")).toBeVisible();
+        await expect(page.getByRole("complementary", { name: "Cliente" })).toContainText("no se pudo autenticar (DMARC/DKIM)");
+        const retenido = page.locator('[data-correo-retenido="remitente_no_verificado"]');
+        await expect(retenido).toContainText("Correo sin verificar");
+        await expect(retenido).toContainText("no cambió el estado del ticket");
+        await expect(retenido).toContainText("factura de octubre");
+
+        // Un ticket con contacto verificado no la muestra.
+        await page.goto("/tickets/3");
+        await expect(page.getByRole("heading", { name: "Lentitud en horas pico" })).toBeVisible();
+        await expect(page.getByTestId("contacto-sin-verificar")).toHaveCount(0);
+    });
+});
+
+test("capturas de enlaces y contacto sin verificar", async ({ page, context, baseURL }, info) => {
+    const nombre = (que: string) => path.join(carpeta, `${que}-${info.project.name}.png`);
+    await simularApi(page, { enlaces: { argosisp: { conectorId: 1, urlPublica: "https://argos.isp.gt" }, horus: { conectorId: 2, urlPublica: "https://horus.isp.gt" } } });
+    await conSesion(context, baseURL ?? "", ADMIN.correo);
+    await page.goto("/tickets/33");
+    await expect(page.getByRole("link", { name: /Ver en Horus/ })).toBeVisible();
+    await page.screenshot({ path: nombre("21-ver-en-argos-horus"), fullPage: true });
+    await page.goto("/tickets/32");
+    await expect(page.getByTestId("contacto-sin-verificar")).toBeVisible();
+    await page.screenshot({ path: nombre("23-contacto-sin-verificar"), fullPage: true });
 });

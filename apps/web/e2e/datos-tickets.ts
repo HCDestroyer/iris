@@ -148,6 +148,19 @@ export function escenarioTickets(ahora: number, empresas: readonly number[]): Es
         tickets.push(base(id, ahora, { prioridad: id % 3 === 0 ? "baja" : "media", estado: id % 2 === 0 ? "abierto" : "nuevo" }));
     }
     tickets.push(base(31, ahora, { asunto: "Consulta ya atendida", estado: "cerrado", cerradoEn: iso(ahora - 300 * MIN), slaResolucion: reloj("cumplido", ahora) }));
+    // 32: nació de un correo sin verificar; 33: incidente de Horus (maestro de 34). Cerrados para no
+    // cambiar las cuentas de la bandeja (que muestra los activos).
+    const cerrado = { estado: "cerrado" as const, cerradoEn: iso(ahora - 20 * MIN), slaResolucion: reloj("cumplido", ahora) };
+    tickets.push(
+        base(32, ahora, {
+            ...cerrado,
+            asunto: "No me llega la factura",
+            origen: "correo",
+            contacto: { nombre: "Juan Pérez", telefono: null, correo: "juan@correo.test", verificado: false },
+        }),
+    );
+    tickets.push(base(33, ahora, { ...cerrado, asunto: "Router RB-Norte-01 caído", origen: "horus", clienteId: 501, servicioId: 5010, prioridad: "critica" }));
+    tickets.push(base(34, ahora, { ...cerrado, asunto: "Sin servicio en zona norte", origen: "telegram", ticketPadreId: 33 }));
     for (const t of tickets) {
         t.empresaId = empresa;
     }
@@ -185,6 +198,19 @@ export function escenarioTickets(ahora: number, empresas: readonly number[]): Es
         cuerpo: "Revisar la ONT antes de mandar cuadrilla.",
         adjuntos: null,
         creadoEn: iso(ahora - 10 * MIN),
+    });
+    mensajes.push({
+        id: idM++,
+        ticketId: 32,
+        publico: false,
+        autorTipo: "sistema",
+        autorId: null,
+        autorNombre: "Juan Pérez <juan@correo.test>",
+        canal: "correo",
+        cuerpo:
+            "Correo de juan@correo.test no verificado (el servidor de correo no autenticó el remitente): se guarda como nota interna, no cambia el estado y no recibe las respuestas.\n\n¿Ya pueden enviarme la factura de octubre?",
+        adjuntos: null,
+        creadoEn: iso(ahora - 15 * MIN),
     });
     eventos.push({ id: idE++, ticketId: 2, tipo: "estado", de: "nuevo", a: "abierto", motivo: null, datos: {}, actorTipo: "usuario", actorId: 1, actorNombre: "Ana López", creadoEn: iso(ahora - 50 * MIN) });
     eventos.push({ id: idE++, ticketId: 2, tipo: "sla_vencido", de: null, a: null, motivo: null, datos: { sla: "resolucion" }, actorTipo: "sistema", actorId: null, actorNombre: "Sistema", creadoEn: iso(ahora - 45 * MIN) });

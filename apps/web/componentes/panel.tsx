@@ -22,11 +22,14 @@ import { SelectorTema } from "./selector-tema";
  */
 /** Rutas administrativas: la API no exige empresa activa para ellas (i1.md). */
 const RUTAS_SIN_EMPRESA = ["/usuarios", "/administracion"];
+/** Excepciones dentro de las administrativas: los buzones son de la empresa activa (como los tickets). */
+const RUTAS_CON_EMPRESA = ["/administracion/buzones"];
+const enRuta = (ruta: string, r: string) => ruta === r || ruta.startsWith(`${r}/`);
 
 export function Panel({ children }: { children: ReactNode }) {
     const yo = useYo();
     const ruta = usePathname();
-    const administrativa = RUTAS_SIN_EMPRESA.some((r) => ruta === r || ruta.startsWith(`${r}/`));
+    const administrativa = RUTAS_SIN_EMPRESA.some((r) => enRuta(ruta, r)) && !RUTAS_CON_EMPRESA.some((r) => enRuta(ruta, r));
     const { refrescar } = yo;
     const [pedida, setPedida] = useState(false);
     const [noPermitida, setNoPermitida] = useState(false);
