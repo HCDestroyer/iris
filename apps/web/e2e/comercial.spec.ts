@@ -89,9 +89,9 @@ test.describe("embudo y lista", () => {
         api.responderProblema("/api/v1/prospectos", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
         await page.goto("/comercial?vista=lista");
         await expect(avisoError(page).first()).toContainText("No se pudo cargar");
-        await expect(page.getByText("Bruno Díaz")).toHaveCount(0);
+        await expect(page.getByText("Interesado 22")).toHaveCount(0);
         await avisoError(page).first().getByRole("button", { name: "Reintentar" }).click();
-        await expect(page.getByText("Bruno Díaz").first()).toBeVisible();
+        await expect(page.getByText("Interesado 22").first()).toBeVisible();
     });
 
     test("sin prospectos.ver no hay Comercial; con solo lectura, el detalle no ofrece acciones", async ({ page, context, baseURL }) => {
@@ -141,7 +141,7 @@ test.describe("alta rápida", () => {
         await expect(dialogo.getByText("Ya hay un prospecto con ese teléfono")).toBeVisible();
         await dialogo.getByLabel("Nombre").fill("Hugo Sánchez");
         await dialogo.getByRole("button", { name: "Crear prospecto" }).click();
-        await expect(page).toHaveURL(/\/comercial\/123$/);
+        await expect(page).toHaveURL(/\/comercial\/122$/);
         await expect(page.getByRole("heading", { name: "Hugo Sánchez" })).toBeVisible();
         const altas = posts(api, "/api/v1/prospectos");
         expect(altas).toHaveLength(2);
@@ -167,14 +167,15 @@ test.describe("del prospecto al cliente", () => {
         const visita = page.getByRole("dialog", { name: "Visita técnica" });
         await visita.getByLabel("Notas").fill("ok");
         await visita.getByRole("button", { name: "Guardar resultado" }).click();
-        await expect(visita.getByText(/al menos 5 caracteres/)).toBeVisible();
+        await expect(visita.getByText("Describe la visita (al menos 20 caracteres)")).toBeVisible();
         await visita.getByLabel("Notas").fill("Poste con caja a 80 m, hay puertos libres");
         await visita.getByRole("button", { name: "Guardar resultado" }).click();
         await expect(fact.getByText("Viable", { exact: true })).toBeVisible();
         await expect(fact.getByText("Visita técnica", { exact: true })).toBeVisible();
         const factibilidades = posts(api, "/factibilidad");
         expect(factibilidades[0]?.cuerpo).toEqual({ version: 1 });
-        expect(factibilidades[1]?.cuerpo).toMatchObject({ version: 2, manual: { resultado: "viable" } });
+        expect(factibilidades).toHaveLength(1);
+        expect(posts(api, "/factibilidad-manual")[0]?.cuerpo).toEqual({ version: 2, resultado: "viable", notas: "Poste con caja a 80 m, hay puertos libres" });
 
         const cot = page.getByTestId("cotizacion");
         await cot.getByRole("button", { name: "Cotizar" }).click();
@@ -242,11 +243,12 @@ test.describe("del prospecto al cliente", () => {
         await fact.getByRole("button", { name: "Evaluar" }).click();
         await expect(fact.getByText("R-Norte")).toBeVisible();
         await expect(fact.getByTestId("distancia")).toHaveText("182 m");
-        await expect(fact.getByText("viable hasta 300 m, con obra hasta 1.0 km")).toBeVisible();
+        await expect(fact.getByText("viable hasta 300 m, con obra hasta 1 km")).toBeVisible();
         await page.getByTestId("cotizacion").getByRole("button", { name: "Cotizar" }).click();
         const dCot = page.getByRole("dialog", { name: "Cotizar" });
-        await dCot.getByLabel("Plan").selectOption({ label: "Fibra 300 · Q400.00/mes" });
-        await expect(dCot.getByText(/Precio de Argos: Q400.00 al mes/)).toBeVisible();
+        await expect(dCot.getByLabel("Plan").locator("option", { hasText: "descontinuado" })).toHaveCount(0);
+        await dCot.getByLabel("Plan").selectOption("72");
+        await expect(dCot.getByText(/Precio de Argos: Q\s?400\.00 al mes/)).toBeVisible();
         await dCot.getByRole("button", { name: "Descuento" }).click();
         const lineas = dCot.getByRole("list", { name: "Líneas" }).getByRole("listitem");
         await lineas.nth(1).getByLabel("Descripción").fill("Promoción");
@@ -254,7 +256,57 @@ test.describe("del prospecto al cliente", () => {
         await lineas.nth(1).getByLabel("Se cobra cada mes").check();
         await dCot.getByRole("button", { name: "Guardar cotización" }).click();
         await expect(page.getByTestId("total-mensual")).toContainText("350.00");
+        // Los planes se piden con el router de la factibilidad; el descontinuado no se ofrece.
+        expect(api.peticiones.find((p) => p.ruta === "/api/v1/comercial/planes")?.query.get("routerId")).toBe("501");
         expect(posts(api, "/cotizaciones")[0]?.cuerpo).toMatchObject({ lineas: [{ tipo: "plan", planId: 72 }, { tipo: "descuento", descripcion: "Promoción", precioUnitario: "50", recurrente: true }] });
+    });
+
+    test("la visita técnica: ventas no la ofrece; una que contradice la automática «no viable» pide el motivo y lo muestra", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", VENDEDORA.correo);
+        await page.goto("/comercial/3");
+        const fact = page.getByTestId("factibilidad");
+        await expect(fact.getByTestId("motivo-indeterminado")).toContainText("Pide a un supervisor o a un técnico");
+        await expect(fact.getByRole("button", { name: "Registrar visita técnica" })).toHaveCount(0);
+        await expect(fact.getByRole("button", { name: "Volver a evaluar" })).toBeVisible();
+
+        await context.clearCookies();
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/comercial/8");
+        await expect(fact.getByText("No viable", { exact: true })).toBeVisible();
+        await fact.getByRole("button", { name: "Registrar visita técnica" }).click();
+        const visita = page.getByRole("dialog", { name: "Visita técnica" });
+        await visita.getByLabel("Notas").fill("Hay una caja nueva a 120 m del domicilio");
+        await visita.getByRole("button", { name: "Guardar resultado" }).click();
+        await expect(visita.getByText("Explica por qué la visita contradice la evaluación automática")).toBeVisible();
+        await visita.getByLabel("Motivo de la anulación").fill("Caja instalada la semana pasada; el catálogo no se ha sincronizado");
+        await visita.getByRole("button", { name: "Guardar resultado" }).click();
+        await expect(fact.getByTestId("anula")).toContainText("Caja instalada la semana pasada");
+        await expect(fact.getByText("Viable", { exact: true })).toBeVisible();
+        expect(posts(api, "/factibilidad-manual")[0]?.cuerpo).toMatchObject({ resultado: "viable", motivoAnulacion: "Caja instalada la semana pasada; el catálogo no se ha sincronizado" });
+    });
+
+    test("con conector y sin router sugerido, ganar pide elegir el router de la cobertura", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page, { comercialConector: true });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/comercial/10");
+        await page.getByRole("button", { name: "Ganar" }).click();
+        const dGanar = page.getByRole("dialog", { name: "Ganar el prospecto" });
+        await dGanar.getByRole("button", { name: "Ganar" }).click();
+        await expect(dGanar.getByText("Elige el router desde donde se atenderá")).toBeVisible();
+        expect(posts(api, "/ganar")).toHaveLength(0);
+        await dGanar.getByLabel("Router del servicio").selectOption({ label: "R-Norte" });
+        await dGanar.getByRole("button", { name: "Ganar" }).click();
+        await expect(page.getByTestId("alta").getByText("Creando el cliente en Argos")).toBeVisible();
+        expect(posts(api, "/ganar")[0]?.cuerpo).toEqual({ version: 1, routerId: 501 });
+    });
+
+    test("un alta detenida en Argos se ve como error", async ({ page, context, baseURL }) => {
+        await simularApi(page, { comercialConector: true });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/comercial/11");
+        await expect(page.getByTestId("alta-error")).toContainText("no corresponde a este prospecto");
+        await expect(page.getByText("La orden de instalación se crea cuando Argos confirme")).toHaveCount(0);
     });
 
     test("ganar con requiere obra pide confirmarla; con conector el alta queda en Argos", async ({ page, context, baseURL }) => {
@@ -301,6 +353,7 @@ test.describe("del prospecto al cliente", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/comercial/1");
+        await expect(page.getByRole("heading", { name: "Ana Gómez" })).toBeVisible();
         api.comercial.cambiarVersion(1);
         await page.getByRole("button", { name: "Marcar contactado" }).click();
         const dialogo = page.getByRole("dialog", { name: "Marcar como contactado" });
@@ -394,7 +447,7 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
     await simularTeselas(page);
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     await page.goto("/comercial");
-    await expect(page.getByText("Bruno Díaz").first()).toBeVisible();
+    await expect(page.getByText("Interesado 22").first()).toBeVisible();
     await page.screenshot({ path: nombre("01-embudo"), fullPage: true });
     if (!esTelefono(info.project.name)) {
         await page.goto("/comercial?vista=lista");

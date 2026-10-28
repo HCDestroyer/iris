@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ClipboardList, RotateCw } from "lucide-react";
+import { ClipboardList, OctagonAlert, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useEnvio } from "@/componentes/comercial/comun";
 import { api, resolver } from "@/lib/api/cliente";
@@ -28,6 +28,11 @@ export function TarjetaAlta({ detalle, recargar }: Props) {
                 <InsigniaEstado tono={p.tono} icono={p.icono} texto={p.texto} data-alta={alta.estado} />
             </TarjetaEncabezado>
             <TarjetaContenido className="grid gap-3">
+                {alta.error ? (
+                    <Aviso tono="error" icono={OctagonAlert} titulo="El alta en Argos se detuvo y necesita revisión" data-testid="alta-error">
+                        {alta.error} No se reintenta sola: revísalo en Argos con el equipo de integración.
+                    </Aviso>
+                ) : null}
                 {alta.modo === "local" ? (
                     <p className="text-sm text-muted-foreground">Iris trabaja sin conexión con Argos: se creó la orden de instalación con los datos del prospecto.</p>
                 ) : (
@@ -36,6 +41,12 @@ export function TarjetaAlta({ detalle, recargar }: Props) {
                         <dd className="tabular-nums">{alta.clienteArgosId ?? "pendiente"}</dd>
                         <dt className="text-muted-foreground">Servicio en Argos</dt>
                         <dd className="tabular-nums">{alta.servicioArgosId ?? "pendiente"}</dd>
+                        {alta.routerId !== null ? (
+                            <>
+                                <dt className="text-muted-foreground">Router</dt>
+                                <dd className="tabular-nums">{alta.routerId}</dd>
+                            </>
+                        ) : null}
                     </dl>
                 )}
                 {alta.ordenId !== null ? (
@@ -45,7 +56,7 @@ export function TarjetaAlta({ detalle, recargar }: Props) {
                             Orden de instalación {alta.ordenNumero ?? `#${alta.ordenId}`}
                         </Link>
                     </Boton>
-                ) : alta.estado !== "completa" ? (
+                ) : alta.estado !== "completa" && !alta.error ? (
                     <p className="text-sm text-muted-foreground">La orden de instalación se crea cuando Argos confirme el cliente y el servicio.</p>
                 ) : null}
                 {pendientes.length > 0 ? (

@@ -99,7 +99,7 @@ function Columna({ estado, filtros, catalogos }: { estado: EstadoProspecto; filt
             ) : items.length === 0 ? (
                 <p className="px-1 py-3 text-center text-xs text-muted-foreground">Nada aquí</p>
             ) : (
-                <ul className="grid gap-2">
+                <ul className="grid max-h-[70vh] gap-2 overflow-y-auto pr-0.5" aria-label={`Prospectos en ${p.texto}`}>
                     {items.map((x) => (
                         <li key={x.id}>
                             <TarjetaProspecto p={x} catalogos={catalogos} />

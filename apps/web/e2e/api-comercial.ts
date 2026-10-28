@@ -33,8 +33,9 @@ const prohibido = (route: Route) => problema(route, { type: "urn:iris:problema:p
 export const PDF_BYTES = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
 export const ROUTER_NORTE: Schema<"RouterCobertura"> = { id: 501, nombre: "R-Norte", zonaId: 4, lat: 14.64, lon: -90.51, sincronizadoEn: "2026-10-28T12:00:00Z" };
 export const PLANES_ARGOS: Schema<"PlanComercial">[] = [
-    { id: 71, empresaId: 10, nombre: "Fibra 100", precio: "250.00", estado: "activo" },
-    { id: 72, empresaId: 10, nombre: "Fibra 300", precio: "400.00", estado: "activo" },
+    { id: 71, nombre: "Fibra 100", precio: "250.00", activo: true },
+    { id: 72, nombre: "Fibra 300", precio: "400.00", activo: true },
+    { id: 73, nombre: "Fibra 20 (descontinuado)", precio: "120.00", activo: false },
 ];
 
 const ahora = "2026-10-28T15:00:00Z";
@@ -127,6 +128,8 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
         notas: "",
         evaluadaPor: 1,
         creadoEn: ahora,
+        anulaId: null,
+        motivoAnulacion: null,
         ...d,
     });
 
@@ -139,6 +142,9 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
             prospecto({ id: 5, nombre: "Elsa Martínez", estado: "contrato", lat: 14.65, lon: -90.52, documento: "1234567890101" }),
             prospecto({ id: 6, nombre: "Fernando Paz", estado: "ganado", ganadoEn: ahora, vendedorId: 1 }),
             prospecto({ id: 7, nombre: "Gloria Ríos", estado: "perdido", motivoPerdida: "Eligió a la competencia", perdidoEn: ahora, zonaId: 5 }),
+            prospecto({ id: 8, nombre: "Hilda Mejía", estado: "factibilidad" }),
+            prospecto({ id: 10, nombre: "Iván Toj", estado: "contrato" }),
+            prospecto({ id: 11, nombre: "Julia Cano", estado: "ganado", ganadoEn: ahora }),
             // Relleno del embudo: «Nuevo» con más de una página.
             ...Array.from({ length: 22 }, (_, i) => prospecto({ id: 100 + i, nombre: `Interesado ${i + 1}`, estado: "nuevo", origen: "web", zonaId: 5 })),
         ],
@@ -166,6 +172,8 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
     esc.factibilidades.set(3, factibilidad(3, { resultado: "indeterminado", motivo: "sin_conector" }));
     esc.factibilidades.set(4, factibilidad(4, { resultado: "viable", routerId: 501, routerNombre: "R-Norte", distanciaM: 182.4, viableM: 300, obraM: 1000 }));
     esc.factibilidades.set(5, factibilidad(5, { resultado: "requiere_obra", routerId: 501, routerNombre: "R-Norte", distanciaM: 640, viableM: 300, obraM: 1000 }));
+    esc.factibilidades.set(8, factibilidad(8, { resultado: "no_viable", routerId: 501, routerNombre: "R-Norte", distanciaM: 2400, viableM: 300, obraM: 1000 }));
+    esc.factibilidades.set(10, factibilidad(10, { resultado: "viable", motor: "manual", notas: "Visita: hay caja con puertos libres frente a la casa" }));
     esc.factibilidades.set(6, factibilidad(6, { resultado: "viable", routerId: 501, routerNombre: "R-Norte", distanciaM: 90, viableM: 300, obraM: 1000 }));
 
     const cot = (d: Partial<Cotizacion> & Pick<Cotizacion, "id" | "prospectoId">): Cotizacion => ({
@@ -192,7 +200,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
         pdf: doc(),
         ...d,
     });
-    esc.cotizaciones.push(cot({ id: 41, prospectoId: 4 }), cot({ id: 51, prospectoId: 5, estado: "aceptada", aceptadaEn: ahora, aceptadaPor: 1, version: 2 }), cot({ id: 61, prospectoId: 6, estado: "aceptada", aceptadaEn: ahora }));
+    esc.cotizaciones.push(cot({ id: 101, prospectoId: 10, estado: "aceptada", aceptadaEn: ahora }), cot({ id: 41, prospectoId: 4 }), cot({ id: 51, prospectoId: 5, estado: "aceptada", aceptadaEn: ahora, aceptadaPor: 1, version: 2 }), cot({ id: 61, prospectoId: 6, estado: "aceptada", aceptadaEn: ahora }));
     const contrato = (d: Partial<Contrato> & Pick<Contrato, "id" | "prospectoId" | "cotizacionId">): Contrato => ({
         numero: `CTR-${String(d.id).padStart(6, "0")}`,
         plantilla: "estandar_v1",
@@ -209,9 +217,20 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
     });
     esc.contratos.push(
         contrato({ id: 52, prospectoId: 5, cotizacionId: 51 }),
+        contrato({ id: 102, prospectoId: 10, cotizacionId: 101, estado: "firmado", firmanteNombre: "Iván Toj", firmadoEn: ahora, firmadoPor: 1, pdfFirmado: doc() }),
         contrato({ id: 62, prospectoId: 6, cotizacionId: 61, estado: "firmado", firmanteNombre: "Fernando Paz", firmadoEn: ahora, firmadoPor: 1, pdfFirmado: doc() }),
     );
-    esc.altas.set(6, { modo: "argos", estado: "esperando_servicio", clienteArgosId: 9001, servicioArgosId: null, ordenId: null, ordenNumero: null });
+    esc.altas.set(6, { modo: "argos", estado: "esperando_servicio", clienteArgosId: 9001, servicioArgosId: null, ordenId: null, ordenNumero: null, routerId: 501, error: null });
+    esc.altas.set(11, {
+        modo: "argos",
+        estado: "esperando_servicio",
+        clienteArgosId: 9101,
+        servicioArgosId: null,
+        ordenId: null,
+        ordenNumero: null,
+        routerId: 501,
+        error: "El cliente 9101 de Argos no corresponde a este prospecto (codigo_externo distinto)",
+    });
     esc.pendientes.set(6, [
         { id: 801, operacion: "crear_cliente", idempotencyKey: "iris:cliente:6", estado: "hecho", intentos: 1, ultimoError: null, version: 2 },
         { id: 802, operacion: "crear_servicio", idempotencyKey: "iris:servicio:6", estado: "agotado", intentos: 8, ultimoError: "Argos no respondió (timeout)", version: 3 },
@@ -313,7 +332,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
                     if (!puede("integraciones.reintentar")) return (await prohibido(route), true);
                     if ((cuerpo as { version: number }).version !== p.version) return (await conflicto(route), true);
                     Object.assign(p, { estado: "hecho", version: p.version + 1, ultimoError: null, intentos: p.intentos + 1 });
-                    esc.altas.set(prospectoId, { modo: "argos", estado: "completa", clienteArgosId: 9001, servicioArgosId: 9002, ordenId: 44, ordenNumero: "OT-000044" });
+                    esc.altas.set(prospectoId, { modo: "argos", estado: "completa", clienteArgosId: 9001, servicioArgosId: 9002, ordenId: 44, ordenNumero: "OT-000044", routerId: 501, error: null });
                     await json(route, { ...p });
                     return true;
                 }
@@ -374,7 +393,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
                 return true;
             }
 
-            const m = /^\/api\/v1\/prospectos\/(\d+)(?:\/([a-z]+))?$/.exec(ruta);
+            const m = /^\/api\/v1\/prospectos\/(\d+)(?:\/([a-z-]+))?$/.exec(ruta);
             if (m) {
                 const p = esc.prospectos.find((x) => x.id === Number(m[1]));
                 if (!p) return (await noEncontrado(route), true);
@@ -414,6 +433,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
                     reabrir: "prospectos.reabrir",
                     ganar: "prospectos.ganar",
                     factibilidad: "factibilidad.evaluar",
+                    "factibilidad-manual": "factibilidad.registrar_manual",
                     cotizaciones: "cotizaciones.crear",
                     contrato: "contratos.crear",
                 };
@@ -445,18 +465,39 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
                         cambiar(p, { motivoPerdida: null, perdidoEn: null });
                         break;
                     case "factibilidad": {
-                        const f = cuerpo as Schema<"EntradaFactibilidad">;
                         let nueva: Factibilidad;
-                        if (f.manual) {
-                            if ([...(f.notas ?? "")].length < 5) return (await validacion(route, "notas", "Describe la visita o el criterio (al menos 5 caracteres)"), true);
-                            nueva = factibilidad(p.id, { resultado: f.manual.resultado, motor: "manual", caja: f.manual.caja ?? null, notas: f.notas ?? "" });
-                        } else if (p.lat === null) {
+                        if (p.lat === null) {
                             nueva = factibilidad(p.id, { resultado: "indeterminado", motivo: "sin_coordenadas", lat: null, lon: null });
                         } else if (!conector) {
                             nueva = factibilidad(p.id, { resultado: "indeterminado", motivo: "sin_conector" });
                         } else {
                             nueva = factibilidad(p.id, { resultado: "viable", routerId: 501, routerNombre: "R-Norte", distanciaM: 182.4, viableM: 300, obraM: 1000 });
                         }
+                        esc.factibilidades.set(p.id, nueva);
+                        evento(p.id, "factibilidad", { a: nueva.resultado });
+                        if (p.estado === "nuevo" || p.estado === "contactado") estadoA(p, "factibilidad");
+                        else cambiar(p, {});
+                        await json(route, nueva);
+                        return true;
+                    }
+                    case "factibilidad-manual": {
+                        if (!d.acciones.evaluar) return (await regla(route, "transicion_invalida", "Ya no se evalúa la factibilidad"), true);
+                        const f = cuerpo as Schema<"EntradaFactibilidadManual">;
+                        if ([...f.notas].length < 20) return (await validacion(route, "notas", "Describe la visita (al menos 20 caracteres)"), true);
+                        const previa = esc.factibilidades.get(p.id);
+                        const anula = previa !== undefined && previa.motor !== "manual" && previa.resultado === "no_viable" && f.resultado !== "no_viable";
+                        if (anula && !f.motivoAnulacion) return (await validacion(route, "motivoAnulacion", "Anula una evaluación automática no_viable: indica el motivo"), true);
+                        const router = f.routerId === ROUTER_NORTE.id ? ROUTER_NORTE : undefined;
+                        if (f.routerId !== undefined && !router) return (await validacion(route, "routerId", "El router no es de la empresa del prospecto"), true);
+                        const nueva = factibilidad(p.id, {
+                            resultado: f.resultado,
+                            motor: "manual",
+                            caja: f.caja ?? null,
+                            notas: f.notas,
+                            routerId: router?.id ?? null,
+                            routerNombre: router?.nombre ?? null,
+                            ...(anula ? { anulaId: previa.id, motivoAnulacion: f.motivoAnulacion ?? null } : {}),
+                        });
                         esc.factibilidades.set(p.id, nueva);
                         evento(p.id, "factibilidad", { a: nueva.resultado });
                         if (p.estado === "nuevo" || p.estado === "contactado") estadoA(p, "factibilidad");
@@ -523,14 +564,18 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
                         if (d.acciones.confirmaObra && (cuerpo as Schema<"EntradaGanar">).confirmarObra !== true) {
                             return (await validacion(route, "confirmarObra", "La factibilidad requiere obra: confírmala"), true);
                         }
+                        const routerId = (cuerpo as Schema<"EntradaGanar">).routerId ?? esc.factibilidades.get(p.id)?.routerId ?? null;
+                        if (conector && routerId === null) {
+                            return (await regla(route, "router_requerido", "La factibilidad no sugirió router: indica routerId"), true);
+                        }
                         estadoA(p, "ganado");
                         cambiar(p, { ganadoEn: ahora, obraConfirmada: d.acciones.confirmaObra });
                         evento(p.id, "ganado");
                         if (conector) {
-                            esc.altas.set(p.id, { modo: "argos", estado: "esperando_cliente", clienteArgosId: null, servicioArgosId: null, ordenId: null, ordenNumero: null });
+                            esc.altas.set(p.id, { modo: "argos", estado: "esperando_cliente", clienteArgosId: null, servicioArgosId: null, ordenId: null, ordenNumero: null, routerId, error: null });
                             esc.pendientes.set(p.id, [{ id: 900 + p.id, operacion: "crear_cliente", idempotencyKey: `iris:cliente:${p.id}`, estado: "pendiente", intentos: 0, ultimoError: null, version: 1 }]);
                         } else {
-                            esc.altas.set(p.id, { modo: "local", estado: "completa", clienteArgosId: null, servicioArgosId: null, ordenId: 45, ordenNumero: "OT-000045" });
+                            esc.altas.set(p.id, { modo: "local", estado: "completa", clienteArgosId: null, servicioArgosId: null, ordenId: 45, ordenNumero: "OT-000045", routerId: null, error: null });
                         }
                         break;
                     }

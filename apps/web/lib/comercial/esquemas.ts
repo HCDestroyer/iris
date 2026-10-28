@@ -57,9 +57,9 @@ function coordenadasJuntas(d: { lat: string; lon: string }, ctx: z.RefinementCtx
 
 export const esquemaProspecto = z
     .object({
-        nombre: textoObligatorio(200, "Escribe el nombre"),
+        nombre: textoObligatorio(200, "Escribe el nombre").refine((v) => v === "" || runas(v) >= 2, "Al menos 2 caracteres"),
         direccion: textoObligatorio(300, "Escribe la dirección"),
-        telefono: textoOpcional(40),
+        telefono: textoOpcional(30),
         correo: textoOpcional(200).refine((v) => v === "" || PATRON_CORREO.test(v), "Escribe un correo válido"),
         documento: textoOpcional(40),
         origen: z.enum(["panel", "web", "referido", "otro"] satisfies OrigenProspecto[]),
@@ -160,21 +160,48 @@ export type DatosPerder = z.infer<typeof esquemaPerder>;
 export const esquemaReabrir = z.object({ motivo: textoOpcional(1000) });
 export type DatosReabrir = z.infer<typeof esquemaReabrir>;
 
-// --- Factibilidad manual -----------------------------------------------------------------------
+// --- Factibilidad manual (`POST /prospectos/{id}/factibilidad-manual`) ---------------------------
 
-export const esquemaFactibilidadManual = z.object({
-    resultado: z.enum(["viable", "requiere_obra", "no_viable"]),
-    caja: textoOpcional(120),
-    notas: z
-        .string()
-        .trim()
-        .refine((v) => runas(v) >= 5, "Describe la visita o el criterio (al menos 5 caracteres)")
-        .refine(hasta(2000)),
-});
-export type DatosFactibilidadManual = z.infer<typeof esquemaFactibilidadManual>;
+/** Mínimo de las notas de la visita técnica (EntradaFactibilidadManual). */
+export const MINIMO_NOTAS_VISITA = 20;
 
-export function cuerpoFactibilidadManual(d: DatosFactibilidadManual, version: number): Schema<"EntradaFactibilidad"> {
-    return { version, notas: d.notas.trim(), manual: { resultado: d.resultado, ...opcional("caja", d.caja) } };
+/**
+ * `anulaAutomatica`: la última evaluación es automática y `no_viable`; un resultado distinto la
+ * anula y la API exige el motivo.
+ */
+export function esquemaFactibilidadManual(anulaAutomatica: boolean) {
+    return z
+        .object({
+            resultado: z.enum(["viable", "requiere_obra", "no_viable"]),
+            caja: textoOpcional(120),
+            routerId: z.string(),
+            notas: z
+                .string()
+                .trim()
+                .refine((v) => runas(v) >= MINIMO_NOTAS_VISITA, `Describe la visita (al menos ${MINIMO_NOTAS_VISITA} caracteres)`)
+                .refine(hasta(2000)),
+            motivoAnulacion: textoOpcional(1000),
+        })
+        .superRefine((d, ctx) => {
+            if (anulaAutomatica && d.resultado !== "no_viable" && d.motivoAnulacion === "") {
+                ctx.addIssue({ code: "custom", path: ["motivoAnulacion"], message: "Explica por qué la visita contradice la evaluación automática" });
+            }
+        });
+}
+export type DatosFactibilidadManual = z.infer<ReturnType<typeof esquemaFactibilidadManual>>;
+
+export const FACTIBILIDAD_MANUAL_VACIA: DatosFactibilidadManual = { resultado: "viable", caja: "", routerId: "", notas: "", motivoAnulacion: "" };
+
+export function cuerpoFactibilidadManual(d: DatosFactibilidadManual, version: number): Schema<"EntradaFactibilidadManual"> {
+    const router = Number(d.routerId);
+    return {
+        version,
+        resultado: d.resultado,
+        notas: d.notas.trim(),
+        ...opcional("caja", d.caja),
+        ...(Number.isSafeInteger(router) && router > 0 ? { routerId: router } : {}),
+        ...(d.resultado !== "no_viable" ? opcional("motivoAnulacion", d.motivoAnulacion) : {}),
+    };
 }
 
 // --- Cotización --------------------------------------------------------------------------------
@@ -234,7 +261,8 @@ export function cuerpoCotizacion(d: DatosCotizacion, version: number, planes: re
     return {
         version,
         lineas: d.lineas.map((l): Schema<"EntradaLinea"> => {
-            const cantidad = l.cantidad.trim() && l.cantidad.trim() !== "1" ? { cantidad: l.cantidad.trim() } : {};
+            // La línea de plan va con cantidad 1 (la API la rechaza con otra).
+            const cantidad = l.tipo !== "plan" && l.cantidad.trim() && l.cantidad.trim() !== "1" ? { cantidad: l.cantidad.trim() } : {};
             if (l.tipo === "plan" && planes !== null) {
                 const plan = planes.find((p) => String(p.id) === l.planId);
                 return {

@@ -12,6 +12,7 @@ import {
     esquemaFactibilidadManual,
     esquemaPerder,
     esquemaProspecto,
+    FACTIBILIDAD_MANUAL_VACIA,
     lineaVacia,
     PROSPECTO_VACIO,
 } from "./esquemas";
@@ -23,8 +24,8 @@ const mensajes = (r: { success: boolean; error?: { issues: { path: PropertyKey[]
     Object.fromEntries((r.error?.issues ?? []).map((i) => [i.path.join("."), i.message]));
 
 const PLANES: Schema<"PlanComercial">[] = [
-    { id: 7, empresaId: 10, nombre: "Fibra 100", precio: "250.00", estado: "activo" },
-    { id: 8, empresaId: 10, nombre: "Fibra 300", precio: null, estado: "activo" },
+    { id: 7, nombre: "Fibra 100", precio: "250.00", activo: true },
+    { id: 8, nombre: "Fibra 300", precio: null, activo: true },
 ];
 
 describe("prospecto (espejo de EntradaCrearProspecto)", () => {
@@ -34,6 +35,8 @@ describe("prospecto (espejo de EntradaCrearProspecto)", () => {
         expect(mensajes(esquemaProspecto.safeParse({ ...base, lat: "14.6" }))).toEqual({ lon: "Indica latitud y longitud juntas" });
         expect(mensajes(esquemaProspecto.safeParse({ ...base, lat: "95", lon: "-90" })).lat).toBe("Latitud entre -90 y 90");
         expect(mensajes(esquemaProspecto.safeParse({ ...base, correo: "ana" })).correo).toBe("Escribe un correo válido");
+        expect(mensajes(esquemaProspecto.safeParse({ ...base, nombre: "A" })).nombre).toBe("Al menos 2 caracteres");
+        expect(mensajes(esquemaProspecto.safeParse({ ...base, telefono: "1".repeat(31) })).telefono).toBe("Admite hasta 30 caracteres");
     });
 
     it("arma el cuerpo sin vacíos, con números y coma decimal", () => {
@@ -53,9 +56,18 @@ describe("actividad, perder y factibilidad manual", () => {
 
     it("perder exige motivo; la visita técnica, notas de 5+ caracteres", () => {
         expect(mensajes(esquemaPerder.safeParse({ motivo: " " }))).toEqual({ motivo: "Escribe por qué se perdió" });
-        expect(mensajes(esquemaFactibilidadManual.safeParse({ resultado: "viable", caja: "", notas: "ok" })).notas).toMatch(/al menos 5/);
-        const d = esquemaFactibilidadManual.parse({ resultado: "requiere_obra", caja: "CTO-12", notas: "Poste a 400 m" });
-        expect(cuerpoFactibilidadManual(d, 3)).toEqual({ version: 3, notas: "Poste a 400 m", manual: { resultado: "requiere_obra", caja: "CTO-12" } });
+        expect(mensajes(esquemaFactibilidadManual(false).safeParse({ ...FACTIBILIDAD_MANUAL_VACIA, notas: "Poste a 400 m" })).notas).toMatch(/al menos 20/);
+        const notas = "Poste a 400 m, hay que tender fibra";
+        const d = esquemaFactibilidadManual(false).parse({ ...FACTIBILIDAD_MANUAL_VACIA, resultado: "requiere_obra", caja: "CTO-12", routerId: "501", notas });
+        expect(cuerpoFactibilidadManual(d, 3)).toEqual({ version: 3, resultado: "requiere_obra", notas, caja: "CTO-12", routerId: 501 });
+    });
+
+    it("una visita que contradice una automática no_viable exige el motivo de la anulación", () => {
+        const notas = "Hay una caja nueva a 120 m del domicilio";
+        expect(mensajes(esquemaFactibilidadManual(true).safeParse({ ...FACTIBILIDAD_MANUAL_VACIA, notas })).motivoAnulacion).toMatch(/contradice/);
+        expect(esquemaFactibilidadManual(true).safeParse({ ...FACTIBILIDAD_MANUAL_VACIA, resultado: "no_viable", notas }).success).toBe(true);
+        const d = esquemaFactibilidadManual(true).parse({ ...FACTIBILIDAD_MANUAL_VACIA, notas, motivoAnulacion: "Caja instalada la semana pasada" });
+        expect(cuerpoFactibilidadManual(d, 1)).toEqual({ version: 1, resultado: "viable", notas, motivoAnulacion: "Caja instalada la semana pasada" });
     });
 });
 

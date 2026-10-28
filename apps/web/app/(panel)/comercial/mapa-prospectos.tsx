@@ -61,7 +61,9 @@ export function MapaProspectos({ filtros }: { filtros: Filtros }) {
                     <>
                         <InsigniaEstado tono="success" icono={CircleCheck} texto={`Viable hasta ${textoDistancia(datosCobertura.umbrales.viableM)}`} />
                         <InsigniaEstado tono="warning" icono={HardHat} texto={`Con obra hasta ${textoDistancia(datosCobertura.umbrales.obraM)}`} />
-                        <span className="text-muted-foreground">{(datosCobertura.routers ?? []).length} routers</span>
+                        <span className="text-muted-foreground">
+                            {(datosCobertura.routers ?? []).length === 1 ? "1 router" : `${(datosCobertura.routers ?? []).length} routers`}
+                        </span>
                     </>
                 ) : null}
             </div>

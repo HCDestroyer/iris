@@ -212,7 +212,11 @@ const TIPOS_EXTRA: readonly TipoLinea[] = ["instalacion", "equipo", "descuento",
  * formulario (no se cotiza a ciegas). Sin conector, el plan va con descripción y precio a mano.
  */
 function NuevaCotizacion({ detalle, recargar, alHecho }: Props & { alHecho: () => Promise<void> }) {
-    const planes = useLectura<PlanesDisponibles>((signal) => resolver(api().GET("/api/v1/comercial/planes", { signal })));
+    // Los planes dependen del router de la factibilidad (son de la instalación).
+    const routerId = detalle.factibilidad?.routerId ?? null;
+    const planes = useLectura<PlanesDisponibles>((signal) =>
+        resolver(api().GET("/api/v1/comercial/planes", { params: { query: routerId !== null ? { routerId } : {} }, signal })),
+    );
     return (
         <DialogoContenido titulo={detalle.cotizacion ? "Nueva revisión de la cotización" : "Cotizar"} descripcion={`${detalle.numero} · ${detalle.nombre}`} className="sm:w-[min(48rem,calc(100vw-2rem))]">
             {planes.estado === "cargando" ? (
@@ -232,7 +236,7 @@ function NuevaCotizacion({ detalle, recargar, alHecho }: Props & { alHecho: () =
 
 function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes: Schema<"PlanComercial">[] | null; alHecho: () => Promise<void> }) {
     const envio = useEnvio();
-    const activos = planes?.filter((p) => !p.estado || p.estado === "activo") ?? null;
+    const activos = planes?.filter((p) => p.activo) ?? null;
     const plan = detalle.planInteresId !== null ? activos?.find((p) => p.id === detalle.planInteresId) : undefined;
     const formulario = useForm<DatosCotizacion>({
         resolver: zodResolver(esquemaCotizacion(activos)),
@@ -298,7 +302,7 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
                                 <Campo etiqueta="Descripción" error={e?.descripcion?.message} {...formulario.register(`lineas.${i}.descripcion`)} />
                             )}
                             <div className="grid gap-3 sm:grid-cols-2">
-                                <Campo etiqueta="Cantidad" inputMode="decimal" error={e?.cantidad?.message} {...formulario.register(`lineas.${i}.cantidad`)} />
+                                {esPlan ? null : <Campo etiqueta="Cantidad" inputMode="decimal" error={e?.cantidad?.message} {...formulario.register(`lineas.${i}.cantidad`)} />}
                                 {esPlan && planElegido && planElegido.precio !== null ? (
                                     <p className="self-end pb-2 text-sm text-muted-foreground">Precio de Argos: {textoMonto(planElegido.precio)} al mes</p>
                                 ) : (

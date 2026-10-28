@@ -115,6 +115,7 @@ export const PERMISOS_VENTAS: Permiso[] = [
 export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_VENTAS.filter((p) => p !== "adjuntos.ver" && p !== "agenda.ver"),
     "factibilidad.configurar",
+    "factibilidad.registrar_manual",
     ...PERMISOS_BUZONES,
     "adjuntos.ver",
     "agenda.ver",

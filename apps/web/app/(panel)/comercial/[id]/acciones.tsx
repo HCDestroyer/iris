@@ -7,10 +7,13 @@ import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { AvisoAccion, useEnvio } from "@/componentes/comercial/comun";
+import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
+import { ErrorApi } from "@/lib/api/errores";
 import { esquemaPerder, esquemaReabrir, type DatosPerder, type DatosReabrir } from "@/lib/comercial/esquemas";
-import { requisitosGanar, type ProspectoDetalle } from "@/lib/comercial/presentacion";
+import { requisitosGanar, type Cobertura, type ProspectoDetalle } from "@/lib/comercial/presentacion";
+import { useLectura } from "@/lib/lectura";
 import type { Permiso } from "@/lib/menu";
 import { useSesion } from "@/lib/sesion";
 
@@ -210,22 +213,42 @@ function FormAsignar({ detalle, usuarios, alHecho, recargar }: PropsForm & { usu
     );
 }
 
+/**
+ * Ganar: lo que falta (contrato, cotización, factibilidad), confirmar la obra si la hay y, con
+ * conector y sin router sugerido por la factibilidad, elegir el router del servicio (422
+ * `router_requerido`).
+ */
 function FormGanar({ detalle, alHecho, recargar }: PropsForm) {
     const envio = useEnvio();
     const obra = detalle.acciones.confirmaObra;
-    const esquema = z.object({ confirmarObra: z.boolean() }).refine((d) => !obra || d.confirmarObra, { path: ["confirmarObra"], message: "Confirma la obra para ganar" });
-    const formulario = useForm<{ confirmarObra: boolean }>({ resolver: zodResolver(esquema), defaultValues: { confirmarObra: false } });
+    const sugerido = detalle.factibilidad?.routerId ?? null;
+    // Sin router sugerido: la cobertura dice si hay conector y qué routers hay.
+    const cobertura = useLectura<Cobertura | null>(async (signal) => (sugerido === null ? resolver(api().GET("/api/v1/comercial/cobertura", { signal })) : null));
+    const routers = cobertura.estado === "listo" && cobertura.datos?.disponible ? (cobertura.datos.routers ?? []) : [];
+    const pideRouter = sugerido === null && routers.length > 0;
+    const esquema = z
+        .object({ confirmarObra: z.boolean(), routerId: z.string() })
+        .superRefine((d, ctx) => {
+            if (obra && !d.confirmarObra) ctx.addIssue({ code: "custom", path: ["confirmarObra"], message: "Confirma la obra para ganar" });
+            if (pideRouter && d.routerId === "") ctx.addIssue({ code: "custom", path: ["routerId"], message: "Elige el router desde donde se atenderá" });
+        });
+    const formulario = useForm<{ confirmarObra: boolean; routerId: string }>({ resolver: zodResolver(esquema), defaultValues: { confirmarObra: false, routerId: "" } });
     const requisitos = requisitosGanar(detalle);
-    async function enviar(d: { confirmarObra: boolean }) {
+    const faltaRouter = envio.error instanceof ErrorApi && envio.error.codigo === "router_requerido";
+    async function enviar(d: { confirmarObra: boolean; routerId: string }) {
         const r = await envio.enviar(
             (clave) =>
                 resolver(
                     api().POST("/api/v1/prospectos/{id}/ganar", {
                         params: { path: { id: detalle.id }, header: { "Idempotency-Key": clave } },
-                        body: { version: detalle.version, ...(obra ? { confirmarObra: d.confirmarObra } : {}) },
+                        body: {
+                            version: detalle.version,
+                            ...(obra ? { confirmarObra: d.confirmarObra } : {}),
+                            ...(d.routerId ? { routerId: Number(d.routerId) } : {}),
+                        },
                     }),
                 ),
-            { nombres: ["confirmarObra"], setError: formulario.setError },
+            { nombres: ["confirmarObra", "routerId"], setError: formulario.setError },
         );
         if (r) await alHecho();
     }
@@ -250,11 +273,29 @@ function FormGanar({ detalle, alHecho, recargar }: PropsForm) {
             {obra ? (
                 <Casilla etiqueta="Confirmo que la instalación requiere obra y el cliente lo aceptó" error={formulario.formState.errors.confirmarObra?.message} {...formulario.register("confirmarObra")} />
             ) : null}
+            {sugerido === null && cobertura.estado === "error" ? (
+                <ErrorLectura error={cobertura.error} que="los routers de la cobertura" reintentar={cobertura.reintentar} />
+            ) : null}
+            {pideRouter || faltaRouter ? (
+                <CampoSelector
+                    etiqueta="Router del servicio"
+                    ayuda="La factibilidad no sugirió router: elige desde dónde se atenderá en Argos."
+                    error={formulario.formState.errors.routerId?.message}
+                    {...formulario.register("routerId")}
+                >
+                    <option value="">Elige…</option>
+                    {routers.map((r) => (
+                        <option key={r.id} value={String(r.id)}>
+                            {r.nombre}
+                        </option>
+                    ))}
+                </CampoSelector>
+            ) : null}
             <p className="text-sm text-muted-foreground">
                 Al ganar se da de alta al cliente y el servicio en Argos (o se crea la orden de instalación si Iris trabaja sin conector).
             </p>
-            <AvisoAccion envio={envio} que="ganar el prospecto" recargar={recargar} />
-            <Pie etiqueta="Ganar" enviando={envio.enviando} deshabilitado={envio.conflicto}>
+            {faltaRouter ? null : <AvisoAccion envio={envio} que="ganar el prospecto" recargar={recargar} />}
+            <Pie etiqueta="Ganar" enviando={envio.enviando} deshabilitado={envio.conflicto || (sugerido === null && cobertura.estado === "cargando")}>
                 <Trophy />
             </Pie>
         </form>
