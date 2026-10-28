@@ -1,0 +1,30 @@
+{
+    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+    "release-type": "simple",
+    "include-component-in-tag": false,
+    "include-v-in-tag": true,
+    "bump-minor-pre-major": true,
+    "pull-request-title-pattern": "chore: publicar versión ${version}",
+    "pull-request-header": "Versión de Iris lista para publicar. Al mergear esta PR se crean la etiqueta y la GitHub Release (`.github/workflows/release.yml`). Antes de mergear: correr CI (cerrar y reabrir la PR) y revisar el CHANGELOG.",
+    "changelog-sections": [
+        { "type": "feat", "section": "Funcionalidades" },
+        { "type": "fix", "section": "Correcciones" },
+        { "type": "perf", "section": "Rendimiento" },
+        { "type": "revert", "section": "Reversiones" },
+        { "type": "deps", "section": "Dependencias" },
+        { "type": "docs", "section": "Documentación", "hidden": true },
+        { "type": "refactor", "section": "Refactorización", "hidden": true },
+        { "type": "test", "section": "Pruebas", "hidden": true },
+        { "type": "build", "section": "Compilación", "hidden": true },
+        { "type": "ci", "section": "Integración continua", "hidden": true },
+        { "type": "chore", "section": "Mantenimiento", "hidden": true },
+        { "type": "style", "section": "Estilo", "hidden": true }
+    ],
+    "packages": {
+        ".": {
+            "package-name": "iris",
+            "changelog-path": "CHANGELOG.md",
+            "release-as": "0.1.0"
+        }
+    }
+}

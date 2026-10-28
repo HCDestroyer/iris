@@ -1,0 +1,37 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Iris API",
+    "version": "0.0.0",
+    "description": "Marcador de I5 para que packages/contratos compile. `make openapi` lo sobrescribe con el OpenAPI generado desde apps/api."
+  },
+  "paths": {
+    "/api/v1/salud": {
+      "get": {
+        "operationId": "salud",
+        "summary": "Salud del proceso",
+        "responses": {
+          "200": {
+            "description": "El proceso responde",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Salud" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Salud": {
+        "type": "object",
+        "required": ["estado"],
+        "properties": {
+          "estado": { "type": "string", "examples": ["ok"] }
+        }
+      }
+    }
+  }
+}

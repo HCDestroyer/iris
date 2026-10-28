@@ -1,0 +1,18 @@
+{
+    "name": "iris",
+    "private": true,
+    "packageManager": "pnpm@10.28.0",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "lint": "pnpm -r --parallel --if-present lint",
+        "typecheck": "pnpm -r --if-present typecheck",
+        "test": "pnpm -r --if-present test",
+        "build": "pnpm -r --if-present build",
+        "contratos:build": "pnpm --filter @iris/contratos build"
+    },
+    "devDependencies": {
+        "typescript": "~5.9.3"
+    }
+}
