@@ -14,7 +14,7 @@ import (
 
 const agendaCitas = `-- name: AgendaCitas :many
 SELECT c.id, c.orden_id, c.empresa_id, c.tecnico_id, c.tipo_id, c.inicio, c.fin, c.ventana_inicio, c.ventana_fin, c.version, c.created_at, c.updated_at, o.numero, o.estado, o.zona_id, o.cuadrilla_id AS orden_cuadrilla_id, o.direccion, o.lat, o.lon,
-       o.cliente_id, o.servicio_id, o.version AS orden_version, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
+       o.cliente_id, o.servicio_id, o.version AS orden_version, o.en_sitio_en, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 JOIN campo.tipos_orden tp ON tp.id = c.tipo_id
@@ -72,6 +72,7 @@ type AgendaCitasRow struct {
 	ClienteID          *int64
 	ServicioID         *int64
 	OrdenVersion       int32
+	EnSitioEn          *time.Time
 	TipoCodigo         string
 	TecnicoCuadrillaID *int64
 }
@@ -121,6 +122,7 @@ func (q *Queries) AgendaCitas(ctx context.Context, arg AgendaCitasParams) ([]Age
 			&i.ClienteID,
 			&i.ServicioID,
 			&i.OrdenVersion,
+			&i.EnSitioEn,
 			&i.TipoCodigo,
 			&i.TecnicoCuadrillaID,
 		); err != nil {

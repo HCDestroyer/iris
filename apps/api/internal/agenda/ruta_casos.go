@@ -942,3 +942,46 @@ func (m *Modulo) RutaPublicadaDelTecnico(ctx context.Context, db agendabd.DBTX, 
 	}
 	return salida, nil
 }
+
+// TurnoDelTecnico: el turno de un día (para la app de campo).
+type TurnoDelTecnico struct {
+	Inicio time.Time
+	Fin    time.Time
+	Tramos []Franja
+}
+
+// TurnoDelDia: los turnos del técnico (usuario) ese día local (dia: medianoche local) menos sus
+// ausencias; nil si no trabaja ese día (sin ficha activa, sin turno o ausente todo el turno).
+func (m *Modulo) TurnoDelDia(ctx context.Context, db agendabd.DBTX, usuario int64, dia time.Time) (*TurnoDelTecnico, error) {
+	q := agendabd.New(db)
+	f, err := q.TecnicoPorUsuario(ctx, usuario)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !f.Activo) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	turnos, err := q.TurnosDeTecnicos(ctx, []int64{f.ID})
+	if err != nil {
+		return nil, err
+	}
+	tramos := turnosDelDia(turnos, f.ID, dia)
+	aus, err := q.AusenciasEnRango(ctx, agendabd.AusenciasEnRangoParams{Tecnicos: []int64{f.ID}, Desde: dia.UTC(), Hasta: dia.AddDate(0, 0, 1).UTC()})
+	if err != nil {
+		return nil, err
+	}
+	quitar := make([]intervalo, 0, len(aus))
+	for _, a := range aus {
+		quitar = append(quitar, intervalo{a.Inicio, a.Fin})
+	}
+	libres := restar(tramos, quitar)
+	if len(libres) == 0 {
+		return nil, nil
+	}
+	slices.SortFunc(libres, func(a, b intervalo) int { return a.ini.Compare(b.ini) })
+	t := &TurnoDelTecnico{Inicio: libres[0].ini, Fin: libres[0].fin, Tramos: franjas(libres)}
+	for _, l := range libres {
+		t.Fin = maxT(t.Fin, l.fin)
+	}
+	return t, nil
+}

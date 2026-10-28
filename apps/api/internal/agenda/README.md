@@ -62,14 +62,16 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
   para **llegar dentro de la ventana** acordada con el cliente (llegar antes = esperar; después =
   retraso, que pesa 100 veces el tiempo) con la menor hora de terminar y luego el menor viaje.
   Duración de cada parada = la del tipo de orden. Exacto (todas las permutaciones) hasta 8 paradas;
-  más, semillas (por ventana, por cita, vecino más cercano) con reubicación y 2-opt. Las paradas
+  más, semillas (por ventana, por cita, vecino más cercano) con reubicación y 2-opt, acotada a
+  250 ms (por encima de 30 paradas solo 2-opt) y cortada si se cancela la petición. Las paradas
   sin coordenadas van al final (viaje 0). Sale de la base de la ficha (hoy sin paradas hechas, de
   la última posición de menos de 2 h; con paradas hechas, de la última); hora de salida = inicio
   del turno (o la primera cita); hoy, lo pendiente no empieza antes de ahora. `ordenIds` = orden
   manual. Crea o rehace el **borrador** (uno por técnico, día y empresa); la publicada no se toca.
-- **OSRM** (`IRIS_OSRM_URL`, `IRIS_OSRM_ESPERA`): la matriz (`/table`, duración y distancia) y el
-  trazo (`/route`, GeoJSON) se piden **fuera de la transacción**; dentro se vuelven a leer las
-  paradas y, si los puntos cambiaron, se calcula en línea recta (`datos_cambiaron`). Sin OSRM o si
+- **OSRM** (`IRIS_OSRM_URL`, `IRIS_OSRM_ESPERA`): solo si el actor puede proponer esa ruta (alcance
+  sobre el técnico y todas sus paradas), la matriz (`/table`), el plan y el trazo (`/route`) se
+  calculan **una vez, fuera de la transacción**; dentro se vuelve a leer y, si la huella de la
+  entrada no cambió, se reutiliza el plan; si cambió, línea recta (`datos_cambiaron`). Sin OSRM o si
   no responde: línea recta (haversine × 1,3 a 30 km/h), mismo orden por ventana y distancia, y la
   ruta lo dice (`motor: haversine`, `degradada: true`, `motivoMotor`), nunca un 500.
 - **Publicar** (`POST /rutas/{id}/publicar`, `rutas.publicar`, `version`): solo un borrador vigente
@@ -84,9 +86,12 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
 - **Alcance (falla cerrado):** la ruta se ve si el alcance de `rutas.ver` cubre la cuadrilla del
   técnico (como las fichas) y es de la empresa activa; si no, 404. Una parada cuya orden el alcance
   no ve (ni zona, ni cuadrilla de la orden, ni cuadrilla del técnico por alcance de cuadrilla) sale
-  `oculta` (sin número, dirección ni coordenadas), y con ella no se puede proponer ni publicar
-  (403). Una ruta solo lleva órdenes de su empresa.
-- **App de campo:** `RutaPublicadaDelTecnico` (campo arma `ruta` del paquete y de los cambios).
+  `oculta` (solo su posición en la secuencia: sin orden, estado, horas, lugar ni viaje; la
+  siguiente sin viaje ni distancia; la ruta sin `geometria`), y con ella no se puede proponer ni
+  publicar (403). Si la ruta sale de la última posición del técnico, la salida y el trazo solo
+  los ve quien tiene `campo.ver_posiciones` sobre él. Una ruta solo lleva órdenes de su empresa.
+- **App de campo:** `RutaPublicadaDelTecnico` (campo arma `ruta` del paquete y de los cambios) y
+  `TurnoDelDia` (turno del día sin ausencias: `turno` del paquete).
 
 ## Para soporte y campo
 

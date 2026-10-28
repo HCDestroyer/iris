@@ -351,6 +351,13 @@ func TestRutaPropuestaFrenteALaReal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	cal := deber(e.ag.Calendario.Ejecutar(s.cd, agenda.EntradaCalendario{Desde: gt(3, 0, 0).Format(time.RFC3339),
+		Hasta: gt(4, 0, 0).Format(time.RFC3339), TecnicoID: s.tec}))(t)
+	for _, c := range cal.Citas {
+		if (c.OrdenID == s.oA.ID) != (c.EnSitioEn != nil && c.EnSitioEn.Equal(gt(3, 8, 12))) {
+			t.Fatalf("enSitioEn en el calendario: %+v", c)
+		}
+	}
 	ver := deber(e.ag.VerRuta.Ejecutar(s.cd, agenda.EntradaVerRuta{ID: r.ID}))(t)
 	pa := ver.Paradas[0]
 	if pa.OrdenID != s.oA.ID || pa.Estado != "en_sitio" || pa.LlegadaReal == nil || !pa.LlegadaReal.Equal(gt(3, 8, 12)) ||
@@ -525,5 +532,26 @@ func TestRutaPosicionDeSalidaSoloConPermiso(t *testing.T) {
 	}
 	if l := deber(e.ag.ListarRutas.Ejecutar(s.cd, agenda.EntradaListarRutas{Fecha: "2026-10-28", TecnicoID: s.tec}))(t); len(l.Data) != 1 || l.Data[0].SalidaLat == nil {
 		t.Fatalf("lista para despacho: %+v", l.Data)
+	}
+}
+
+// El paquete trae el turno del día del técnico, sin sus ausencias (pedido de I4).
+func TestPaqueteConTurnoDelDia(t *testing.T) {
+	s := nuevoEscenarioRuta(t, nil)
+	e := s.e
+	ct := como(t, s.tec, "tecnico")
+	paq := deber(e.cmp.LeerPaquete.Ejecutar(ct, campo.EntradaPaquete{Fecha: jueves}))(t)
+	if paq.Turno == nil || !paq.Turno.Inicio.Equal(gt(3, 8, 0)) || !paq.Turno.Fin.Equal(gt(3, 17, 0)) || len(paq.Turno.Tramos) != 1 {
+		t.Fatalf("turno del jueves: %+v", paq.Turno)
+	}
+	f := deber(e.ag.ListarTecnicos.Ejecutar(s.cs, agenda.EntradaListarTecnicos{UsuarioID: s.tec}))(t)
+	deber(e.ag.RegistrarAusencia.Ejecutar(s.cs, agenda.EntradaRegistrarAusencia{ID: f.Data[0].ID, Inicio: gt(3, 8, 0).Format(time.RFC3339),
+		Fin: gt(3, 12, 0).Format(time.RFC3339), Motivo: "permiso"}))(t)
+	paq = deber(e.cmp.LeerPaquete.Ejecutar(ct, campo.EntradaPaquete{Fecha: jueves}))(t)
+	if paq.Turno == nil || !paq.Turno.Inicio.Equal(gt(3, 12, 0)) || !paq.Turno.Fin.Equal(gt(3, 17, 0)) {
+		t.Fatalf("turno sin la ausencia: %+v", paq.Turno)
+	}
+	if paq = deber(e.cmp.LeerPaquete.Ejecutar(ct, campo.EntradaPaquete{Fecha: "2026-10-31"}))(t); paq.Turno != nil {
+		t.Fatalf("el sábado no trabaja: %+v", paq.Turno)
 	}
 }

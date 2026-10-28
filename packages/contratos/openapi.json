@@ -773,6 +773,14 @@
           "direccion": {
             "type": "string"
           },
+          "enSitioEn": {
+            "description": "Llegada real al sitio (ausente o null si todavía no llega)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "estado": {
             "enum": [
               "pendiente",
@@ -6396,6 +6404,10 @@
             "description": "Hora del servidor al armar el paquete",
             "format": "date-time",
             "type": "string"
+          },
+          "turno": {
+            "$ref": "#/components/schemas/TurnoCampo",
+            "description": "Turno del técnico ese día según su ficha de agenda, sin las ausencias; ausente = no trabaja ese día"
           }
         },
         "required": [
@@ -6485,7 +6497,7 @@
             "type": "integer"
           },
           "estado": {
-            "description": "Estado actual de la orden",
+            "description": "Estado actual de la orden; vacío si oculta",
             "enum": [
               "pendiente",
               "programada",
@@ -6493,7 +6505,8 @@
               "en_sitio",
               "cerrada",
               "fallida",
-              "cancelada"
+              "cancelada",
+              ""
             ],
             "type": "string"
           },
@@ -6520,8 +6533,12 @@
             ]
           },
           "llegadaEstimada": {
+            "description": "null si oculta",
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "llegadaReal": {
             "description": "Real: llegada al sitio",
@@ -6542,7 +6559,7 @@
             "type": "string"
           },
           "oculta": {
-            "description": "Fuera de tu alcance: sin número, dirección ni coordenadas",
+            "description": "Fuera de tu alcance: solo la posición en la secuencia (sin orden, estado, horas, lugar ni viaje); el viaje de la parada siguiente sale en 0",
             "type": "boolean"
           },
           "ordenId": {
@@ -6561,20 +6578,26 @@
             "type": "integer"
           },
           "salidaEstimada": {
+            "description": "null si oculta",
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "sinCoordenadas": {
             "description": "Sin coordenadas: viaje 0 y al final de la ruta optimizada",
             "type": "boolean"
           },
           "tipo": {
+            "description": "Vacío si oculta",
             "enum": [
               "instalacion",
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              ""
             ],
             "type": "string"
           },
@@ -7763,6 +7786,7 @@
             "type": "string"
           },
           "salidaLat": {
+            "description": "null si la salida es la posición del técnico y no puedes ver posiciones (campo.ver_posiciones)",
             "format": "double",
             "type": [
               "number",
@@ -7962,7 +7986,7 @@
           },
           "geometria": {
             "additionalProperties": {},
-            "description": "GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada",
+            "description": "GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada. null si hay paradas ocultas o si sale de la posición del técnico y no puedes ver posiciones",
             "type": [
               "object",
               "null"
@@ -8073,6 +8097,7 @@
             "type": "string"
           },
           "salidaLat": {
+            "description": "null si la salida es la posición del técnico y no puedes ver posiciones (campo.ver_posiciones)",
             "format": "double",
             "type": [
               "number",
@@ -9231,6 +9256,24 @@
         ],
         "type": "object"
       },
+      "TramoCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "fin": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inicio",
+          "fin"
+        ],
+        "type": "object"
+      },
       "Turno": {
         "additionalProperties": false,
         "properties": {
@@ -9256,6 +9299,37 @@
           "dia",
           "inicio",
           "fin"
+        ],
+        "type": "object"
+      },
+      "TurnoCampo": {
+        "additionalProperties": false,
+        "properties": {
+          "fin": {
+            "description": "Fin del último tramo",
+            "format": "date-time",
+            "type": "string"
+          },
+          "inicio": {
+            "description": "Inicio del primer tramo",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tramos": {
+            "description": "Tramos del turno sin las ausencias, en orden",
+            "items": {
+              "$ref": "#/components/schemas/TramoCampo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "inicio",
+          "fin",
+          "tramos"
         ],
         "type": "object"
       },

@@ -293,7 +293,7 @@ SELECT usuario_id FROM agenda.tecnicos WHERE cuadrilla_id = @cuadrilla_id;
 -- name: AgendaCitas :many
 -- Calendario de despacho: citas que tocan [desde, hasta) con su orden.
 SELECT c.*, o.numero, o.estado, o.zona_id, o.cuadrilla_id AS orden_cuadrilla_id, o.direccion, o.lat, o.lon,
-       o.cliente_id, o.servicio_id, o.version AS orden_version, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
+       o.cliente_id, o.servicio_id, o.version AS orden_version, o.en_sitio_en, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 JOIN campo.tipos_orden tp ON tp.id = c.tipo_id

@@ -111,6 +111,20 @@ type Paquete struct {
 	Ordenes     []OrdenCampo `json:"ordenes" doc:"Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio"`
 	Existencias Existencias  `json:"existencias"`
 	Ruta        *RutaCampo   `json:"ruta,omitempty" doc:"Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después"`
+	Turno       *TurnoCampo  `json:"turno,omitempty" doc:"Turno del técnico ese día según su ficha de agenda, sin las ausencias; ausente = no trabaja ese día"`
+}
+
+// TurnoCampo: el turno del día (UTC). Un turno partido trae varios tramos.
+type TurnoCampo struct {
+	Inicio time.Time    `json:"inicio" doc:"Inicio del primer tramo"`
+	Fin    time.Time    `json:"fin" doc:"Fin del último tramo"`
+	Tramos []TramoCampo `json:"tramos" doc:"Tramos del turno sin las ausencias, en orden"`
+}
+
+// TramoCampo: un tramo del turno.
+type TramoCampo struct {
+	Inicio time.Time `json:"inicio"`
+	Fin    time.Time `json:"fin"`
 }
 
 // EntradaPaquete es la entrada de GET /campo/paquete.
@@ -194,8 +208,12 @@ func (m *Modulo) nuevoLeerPaquete() *auditoria.Caso[EntradaPaquete, Paquete] {
 					ids = append(ids, o.ID)
 				}
 			}
+			turno, err := m.turnoCampo(ctx, t, actor.ID, inicioDia)
+			if err != nil {
+				return Paquete{}, err
+			}
 			t.Anotar(map[string]any{"fecha": inicioDia.Format("2006-01-02"), "ordenes": ids})
-			return Paquete{
+			return Paquete{Turno: turno,
 				Fecha: inicioDia.Format("2006-01-02"), ServidorEn: ahora, Cursor: cursorDe(ultimo), Ordenes: ordenes,
 				Existencias: Existencias{Bodegas: []ExistenciasBodega{}}, Ruta: ruta,
 			}, nil
@@ -287,6 +305,19 @@ func (m *Modulo) nuevoLeerCambios() *auditoria.Caso[EntradaCambios, Cambios] {
 			return salida, m.rutaDeHoyEnCambios(ctx, t, q, &salida)
 		},
 	})
+}
+
+// turnoCampo: el turno del técnico ese día (agenda), para encender y apagar la ubicación.
+func (m *Modulo) turnoCampo(ctx context.Context, t *auditoria.Tx, tecnico int64, dia time.Time) (*TurnoCampo, error) {
+	tu, err := m.cfg.Agenda.TurnoDelDia(ctx, t, tecnico, dia)
+	if err != nil || tu == nil {
+		return nil, err
+	}
+	salida := &TurnoCampo{Inicio: tu.Inicio, Fin: tu.Fin, Tramos: make([]TramoCampo, 0, len(tu.Tramos))}
+	for _, f := range tu.Tramos {
+		salida.Tramos = append(salida.Tramos, TramoCampo{Inicio: f.Inicio, Fin: f.Fin})
+	}
+	return salida, nil
 }
 
 // rutaDeHoyEnCambios agrega a los cambios la ruta publicada de hoy con las órdenes vivas del

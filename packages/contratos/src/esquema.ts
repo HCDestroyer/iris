@@ -2699,6 +2699,11 @@ export interface components {
              */
             cuadrillaId: number | null;
             direccion: string;
+            /**
+             * Format: date-time
+             * @description Llegada real al sitio (ausente o null si todavía no llega)
+             */
+            enSitioEn?: string | null;
             /** @enum {string} */
             estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
             /** Format: date-time */
@@ -4643,6 +4648,8 @@ export interface components {
              * @description Hora del servidor al armar el paquete
              */
             servidorEn: string;
+            /** @description Turno del técnico ese día según su ficha de agenda, sin las ausencias; ausente = no trabaja ese día */
+            turno?: components["schemas"]["TurnoCampo"];
         };
         ParadaCampo: {
             /** @description Se estima llegar después de la ventana acordada con el cliente */
@@ -4686,10 +4693,10 @@ export interface components {
             /** Format: int32 */
             esperaSeg: number;
             /**
-             * @description Estado actual de la orden
+             * @description Estado actual de la orden; vacío si oculta
              * @enum {string}
              */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada" | "";
             /** @description Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real */
             fija: boolean;
             /**
@@ -4700,8 +4707,11 @@ export interface components {
             fueraDeVentana: boolean;
             /** Format: double */
             lat: number | null;
-            /** Format: date-time */
-            llegadaEstimada: string;
+            /**
+             * Format: date-time
+             * @description null si oculta
+             */
+            llegadaEstimada: string | null;
             /**
              * Format: date-time
              * @description Real: llegada al sitio
@@ -4710,7 +4720,7 @@ export interface components {
             /** Format: double */
             lon: number | null;
             numero: string;
-            /** @description Fuera de tu alcance: sin número, dirección ni coordenadas */
+            /** @description Fuera de tu alcance: solo la posición en la secuencia (sin orden, estado, horas, lugar ni viaje); el viaje de la parada siguiente sale en 0 */
             oculta: boolean;
             /**
              * Format: int64
@@ -4727,12 +4737,18 @@ export interface components {
              * @description Llegada estimada después del fin de la ventana
              */
             retrasoSeg: number;
-            /** Format: date-time */
-            salidaEstimada: string;
+            /**
+             * Format: date-time
+             * @description null si oculta
+             */
+            salidaEstimada: string | null;
             /** @description Sin coordenadas: viaje 0 y al final de la ruta optimizada */
             sinCoordenadas: boolean;
-            /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * @description Vacío si oculta
+             * @enum {string}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "";
             /** Format: date-time */
             ventanaFin: string | null;
             /**
@@ -5136,7 +5152,10 @@ export interface components {
              * @description Hora de salida (inicio del turno o la primera cita)
              */
             saleEn: string;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description null si la salida es la posición del técnico y no puedes ver posiciones (campo.ver_posiciones)
+             */
             salidaLat: number | null;
             /** Format: double */
             salidaLon: number | null;
@@ -5211,7 +5230,7 @@ export interface components {
              * @description Paradas a las que se llega después del fin de su ventana
              */
             fueraDeVentana: number;
-            /** @description GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada */
+            /** @description GeoJSON LineString [lon, lat] de la salida y las paradas: por calles con OSRM, rectas si degradada. null si hay paradas ocultas o si sale de la posición del técnico y no puedes ver posiciones */
             geometria: {
                 [key: string]: unknown;
             } | null;
@@ -5257,7 +5276,10 @@ export interface components {
              * @description Hora de salida (inicio del turno o la primera cita)
              */
             saleEn: string;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description null si la salida es la posición del técnico y no puedes ver posiciones (campo.ver_posiciones)
+             */
             salidaLat: number | null;
             /** Format: double */
             salidaLon: number | null;
@@ -5628,6 +5650,12 @@ export interface components {
             /** @description iris_pat_…; guárdalo ahora, no se vuelve a mostrar */
             valor: string;
         };
+        TramoCampo: {
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
+        };
         Turno: {
             /**
              * Format: int32
@@ -5638,6 +5666,20 @@ export interface components {
             fin: string;
             /** @description HH:MM */
             inicio: string;
+        };
+        TurnoCampo: {
+            /**
+             * Format: date-time
+             * @description Fin del último tramo
+             */
+            fin: string;
+            /**
+             * Format: date-time
+             * @description Inicio del primer tramo
+             */
+            inicio: string;
+            /** @description Tramos del turno sin las ausencias, en orden */
+            tramos: components["schemas"]["TramoCampo"][] | null;
         };
         UltimasPosiciones: {
             data: components["schemas"]["PosicionTecnico"][] | null;
