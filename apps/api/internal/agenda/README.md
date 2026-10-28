@@ -1,8 +1,8 @@
 # agenda
 
 Zonas, cuadrillas, técnicos (turnos, ausencias y capacidad diaria por tipo de orden) y las citas de
-las órdenes programadas, con la ventana acordada con el cliente. Schema `agenda`. La propuesta y
-publicación de rutas (OSRM) llega en la PR siguiente.
+las órdenes programadas, con la ventana acordada con el cliente, y las rutas del día (propuesta con
+OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
 
 ## Qué hace
 
@@ -54,11 +54,45 @@ publicación de rutas (OSRM) llega en la PR siguiente.
   horario). `agenda.zonas`, `agenda.cuadrillas` y
   `agenda.citas` se registran para la adopción.
 
+## Rutas del día (`agenda.rutas`, `agenda.ruta_paradas`)
+
+- **Proponer** (`POST /rutas/proponer`, `rutas.proponer`; `ProponerRuta`): las citas del técnico ese
+  día en la empresa activa (programadas, en curso y terminadas; hasta 100). Las ya en camino, en
+  sitio o terminadas van primero en el orden real (`fija`, con su hora real); el resto se ordena
+  para **llegar dentro de la ventana** acordada con el cliente (llegar antes = esperar; después =
+  retraso, que pesa 100 veces el tiempo) con la menor hora de terminar y luego el menor viaje.
+  Duración de cada parada = la del tipo de orden. Exacto (todas las permutaciones) hasta 8 paradas;
+  más, semillas (por ventana, por cita, vecino más cercano) con reubicación y 2-opt. Las paradas
+  sin coordenadas van al final (viaje 0). Sale de la base de la ficha (hoy sin paradas hechas, de
+  la última posición de menos de 2 h; con paradas hechas, de la última); hora de salida = inicio
+  del turno (o la primera cita); hoy, lo pendiente no empieza antes de ahora. `ordenIds` = orden
+  manual. Crea o rehace el **borrador** (uno por técnico, día y empresa); la publicada no se toca.
+- **OSRM** (`IRIS_OSRM_URL`, `IRIS_OSRM_ESPERA`): la matriz (`/table`, duración y distancia) y el
+  trazo (`/route`, GeoJSON) se piden **fuera de la transacción**; dentro se vuelven a leer las
+  paradas y, si los puntos cambiaron, se calcula en línea recta (`datos_cambiaron`). Sin OSRM o si
+  no responde: línea recta (haversine × 1,3 a 30 km/h), mismo orden por ventana y distancia, y la
+  ruta lo dice (`motor: haversine`, `degradada: true`, `motivoMotor`), nunca un 500.
+- **Publicar** (`POST /rutas/{id}/publicar`, `rutas.publicar`, `version`): solo un borrador vigente
+  (422 `ruta_desactualizada` si una cita cambió). La publicada anterior pasa a `reemplazada`
+  (historial, `reemplazadaPorId`). Ninguna ruta se borra.
+- **Reasignación en caliente:** `ReservarCita` y `QuitarCita` marcan `desactualizada` (con motivo)
+  el borrador y la publicada del técnico y día de antes y de después. La publicada sigue siendo la
+  del técnico hasta publicar otra; el paquete lo avisa.
+- **Leer** (`GET /rutas?fecha=`, `GET /rutas/{id}`, `rutas.ver`): paradas con llegada estimada y
+  real (`en_sitio`), `desvioSeg`, `vigente`, y el recorrido real del día (`campo.posiciones`,
+  muestreado a 1000 puntos; exige `campo.ver_posiciones`, si no `disponible: false`).
+- **Alcance (falla cerrado):** la ruta se ve si el alcance de `rutas.ver` cubre la cuadrilla del
+  técnico (como las fichas) y es de la empresa activa; si no, 404. Una parada cuya orden el alcance
+  no ve (ni zona, ni cuadrilla de la orden, ni cuadrilla del técnico por alcance de cuadrilla) sale
+  `oculta` (sin número, dirección ni coordenadas), y con ella no se puede proponer ni publicar
+  (403). Una ruta solo lleva órdenes de su empresa.
+- **App de campo:** `RutaPublicadaDelTecnico` (campo arma `ruta` del paquete y de los cambios).
+
 ## Para soporte y campo
 
 `ValidarZona` (zona indicada por una persona: existe, activa, de la empresa; 422 en el campo),
 `ZonaDeArgos` (zona de un dato de Argos: la copia si falta), `ValidarCuadrilla`, `ReservarCita`,
-`QuitarCita`, `CitasDeOrdenes`. `soporte.tickets` y `campo.ordenes` tienen llave foránea de
+`QuitarCita` (método: marca la ruta), `CitasDeOrdenes`, `RutaPublicadaDelTecnico`. `soporte.tickets` y `campo.ordenes` tienen llave foránea de
 `zona_id` y `cuadrilla_id` al catálogo (migración `20261028175434`: los valores huérfanos se
 conservan como zona o cuadrilla «migrada» con el mismo id. Si la usan varias empresas nace sin
 empresa e **inactiva**: las filas que ya la referencian siguen válidas (la FK no mira `activa`),
@@ -69,6 +103,7 @@ por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemp
 
 - **Emite:** `orden.programada` (en la transacción de la acción de campo), `zona.creada`,
   `zona.actualizada`, `cuadrilla.creada`, `cuadrilla.actualizada`, `tecnico.creado`,
-  `tecnico.actualizado`, `tecnico.ausencia_registrada`, `tecnico.ausencia_anulada`
+  `tecnico.actualizado`, `tecnico.ausencia_registrada`, `tecnico.ausencia_anulada`, `ruta.propuesta`,
+  `ruta.publicada`, `ruta.desactualizada`
   (`.claude/integration/contratos/eventos.md`).
 - **Consume:** nada (el espejo de zonas lee la instantánea que refresca el conector de Argos).
