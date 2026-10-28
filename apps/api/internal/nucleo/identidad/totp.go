@@ -32,7 +32,9 @@ func validarTOTP(secreto, codigo string, ahora time.Time) (int64, bool) {
 	return 0, false
 }
 
-func datosAsociadosTOTP(usuarioID int64) []byte {
+// DatosAsociadosTOTP ata el secreto TOTP cifrado a su usuario. También lo usa la rotación de la
+// clave (internal/nucleo/clave).
+func DatosAsociadosTOTP(usuarioID int64) []byte {
 	return []byte("usuario:" + strconv.FormatInt(usuarioID, 10) + ":totp")
 }
 
@@ -44,7 +46,7 @@ func secretoTOTP(cfg Config, u identidadbd.NucleoUsuario) (string, error) {
 	if u.TotpSecreto == nil {
 		return "", nucleo.ReglaNegocio("mfa_sin_configurar", "El usuario no tiene MFA configurado")
 	}
-	plano, err := cfg.Cifrador.Descifrar(u.TotpSecreto, datosAsociadosTOTP(u.ID))
+	plano, err := cfg.Cifrador.Descifrar(u.TotpSecreto, DatosAsociadosTOTP(u.ID))
 	if err != nil {
 		return "", err
 	}

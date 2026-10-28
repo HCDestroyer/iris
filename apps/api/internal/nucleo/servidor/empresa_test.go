@@ -250,11 +250,11 @@ func TestAsignarEmpresaSoloPropia(t *testing.T) {
 	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idOtro, EmpresaID: 3}); err != nil {
 		t.Fatalf("asignar la propia: %v", err)
 	}
-	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idSinEmpresa, EmpresaID: 1}); !esProblema(err, "prohibido") {
-		t.Fatalf("a un usuario sin empresas solo le asigna un admin global: %v", err)
+	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idSinEmpresa, EmpresaID: 1}); !esProblema(err, "no_encontrado") {
+		t.Fatalf("a un usuario sin empresas solo le asigna un admin global (404: fuera de alcance): %v", err)
 	}
-	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idAjeno, EmpresaID: 1}); !esProblema(err, "prohibido") {
-		t.Fatalf("a un usuario de otra empresa no se le asigna: %v", err)
+	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idAjeno, EmpresaID: 1}); !esProblema(err, "no_encontrado") {
+		t.Fatalf("a un usuario de otra empresa no se le asigna (404: fuera de alcance): %v", err)
 	}
 }
 

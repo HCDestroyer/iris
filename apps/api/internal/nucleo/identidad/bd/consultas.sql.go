@@ -14,7 +14,7 @@ const activarTOTP = `-- name: ActivarTOTP :one
 UPDATE nucleo.usuarios
 SET totp_activo = true, totp_ultimo_paso = $1, version = version + 1, updated_at = now()
 WHERE id = $2
-RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type ActivarTOTPParams struct {
@@ -39,6 +39,7 @@ func (q *Queries) ActivarTOTP(ctx context.Context, arg ActivarTOTPParams) (Nucle
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -48,7 +49,7 @@ UPDATE nucleo.usuarios
 SET nombre = $1, correo = $2, contrasena_hash = $3,
     version = version + 1, updated_at = now()
 WHERE id = $4 AND version = $5
-RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type ActualizarUsuarioParams struct {
@@ -82,6 +83,7 @@ func (q *Queries) ActualizarUsuario(ctx context.Context, arg ActualizarUsuarioPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -171,6 +173,42 @@ func (q *Queries) BloqueoLogin(ctx context.Context, correo string) (time.Time, e
 	var bloqueado_hasta time.Time
 	err := row.Scan(&bloqueado_hasta)
 	return bloqueado_hasta, err
+}
+
+const cambiarContrasenaPropia = `-- name: CambiarContrasenaPropia :one
+UPDATE nucleo.usuarios
+SET contrasena_hash = $1, debe_cambiar_contrasena = false,
+    version = version + 1, updated_at = now()
+WHERE id = $2
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
+`
+
+type CambiarContrasenaPropiaParams struct {
+	ContrasenaHash *string
+	ID             int64
+}
+
+// El propio usuario cambia su contraseña (y deja de tener una temporal).
+func (q *Queries) CambiarContrasenaPropia(ctx context.Context, arg CambiarContrasenaPropiaParams) (NucleoUsuario, error) {
+	row := q.db.QueryRow(ctx, cambiarContrasenaPropia, arg.ContrasenaHash, arg.ID)
+	var i NucleoUsuario
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Correo,
+		&i.Tipo,
+		&i.ContrasenaHash,
+		&i.TotpSecreto,
+		&i.TotpActivo,
+		&i.TotpUltimoPaso,
+		&i.Activo,
+		&i.UsuarioArgosID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
+	)
+	return i, err
 }
 
 const candadoSemilla = `-- name: CandadoSemilla :exec
@@ -416,7 +454,7 @@ const crearUsuario = `-- name: CrearUsuario :one
 
 INSERT INTO nucleo.usuarios (nombre, correo, tipo, contrasena_hash)
 VALUES ($1, $2, $3, $4)
-RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type CrearUsuarioParams struct {
@@ -449,6 +487,7 @@ func (q *Queries) CrearUsuario(ctx context.Context, arg CrearUsuarioParams) (Nuc
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -457,7 +496,7 @@ const desactivarUsuario = `-- name: DesactivarUsuario :one
 UPDATE nucleo.usuarios
 SET activo = false, version = version + 1, updated_at = now()
 WHERE id = $1 AND version = $2
-RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type DesactivarUsuarioParams struct {
@@ -482,6 +521,7 @@ func (q *Queries) DesactivarUsuario(ctx context.Context, arg DesactivarUsuarioPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -683,6 +723,24 @@ func (q *Queries) FallosMFASesion(ctx context.Context, id int64) (int32, error) 
 	var mfa_fallos int32
 	err := row.Scan(&mfa_fallos)
 	return mfa_fallos, err
+}
+
+const fallosVigentes = `-- name: FallosVigentes :one
+SELECT coalesce((SELECT fallos FROM nucleo.intentos_login
+                 WHERE correo = $1 AND updated_at >= $2::timestamptz), 0)::integer AS fallos
+`
+
+type FallosVigentesParams struct {
+	Correo string
+	Desde  time.Time
+}
+
+// Fallos contados desde @desde (0 si no hay o si la cuenta ya venció).
+func (q *Queries) FallosVigentes(ctx context.Context, arg FallosVigentesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, fallosVigentes, arg.Correo, arg.Desde)
+	var fallos int32
+	err := row.Scan(&fallos)
+	return fallos, err
 }
 
 const guardarPermiso = `-- name: GuardarPermiso :exec
@@ -934,7 +992,7 @@ func (q *Queries) ListarTokens(ctx context.Context, arg ListarTokensParams) ([]N
 }
 
 const listarUsuarios = `-- name: ListarUsuarios :many
-SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios u
+SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena FROM nucleo.usuarios u
 WHERE u.id > $1
   AND ($2::boolean OR u.id = $3
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
@@ -988,6 +1046,7 @@ func (q *Queries) ListarUsuarios(ctx context.Context, arg ListarUsuariosParams) 
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DebeCambiarContrasena,
 		); err != nil {
 			return nil, err
 		}
@@ -1169,6 +1228,63 @@ func (q *Queries) RegistrarPasoTOTP(ctx context.Context, arg RegistrarPasoTOTPPa
 	return result.RowsAffected(), nil
 }
 
+const reiniciarMFA = `-- name: ReiniciarMFA :one
+UPDATE nucleo.usuarios
+SET totp_secreto = NULL, totp_activo = false, totp_ultimo_paso = 0,
+    contrasena_hash = $1, debe_cambiar_contrasena = true,
+    version = version + 1, updated_at = now()
+WHERE id = $2 AND version = $3
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
+`
+
+type ReiniciarMFAParams struct {
+	ContrasenaHash *string
+	ID             int64
+	Version        int32
+}
+
+// Reinicio por un administrador: borra el secreto (configurado o activo) y el paso usado, y
+// reemplaza la contraseña por una temporal que hay que cambiar al entrar.
+func (q *Queries) ReiniciarMFA(ctx context.Context, arg ReiniciarMFAParams) (NucleoUsuario, error) {
+	row := q.db.QueryRow(ctx, reiniciarMFA, arg.ContrasenaHash, arg.ID, arg.Version)
+	var i NucleoUsuario
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Correo,
+		&i.Tipo,
+		&i.ContrasenaHash,
+		&i.TotpSecreto,
+		&i.TotpActivo,
+		&i.TotpUltimoPaso,
+		&i.Activo,
+		&i.UsuarioArgosID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
+	)
+	return i, err
+}
+
+const revocarOtrasSesionesDeUsuario = `-- name: RevocarOtrasSesionesDeUsuario :execrows
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE usuario_id = $1 AND id <> $2 AND revocada_en IS NULL
+`
+
+type RevocarOtrasSesionesDeUsuarioParams struct {
+	UsuarioID int64
+	SesionID  int64
+}
+
+func (q *Queries) RevocarOtrasSesionesDeUsuario(ctx context.Context, arg RevocarOtrasSesionesDeUsuarioParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revocarOtrasSesionesDeUsuario, arg.UsuarioID, arg.SesionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revocarSesion = `-- name: RevocarSesion :execrows
 UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
 WHERE id = $1 AND revocada_en IS NULL
@@ -1232,6 +1348,32 @@ func (q *Queries) RevocarToken(ctx context.Context, id int64) (NucleoTokensApi, 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const revocarTokensDeUsuario = `-- name: RevocarTokensDeUsuario :many
+UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
+WHERE usuario_id = $1 AND revocado_en IS NULL
+RETURNING id
+`
+
+func (q *Queries) RevocarTokensDeUsuario(ctx context.Context, usuarioID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, revocarTokensDeUsuario, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const rolesDeUsuarios = `-- name: RolesDeUsuarios :many
@@ -1365,7 +1507,7 @@ func (q *Queries) SesionPortalVigentePorHash(ctx context.Context, tokenHash []by
 }
 
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
-SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at
+SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
 WHERE s.token_hash = $1 AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo
@@ -1406,6 +1548,7 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 		&i.NucleoUsuario.Version,
 		&i.NucleoUsuario.CreatedAt,
 		&i.NucleoUsuario.UpdatedAt,
+		&i.NucleoUsuario.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -1506,7 +1649,7 @@ func (q *Queries) TokenPorIDParaActualizar(ctx context.Context, id int64) (Nucle
 }
 
 const tokenVigentePorHash = `-- name: TokenVigentePorHash :one
-SELECT t.id, t.usuario_id, t.nombre, t.prefijo, t.hash, t.permisos, t.expira_en, t.ultimo_uso, t.revocado_en, t.creado_por, t.created_at, t.updated_at, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at
+SELECT t.id, t.usuario_id, t.nombre, t.prefijo, t.hash, t.permisos, t.expira_en, t.ultimo_uso, t.revocado_en, t.creado_por, t.created_at, t.updated_at, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
 WHERE t.hash = $1 AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
@@ -1546,6 +1689,7 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 		&i.NucleoUsuario.Version,
 		&i.NucleoUsuario.CreatedAt,
 		&i.NucleoUsuario.UpdatedAt,
+		&i.NucleoUsuario.DebeCambiarContrasena,
 	)
 	return i, err
 }
@@ -1603,7 +1747,7 @@ func (q *Queries) UsuarioEnEmpresa(ctx context.Context, arg UsuarioEnEmpresaPara
 }
 
 const usuarioPorCorreo = `-- name: UsuarioPorCorreo :one
-SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios WHERE correo = $1
+SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena FROM nucleo.usuarios WHERE correo = $1
 `
 
 func (q *Queries) UsuarioPorCorreo(ctx context.Context, correo string) (NucleoUsuario, error) {
@@ -1623,12 +1767,13 @@ func (q *Queries) UsuarioPorCorreo(ctx context.Context, correo string) (NucleoUs
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
 
 const usuarioPorID = `-- name: UsuarioPorID :one
-SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios WHERE id = $1
+SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena FROM nucleo.usuarios WHERE id = $1
 `
 
 func (q *Queries) UsuarioPorID(ctx context.Context, id int64) (NucleoUsuario, error) {
@@ -1648,12 +1793,13 @@ func (q *Queries) UsuarioPorID(ctx context.Context, id int64) (NucleoUsuario, er
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }
 
 const usuarioPorIDParaActualizar = `-- name: UsuarioPorIDParaActualizar :one
-SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios WHERE id = $1 FOR UPDATE
+SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena FROM nucleo.usuarios WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (NucleoUsuario, error) {
@@ -1673,6 +1819,7 @@ func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (Nuc
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
 	)
 	return i, err
 }

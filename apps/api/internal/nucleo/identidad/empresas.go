@@ -201,11 +201,12 @@ func nuevoCambiarEmpresaUsuario(asignar bool) *auditoria.Caso[EntradaEmpresaUsua
 			if err != nil {
 				return Usuario{}, err
 			}
-			if err := exigirEmpresaPropia(ctx, q, in.EmpresaID); err != nil {
+			// Solo a usuarios cuyas empresas son todas tuyas (sin empresas.todas global); fuera
+			// de ese alcance, 404 como si no existiera (no se revelan sus empresas).
+			if err := exigirVisible(ctx, q, in.UsuarioID, "cambiar las empresas de este usuario"); err != nil {
 				return Usuario{}, err
 			}
-			// Y solo a usuarios cuyas empresas son todas tuyas (sin empresas.todas global).
-			if err := exigirEmpresasDe(ctx, q, in.UsuarioID, "cambiar las empresas de este usuario"); err != nil {
+			if err := exigirEmpresaPropia(ctx, q, in.EmpresaID); err != nil {
 				return Usuario{}, err
 			}
 			antes, err := empresasDe(ctx, q, in.UsuarioID)

@@ -197,6 +197,14 @@ services:
     environment: *api-env
     volumes: *api-volumes
     depends_on: *api-depende
+    # La imagen es distroless (sin shell ni curl): `iris salud` hace el GET a /api/v1/salud local
+    # en $PORT y sale 0 o 1.
+    healthcheck:
+      test: [CMD, /usr/local/bin/iris, salud]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     ports:
       - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
 
@@ -232,7 +240,7 @@ services:
       IRIS_BASE_URL: ${IRIS_BASE_URL:-http://localhost:3000}
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     ports:
       - 127.0.0.1:${IRIS_WEB_PUERTO:-3000}:3000
 

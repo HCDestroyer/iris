@@ -26,6 +26,8 @@ go run ./cmd/iris migrar        # goose + River + permisos y roles base
 go run ./cmd/iris admin crear --correo admin@isp.gt --nombre "Admin"   # imprime la contraseña
 go run ./cmd/iris               # :3500, docs en /api/v1/docs
 go run ./cmd/worker
+go run ./cmd/iris salud          # GET a /api/v1/salud local; sale 0 o 1 (healthcheck de la imagen)
+go run ./cmd/iris clave rotar --simular   # rotación de IRIS_CLAVE_CIFRADO (docs/runbooks/rotar-clave-cifrado.md)
 ```
 
 `make test | lint | sqlc | sqlc-verificar | openapi | openapi-verificar | migrar` (Makefile local).

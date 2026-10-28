@@ -64,6 +64,7 @@ type Modulo struct {
 	CrearUsuario      *auditoria.Caso[EntradaCrearUsuario, Usuario]
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
 	DesactivarUsuario *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
+	ReiniciarMFA      *auditoria.Caso[EntradaReiniciarMFA, Usuario]
 	ListarUsuarios    *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[Usuario]]
 
 	IniciarSesion *auditoria.Caso[EntradaIniciarSesion, SesionIniciada]
@@ -72,6 +73,8 @@ type Modulo struct {
 	ObtenerYo     *auditoria.Caso[struct{}, Yo]
 	ConfigurarMFA *auditoria.Caso[struct{}, MFAConfigurado]
 	ActivarMFA    *auditoria.Caso[EntradaActivarMFA, Usuario]
+	// CambiarContrasena: el propio usuario (sesión), obligatorio tras una contraseña temporal.
+	CambiarContrasena *auditoria.Caso[EntradaCambiarContrasena, Usuario]
 
 	ListarRoles    *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]
 	ListarPermisos *auditoria.Caso[struct{}, nucleo.Pagina[PermisoInfo]]
@@ -129,6 +132,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.CrearUsuario = nuevoCrearUsuario()
 	m.EditarUsuario = nuevoEditarUsuario()
 	m.DesactivarUsuario = nuevoDesactivarUsuario()
+	m.ReiniciarMFA = nuevoReiniciarMFA()
 	m.ListarUsuarios = nuevoListarUsuarios()
 	m.IniciarSesion = nuevoIniciarSesion(cfg)
 	m.VerificarMFA = nuevoVerificarMFA(cfg)
@@ -136,6 +140,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ObtenerYo = nuevoObtenerYo()
 	m.ConfigurarMFA = nuevoConfigurarMFA(cfg)
 	m.ActivarMFA = nuevoActivarMFA(cfg)
+	m.CambiarContrasena = nuevoCambiarContrasena(cfg)
 	m.ListarRoles = nuevoListarRoles()
 	m.ListarPermisos = nuevoListarPermisos()
 	m.ListarEmpresas = nuevoListarEmpresas()

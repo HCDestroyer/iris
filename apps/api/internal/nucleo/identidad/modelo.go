@@ -32,17 +32,19 @@ func (a AsignacionRol) clave() string {
 
 // Usuario es una persona o una integración (Argos, Horus) que entra a Iris.
 type Usuario struct {
-	ID            int64           `json:"id"`
-	Nombre        string          `json:"nombre"`
-	Correo        string          `json:"correo"`
-	Tipo          string          `json:"tipo" enum:"persona,integracion"`
-	Activo        bool            `json:"activo"`
-	MFAActivo     bool            `json:"mfaActivo" doc:"Tiene TOTP activo"`
-	Roles         []AsignacionRol `json:"roles"`
-	Empresas      []int64         `json:"empresas" doc:"Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas"`
-	Version       int32           `json:"version"`
-	CreadoEn      time.Time       `json:"creadoEn"`
-	ActualizadoEn time.Time       `json:"actualizadoEn"`
+	ID        int64  `json:"id"`
+	Nombre    string `json:"nombre"`
+	Correo    string `json:"correo"`
+	Tipo      string `json:"tipo" enum:"persona,integracion"`
+	Activo    bool   `json:"activo"`
+	MFAActivo bool   `json:"mfaActivo" doc:"Tiene TOTP activo"`
+	// CambioContrasenaRequerido: tiene una contraseña temporal (reinicio de MFA por un admin).
+	CambioContrasenaRequerido bool            `json:"cambioContrasenaRequerido,omitempty" doc:"Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido)"`
+	Roles                     []AsignacionRol `json:"roles"`
+	Empresas                  []int64         `json:"empresas" doc:"Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas"`
+	Version                   int32           `json:"version"`
+	CreadoEn                  time.Time       `json:"creadoEn"`
+	ActualizadoEn             time.Time       `json:"actualizadoEn"`
 }
 
 // Rol con sus permisos.
@@ -85,7 +87,7 @@ func aUsuario(u identidadbd.NucleoUsuario, roles []AsignacionRol, empresas []int
 	}
 	return Usuario{
 		ID: u.ID, Nombre: u.Nombre, Correo: u.Correo, Tipo: u.Tipo, Activo: u.Activo,
-		MFAActivo: u.TotpActivo, Roles: roles, Empresas: empresas, Version: u.Version, CreadoEn: u.CreatedAt, ActualizadoEn: u.UpdatedAt,
+		MFAActivo: u.TotpActivo, CambioContrasenaRequerido: u.DebeCambiarContrasena, Roles: roles, Empresas: empresas, Version: u.Version, CreadoEn: u.CreatedAt, ActualizadoEn: u.UpdatedAt,
 	}
 }
 
@@ -137,6 +139,7 @@ type usuarioAuditable struct {
 	Activo         bool     `json:"activo"`
 	ContrasenaHash *string  `json:"contrasena_hash"`
 	TotpActivo     bool     `json:"totp_activo"`
+	DebeCambiar    bool     `json:"cambio_requerido"`
 	Roles          []string `json:"roles"`
 }
 
@@ -148,6 +151,6 @@ func auditable(u identidadbd.NucleoUsuario, roles []AsignacionRol) usuarioAudita
 	slices.Sort(claves)
 	return usuarioAuditable{
 		Nombre: u.Nombre, Correo: u.Correo, Tipo: u.Tipo, Activo: u.Activo,
-		ContrasenaHash: u.ContrasenaHash, TotpActivo: u.TotpActivo, Roles: claves,
+		ContrasenaHash: u.ContrasenaHash, TotpActivo: u.TotpActivo, DebeCambiar: u.DebeCambiarContrasena, Roles: claves,
 	}
 }
