@@ -28,6 +28,14 @@ GOLANGCI_LINT ?= golangci-lint
 OPENAPI_CMD   ?= go run ./cmd/openapi -salida -
 MIGRACIONES   ?= migraciones
 
+# Etiqueta y versión de las imágenes (make imagenes). VERSION queda en main.version de api/worker.
+IMAGEN_TAG ?= dev
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
+SCRIPTS    := $(wildcard scripts/*.sh infra/*/*.sh)
+# CA extra para construir detrás de un proxy que intercepta TLS (ver .env.example).
+coma       := ,
+BUILD_CA   := $(if $(IRIS_BUILD_CA_EXTRA),--secret id=ca_extra$(coma)src=$(IRIS_BUILD_CA_EXTRA))
+
 HAY_API := $(wildcard $(API_DIR)/go.mod)
 HAY_WEB := $(wildcard $(WEB_DIR)/package.json)
 
@@ -52,18 +60,23 @@ ayuda: ## Lista los objetivos
 
 # --- Entorno local ----------------------------------------------------------------------------
 
-.PHONY: dev dev-app parar logs
-dev: ## Levanta postgres, redis, minio (+ bucket), mailpit y osrm
+.PHONY: dev dev-app parar logs certificados
+certificados: ## Certificados de dev de Mailpit con TLS (CA para IRIS_CORREO_CA; idempotente)
+	infra/mailpit/certificados.sh
+
+dev: certificados ## Levanta postgres, redis, minio (+ bucket), mailpit (TLS) y osrm
 	$(COMPOSE) up -d --wait postgres redis mailpit
 	$(COMPOSE) up -d minio minio-init osrm
-	@echo "Listo. Mailpit: http://localhost:8025 · MinIO: http://localhost:9001"
+	@echo "Listo. Mailpit: http://localhost:8025 (SMTP :1025 con STARTTLS) · MinIO: http://localhost:9001"
 	@echo "OSRM necesita datos una vez: infra/osrm/preparar.sh"
 
-dev-app: ## Igual que dev y además api, worker y web (perfil app; requiere apps/api y apps/web)
+dev-app: certificados ## dev + migrar, api, worker y web construidos desde apps/ (perfil app)
 	@for d in $(API_DIR) $(WEB_DIR); do \
 		[ -f "$$d/Dockerfile" ] || { echo "ERROR: falta $$d/Dockerfile para el perfil app." >&2; exit 1; }; \
 	done
 	$(COMPOSE) --profile app up -d --build
+	$(COMPOSE) --profile app up -d --wait api web
+	@echo "Listo. Panel: http://localhost:$${IRIS_WEB_PUERTO:-3000} · API: http://localhost:$${IRIS_API_PUERTO:-8080}/api/v1/salud"
 
 parar: ## Detiene el compose de Iris (no borra volúmenes)
 	$(COMPOSE) --profile app stop
@@ -88,8 +101,13 @@ lint-go: ## golangci-lint en apps/api
 lint-ts: ## eslint de los paquetes del workspace (pnpm lint)
 	pnpm lint
 
-lint-infra: ## shellcheck de scripts y docker compose config
-	shellcheck scripts/*.sh infra/osrm/*.sh infra/minio/*.sh
+lint-infra: ## bash -n + shellcheck de scripts y docker compose config (avisa si falta una herramienta)
+	@for s in $(SCRIPTS); do bash -n "$$s"; done
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck $(SCRIPTS) && echo "shellcheck: ok"; \
+	else \
+		echo "lint-infra: omitido shellcheck (no instalado; CI sí lo corre)"; \
+	fi
 	@if docker compose version >/dev/null 2>&1; then \
 		docker compose -f infra/docker-compose.yml --env-file .env.example --profile app config --quiet && echo "compose: ok"; \
 	else \
@@ -124,6 +142,25 @@ test-go: ## go test ./... en apps/api contra IRIS_DB_URL
 
 test-ts: ## pnpm test
 	pnpm test
+
+.PHONY: e2e
+e2e: ## Playwright del panel (escritorio y teléfono; construye apps/web salvo IRIS_E2E_SIN_BUILD=1)
+	pnpm --filter @iris/web e2e
+
+# --- Imágenes y respaldos ---------------------------------------------------------------------
+
+.PHONY: imagenes respaldo ensayo-respaldo
+imagenes: ## Construye iris/api, iris/worker e iris/web:$(IMAGEN_TAG) (VERSION=… para main.version)
+	docker build -f $(API_DIR)/Dockerfile --target api $(BUILD_CA) --build-arg VERSION=$(VERSION) -t iris/api:$(IMAGEN_TAG) .
+	docker build -f $(API_DIR)/Dockerfile --target worker $(BUILD_CA) --build-arg VERSION=$(VERSION) -t iris/worker:$(IMAGEN_TAG) .
+	docker build -f $(WEB_DIR)/Dockerfile $(BUILD_CA) -t iris/web:$(IMAGEN_TAG) .
+
+respaldo: ## pg_dump cifrado con age de IRIS_DB_URL (infra/respaldo/respaldar.sh; --compose: ARGS=--compose)
+	infra/respaldo/respaldar.sh $(ARGS)
+
+ensayo-respaldo: ## Respalda IRIS_DB_URL, restaura en <base>_ensayo y compara conteos
+	$(requiere_db)
+	infra/respaldo/ensayo.sh "$$IRIS_DB_URL" "$$(psql "$$IRIS_DB_URL" -XAtqc 'select current_database()')_ensayo"
 
 # --- Generación -------------------------------------------------------------------------------
 
