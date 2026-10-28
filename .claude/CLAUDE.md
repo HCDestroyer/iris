@@ -150,11 +150,15 @@ Una tarea está terminada solo si:
 | `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
-| `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id |
+| `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id, origen (panel, api, argos, sistema) |
 | `orden.asignada` | campo | orden_id, tecnico_id (o null), cuadrilla_id (o null), tecnico_anterior_id (o null) |
-| `orden.programada` | agenda (hoy campo) | orden_id, tecnico_id, cuadrilla_id, inicio, fin, reprogramada |
+| `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin, ventana_inicio/ventana_fin (o null), reprogramada, origen (programar, reprogramar, asignar), motivo (o null) |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
-| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion, unidad_id, serie, mac, condicion, bodega_id) |
+| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion, unidad_id, serie, mac, condicion, bodega_id), cargo (o null: producto_id?, monto?, descripcion) |
+| `zona.creada` / `zona.actualizada` | agenda | zona_id; origen, nombre (creada); campos[], activa (actualizada) |
+| `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id; nombre, zonas[] (creada); campos[], activa (actualizada) |
+| `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
+| `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
 | `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[] |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id, motivo (perdido) |
 | `factibilidad.evaluada` | comercial | prospecto_id, resultado, nodo/router sugerido |

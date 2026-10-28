@@ -85,6 +85,31 @@ acción necesita, esa acción nace `fallido_negocio` con `datos_incompletos` y e
 | `equipos[]` | `{ accion: instalar \| retirar, unidad_id?, serie?, mac?, condicion?, bodega_id? }`. Instalar: `unidad_id` o `serie`. Retirar: `unidad_id` obligatorio; `condicion: "perdido"` → pérdida; otra condición (`bueno`, `danado`…) → devolución con esa condición. En `cambio_equipo`, cada asignación espera a todas las devoluciones/pérdidas de la orden. |
 | `cargo` (o null) | `{ producto_id?, monto? (> 0; si no, `monto_no_positivo`), descripcion? }` (producto o monto) → `POST /facturas/cargo-unico`. |
 
+## Agenda (I2)
+
+Emite el módulo `agenda`, con `empresa_id` en el sobre = la del dato (la de la zona o cuadrilla; en
+técnicos y ausencias, la empresa activa de quien actúa; null sin conector o si el actor es el
+sistema). Fechas en UTC. `orden.programada` también es de agenda (arriba, en Campo).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `zona.creada` | `zona_id`, `origen` (`local`), `nombre` | `agenda.crear_zona`. Las de Argos llegan por el espejo (sin evento). |
+| `zona.actualizada` | `zona_id`, `campos[]` (`nombre`, `poligono`, `activa`), `activa` | `agenda.editar_zona`, `agenda.activar_zona`, `agenda.desactivar_zona`. |
+| `cuadrilla.creada` | `cuadrilla_id`, `nombre`, `zonas[]` | `agenda.crear_cuadrilla`. |
+| `cuadrilla.actualizada` | `cuadrilla_id`, `campos[]` (`nombre`, `zonas`, `activa`, `capacidad`), `activa` | Editar, activar, desactivar o fijar la capacidad. |
+| `tecnico.creado` | `tecnico_id` (ficha), `usuario_id`, `cuadrilla_id` (o null) | `agenda.crear_tecnico`. |
+| `tecnico.actualizado` | `tecnico_id`, `usuario_id`, `campos[]` (`cuadrilla_id`, `bodega_id`, `habilidades`, `base`, `activo`, `turnos`, `capacidad`), `activo` | Editar, activar, desactivar, fijar turnos o capacidad. |
+| `tecnico.ausencia_registrada` | `tecnico_id`, `usuario_id`, `ausencia_id`, `inicio`, `fin`, `motivo`, `citas_en_conflicto` (cuántas citas vivas caen dentro) | `agenda.registrar_ausencia`. Las citas no se mueven solas. |
+| `tecnico.ausencia_anulada` | `tecnico_id`, `usuario_id`, `ausencia_id`, `motivo` (o null) | `agenda.anular_ausencia`. |
+
+Consume (campo): `argos.servicio_retirado` → orden de retiro automática (`origen = argos`) si el
+servicio tiene equipos en comodato según Argos y no hay otra orden de retiro abierta (no
+cerrada ni cancelada) del servicio. Idempotente (candado por servicio y la Idempotency-Key
+`argos.servicio_retirado:<entrante_id>`). Sin conector o servicio de otra empresa: no crea nada
+(log); Argos caído: el relay reintenta.
+
+Las posiciones GPS (`POST /campo/posiciones`) **no** emiten eventos ni dejan auditoría por fila.
+
 ## Horus (núcleo, I1)
 
 Emite `integracion/horus` al procesar los webhooks de Horus (contrato `horus.md` §2): el job valida
@@ -171,8 +196,8 @@ repite).
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `orden.creada` | `orden_id`, `numero`, `tipo` (`instalacion` \| `visita` \| `retiro` \| `cambio_equipo` \| `mantenimiento`), `empresa_id`, `ticket_id`, `prospecto_id`, `cliente_id`, `servicio_id`, `zona_id` (o null) | `ordenes.crear` (también desde un ticket con `ticketId`). |
+| `orden.creada` | `orden_id`, `numero`, `tipo` (`instalacion` \| `visita` \| `retiro` \| `cambio_equipo` \| `mantenimiento`), `empresa_id`, `ticket_id`, `prospecto_id`, `cliente_id`, `servicio_id`, `zona_id` (o null), `origen` (`panel` \| `api` \| `argos` \| `sistema`) | `ordenes.crear` (también desde un ticket con `ticketId`, y la orden de retiro automática con `origen = argos`). |
 | `orden.asignada` | `orden_id`, `tecnico_id`, `cuadrilla_id`, `tecnico_anterior_id` (o null) | `ordenes.asignar`, y `programar`/`reprogramar` cuando cambian el técnico. |
-| `orden.programada` | `orden_id`, `tecnico_id`, `cuadrilla_id`, `inicio`, `fin`, `reprogramada` (bool), `motivo` (o null) | `ordenes.programar` y `ordenes.reprogramar`. Es del catálogo de agenda: lo emite campo hasta que exista agenda (fase 3), con el mismo nombre y payload. |
+| `orden.programada` | `orden_id`, `numero`, `tecnico_id`, `cuadrilla_id` (de la orden, o null), `tecnico_cuadrilla_id` (de la ficha del técnico, o null), `inicio`, `fin`, `ventana_inicio`/`ventana_fin` (ventana de llegada acordada con el cliente, o null), `reprogramada` (bool), `origen` (`programar` \| `reprogramar` \| `asignar`), `motivo` (o null) | Lo emite **agenda** (`agenda.ReservarCita`) en la transacción de `ordenes.programar`, `ordenes.reprogramar` y de `ordenes.asignar` cuando una orden programada cambia de técnico (`origen = asignar`, misma hora). |
 | `orden.estado_cambiada` | `orden_id`, `numero`, `de`, `a`, `motivo` (o null), `tecnico_id` | Toda transición (programar, iniciar camino, llegar, cerrar —`motivo` = resultado—, fallar —`motivo` = `<motivo_falla>: <detalle>`—, cancelar, reabrir, reprogramar y la vuelta a pendiente o programada al reasignar). |
-| `orden.cerrada` | `orden_id`, `numero`, `tipo`, `resultado` (`exitosa` \| `parcial`), `empresa_id`, `cliente_id`, `servicio_id`, `ticket_id`, `prospecto_id`, `tecnico_id`, `bodega_id` (o null), `cerrada_en`, `retirar_servicio` (bool: retiro exitoso), `equipos_validados` (bool: false si algún equipo retirado no se verificó contra el comodato de Argos —sin conector o Argos caído—; tratarlo como dato no verificado), `materiales[]` (`producto_id`, `cantidad` —sumada por producto y bodega, 3 decimales—, `bodega_id` (o null), `excede_existencia`), `equipos[]` (`id`, `accion` `instalar` \| `retirar`, `unidad_id`, `serie`, `mac` `AA:BB:CC:DD:EE:FF`, `modelo`, `condicion` `buena` \| `danada` \| `perdido` (solo retirar; `perdido` = pérdida del comodato), `bodega_id`, `validado`) | `ordenes.cerrar`. Lo consume el núcleo (I1) para los pendientes en Argos (contrato §3): con `resultado = exitosa`, activar la instalación y el comodato, devoluciones o pérdidas, retiro del servicio; materiales → consumo desde la bodega. Sin `cargo` todavía. |
+| `orden.cerrada` | `orden_id`, `numero`, `tipo`, `resultado` (`exitosa` \| `parcial`), `empresa_id`, `cliente_id`, `servicio_id`, `ticket_id`, `prospecto_id`, `tecnico_id`, `bodega_id` (o null), `cerrada_en`, `retirar_servicio` (bool: retiro exitoso), `equipos_validados` (bool: false si algún equipo retirado no se verificó contra el comodato de Argos —sin conector o Argos caído—; tratarlo como dato no verificado), `materiales[]` (`producto_id`, `cantidad` —sumada por producto y bodega, 3 decimales—, `bodega_id` (o null), `excede_existencia`), `equipos[]` (`id`, `accion` `instalar` \| `retirar`, `unidad_id`, `serie`, `mac` `AA:BB:CC:DD:EE:FF`, `modelo`, `condicion` `buena` \| `danada` \| `perdido` (solo retirar; `perdido` = pérdida del comodato), `bodega_id`, `validado`) | `ordenes.cerrar`. Lo consume el núcleo (I1) para los pendientes en Argos (contrato §3): con `resultado = exitosa`, activar la instalación y el comodato, devoluciones o pérdidas, retiro del servicio; materiales → consumo desde la bodega. `cargo` (o null): `{ producto_id?, monto? (texto/número > 0, 2 decimales), descripcion }` si el tipo de orden o su plantilla dicen cobrar (visita cobrada; ver «Cargo» en `apps/api/internal/campo/README.md`). |
