@@ -8,6 +8,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
 )
 
@@ -44,6 +45,16 @@ func (m *Modulo) nuevoAsignarTicket() *auditoria.Caso[EntradaAsignarTicket, Tick
 			if in.UsuarioID != nil {
 				if err := validarAsignable(ctx, q, *in.UsuarioID, despues); err != nil {
 					return Ticket{}, err
+				}
+				// El responsable opera en la empresa del ticket (asignada o empresas.todas global;
+				// sin conector, cualquiera mientras no haya empresas registradas).
+				enLaEmpresa, err := identidad.UsuarioEnEmpresa(ctx, t, *in.UsuarioID, deref(antes.EmpresaID))
+				if err != nil {
+					return Ticket{}, err
+				}
+				if !enLaEmpresa {
+					return Ticket{}, nucleo.ReglaNegocio("asignado_fuera_de_empresa",
+						"El usuario no opera en la empresa del ticket")
 				}
 			}
 			cal, err := cargarCalendario(ctx, q, antes.CalendarioID)

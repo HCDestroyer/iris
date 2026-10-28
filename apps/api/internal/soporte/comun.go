@@ -94,16 +94,48 @@ func deref(p *int64) int64 {
 
 func ptr[T any](v T) *T { return &v }
 
-// enEmpresa: con una empresa activa, solo sus tickets.
-func enEmpresa(ctx context.Context, f soportebd.SoporteTicket) bool {
-	activa := contexto.EmpresaDe(ctx)
-	return activa == 0 || deref(f.EmpresaID) == activa
+// filtroEmpresa dice qué tickets ve el contexto según cómo se resolvió la empresa activa
+// (middleware de I1):
+//   - EmpresaActiva: solo los de esa empresa (id).
+//   - EmpresaSinConector: no hay empresas registradas; solo los guardados con empresa_id null
+//     (id nil, todas false). Nunca «sin filtro».
+//   - EmpresaNoResuelta: solo llega el actor sistema (auditoria.Caso corta a usuarios, tokens e
+//     integraciones); con EmpresaDe = 0 ve todas.
+//   - Cualquier otro estado (por elegir, sin empresa) no llega a la lógica; por si acaso, nada.
+func filtroEmpresa(ctx context.Context) (todas bool, id *int64) {
+	e := contexto.EmpresasDe(ctx)
+	switch e.Estado {
+	case contexto.EmpresaActiva:
+		if activa := contexto.EmpresaDe(ctx); activa != 0 {
+			return false, &activa
+		}
+	case contexto.EmpresaSinConector:
+		return false, nil
+	case contexto.EmpresaNoResuelta:
+		if contexto.ActorDe(ctx).EsUsuario() {
+			break
+		}
+		if activa := contexto.EmpresaDe(ctx); activa != 0 {
+			return false, &activa
+		}
+		return true, nil
+	case contexto.EmpresaPorElegir, contexto.EmpresaSinAsignar:
+	}
+	return false, ptr(int64(0)) // ninguna empresa tiene id 0: no ve nada
 }
 
-// empresaActiva devuelve la empresa activa como filtro (nil = todas).
+// enEmpresa: el ticket es de la empresa que ve el contexto (ver filtroEmpresa).
+func enEmpresa(ctx context.Context, f soportebd.SoporteTicket) bool {
+	todas, id := filtroEmpresa(ctx)
+	return todas || mismoID(f.EmpresaID, id)
+}
+
+// empresaActiva devuelve la empresa activa para la configuración (categorías y SLA): las
+// globales (empresa_id null) más las de esa empresa. nil = solo las globales (sin conector,
+// sistema).
 func empresaActiva(ctx context.Context) *int64 {
-	if id := contexto.EmpresaDe(ctx); id != 0 {
-		return &id
+	if todas, id := filtroEmpresa(ctx); !todas && id != nil && *id != 0 {
+		return id
 	}
 	return nil
 }

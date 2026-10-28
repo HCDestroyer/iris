@@ -17,7 +17,7 @@ import (
 // EntradaCrearTicket es la entrada de tickets.crear. Cliente, servicio y zona son ids de Argos
 // (opcionales: sin conector se capturan los datos de contacto).
 type EntradaCrearTicket struct {
-	EmpresaID     *int64           `json:"empresaId,omitempty" minimum:"1" doc:"Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide. Solo una integración o el sistema sin empresa activa la eligen aquí"`
+	EmpresaID     *int64           `json:"empresaId,omitempty" minimum:"1" doc:"Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide; sin conector (sin empresas registradas) se guarda null y no se puede fijar. Solo el sistema la elige aquí (obligatoria si hay empresas)"`
 	ClienteID     *int64           `json:"clienteId,omitempty" minimum:"1" doc:"Cliente en Argos"`
 	ServicioID    *int64           `json:"servicioId,omitempty" minimum:"1" doc:"Servicio en Argos (exige clienteId)"`
 	ZonaID        *int64           `json:"zonaId,omitempty" minimum:"1" doc:"Zona (Argos); define el alcance"`
@@ -48,18 +48,46 @@ func validarOrigen(ctx context.Context, origen string) error {
 	return nil
 }
 
-// empresaDelTicket: el ticket es de la empresa activa (middleware de empresa activa de I1).
-// Sin empresa activa, una persona no puede crear (422 empresa_requerida); una integración o el
-// sistema usan la del cuerpo o ninguna (null: modo sin conector).
-func empresaDelTicket(ctx context.Context, pedida *int64) (*int64, error) {
-	if activa := contexto.EmpresaDe(ctx); activa != 0 {
-		if pedida != nil && *pedida != activa {
-			return nil, nucleo.ReglaNegocio("empresa_no_coincide", "La empresa del ticket debe ser la empresa activa")
+// empresaDelTicket: el ticket es de la empresa que resolvió el middleware de I1.
+//   - Con empresa activa (persona, token o integración): esa; el cuerpo solo puede repetirla
+//     (422 empresa_no_coincide). Una integración opera en las empresas de su usuario dueño.
+//   - Sin conector (no hay empresas registradas): null; el cuerpo no puede fijar una (422).
+//   - Actor sistema (sin empresa resuelta): sin empresas registradas, null; con empresas, la del
+//     cuerpo, obligatoria (422 empresa_requerida) y registrada (422 empresa_no_registrada).
+func empresaDelTicket(ctx context.Context, q *soportebd.Queries, pedida *int64) (*int64, error) {
+	noCoincide := func(detalle string) error { return nucleo.ReglaNegocio("empresa_no_coincide", detalle) }
+	todas, id := filtroEmpresa(ctx)
+	if !todas {
+		if id != nil && *id == 0 {
+			return nil, nucleo.EmpresaRequerida() // no llega: auditoria.Caso corta antes
 		}
-		return &activa, nil
+		if pedida != nil && !mismoID(pedida, id) {
+			if id == nil {
+				return nil, noCoincide("Sin conector con Argos los tickets se guardan sin empresa")
+			}
+			return nil, noCoincide("La empresa del ticket debe ser la empresa activa")
+		}
+		return id, nil
 	}
-	if !esSistemaOIntegracion(ctx) {
-		return nil, nucleo.ReglaNegocio("empresa_requerida", "Elige una empresa activa para crear tickets")
+	hay, err := q.HayEmpresas(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hay {
+		if pedida != nil {
+			return nil, noCoincide("Sin conector con Argos los tickets se guardan sin empresa")
+		}
+		return nil, nil
+	}
+	if pedida == nil {
+		return nil, nucleo.ReglaNegocio("empresa_requerida", "Indica la empresa del ticket")
+	}
+	existe, err := q.EmpresaRegistrada(ctx, *pedida)
+	if err != nil {
+		return nil, err
+	}
+	if !existe {
+		return nil, nucleo.ReglaNegocio("empresa_no_registrada", "La empresa no está registrada en Iris")
 	}
 	return pedida, nil
 }
@@ -142,7 +170,7 @@ func (m *Modulo) nuevoCrearTicket() *auditoria.Caso[EntradaCrearTicket, Ticket] 
 				}
 			}
 
-			empresa, err := empresaDelTicket(ctx, in.EmpresaID)
+			empresa, err := empresaDelTicket(ctx, q, in.EmpresaID)
 			if err != nil {
 				return Ticket{}, err
 			}

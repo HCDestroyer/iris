@@ -13,6 +13,16 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
+// Tablas operativas con empresa_id que se adoptan (POST /empresas/{id}/adoptar-sin-empresa)
+// al pasar de «sin conector» a empresas registradas. Los mensajes y el historial copian la
+// empresa de su ticket, así que se adoptan con él. Las categorías, SLA y calendarios no: en
+// ellos empresa_id null significa «de todas las empresas», no «sin empresa».
+func init() {
+	nucleo.RegistrarTablaConEmpresa("soporte.tickets")
+	nucleo.RegistrarTablaConEmpresa("soporte.ticket_mensajes")
+	nucleo.RegistrarTablaConEmpresa("soporte.ticket_eventos")
+}
+
 // Config del módulo.
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.

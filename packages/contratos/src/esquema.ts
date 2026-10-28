@@ -1162,7 +1162,7 @@ export interface components {
             descripcion?: string;
             /**
              * Format: int64
-             * @description Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide. Solo una integración o el sistema sin empresa activa la eligen aquí
+             * @description Empresa en Argos. El ticket es de la empresa activa: otra distinta da 422 empresa_no_coincide; sin conector (sin empresas registradas) se guarda null y no se puede fijar. Solo el sistema la elige aquí (obligatoria si hay empresas)
              */
             empresaId?: number;
             /**

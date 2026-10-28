@@ -15,7 +15,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -29,6 +28,7 @@ type clienteHTTP struct {
 	base string
 	http *http.Client
 	csrf string
+	id   int64 // usuario de la sesión
 }
 
 type respuesta struct {
@@ -50,31 +50,42 @@ func (r respuesta) problema(t *testing.T, status int, codigo string) {
 // roles dados.
 func servidorConSoporte(t *testing.T, roles ...string) *clienteHTTP {
 	t.Helper()
-	pool := pruebas.Pool(t)
-	id := identidad.Nuevo(identidad.Config{})
+	return entrar(t, nuevoServidor(t), nil, roles...)
+}
+
+// nuevoServidor levanta la API real (con el middleware de empresa activa de I1) con identidad
+// y soporte, y devuelve su URL base.
+func nuevoServidor(t *testing.T) string {
+	t.Helper()
 	h, _ := servidor.Nuevo(servidor.Deps{
-		BD: pool, Identidad: id, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		BD: pruebas.Pool(t), Identidad: ident, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){soporte.Nuevo(soporte.Config{}).Registrar},
 	})
-	// Simula el middleware de empresa activa (I1): toda petición llega con la empresa de prueba.
-	conEmpresa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r.WithContext(contexto.ConEmpresa(r.Context(), empresaPrueba)))
-	})
-	srv := httptest.NewServer(conEmpresa)
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
+// entrar crea un usuario persona con los roles y empresas dados e inicia su sesión.
+func entrar(t *testing.T, base string, empresas []int64, roles ...string) *clienteHTTP {
+	t.Helper()
+	pool := pruebas.Pool(t)
 	correo := pruebas.Correo("http")
 	asign := []identidad.AsignacionRol{}
 	for _, r := range roles {
 		asign = append(asign, identidad.AsignacionRol{Rol: r})
 	}
-	if _, err := id.CrearUsuario.Ejecutar(pruebas.ContextoSistema(pool), identidad.EntradaCrearUsuario{
+	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(pool), identidad.EntradaCrearUsuario{
 		Nombre: "Usuario HTTP", Correo: correo, Contrasena: contrasena, Roles: asign,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	for _, e := range empresas {
+		asignarEmpresa(t, u.ID, e)
+	}
 	jar, _ := cookiejar.New(nil)
-	c := &clienteHTTP{t: t, base: srv.URL, http: &http.Client{Jar: jar}}
+	c := &clienteHTTP{t: t, base: base, http: &http.Client{Jar: jar}, id: u.ID}
 	r := c.pedir(http.MethodPost, "/api/v1/sesion", map[string]any{"correo": correo, "contrasena": contrasena})
 	if r.status != http.StatusOK {
 		t.Fatalf("login: %d %s", r.status, r.crudo)

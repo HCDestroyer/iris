@@ -27,9 +27,14 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
   vencimiento se corre (reanudar, reabrir, escalar), el nuevo plazo vuelve a alertar.
 - **Alcance:** las listas y acciones respetan el alcance del permiso (zona o cuadrilla del ticket,
   o asignado al actor) y la empresa activa. Fuera del alcance de lectura, 404; visible pero sin
-  alcance para la acción, 403 `fuera_de_alcance`. El ticket es de la empresa activa (otra en el
-  cuerpo: 422 `empresa_no_coincide`; una persona sin empresa activa: 422 `empresa_requerida`).
-  El aislamiento depende del middleware de empresa activa de I1.
+  alcance para la acción, 403 `fuera_de_alcance`.
+- **Empresa activa** (middleware de I1): con empresa activa, solo sus tickets (otro id = 404) y
+  se crea en ella (otra en el cuerpo: 422 `empresa_no_coincide`). **Sin conector** (sin empresas
+  registradas) solo los de `empresa_id` null, y se crea con null. El actor sistema ve todas y,
+  con empresas registradas, indica una registrada al crear. Al asignar, el responsable debe
+  operar en la empresa del ticket (422 `asignado_fuera_de_empresa`). `soporte.tickets`,
+  `ticket_mensajes` y `ticket_eventos` se registran para la adopción
+  (`POST /empresas/{id}/adoptar-sin-empresa`).
 - **Origen:** `correo`, `telegram`, `horus` y `argos` solo los declara una integración o el
   sistema; `portal`, solo el canal portal (422 `origen_no_permitido`).
 - **Asignar:** el responsable es una persona activa con `tickets.ver` y alcance sobre el ticket
@@ -55,4 +60,5 @@ Ninguno todavía (el webhook de Horus y la entrada por correo y portal van en ot
 `IRIS_DB=iris_test_i2 go test ./internal/soporte/` (Postgres real): calendario (horario, fin de
 semana, feriados y medio día), transiciones válidas e inválidas, permisos y alcance, auditoría y
 outbox, `version` → 409, idempotencia por HTTP, pausa del SLA y cron idempotente.
-`revision_test.go` cubre los hallazgos de la revisión de la PR #5.
+`revision_test.go` cubre los hallazgos de la revisión de la PR #5 y `empresa_test.go` la empresa
+activa (aislamiento A/B por HTTP, modo sin conector, asignación y adopción).

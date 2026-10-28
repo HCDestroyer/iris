@@ -359,6 +359,17 @@ func (q *Queries) CrearTicket(ctx context.Context, arg CrearTicketParams) (Sopor
 	return i, err
 }
 
+const empresaRegistrada = `-- name: EmpresaRegistrada :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas WHERE id = $1)
+`
+
+func (q *Queries) EmpresaRegistrada(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, empresaRegistrada, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const feriadosDeCalendario = `-- name: FeriadosDeCalendario :many
 SELECT id, calendario_id, fecha, nombre, desde, created_at, updated_at FROM soporte.feriados WHERE calendario_id = $1 ORDER BY fecha
 `
@@ -491,6 +502,19 @@ func (q *Queries) GuardarTicket(ctx context.Context, arg GuardarTicketParams) (S
 		&i.Idempotencia,
 	)
 	return i, err
+}
+
+const hayEmpresas = `-- name: HayEmpresas :one
+
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas)
+`
+
+// Empresas (lectura de nucleo para la empresa de un ticket del actor sistema) ----
+func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, hayEmpresas)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listarCategorias = `-- name: ListarCategorias :many
@@ -696,28 +720,32 @@ func (q *Queries) ListarSLAs(ctx context.Context, empresaID *int64) ([]ListarSLA
 const listarTickets = `-- name: ListarTickets :many
 SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia FROM soporte.tickets
 WHERE ($1::bigint IS NULL OR id < $1)
-  AND ($2::bigint IS NULL OR empresa_id = $2)
-  AND (cardinality($3::text[]) = 0 OR estado = ANY($3::text[]))
-  AND (cardinality($4::text[]) = 0 OR prioridad = ANY($4::text[]))
-  AND ($5::bigint IS NULL OR categoria_id = $5)
-  AND ($6::bigint IS NULL OR asignado_a = $6)
-  AND (NOT $7::boolean OR asignado_a IS NULL)
-  AND ($8::bigint IS NULL OR cliente_id = $8)
-  AND ($9::bigint IS NULL OR servicio_id = $9)
-  AND ($10::bigint IS NULL OR cuadrilla_id = $10)
-  AND ($11::bigint IS NULL OR ticket_padre_id = $11)
-  AND ($12::text IS NULL OR numero ILIKE '%' || $12 || '%' OR asunto ILIKE '%' || $12 || '%'
-       OR contacto_nombre ILIKE '%' || $12 || '%')
-  AND ($13::boolean
-       OR zona_id = ANY($14::bigint[])
-       OR cuadrilla_id = ANY($15::bigint[])
-       OR ($16::bigint IS NOT NULL AND asignado_a = $16))
+  -- Empresa: @todas_empresas solo para el actor sistema; si no, la activa o (sin conector) null.
+  AND ($2::boolean
+       OR ($3::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = $3)
+  AND (cardinality($4::text[]) = 0 OR estado = ANY($4::text[]))
+  AND (cardinality($5::text[]) = 0 OR prioridad = ANY($5::text[]))
+  AND ($6::bigint IS NULL OR categoria_id = $6)
+  AND ($7::bigint IS NULL OR asignado_a = $7)
+  AND (NOT $8::boolean OR asignado_a IS NULL)
+  AND ($9::bigint IS NULL OR cliente_id = $9)
+  AND ($10::bigint IS NULL OR servicio_id = $10)
+  AND ($11::bigint IS NULL OR cuadrilla_id = $11)
+  AND ($12::bigint IS NULL OR ticket_padre_id = $12)
+  AND ($13::text IS NULL OR numero ILIKE '%' || $13 || '%' OR asunto ILIKE '%' || $13 || '%'
+       OR contacto_nombre ILIKE '%' || $13 || '%')
+  AND ($14::boolean
+       OR zona_id = ANY($15::bigint[])
+       OR cuadrilla_id = ANY($16::bigint[])
+       OR ($17::bigint IS NOT NULL AND asignado_a = $17))
 ORDER BY id DESC
-LIMIT $17
+LIMIT $18
 `
 
 type ListarTicketsParams struct {
 	AntesDe       *int64
+	TodasEmpresas bool
 	EmpresaID     *int64
 	Estados       []string
 	Prioridades   []string
@@ -740,6 +768,7 @@ type ListarTicketsParams struct {
 func (q *Queries) ListarTickets(ctx context.Context, arg ListarTicketsParams) ([]SoporteTicket, error) {
 	rows, err := q.db.Query(ctx, listarTickets,
 		arg.AntesDe,
+		arg.TodasEmpresas,
 		arg.EmpresaID,
 		arg.Estados,
 		arg.Prioridades,

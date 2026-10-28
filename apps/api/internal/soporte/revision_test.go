@@ -16,7 +16,7 @@ import (
 // Pruebas de regresión de la revisión de la PR #5.
 
 // integracion devuelve el contexto de un usuario de tipo integración (Horus, Argos) con todos
-// los permisos de tickets, sin empresa activa.
+// los permisos de tickets, en modo sin conector.
 func integracion(t *testing.T) context.Context {
 	t.Helper()
 	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), identidad.EntradaCrearUsuario{
@@ -28,37 +28,6 @@ func integracion(t *testing.T) context.Context {
 	ctx := pruebas.ContextoUsuario(pruebas.Pool(t), u.ID, permisosTickets...)
 	ctx = contexto.ConActor(ctx, contexto.Actor{Tipo: contexto.ActorIntegracion, ID: u.ID, Nombre: "Horus"}, contexto.PermisosDe(ctx))
 	return contexto.ConCanal(ctx, contexto.CanalIntegracion)
-}
-
-func TestRevisionEmpresaDelTicket(t *testing.T) {
-	m, _ := nuevoModulo(time.Now())
-	yo := agente(t)
-	sinEmpresa := pruebas.ContextoUsuario(pruebas.Pool(t), yo, permisosTickets...)
-
-	// Una persona sin empresa activa no crea tickets (no hay a qué empresa asignarlo).
-	_, err := m.CrearTicket.Ejecutar(sinEmpresa, soporte.EntradaCrearTicket{Asunto: "Sin empresa"})
-	problema(t, err, 422, "empresa_requerida")
-	_, err = m.CrearTicket.Ejecutar(sinEmpresa, soporte.EntradaCrearTicket{Asunto: "Elige", EmpresaID: ptr(int64(5))})
-	problema(t, err, 422, "empresa_requerida")
-
-	// Con empresa activa: esa; el cuerpo solo puede repetirla.
-	tk := crear(t, m, contexto.ConEmpresa(como(t, yo), 9), soporte.EntradaCrearTicket{EmpresaID: ptr(int64(9))})
-	if tk.EmpresaID == nil || *tk.EmpresaID != 9 {
-		t.Fatalf("empresa activa: %+v", tk.EmpresaID)
-	}
-	_, err = m.CrearTicket.Ejecutar(contexto.ConEmpresa(como(t, yo), 9), soporte.EntradaCrearTicket{Asunto: "Otra", EmpresaID: ptr(int64(10))})
-	problema(t, err, 422, "empresa_no_coincide")
-
-	// Una integración sin empresa activa usa la del cuerpo; el sistema puede dejarla en null
-	// (modo sin conector).
-	tk = crear(t, m, integracion(t), soporte.EntradaCrearTicket{Asunto: "Caída de nodo", Origen: "horus", EmpresaID: ptr(int64(12))})
-	if tk.EmpresaID == nil || *tk.EmpresaID != 12 || tk.Origen != "horus" {
-		t.Fatalf("integración: %+v %s", tk.EmpresaID, tk.Origen)
-	}
-	tk = crear(t, m, pruebas.ContextoSistema(pruebas.Pool(t)), soporte.EntradaCrearTicket{Asunto: "Del sistema", Origen: "correo"})
-	if tk.EmpresaID != nil {
-		t.Fatalf("sistema sin empresa: %v", *tk.EmpresaID)
-	}
 }
 
 func TestRevisionEscalarNoIncumpleLoCumplido(t *testing.T) {

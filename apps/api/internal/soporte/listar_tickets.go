@@ -52,8 +52,9 @@ func (m *Modulo) nuevoListarTickets() *auditoria.Caso[EntradaListarTickets, nucl
 				return nucleo.Pagina[Ticket]{}, err
 			}
 			global, zonas, cuadrillas := contexto.PermisosDe(ctx).Alcances(string(nucleo.PermTicketsVer))
+			todas, empresa := filtroEmpresa(ctx)
 			p := soportebd.ListarTicketsParams{
-				EmpresaID: empresaActiva(ctx), Estados: noNulo(in.Estado), Prioridades: noNulo(in.Prioridad),
+				TodasEmpresas: todas, EmpresaID: empresa, Estados: noNulo(in.Estado), Prioridades: noNulo(in.Prioridad),
 				CategoriaID: filtro(in.CategoriaID), AsignadoA: filtro(in.AsignadoA), SinAsignar: in.SinAsignar,
 				ClienteID: filtro(in.ClienteID), ServicioID: filtro(in.ServicioID), CuadrillaID: filtro(in.CuadrillaID),
 				TicketPadreID: filtro(in.TicketPadreID), AlcanceGlobal: global, Zonas: noNulo(zonas), Cuadrillas: noNulo(cuadrillas),

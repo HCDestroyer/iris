@@ -51,10 +51,6 @@ var permisosTickets = []nucleo.Permiso{
 	nucleo.PermTicketsCerrar, nucleo.PermTicketsFusionar, nucleo.PermTicketsVerNotas,
 }
 
-// empresaPrueba es la empresa activa de los contextos de prueba (la fija el middleware de
-// empresa activa de I1 en producción).
-const empresaPrueba int64 = 1
-
 var ident = identidad.Nuevo(identidad.Config{})
 
 // agente crea un usuario real con el rol soporte (los mensajes y la asignación lo referencian).
@@ -76,12 +72,51 @@ func usuarioCon(t *testing.T, roles ...identidad.AsignacionRol) int64 {
 }
 
 // como devuelve un contexto nuevo (request id propio) del usuario con todos los permisos de
-// tickets, o con los dados, en la empresa de prueba.
+// tickets, o con los dados, en modo sin conector (como lo deja el middleware de I1 sin empresas
+// registradas: los tickets se guardan y se leen con empresa_id null).
 func como(t *testing.T, id int64, permisos ...nucleo.Permiso) context.Context {
 	if len(permisos) == 0 {
 		permisos = permisosTickets
 	}
-	return contexto.ConEmpresa(pruebas.ContextoUsuario(pruebas.Pool(t), id, permisos...), empresaPrueba)
+	return pruebas.ContextoUsuario(pruebas.Pool(t), id, permisos...)
+}
+
+// comoEnEmpresa es como con la empresa activa dada (Estado EmpresaActiva).
+func comoEnEmpresa(t *testing.T, id, empresa int64, permisos ...nucleo.Permiso) context.Context {
+	if len(permisos) == 0 {
+		permisos = permisosTickets
+	}
+	return pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), id, empresa, permisos...)
+}
+
+// registrarEmpresas da de alta empresas en nucleo.empresas (sale del modo sin conector) y al
+// terminar la prueba las borra con sus membresías: las demás pruebas del paquete corren sin
+// conector.
+func registrarEmpresas(t *testing.T, ids ...int64) {
+	t.Helper()
+	pool := pruebas.Pool(t)
+	for _, id := range ids {
+		if _, err := pool.Exec(context.Background(),
+			"INSERT INTO nucleo.empresas (id, nombre) VALUES ($1::bigint, 'Empresa ' || $1::bigint::text)", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, sql := range []string{"DELETE FROM nucleo.usuarios_empresas", "DELETE FROM nucleo.empresas"} {
+			if _, err := pool.Exec(context.Background(), sql); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+}
+
+// asignarEmpresa da al usuario la empresa (nucleo.usuarios_empresas).
+func asignarEmpresa(t *testing.T, usuario, empresa int64) {
+	t.Helper()
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		"INSERT INTO nucleo.usuarios_empresas (usuario_id, empresa_id) VALUES ($1, $2)", usuario, empresa); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // conAlcance: el usuario con permisos limitados (permiso → alcances).
@@ -207,7 +242,7 @@ func TestCrearAuditaYEmite(t *testing.T) {
 	}
 	p := es[0].Payload
 	if p["cliente_id"] != float64(501) || p["servicio_id"] != float64(9001) || p["categoria"] != "lentitud" ||
-		p["prioridad"] != "media" || p["origen"] != "panel" || p["empresa_id"] != float64(empresaPrueba) {
+		p["prioridad"] != "media" || p["origen"] != "panel" || p["empresa_id"] != nil || es[0].Empresa != nil {
 		t.Fatalf("payload de ticket.creado: %v", p)
 	}
 
@@ -510,7 +545,7 @@ func TestPermisosYAlcance(t *testing.T) {
 	}
 
 	// Empresa activa: los tickets de otra empresa no existen para el actor.
-	deOtra := contexto.ConEmpresa(como(t, yo), 77)
+	deOtra := comoEnEmpresa(t, yo, 77)
 	_, err = m.VerTicket.Ejecutar(deOtra, soporte.EntradaVerTicket{ID: tz5.ID})
 	problema(t, err, 404, "no_encontrado")
 	tkEmp := crear(t, m, deOtra, soporte.EntradaCrearTicket{Asunto: "De la 77"})
@@ -520,7 +555,7 @@ func TestPermisosYAlcance(t *testing.T) {
 	if es := eventosDe(t, tkEmp.ID); len(es) != 1 || es[0].Empresa == nil || *es[0].Empresa != 77 {
 		t.Fatalf("el evento lleva la empresa: %+v", es)
 	}
-	_, err = m.CrearTicket.Ejecutar(contexto.ConEmpresa(como(t, yo), 77), soporte.EntradaCrearTicket{Asunto: "De otra", EmpresaID: ptr(int64(78))})
+	_, err = m.CrearTicket.Ejecutar(comoEnEmpresa(t, yo, 77), soporte.EntradaCrearTicket{Asunto: "De otra", EmpresaID: ptr(int64(78))})
 	problema(t, err, 422, "empresa_no_coincide")
 }
 

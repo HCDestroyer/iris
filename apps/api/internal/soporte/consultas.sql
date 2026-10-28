@@ -53,6 +53,14 @@ FROM nucleo.usuarios_roles ur
 JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = @usuario_id AND rp.permiso = @permiso;
 
+-- Empresas (lectura de nucleo para la empresa de un ticket del actor sistema) ----
+
+-- name: HayEmpresas :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas);
+
+-- name: EmpresaRegistrada :one
+SELECT EXISTS (SELECT 1 FROM nucleo.empresas WHERE id = @id);
+
 -- Tickets ----------------------------------------------------------------------
 
 -- name: CrearTicket :one
@@ -106,7 +114,10 @@ RETURNING *;
 -- Más recientes primero (cursor: id). El alcance limita a zonas, cuadrillas o lo asignado al actor.
 SELECT * FROM soporte.tickets
 WHERE (sqlc.narg(antes_de)::bigint IS NULL OR id < sqlc.narg(antes_de))
-  AND (sqlc.narg(empresa_id)::bigint IS NULL OR empresa_id = sqlc.narg(empresa_id))
+  -- Empresa: @todas_empresas solo para el actor sistema; si no, la activa o (sin conector) null.
+  AND (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = sqlc.narg(empresa_id))
   AND (cardinality(@estados::text[]) = 0 OR estado = ANY(@estados::text[]))
   AND (cardinality(@prioridades::text[]) = 0 OR prioridad = ANY(@prioridades::text[]))
   AND (sqlc.narg(categoria_id)::bigint IS NULL OR categoria_id = sqlc.narg(categoria_id))
