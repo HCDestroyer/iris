@@ -30,7 +30,7 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario"`
 	OrdenID     int64          `json:"ordenId" minimum:"1"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
@@ -49,7 +49,7 @@ type EntradaLote struct {
 // EstadoOrden es el estado de la orden después de la operación (o el actual, en un rechazo).
 type EstadoOrden struct {
 	Version int32  `json:"version"`
-	Estado  string `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada"`
+	Estado  string `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada"`
 }
 
 // ResultadoOperacion es el resultado de una operación, en el mismo orden que llegaron.
@@ -57,7 +57,7 @@ type ResultadoOperacion struct {
 	ID     string           `json:"id"`
 	Estado string           `json:"estado" enum:"aplicada,duplicada,rechazada"`
 	Error  *nucleo.Problema `json:"error,omitempty" doc:"problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>)"`
-	Aviso  *string          `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente"`
+	Aviso  *string          `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada"`
 	Orden  *EstadoOrden     `json:"orden,omitempty" doc:"Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo)"`
 }
 
@@ -342,7 +342,8 @@ func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
 		registroDatos = huma.NewMapRegistry("#/components/schemas/", huma.DefaultSchemaNamer)
 		esquemasDatos = map[reflect.Type]*huma.Schema{}
 		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaUsarMaterial{},
-			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{}} {
+			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{},
+			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}} {
 			tt := reflect.TypeOf(v)
 			esquemasDatos[tt] = registroDatos.Schema(tt, true, "")
 		}
@@ -464,6 +465,34 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 		}
 		e.ID, e.Sync = op.OrdenID, s
 		return m.FallarOrden.Ejecutar(ctx, e)
+	case OpPausar:
+		e, err := datosDe[EntradaPausar](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.PausarOrden.Ejecutar(ctx, e)
+	case OpReanudar:
+		e, err := datosDe[EntradaReanudar](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.ReanudarOrden.Ejecutar(ctx, e)
+	case OpAgregarForm:
+		e, err := datosDe[EntradaAgregarFormularioCampo](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.AgregarFormularioCampo.Ejecutar(ctx, e)
+	case OpQuitarForm:
+		e, err := datosDe[EntradaQuitarFormularioCampo](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.QuitarFormularioCampo.Ejecutar(ctx, e)
 	}
 	return Orden{}, campoInvalido("tipo", "Tipo de operación desconocido", "enum")
 }

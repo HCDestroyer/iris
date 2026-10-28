@@ -266,6 +266,9 @@ type CampoOrden struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Origen           string
+	PausadaDesde     *string
+	PausadaEn        *time.Time
+	PausadaSeg       int64
 }
 
 type CampoOrdenAdjunto struct {
@@ -292,29 +295,31 @@ type CampoOrdenCambio struct {
 }
 
 type CampoOrdenChecklist struct {
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID *uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  *uuid.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	FormularioID uuid.UUID
 }
 
 type CampoOrdenChecklistHistorial struct {
-	ID          int64
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID *uuid.UUID
-	Vigente     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           int64
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  *uuid.UUID
+	Vigente      bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	FormularioID uuid.UUID
 }
 
 type CampoOrdenEquipo struct {
@@ -353,6 +358,22 @@ type CampoOrdenEvento struct {
 	UpdatedAt   time.Time
 }
 
+type CampoOrdenFormulario struct {
+	ID          uuid.UUID
+	OrdenID     int64
+	PlantillaID int64
+	VersionID   int64
+	Origen      string
+	AgregadoPor *int64
+	AgregadoEn  time.Time
+	Canal       string
+	OperacionID *uuid.UUID
+	QuitadoEn   *time.Time
+	QuitadoPor  *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type CampoOrdenMaterial struct {
 	ID               uuid.UUID
 	OrdenID          int64
@@ -382,6 +403,25 @@ type CampoOrdenNota struct {
 	UpdatedAt   time.Time
 }
 
+type CampoOrdenPausa struct {
+	ID              int64
+	OrdenID         int64
+	Motivo          string
+	Nota            *string
+	DesdeEstado     string
+	Inicio          time.Time
+	Fin             *time.Time
+	Cierre          *string
+	PausadaPor      *int64
+	CerradaPor      *int64
+	Canal           string
+	CanalCierre     *string
+	OperacionID     *uuid.UUID
+	OperacionCierre *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type CampoPlantillaItem struct {
 	ID          int64
 	PlantillaID int64
@@ -393,13 +433,26 @@ type CampoPlantillaItem struct {
 	Unidad      string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	VersionID   int64
+	Opciones    []byte
+}
+
+type CampoPlantillaVersion struct {
+	ID            int64
+	PlantillaID   int64
+	Numero        int32
+	Nombre        string
+	RequiereFirma bool
+	CreadaPor     *int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type CampoPlantillasChecklist struct {
 	ID               int64
 	Codigo           string
 	Nombre           string
-	TipoCodigo       string
+	TipoCodigo       *string
 	RequiereFirma    bool
 	Activa           bool
 	Version          int32
@@ -409,6 +462,11 @@ type CampoPlantillasChecklist struct {
 	CargoProductoID  *int64
 	CargoMonto       pgtype.Numeric
 	CargoDescripcion string
+	EmpresaID        *int64
+	Descripcion      string
+	CreadoPor        *int64
+	VersionActualID  int64
+	AlgunaVezActiva  bool
 }
 
 type CampoPosicion struct {

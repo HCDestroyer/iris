@@ -14,17 +14,106 @@ SELECT * FROM campo.tipos_orden ORDER BY id;
 -- name: PlantillaPorID :one
 SELECT * FROM campo.plantillas_checklist WHERE id = @id;
 
--- name: PlantillaPorCodigo :one
-SELECT * FROM campo.plantillas_checklist WHERE codigo = @codigo;
+-- name: PlantillasPorIDs :many
+SELECT * FROM campo.plantillas_checklist WHERE id = ANY(@ids::bigint[]);
 
--- name: ListarPlantillas :many
-SELECT * FROM campo.plantillas_checklist WHERE activa ORDER BY id;
+-- name: PlantillaPorIDParaActualizar :one
+SELECT * FROM campo.plantillas_checklist WHERE id = @id FOR UPDATE;
 
--- name: ItemsDePlantillas :many
-SELECT * FROM campo.plantilla_items WHERE plantilla_id = ANY(@plantillas::bigint[]) ORDER BY plantilla_id, posicion, id;
+-- name: PlantillaPorIDCompartida :one
+-- Al agregar un formulario: la edición (FOR UPDATE) espera, así no reescribe una versión que
+-- se acaba de empezar a usar.
+SELECT * FROM campo.plantillas_checklist WHERE id = @id FOR SHARE;
 
--- name: ItemPorCodigo :one
-SELECT * FROM campo.plantilla_items WHERE plantilla_id = @plantilla_id AND codigo = @codigo;
+-- name: EsPlantillaDeTipo :one
+SELECT EXISTS (SELECT 1 FROM campo.tipos_orden WHERE plantilla_id = @plantilla_id::bigint AND activo);
+
+-- name: PlantillasVisibles :many
+-- Plantillas que ve la empresa: las comunes (empresa null) y las de la empresa (null = sin
+-- conector: solo las comunes; todas = el sistema).
+SELECT * FROM campo.plantillas_checklist
+WHERE (@todas_empresas::boolean OR empresa_id IS NULL OR empresa_id = sqlc.narg(empresa_id))
+  AND (NOT @solo_activas::boolean OR activa)
+  AND (sqlc.narg(tipo)::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = sqlc.narg(tipo))
+  AND (sqlc.narg(q)::text IS NULL OR nombre ILIKE '%' || sqlc.narg(q) || '%' OR codigo ILIKE '%' || sqlc.narg(q) || '%')
+ORDER BY nombre, id
+LIMIT 500;
+
+-- name: CrearPlantilla :one
+-- Nace con una versión provisional (la 1 se crea enseguida y se fija con FijarVersionActual).
+INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por,
+                                        version_actual_id, activa, alguna_vez_activa)
+VALUES (@codigo, @nombre, @descripcion, sqlc.narg(tipo_codigo), @requiere_firma, sqlc.narg(empresa_id), sqlc.narg(creado_por),
+        0, @activa, @activa)
+RETURNING *;
+
+-- name: FijarVersionActual :one
+UPDATE campo.plantillas_checklist SET version_actual_id = @version_id, nombre = @nombre, requiere_firma = @requiere_firma,
+    updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: GuardarPlantilla :one
+-- Datos de la plantilla (no versionados) y la versión actual. Con una versión vieja no actualiza
+-- nada (409).
+UPDATE campo.plantillas_checklist SET nombre = @nombre, descripcion = @descripcion, tipo_codigo = sqlc.narg(tipo_codigo),
+    requiere_firma = @requiere_firma, activa = @activa, version_actual_id = @version_actual_id,
+    alguna_vez_activa = alguna_vez_activa OR @activa,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: CrearVersion :one
+INSERT INTO campo.plantilla_versiones (plantilla_id, numero, nombre, requiere_firma, creada_por, created_at)
+VALUES (@plantilla_id,
+        (SELECT coalesce(max(numero), 0) + 1 FROM campo.plantilla_versiones WHERE plantilla_id = @plantilla_id),
+        @nombre, @requiere_firma, sqlc.narg(creada_por), @creada_en)
+RETURNING *;
+
+-- name: ReescribirVersion :one
+-- Una versión sin uso se reescribe (sus ítems se reemplazan aparte).
+UPDATE campo.plantilla_versiones SET nombre = @nombre, requiere_firma = @requiere_firma, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: VersionPorID :one
+SELECT * FROM campo.plantilla_versiones WHERE id = @id;
+
+-- name: VersionPorNumero :one
+SELECT * FROM campo.plantilla_versiones WHERE plantilla_id = @plantilla_id AND numero = @numero;
+
+-- name: VersionVigenteEn :one
+-- La versión de la plantilla vigente en ese momento: la última creada hasta entonces.
+SELECT * FROM campo.plantilla_versiones
+WHERE plantilla_id = @plantilla_id AND created_at <= @momento
+ORDER BY numero DESC
+LIMIT 1;
+
+-- name: VersionesPorIDs :many
+SELECT * FROM campo.plantilla_versiones WHERE id = ANY(@ids::bigint[]);
+
+-- name: VersionesDePlantilla :many
+-- Con la cantidad de formularios (de órdenes) que la usan.
+SELECT v.*, (SELECT count(*) FROM campo.orden_formularios f WHERE f.version_id = v.id)::bigint AS formularios
+FROM campo.plantilla_versiones v
+WHERE v.plantilla_id = @plantilla_id
+ORDER BY v.numero DESC;
+
+-- name: VersionEnUso :one
+-- Algún formulario de una orden (vigente o quitado) usa la versión: ya no se reescribe.
+SELECT EXISTS (SELECT 1 FROM campo.orden_formularios WHERE version_id = @version_id);
+
+-- name: BorrarItemsDeVersion :exec
+DELETE FROM campo.plantilla_items WHERE version_id = @version_id;
+
+-- name: CrearItems :exec
+INSERT INTO campo.plantilla_items (plantilla_id, version_id, posicion, codigo, etiqueta, tipo, obligatorio, unidad, opciones)
+SELECT @plantilla_id, @version_id, i.posicion, i.codigo, i.etiqueta, i.tipo, i.obligatorio, i.unidad, i.opciones
+FROM jsonb_to_recordset(@items::jsonb)
+     AS i (posicion integer, codigo text, etiqueta text, tipo text, obligatorio boolean, unidad text, opciones jsonb);
+
+-- name: ItemsDeVersiones :many
+SELECT * FROM campo.plantilla_items WHERE version_id = ANY(@versiones::bigint[]) ORDER BY version_id, posicion, id;
 
 -- name: ItemPorID :one
 SELECT * FROM campo.plantilla_items WHERE id = @id;
@@ -92,6 +181,7 @@ UPDATE campo.ordenes SET
     estado = @estado, programada_inicio = @programada_inicio, programada_fin = @programada_fin,
     en_camino_en = @en_camino_en, en_sitio_en = @en_sitio_en, finalizada_en = @finalizada_en,
     resultado = @resultado, motivo_falla = @motivo_falla, motivo = @motivo,
+    pausada_desde = @pausada_desde, pausada_en = @pausada_en, pausada_seg = @pausada_seg,
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
@@ -127,13 +217,14 @@ LIMIT @limite;
 
 -- name: OrdenesDelPaquete :many
 -- Órdenes vivas del técnico para el día (hora de Guatemala): las programadas hasta ese día
--- (también las atrasadas), las que ya están en camino o en sitio y las pendientes asignadas.
+-- (también las atrasadas), las que ya están en camino, en sitio o pausadas y las pendientes
+-- asignadas.
 SELECT * FROM campo.ordenes
 WHERE tecnico_id = @tecnico_id
   AND (@todas_empresas::boolean
        OR (sqlc.narg(empresa_id)::bigint IS NULL AND empresa_id IS NULL)
        OR empresa_id = sqlc.narg(empresa_id))
-  AND estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio')
+  AND estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
   AND (programada_inicio IS NULL OR programada_inicio < @hasta)
 ORDER BY programada_inicio NULLS LAST, id
 LIMIT 500;
@@ -153,24 +244,94 @@ SELECT * FROM campo.orden_eventos WHERE orden_id = @orden_id AND id > @despues_d
 -- Checklist -----------------------------------------------------------------------
 
 -- name: MarcaChecklist :one
-SELECT * FROM campo.orden_checklist WHERE orden_id = @orden_id AND item_id = @item_id;
+SELECT * FROM campo.orden_checklist WHERE formulario_id = @formulario_id AND item_id = @item_id;
 
 -- name: GuardarMarcaChecklist :exec
-INSERT INTO campo.orden_checklist (orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id)
-VALUES (@orden_id, @item_id, @valor, @marcado_por, @canal, @ocurrido_en, @operacion_id)
-ON CONFLICT (orden_id, item_id) DO UPDATE SET
+INSERT INTO campo.orden_checklist (formulario_id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id)
+VALUES (@formulario_id, @orden_id, @item_id, @valor, @marcado_por, @canal, @ocurrido_en, @operacion_id)
+ON CONFLICT (formulario_id, item_id) DO UPDATE SET
     valor = EXCLUDED.valor, marcado_por = EXCLUDED.marcado_por, canal = EXCLUDED.canal,
     ocurrido_en = EXCLUDED.ocurrido_en, operacion_id = EXCLUDED.operacion_id, updated_at = now();
 
 -- name: CrearHistorialChecklist :exec
-INSERT INTO campo.orden_checklist_historial (orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente)
-VALUES (@orden_id, @item_id, @valor, @marcado_por, @canal, @ocurrido_en, @operacion_id, @vigente);
+INSERT INTO campo.orden_checklist_historial (formulario_id, orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, vigente)
+VALUES (@formulario_id, @orden_id, @item_id, @valor, @marcado_por, @canal, @ocurrido_en, @operacion_id, @vigente);
 
 -- name: ChecklistDeOrdenes :many
 SELECT * FROM campo.orden_checklist WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, item_id;
 
 -- name: HistorialChecklist :many
 SELECT * FROM campo.orden_checklist_historial WHERE orden_id = @orden_id ORDER BY id;
+
+-- Formularios de la orden ---------------------------------------------------------------
+
+-- name: CrearFormulario :one
+INSERT INTO campo.orden_formularios (id, orden_id, plantilla_id, version_id, origen, agregado_por, agregado_en, canal, operacion_id)
+VALUES (@id, @orden_id, @plantilla_id, @version_id, @origen, sqlc.narg(agregado_por), @agregado_en, @canal, sqlc.narg(operacion_id))
+RETURNING *;
+
+-- name: FormularioPorID :one
+SELECT * FROM campo.orden_formularios WHERE id = @id;
+
+-- name: FormulariosDeOrdenes :many
+-- Los vigentes (no quitados), en el orden en que se agregaron.
+SELECT * FROM campo.orden_formularios
+WHERE orden_id = ANY(@ordenes::bigint[]) AND quitado_en IS NULL
+ORDER BY orden_id, agregado_en, created_at, id;
+
+-- name: FormularioVigenteDePlantilla :one
+SELECT * FROM campo.orden_formularios
+WHERE orden_id = @orden_id AND plantilla_id = @plantilla_id AND quitado_en IS NULL;
+
+-- name: FormularioDeVersion :one
+-- El formulario de la orden con esa versión (vigente primero; si no, el último quitado).
+SELECT * FROM campo.orden_formularios
+WHERE orden_id = @orden_id AND version_id = @version_id
+ORDER BY (quitado_en IS NULL) DESC, quitado_en DESC
+LIMIT 1;
+
+-- name: QuitarFormulario :one
+UPDATE campo.orden_formularios SET quitado_en = @quitado_en, quitado_por = sqlc.narg(quitado_por), updated_at = now()
+WHERE id = @id AND quitado_en IS NULL
+RETURNING *;
+
+-- name: FormulariosConRespuestas :many
+-- Los que tienen alguna marca (aunque no sea la vigente) o un adjunto registrado en uno de sus
+-- ítems: ya no se quitan.
+SELECT f.id FROM campo.orden_formularios f
+WHERE f.id = ANY(@ids::uuid[])
+  AND (EXISTS (SELECT 1 FROM campo.orden_checklist_historial h WHERE h.formulario_id = f.id)
+       OR EXISTS (SELECT 1 FROM campo.orden_adjuntos a
+                  JOIN campo.plantilla_items i ON i.id = a.item_id
+                  WHERE a.orden_id = f.orden_id AND i.version_id = f.version_id));
+
+-- Pausas ----------------------------------------------------------------------------------
+
+-- name: CrearPausa :one
+INSERT INTO campo.orden_pausas (orden_id, motivo, nota, desde_estado, inicio, pausada_por, canal, operacion_id)
+VALUES (@orden_id, @motivo, sqlc.narg(nota), @desde_estado, @inicio, sqlc.narg(pausada_por), @canal, sqlc.narg(operacion_id))
+RETURNING *;
+
+-- name: PausaAbierta :one
+SELECT * FROM campo.orden_pausas WHERE orden_id = @orden_id AND fin IS NULL;
+
+-- name: CerrarPausa :one
+UPDATE campo.orden_pausas SET fin = @fin, cierre = @cierre, cerrada_por = sqlc.narg(cerrada_por),
+    canal_cierre = @canal_cierre, operacion_cierre = sqlc.narg(operacion_cierre), updated_at = now()
+WHERE id = @id AND fin IS NULL
+RETURNING *;
+
+-- name: FinUltimaPausa :one
+-- Fin de la última pausa terminada de la orden (piso de una pausa nueva).
+SELECT coalesce(max(fin), 'epoch'::timestamptz)::timestamptz FROM campo.orden_pausas WHERE orden_id = @orden_id AND fin IS NOT NULL;
+
+-- name: PausadoDesde :one
+-- Segundos de las pausas terminadas que empezaron desde ese momento (la visita en curso).
+SELECT coalesce(sum(extract(epoch FROM fin - inicio)), 0)::bigint FROM campo.orden_pausas
+WHERE orden_id = @orden_id AND fin IS NOT NULL AND inicio >= @desde;
+
+-- name: PausasDeOrdenes :many
+SELECT * FROM campo.orden_pausas WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, inicio, id;
 
 -- Notas, materiales, equipos, firma y adjuntos ----------------------------------------
 

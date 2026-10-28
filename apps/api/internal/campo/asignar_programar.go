@@ -49,6 +49,9 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 			if err != nil {
 				return antes, "", err
 			}
+			if err := noPausada(antes, "reasignarla (o reprográmala)"); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "asignar", EstadoPendiente, EstadoProgramada, EstadoEnCamino); err != nil {
 				return antes, "", err
 			}
@@ -118,13 +121,14 @@ func (m *Modulo) nuevoAsignarOrden() *auditoria.Caso[EntradaAsignarOrden, Orden]
 }
 
 // nuevoProgramarOrden arma ordenes.programar (pendiente → programada) u ordenes.reprogramar
-// (programada, en camino o fallida → programada, con motivo).
+// (programada, en camino, pausada o fallida → programada, con motivo; desde pausada cierra la
+// pausa).
 func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOrden, Orden] {
 	accion, permiso, verbo := "ordenes.programar", nucleo.PermOrdenesProgramar, "programar"
 	desde := []string{EstadoPendiente}
 	if re {
 		accion, permiso, verbo = "ordenes.reprogramar", nucleo.PermOrdenesReprogramar, "reprogramar"
-		desde = []string{EstadoProgramada, EstadoEnCamino, EstadoFallida}
+		desde = []string{EstadoProgramada, EstadoEnCamino, EstadoPausada, EstadoFallida}
 	}
 	return accionOrden(accion, permiso, sinLote[EntradaProgramarOrden],
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaProgramarOrden) (campobd.CampoOrden, string, error) {
@@ -191,6 +195,11 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 			}
 			if antes.Estado == EstadoFallida {
 				if err := invalidarFirma(ctx, t, q, antes.ID, ahora); err != nil {
+					return antes, "", err
+				}
+			}
+			if antes.Estado == EstadoPausada {
+				if _, err := cerrarPausa(ctx, t, q, &despues, ahora, CierreReprogramada, nil); err != nil {
 					return antes, "", err
 				}
 			}

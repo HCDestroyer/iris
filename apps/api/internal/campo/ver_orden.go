@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -26,7 +29,7 @@ type EntradaVerOrden struct {
 // EntradaListarOrdenes: tablero con filtros, más recientes primero.
 type EntradaListarOrdenes struct {
 	nucleo.ParamsPagina
-	Estado      []string  `query:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada" doc:"Uno o varios estados (estado=pendiente,programada)"`
+	Estado      []string  `query:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada" doc:"Uno o varios estados (estado=pendiente,programada)"`
 	Tipo        []string  `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Uno o varios tipos"`
 	TecnicoID   int64     `query:"tecnicoId" minimum:"0"`
 	SinTecnico  bool      `query:"sinTecnico" doc:"Solo órdenes sin técnico"`
@@ -202,24 +205,9 @@ func nuevoListarTipos() *auditoria.Caso[struct{}, nucleo.Pagina[TipoOrden]] {
 			if err != nil {
 				return nucleo.Pagina[TipoOrden]{}, err
 			}
-			plantillas, err := q.ListarPlantillas(ctx)
+			catalogo, err := catalogoActivo(ctx, q)
 			if err != nil {
 				return nucleo.Pagina[TipoOrden]{}, err
-			}
-			ids := make([]int64, 0, len(plantillas))
-			for _, p := range plantillas {
-				ids = append(ids, p.ID)
-			}
-			items, err := q.ItemsDePlantillas(ctx, ids)
-			if err != nil {
-				return nucleo.Pagina[TipoOrden]{}, err
-			}
-			porPlantilla := map[int64][]ItemPlantilla{}
-			for _, it := range items {
-				porPlantilla[it.PlantillaID] = append(porPlantilla[it.PlantillaID], ItemPlantilla{
-					ID: it.ID, Codigo: it.Codigo, Etiqueta: it.Etiqueta, Tipo: it.Tipo, Obligatorio: it.Obligatorio,
-					Unidad: it.Unidad, Posicion: it.Posicion,
-				})
 			}
 			salida := make([]TipoOrden, 0, len(tipos))
 			for _, tp := range tipos {
@@ -229,10 +217,9 @@ func nuevoListarTipos() *auditoria.Caso[struct{}, nucleo.Pagina[TipoOrden]] {
 				o := TipoOrden{ID: tp.ID, Codigo: tp.Codigo, Nombre: tp.Nombre, DuracionMin: tp.DuracionMin,
 					PlantillaID: tp.PlantillaID, ExigeInstalar: tp.ExigeInstalar, ExigeRetirar: tp.ExigeRetirar,
 					Plantillas: []Plantilla{}}
-				for _, p := range plantillas {
-					if p.TipoCodigo == tp.Codigo {
-						o.Plantillas = append(o.Plantillas, Plantilla{ID: p.ID, Codigo: p.Codigo, Nombre: p.Nombre,
-							RequiereFirma: p.RequiereFirma, Items: noNulo(porPlantilla[p.ID])})
+				for _, p := range catalogo {
+					if p.TipoCodigo != nil && *p.TipoCodigo == tp.Codigo {
+						o.Plantillas = append(o.Plantillas, p.Plantilla)
 					}
 				}
 				salida = append(salida, o)
@@ -242,17 +229,13 @@ func nuevoListarTipos() *auditoria.Caso[struct{}, nucleo.Pagina[TipoOrden]] {
 	})
 }
 
-// detalles arma las órdenes con su checklist (plantilla + marcas vigentes), notas,
-// materiales, equipos, firma y adjuntos, con pocas consultas para cualquier cantidad de
-// órdenes (paquete y cambios).
+// detalles arma las órdenes con sus formularios (plantilla en su versión + marcas vigentes),
+// notas, materiales, equipos, firma, adjuntos, pausas y cita, con pocas consultas para
+// cualquier cantidad de órdenes (paquete y cambios).
 func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOrden) ([]OrdenDetalle, error) {
 	ids := make([]int64, 0, len(ordenes))
-	plantillaIDs := []int64{}
 	for _, f := range ordenes {
 		ids = append(ids, f.ID)
-		if f.PlantillaID != nil {
-			plantillaIDs = append(plantillaIDs, *f.PlantillaID)
-		}
 	}
 	tipos, err := q.ListarTipos(ctx)
 	if err != nil {
@@ -262,22 +245,7 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 	for _, tp := range tipos {
 		codigos[tp.ID] = tp.Codigo
 	}
-	plantillas := map[int64]bool{}
-	for _, id := range plantillaIDs {
-		if _, ok := plantillas[id]; ok {
-			continue
-		}
-		p, err := q.PlantillaPorID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		plantillas[id] = p.RequiereFirma
-	}
-	items, err := q.ItemsDePlantillas(ctx, plantillaIDs)
-	if err != nil {
-		return nil, err
-	}
-	marcas, err := q.ChecklistDeOrdenes(ctx, ids)
+	forms, err := cargarFormularios(ctx, q, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -305,31 +273,17 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 	if err != nil {
 		return nil, err
 	}
-
-	marcaDe := map[[2]int64]campobd.CampoOrdenChecklist{}
-	for _, mc := range marcas {
-		marcaDe[[2]int64{mc.OrdenID, mc.ItemID}] = mc
+	pausas, err := q.PausasDeOrdenes(ctx, ids)
+	if err != nil {
+		return nil, err
 	}
+
 	salida := make([]OrdenDetalle, 0, len(ordenes))
 	for _, f := range ordenes {
 		d := OrdenDetalle{Orden: aOrden(f, codigos[f.TipoID]), Checklist: []ItemChecklist{}, Notas: []NotaOrden{},
-			Materiales: []MaterialOrden{}, Equipos: []EquipoOrden{}, Adjuntos: []AdjuntoOrden{}}
-		if f.PlantillaID != nil {
-			d.RequiereFirma = plantillas[*f.PlantillaID]
-			for _, it := range items {
-				if it.PlantillaID != *f.PlantillaID {
-					continue
-				}
-				ic := ItemChecklist{ItemID: it.ID, Codigo: it.Codigo, Etiqueta: it.Etiqueta, Tipo: it.Tipo,
-					Obligatorio: it.Obligatorio, Unidad: it.Unidad, Posicion: it.Posicion}
-				if mc, ok := marcaDe[[2]int64{f.ID, it.ID}]; ok {
-					var v any
-					_ = json.Unmarshal(mc.Valor, &v)
-					ic.Valor, ic.MarcadoPor, ic.OcurridoEn = v, mc.MarcadoPor, &mc.OcurridoEn
-				}
-				d.Checklist = append(d.Checklist, ic)
-			}
-		}
+			Materiales: []MaterialOrden{}, Equipos: []EquipoOrden{}, Adjuntos: []AdjuntoOrden{},
+			Formularios: []FormularioOrden{}, Pausas: []PausaOrden{}}
+		d.Formularios, d.Checklist, d.RequiereFirma = forms.deOrden(f.ID)
 		for _, n := range notas {
 			if n.OrdenID == f.ID {
 				d.Notas = append(d.Notas, NotaOrden{ID: n.ID, Texto: n.Texto, AutorID: n.AutorID, AutorNombre: n.AutorNombre,
@@ -358,12 +312,120 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 				d.Adjuntos = append(d.Adjuntos, AdjuntoOrden{ID: a.ID, Tipo: a.Tipo, ItemID: a.ItemID, Descripcion: a.Descripcion, OcurridoEn: a.OcurridoEn})
 			}
 		}
+		for _, p := range pausas {
+			if p.OrdenID == f.ID {
+				d.Pausas = append(d.Pausas, aPausa(p))
+			}
+		}
 		for _, c := range citas {
-			if c.OrdenID == f.ID && (f.Estado == EstadoProgramada || f.Estado == EstadoEnCamino || f.Estado == EstadoEnSitio) {
+			if c.OrdenID == f.ID && slices.Contains(estadosConCita, f.Estado) {
 				d.Cita = &CitaOrden{TecnicoID: c.TecnicoID, Inicio: c.Inicio, Fin: c.Fin, VentanaInicio: c.VentanaInicio, VentanaFin: c.VentanaFin}
 			}
 		}
 		salida = append(salida, d)
 	}
 	return salida, nil
+}
+
+// estadosConCita: la orden ocupa su cita de la agenda (también pausada: sigue abierta).
+var estadosConCita = []string{EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada}
+
+// formulariosCargados: los formularios vigentes de unas órdenes con sus versiones, ítems y
+// marcas.
+type formulariosCargados struct {
+	formularios   []campobd.CampoOrdenFormulario
+	versiones     map[int64]campobd.CampoPlantillaVersion
+	codigos       map[int64]string // plantilla → código
+	items         map[int64][]campobd.CampoPlantillaItem
+	marcas        map[[2]string]campobd.CampoOrdenChecklist // (formulario, item)
+	conRespuestas map[uuid.UUID]bool
+}
+
+func cargarFormularios(ctx context.Context, q *campobd.Queries, ordenes []int64) (formulariosCargados, error) {
+	c := formulariosCargados{versiones: map[int64]campobd.CampoPlantillaVersion{}, codigos: map[int64]string{},
+		items: map[int64][]campobd.CampoPlantillaItem{}, marcas: map[[2]string]campobd.CampoOrdenChecklist{},
+		conRespuestas: map[uuid.UUID]bool{}}
+	var err error
+	if c.formularios, err = q.FormulariosDeOrdenes(ctx, ordenes); err != nil {
+		return c, err
+	}
+	versionIDs, plantillaIDs, formIDs := []int64{}, []int64{}, []uuid.UUID{}
+	for _, f := range c.formularios {
+		versionIDs = append(versionIDs, f.VersionID)
+		plantillaIDs = append(plantillaIDs, f.PlantillaID)
+		formIDs = append(formIDs, f.ID)
+	}
+	versiones, err := q.VersionesPorIDs(ctx, versionIDs)
+	if err != nil {
+		return c, err
+	}
+	for _, v := range versiones {
+		c.versiones[v.ID] = v
+	}
+	plantillas, err := q.PlantillasPorIDs(ctx, plantillaIDs)
+	if err != nil {
+		return c, err
+	}
+	for _, p := range plantillas {
+		c.codigos[p.ID] = p.Codigo
+	}
+	items, err := q.ItemsDeVersiones(ctx, versionIDs)
+	if err != nil {
+		return c, err
+	}
+	for _, it := range items {
+		c.items[it.VersionID] = append(c.items[it.VersionID], it)
+	}
+	marcas, err := q.ChecklistDeOrdenes(ctx, ordenes)
+	if err != nil {
+		return c, err
+	}
+	for _, mc := range marcas {
+		c.marcas[[2]string{mc.FormularioID.String(), strconv.FormatInt(mc.ItemID, 10)}] = mc
+	}
+	con, err := q.FormulariosConRespuestas(ctx, formIDs)
+	if err != nil {
+		return c, err
+	}
+	for _, id := range con {
+		c.conRespuestas[id] = true
+	}
+	return c, nil
+}
+
+// deOrden: los formularios de la orden, su checklist (ítems de todos, en orden) y si alguno pide
+// la firma.
+func (c formulariosCargados) deOrden(ordenID int64) ([]FormularioOrden, []ItemChecklist, bool) {
+	forms, checklist, firma := []FormularioOrden{}, []ItemChecklist{}, false
+	for _, f := range c.formularios {
+		if f.OrdenID != ordenID {
+			continue
+		}
+		v := c.versiones[f.VersionID]
+		firma = firma || v.RequiereFirma
+		forms = append(forms, FormularioOrden{ID: f.ID, PlantillaID: f.PlantillaID, Codigo: c.codigos[f.PlantillaID],
+			Nombre: v.Nombre, VersionID: v.ID, NumeroVersion: v.Numero, RequiereFirma: v.RequiereFirma, Origen: f.Origen,
+			AgregadoPor: f.AgregadoPor, AgregadoEn: f.AgregadoEn, ConRespuestas: c.conRespuestas[f.ID]})
+		for _, it := range c.items[f.VersionID] {
+			ic := ItemChecklist{ItemID: it.ID, FormularioID: f.ID, Codigo: it.Codigo, Etiqueta: it.Etiqueta, Tipo: it.Tipo,
+				Obligatorio: it.Obligatorio, Unidad: it.Unidad, Opciones: opcionesDe(it.Opciones), Posicion: it.Posicion}
+			if mc, ok := c.marcas[[2]string{f.ID.String(), strconv.FormatInt(it.ID, 10)}]; ok {
+				var v any
+				_ = json.Unmarshal(mc.Valor, &v)
+				ic.Valor, ic.MarcadoPor, ic.OcurridoEn = v, mc.MarcadoPor, &mc.OcurridoEn
+			}
+			checklist = append(checklist, ic)
+		}
+	}
+	return forms, checklist, firma
+}
+
+// aPausa convierte una fila de pausa.
+func aPausa(p campobd.CampoOrdenPausa) PausaOrden {
+	o := PausaOrden{ID: p.ID, Motivo: p.Motivo, Nota: p.Nota, DesdeEstado: p.DesdeEstado, Inicio: p.Inicio, Fin: p.Fin,
+		Cierre: p.Cierre, PausadaPor: p.PausadaPor, CerradaPor: p.CerradaPor}
+	if p.Fin != nil {
+		o.DuracionSeg = ptr(int64(p.Fin.Sub(p.Inicio) / time.Second))
+	}
+	return o
 }

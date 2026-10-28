@@ -56,6 +56,9 @@ func (m *Modulo) nuevoIniciarCamino() *auditoria.Caso[EntradaPosicion, Orden] {
 				return antes, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, antes)
+			if err := noPausada(antes, "salir hacia el sitio"); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "iniciar el camino de", EstadoProgramada); err != nil {
 				return antes, "", err
 			}
@@ -80,6 +83,9 @@ func (m *Modulo) nuevoLlegar() *auditoria.Caso[EntradaPosicion, Orden] {
 				return antes, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, antes)
+			if err := noPausada(antes, "marcar la llegada"); err != nil {
+				return antes, "", err
+			}
 			// Desde programada también: el técnico pudo no marcar «en camino».
 			if err := exigirEstado(antes, "marcar la llegada de", EstadoProgramada, EstadoEnCamino); err != nil {
 				return antes, "", err
@@ -108,6 +114,11 @@ func (m *Modulo) nuevoFallarOrden() *auditoria.Caso[EntradaFallarOrden, Orden] {
 				return antes, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, antes)
+			// Fallar exige reanudar antes: la pausa queda cerrada con su duración y el técnico
+			// confirma en sitio (o en camino) que la visita no se puede hacer.
+			if err := noPausada(antes, "marcarla como fallida"); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "marcar como fallida", EstadoProgramada, EstadoEnCamino, EstadoEnSitio); err != nil {
 				return antes, "", err
 			}
@@ -150,7 +161,7 @@ func (m *Modulo) nuevoCancelarOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
-			if err := exigirEstado(antes, "cancelar", EstadoPendiente, EstadoProgramada, EstadoEnCamino, EstadoEnSitio); err != nil {
+			if err := exigirEstado(antes, "cancelar", EstadoPendiente, EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada); err != nil {
 				return antes, "", err
 			}
 			motivo, err := texto("motivo", in.Motivo, 3, 500)
@@ -158,6 +169,11 @@ func (m *Modulo) nuevoCancelarOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 				return antes, "", err
 			}
 			despues := antes
+			if antes.Estado == EstadoPausada {
+				if _, err := cerrarPausa(ctx, t, q, &despues, ahora, CierreCancelada, nil); err != nil {
+					return antes, "", err
+				}
+			}
 			despues.Estado, despues.FinalizadaEn, despues.Resultado, despues.Motivo = EstadoCancelada, &ahora, ptr("cancelada"), &motivo
 			// La cita deja de ocupar la agenda del técnico (y su ruta del día queda por recalcular).
 			if err := m.cfg.Agenda.QuitarCita(ctx, t, antes.ID, fmt.Sprintf("La orden %s se canceló", antes.Numero)); err != nil {

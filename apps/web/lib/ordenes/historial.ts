@@ -22,6 +22,10 @@ export function describirEventoOrden(e: EventoOrden): string {
             const verbo = e.datos.reprogramada === true ? "Reprogramó" : "Programó";
             return inicio ? `${verbo} para el ${inicio}` : `${verbo} la visita`;
         }
+        case "formulario": {
+            const nombre = typeof e.datos.nombre === "string" ? ` «${e.datos.nombre}»` : "";
+            return e.datos.accion === "quitado" ? `Quitó el formulario${nombre}` : `Agregó el formulario${nombre}`;
+        }
     }
 }
 
