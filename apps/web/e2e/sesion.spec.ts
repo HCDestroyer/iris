@@ -92,7 +92,8 @@ test.describe("inicio de sesión", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await page.getByRole("button", { name: "Cerrar sesión" }).click();
+        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
         await expect(page).toHaveURL(/\/entrar$/);
         expect(api.mutaciones).toContainEqual({ metodo: "DELETE", ruta: "/api/v1/sesion", csrf: CSRF });
         const cookies = await context.cookies();
