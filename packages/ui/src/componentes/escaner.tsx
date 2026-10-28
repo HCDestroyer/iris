@@ -60,6 +60,47 @@ export type PropsEscaner = {
     className?: string;
 };
 
+export interface DependenciasEscaner {
+    /** `getUserMedia` con la cámara trasera. */
+    obtenerFlujo: () => Promise<MediaStream>;
+    /** Conecta el flujo al `<video>` y lo reproduce. */
+    conectar: (flujo: MediaStream) => Promise<void>;
+    crearLector: () => Promise<Lector>;
+}
+
+/**
+ * Abre la cámara y el lector. Si el escáner se cerró (`sigue()` es falso) durante cualquier
+ * espera —permiso, `play()` o la carga del lector— o algo falla, apaga las pistas de la cámara
+ * (y libera el lector) antes de salir: la cámara nunca queda encendida.
+ */
+export async function abrirEscaner(deps: DependenciasEscaner, sigue: () => boolean): Promise<{ flujo: MediaStream; lector: Lector } | null> {
+    const flujo = await deps.obtenerFlujo();
+    const apagar = (lector?: Lector) => {
+        flujo.getTracks().forEach((t) => t.stop());
+        lector?.liberar?.();
+    };
+    try {
+        if (!sigue()) {
+            apagar();
+            return null;
+        }
+        await deps.conectar(flujo);
+        if (!sigue()) {
+            apagar();
+            return null;
+        }
+        const lector = await deps.crearLector();
+        if (!sigue()) {
+            apagar(lector);
+            return null;
+        }
+        return { flujo, lector };
+    } catch (e) {
+        apagar();
+        throw e;
+    }
+}
+
 async function lectorPorDefecto(): Promise<Lector> {
     return lectorNativo() ?? (await lectorZxing());
 }
@@ -85,19 +126,35 @@ export function Escaner({ alLeer, alCerrar, crearLector = lectorPorDefecto, clas
             activo = false;
             flujo?.getTracks().forEach((t) => t.stop());
             lector?.liberar?.();
+            const v = video.current;
+            if (v) {
+                v.srcObject = null;
+            }
         };
         (async () => {
             if (!navigator.mediaDevices?.getUserMedia) {
                 throw new Error("Este navegador no da acceso a la cámara.");
             }
-            flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
             const v = video.current;
-            if (!activo || !v) {
+            if (!v) {
                 return;
             }
-            v.srcObject = flujo;
-            await v.play();
-            lector = await crearLector();
+            const abierto = await abrirEscaner(
+                {
+                    obtenerFlujo: () => navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }),
+                    conectar: async (f) => {
+                        v.srcObject = f;
+                        await v.play();
+                    },
+                    crearLector,
+                },
+                () => activo,
+            );
+            if (!abierto) {
+                return;
+            }
+            flujo = abierto.flujo;
+            lector = abierto.lector;
             setListo(true);
             while (activo) {
                 const texto = v.readyState >= 2 ? await lector.leer(v).catch(() => null) : null;

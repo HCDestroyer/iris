@@ -17,7 +17,7 @@ export {
     type PropsDialogoContenido,
 } from "./componentes/dialogo";
 export { Entrada } from "./componentes/entrada";
-export { Escaner, FORMATOS_CODIGO, lectorNativo, lectorZxing, type Lector, type PropsEscaner } from "./componentes/escaner";
+export { abrirEscaner, Escaner, FORMATOS_CODIGO, lectorNativo, lectorZxing, type DependenciasEscaner, type Lector, type PropsEscaner } from "./componentes/escaner";
 export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazosASvg, type Punto, type Trazo } from "./componentes/firma";
 export { Esqueleto } from "./componentes/esqueleto";
 export { EstadoVacio, type PropsEstadoVacio } from "./componentes/estado-vacio";

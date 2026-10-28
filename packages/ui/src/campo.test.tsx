@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Camara } from "./componentes/camara";
-import { Escaner, lectorNativo } from "./componentes/escaner";
+import { abrirEscaner, Escaner, lectorNativo, type Lector } from "./componentes/escaner";
 import { hayFirma, MAX_SVG_FIRMA, simplificar, trazosASvg, type Trazo } from "./componentes/firma";
 import { LienzoFirma } from "./componentes/lienzo-firma";
 
@@ -95,5 +95,70 @@ describe("Escaner", () => {
 
     it("sin BarcodeDetector no hay lector nativo (se usa ZXing)", () => {
         expect(lectorNativo()).toBeNull();
+    });
+
+    describe("abrirEscaner: la cámara nunca queda encendida", () => {
+        function flujoFalso() {
+            const pistas = [{ detenida: false, stop() { this.detenida = true; } }];
+            return { flujo: { getTracks: () => pistas } as unknown as MediaStream, pistas };
+        }
+        const lector = (): Lector & { liberado: boolean } => {
+            const l = { liberado: false, leer: () => Promise.resolve(null), liberar: () => { l.liberado = true; } };
+            return l;
+        };
+
+        it("si se cierra mientras getUserMedia espera el permiso, apaga las pistas al resolver", async () => {
+            const { flujo, pistas } = flujoFalso();
+            let activo = true;
+            let resolver: (f: MediaStream) => void = () => undefined;
+            const pendiente = abrirEscaner(
+                { obtenerFlujo: () => new Promise((r) => (resolver = r)), conectar: () => Promise.resolve(), crearLector: () => Promise.resolve(lector()) },
+                () => activo,
+            );
+            activo = false; // desmontado
+            resolver(flujo);
+            expect(await pendiente).toBeNull();
+            expect(pistas.every((p) => p.detenida)).toBe(true);
+        });
+
+        it("si se cierra durante play() o la carga del lector, apaga y libera", async () => {
+            for (const etapa of ["conectar", "lector"] as const) {
+                const { flujo, pistas } = flujoFalso();
+                const l = lector();
+                let activo = true;
+                const r = await abrirEscaner(
+                    {
+                        obtenerFlujo: () => Promise.resolve(flujo),
+                        conectar: () => {
+                            if (etapa === "conectar") activo = false;
+                            return Promise.resolve();
+                        },
+                        crearLector: () => {
+                            if (etapa === "lector") activo = false;
+                            return Promise.resolve(l);
+                        },
+                    },
+                    () => activo,
+                );
+                expect(r).toBeNull();
+                expect(pistas[0]?.detenida).toBe(true);
+                expect(l.liberado).toBe(etapa === "lector");
+            }
+        });
+
+        it("si play() falla, apaga las pistas y propaga el error", async () => {
+            const { flujo, pistas } = flujoFalso();
+            await expect(
+                abrirEscaner({ obtenerFlujo: () => Promise.resolve(flujo), conectar: () => Promise.reject(new Error("AbortError")), crearLector: () => Promise.resolve(lector()) }, () => true),
+            ).rejects.toThrow("AbortError");
+            expect(pistas[0]?.detenida).toBe(true);
+        });
+
+        it("abierto y activo: devuelve flujo y lector sin apagar", async () => {
+            const { flujo, pistas } = flujoFalso();
+            const r = await abrirEscaner({ obtenerFlujo: () => Promise.resolve(flujo), conectar: () => Promise.resolve(), crearLector: () => Promise.resolve(lector()) }, () => true);
+            expect(r?.flujo).toBe(flujo);
+            expect(pistas[0]?.detenida).toBe(false);
+        });
     });
 });
