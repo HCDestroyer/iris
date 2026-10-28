@@ -31,9 +31,7 @@ export type EntradaMenu = {
  * .claude/integration/i3.md). Despacho usa mientras tanto `agenda.ver`, el permiso real más
  * cercano (calendario y mover citas; el mapa en vivo pide además `campo.ver_posiciones`). Esta
  * aserción de tipos falla en `pnpm typecheck` en cuanto el permiso exista en el contrato, para
- * pasar al permiso real en la misma PR que regenera packages/contratos. `prospectos.ver` ya existe
- * (API comercial de I2): Comercial sigue «Próximamente» hasta que I3 haga el embudo y la pase a
- * `permisos: ["prospectos.ver"]`.
+ * pasar al permiso real en la misma PR que regenera packages/contratos.
  */
 type AunNoExiste<P extends string> = P extends Permiso ? false : true;
 export const permisosPendientes = {
@@ -51,7 +49,7 @@ export const MENU: readonly EntradaMenu[] = [
     },
     { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
     { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
-    { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: null, proximamente: true },
+    { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {
         href: "/administracion",

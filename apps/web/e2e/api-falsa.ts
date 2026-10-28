@@ -1,6 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
+import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
 import { apiRutas, type ApiRutas } from "./api-rutas";
@@ -52,6 +53,8 @@ export const DESPACHO = usuario({ id: 9, nombre: "Diego Castro", correo: "diego@
 export const ASIGNADOR = usuario({ id: 10, nombre: "Andrés Coj", correo: "andres@iris.test", roles: [{ rol: "despacho" }] });
 /** Entra con una contraseña temporal (tras un reinicio de MFA): solo puede cambiarla. */
 export const TEMPORAL = usuario({ id: 11, nombre: "Tomás Ajú", correo: "tomas@iris.test", cambioContrasenaRequerido: true, roles: [{ rol: "supervisor" }] });
+/** Vendedora (rol ventas): todo lo comercial menos configurar umbrales; sin ver usuarios ni reintentar. */
+export const VENDEDORA = usuario({ id: 13, nombre: "Valeria Cux", correo: "valeria@iris.test", roles: [{ rol: "ventas" }] });
 /** Admin con MFA: prueba que «Reiniciar MFA» no se ofrece sobre uno mismo. */
 export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.test", mfaActivo: true, roles: [{ rol: "admin" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
@@ -89,7 +92,29 @@ const PERMISOS_ORDENES: Permiso[] = [
     "ordenes.ver",
 ];
 
+/** Permisos comerciales del rol `ventas` (i2.md, «Seguimiento comercial»). */
+export const PERMISOS_VENTAS: Permiso[] = [
+    "adjuntos.ver",
+    "agenda.ver",
+    "contratos.crear",
+    "contratos.firmar",
+    "cotizaciones.aceptar",
+    "cotizaciones.crear",
+    "factibilidad.evaluar",
+    "prospectos.asignar",
+    "prospectos.contactar",
+    "prospectos.crear",
+    "prospectos.editar",
+    "prospectos.ganar",
+    "prospectos.perder",
+    "prospectos.reabrir",
+    "prospectos.registrar_actividad",
+    "prospectos.ver",
+];
+
 export const PERMISOS_ADMIN: Permiso[] = [
+    ...PERMISOS_VENTAS.filter((p) => p !== "adjuntos.ver" && p !== "agenda.ver"),
+    "factibilidad.configurar",
     ...PERMISOS_BUZONES,
     "adjuntos.ver",
     "agenda.ver",
@@ -124,14 +149,15 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
+    [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
     [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
@@ -169,6 +195,8 @@ export type OpcionesApi = {
      * los tres técnicos asignables y las reglas de la agenda al programar (422).
      */
     despacho?: boolean;
+    /** Comercial con Argos conectado: planes de Argos, cobertura con routers y alta en Argos al ganar. */
+    comercialConector?: boolean;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -196,6 +224,8 @@ export type ApiFalsa = {
     agenda: ApiAgenda["escenario"];
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
+    /** Prospectos, cotizaciones y contratos del escenario comercial. */
+    comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
     cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
 };
@@ -213,6 +243,10 @@ const OPERATIVAS = [
     "/api/v1/tecnicos",
     "/api/v1/campo/posiciones",
     "/api/v1/rutas",
+    "/api/v1/prospectos",
+    "/api/v1/comercial",
+    "/api/v1/cotizaciones",
+    "/api/v1/contratos",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -257,6 +291,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     enlace.agenda = agenda;
     const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
+    const comercial = apiComercial({ conector: opciones.comercialConector === true });
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
 
@@ -564,6 +599,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 
+        if (await comercial.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], actual, puede })) {
+            return;
+        }
         if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
             return;
         }
@@ -705,6 +743,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
         rutas: rutas.rutas,
+        comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
