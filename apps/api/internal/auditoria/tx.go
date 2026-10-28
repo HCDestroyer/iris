@@ -27,6 +27,7 @@ type Tx struct {
 	cambios    []cambio
 	anotacion  map[string]any
 	ganchos    []func(context.Context)
+	alFallar   []func(context.Context, pgx.Tx) error
 	eventos    int
 }
 
@@ -106,6 +107,15 @@ func (t *Tx) Emitir(evento string, payload any) error {
 // (invalidar una caché, avisar a un proceso). Si algo se revierte, se descarta. Sus errores no
 // afectan la respuesta.
 func (t *Tx) AlConfirmar(fn func(ctx context.Context)) { t.ganchos = append(t.ganchos, fn) }
+
+// AlFallar registra trabajo que debe quedar escrito aunque la acción falle (p. ej. contar un
+// intento de inicio de sesión fallido): fn corre, si el caso devuelve error, en la misma
+// transacción aparte que escribe la fila de error de auditoría, antes de escribirla (puede
+// llamar a Anotar). Cada fn va en un savepoint: si falla, se registra en el log y la auditoría
+// sigue. Si el caso termina bien, se descarta.
+func (t *Tx) AlFallar(fn func(ctx context.Context, tx pgx.Tx) error) {
+	t.alFallar = append(t.alFallar, fn)
+}
 
 // RegistrarCambios compara antes y despues (structs o mapas; se usan sus nombres JSON) y
 // guarda un cambio por campo distinto en auditoria.cambios. antes nil = creación. Los campos

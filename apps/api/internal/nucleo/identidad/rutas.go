@@ -96,7 +96,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	// Sesión ----------------------------------------------------------------------------
 	login := operacion("iniciarSesion", http.MethodPost, "/api/v1/sesion", "Iniciar sesión", "", http.StatusOK, http.StatusTooManyRequests)
 	login.Security = nil
-	login.Description = "Valida correo y contraseña y abre la sesión: cookie `iris_sesion` (HttpOnly, SameSite=Lax) y `iris_csrf` (para la cabecera `X-CSRF-Token`). Con MFA activo la sesión queda pendiente hasta `POST /api/v1/sesion/mfa`."
+	login.Description = "Valida correo y contraseña y abre la sesión: cookie `iris_sesion` (HttpOnly, SameSite=Lax) y `iris_csrf` (para la cabecera `X-CSRF-Token`). Con MFA activo la sesión queda pendiente hasta `POST /api/v1/sesion/mfa`. Tras 10 fallos seguidos con un correo (exista o no) en 15 min, ese correo queda bloqueado 15 min: 429 `demasiados_intentos` con `Retry-After`, aun con la contraseña correcta. Entrar bien reinicia la cuenta."
 	huma.Register(api, login, func(ctx context.Context, in *entradaLogin) (*salidaSesion, error) {
 		e := in.Body
 		e.IP, e.UserAgent = in.ip, in.UserAgent
@@ -108,7 +108,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	mfa := operacion("verificarMFA", http.MethodPost, "/api/v1/sesion/mfa", "Completar el inicio de sesión con el código TOTP", "", http.StatusOK)
-	mfa.Description = "Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva."
+	mfa.Description = "Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva. Al 5.º código inválido (o ya usado) la sesión pendiente se revoca (401 `mfa_bloqueado`) y hay que volver a iniciar sesión."
 	huma.Register(api, mfa, func(ctx context.Context, in *entradaMFA) (*salidaSesion, error) {
 		e := in.Body
 		e.IP, e.UserAgent = in.ip, in.UserAgent

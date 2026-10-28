@@ -1,9 +1,13 @@
 package servidor_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
+
+	"github.com/pquerna/otp/totp"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -123,5 +127,90 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 
 	if r := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ}); r.status != 201 {
 		t.Fatalf("token de integración por el admin global: %d %s", r.status, r.crudo)
+	}
+}
+
+// Regresión: 10 inicios de sesión fallidos bloquean el correo 15 min (429 con Retry-After,
+// también con la contraseña correcta); el bloqueo queda auditado; un correo que no existe se
+// comporta igual; entrar bien reinicia la cuenta.
+func TestLoginSeBloqueaTrasFallos(t *testing.T) {
+	e := nuevoEntorno(t)
+	id, correo := e.usuario("lectura")
+	c := e.cliente()
+	malo := map[string]any{"correo": correo, "contrasena": "mala-contrasena-123"}
+	for i := range 10 {
+		r := c.pedir(http.MethodPost, "/api/v1/sesion", malo)
+		if r.status != 401 {
+			t.Fatalf("fallo %d: %d %s", i+1, r.status, r.crudo)
+		}
+	}
+	r := c.entrar(correo)
+	r.problema(t, 429, "demasiados_intentos")
+	if r.h.Get("Retry-After") == "" {
+		t.Fatal("falta Retry-After")
+	}
+	var bloqueos int
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		`SELECT count(*) FROM auditoria.acciones WHERE accion = 'sesion.iniciar' AND entidad_id = $1
+		   AND resultado = 'error' AND entrada->'auditoria' ? 'bloqueado_hasta'`, fmt.Sprint(id)).Scan(&bloqueos); err != nil || bloqueos != 1 {
+		t.Fatalf("auditoría del bloqueo: %d %v", bloqueos, err)
+	}
+
+	// Un correo inexistente se bloquea igual: el 429 no revela si existe.
+	nadie := map[string]any{"correo": pruebas.Correo("nadie"), "contrasena": "x"}
+	for range 10 {
+		c.pedir(http.MethodPost, "/api/v1/sesion", nadie).problema(t, 401, "credenciales_invalidas")
+	}
+	c.pedir(http.MethodPost, "/api/v1/sesion", nadie).problema(t, 429, "demasiados_intentos")
+
+	// Vencido el bloqueo, entra; y entrar bien reinicia el contador.
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		`UPDATE nucleo.intentos_login SET bloqueado_hasta = now() - interval '1 second' WHERE correo = $1`, correo); err != nil {
+		t.Fatal(err)
+	}
+	for range 9 {
+		c.pedir(http.MethodPost, "/api/v1/sesion", malo).problema(t, 401, "credenciales_invalidas")
+	}
+	if r := c.entrar(correo); r.status != 200 {
+		t.Fatalf("tras el bloqueo: %d %s", r.status, r.crudo)
+	}
+	for range 9 {
+		c.pedir(http.MethodPost, "/api/v1/sesion", malo).problema(t, 401, "credenciales_invalidas")
+	}
+	if r := e.cliente().entrar(correo); r.status != 200 {
+		t.Fatalf("el login exitoso debía reiniciar el contador: %d %s", r.status, r.crudo)
+	}
+}
+
+// Regresión: 5 códigos MFA inválidos revocan la sesión pendiente; ni un código válido la revive.
+func TestMFASeRevocaTrasFallos(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, correo := e.usuario("lectura")
+	c := e.cliente()
+	c.entrar(correo)
+	secreto, _ := c.pedir(http.MethodPost, "/api/v1/yo/mfa", nil).cuerpo["secreto"].(string)
+	ahora, _ := totp.GenerateCode(secreto, time.Now())
+	if r := c.pedir(http.MethodPost, "/api/v1/yo/mfa/activar", map[string]any{"codigo": ahora}); r.status != 200 {
+		t.Fatalf("activar: %d %s", r.status, r.crudo)
+	}
+
+	p := e.cliente()
+	if r := p.entrar(correo); r.cuerpo["mfaRequerido"] != true {
+		t.Fatalf("login con MFA: %s", r.crudo)
+	}
+	p.csrf = p.cookie(identidad.CookieCSRF).Value
+	for range 4 {
+		p.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": "000000"}).problema(t, 401, "codigo_invalido")
+	}
+	p.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": "000000"}).problema(t, 401, "mfa_bloqueado")
+	siguiente, _ := totp.GenerateCode(secreto, time.Now().Add(30*time.Second))
+	p.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": siguiente}).problema(t, 401, "no_autenticado")
+
+	// Con un login nuevo el contador empieza de cero.
+	n := e.cliente()
+	n.entrar(correo)
+	n.csrf = n.cookie(identidad.CookieCSRF).Value
+	if r := n.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": siguiente}); r.status != 200 {
+		t.Fatalf("MFA tras volver a entrar: %d %s", r.status, r.crudo)
 	}
 }

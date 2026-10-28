@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -31,7 +33,21 @@ type Problema struct {
 	Status int          `json:"status" doc:"Código HTTP"`
 	Detail string       `json:"detail,omitempty" doc:"Explicación de este caso"`
 	Errors []ErrorCampo `json:"errors,omitempty" doc:"Errores por campo"`
+
+	cabeceras http.Header
 }
+
+// ConCabecera agrega una cabecera HTTP a la respuesta del problema (p. ej. Retry-After).
+func (p *Problema) ConCabecera(clave, valor string) *Problema {
+	if p.cabeceras == nil {
+		p.cabeceras = http.Header{}
+	}
+	p.cabeceras.Set(clave, valor)
+	return p
+}
+
+// GetHeaders implementa huma.HeadersError.
+func (p *Problema) GetHeaders() http.Header { return p.cabeceras }
 
 // Error implementa error.
 func (p *Problema) Error() string {
@@ -130,6 +146,16 @@ func ErrorInterno() *Problema {
 		"Ocurrió un error inesperado; usa el request id para rastrearlo")
 }
 
+// DemasiadosIntentos: 429 con Retry-After (segundos hasta poder reintentar).
+func DemasiadosIntentos(codigo, detalle string, reintentar time.Duration) *Problema {
+	segundos := int(reintentar.Round(time.Second) / time.Second)
+	if segundos < 1 {
+		segundos = 1
+	}
+	return NuevoProblema(http.StatusTooManyRequests, codigo, "Demasiados intentos", detalle).
+		ConCabecera("Retry-After", strconv.Itoa(segundos))
+}
+
 func NoDisponible(detalle string) *Problema {
 	return NuevoProblema(http.StatusServiceUnavailable, "no_disponible", "Servicio no disponible", detalle)
 }
@@ -173,6 +199,11 @@ func AProblema(err error) (p *Problema, interno bool) {
 
 // EscribirProblema responde un problema RFC 9457 desde un middleware o handler net/http.
 func EscribirProblema(w http.ResponseWriter, p *Problema) {
+	for clave, valores := range p.cabeceras {
+		for _, v := range valores {
+			w.Header().Add(clave, v)
+		}
+	}
 	w.Header().Set("Content-Type", TipoContenidoProblema)
 	w.WriteHeader(p.Status)
 	_ = json.NewEncoder(w).Encode(p)

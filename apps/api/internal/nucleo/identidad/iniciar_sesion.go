@@ -2,8 +2,12 @@ package identidad
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -37,12 +41,22 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 			q := identidadbd.New(t)
 			t.Anotar(map[string]any{"ip": in.IP, "user_agent": in.UserAgent})
 			correo := strings.ToLower(strings.TrimSpace(in.Correo))
+			// Bloqueo por fuerza bruta: por correo, exista o no, para no revelar cuáles existen.
+			hasta, err := q.BloqueoLogin(ctx, correo)
+			switch {
+			case err == nil:
+				return SesionIniciada{}, nucleo.DemasiadosIntentos("demasiados_intentos",
+					"Demasiados intentos fallidos con este correo; espera antes de volver a intentar", time.Until(hasta))
+			case !errors.Is(err, pgx.ErrNoRows):
+				return SesionIniciada{}, err
+			}
 			u, err := q.UsuarioPorCorreo(ctx, correo)
 			if err != nil || !u.Activo || u.ContrasenaHash == nil {
 				_, _ = VerificarContrasena(in.Contrasena, hashFicticio) // mismo tiempo de respuesta
 				if err == nil {
 					t.FijarEntidad("usuario", u.ID)
 				}
+				contarFalloLogin(t, cfg, correo)
 				return SesionIniciada{}, nucleo.CredencialesInvalidas()
 			}
 			t.FijarEntidad("usuario", u.ID)
@@ -51,11 +65,36 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				return SesionIniciada{}, err
 			}
 			if !ok {
+				contarFalloLogin(t, cfg, correo)
 				return SesionIniciada{}, nucleo.CredencialesInvalidas()
+			}
+			if err := q.LimpiarIntentosLogin(ctx, correo); err != nil {
+				return SesionIniciada{}, err
 			}
 			t.IdentificarActor(contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: u.Nombre})
 			return abrirSesion(ctx, q, cfg, u, u.TotpActivo, in.IP, in.UserAgent)
 		},
+	})
+}
+
+// contarFalloLogin suma el fallo al correo (en la transacción de auditoría del error, que sí
+// se confirma) y, al llegar a LoginMaxFallos, lo bloquea LoginBloqueo; el bloqueo queda en la
+// fila de auditoría (entrada.auditoria.bloqueado_hasta) y en el log.
+func contarFalloLogin(t *auditoria.Tx, cfg Config, correo string) {
+	t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
+		q := identidadbd.New(tx)
+		ahora := time.Now()
+		fallos, err := q.RegistrarFalloLogin(ctx, identidadbd.RegistrarFalloLoginParams{Correo: correo, Desde: ahora.Add(-cfg.LoginVentana)})
+		if err != nil || fallos < cfg.LoginMaxFallos {
+			return err
+		}
+		hasta := ahora.Add(cfg.LoginBloqueo)
+		if err := q.BloquearLogin(ctx, identidadbd.BloquearLoginParams{Correo: correo, Hasta: &hasta}); err != nil {
+			return err
+		}
+		t.Anotar(map[string]any{"bloqueado_hasta": hasta.UTC(), "fallos": fallos})
+		slog.WarnContext(ctx, "identidad: inicio de sesión bloqueado por fallos", "correo", correo, "fallos", fallos, "hasta", hasta)
+		return nil
 	})
 }
 

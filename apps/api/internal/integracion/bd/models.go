@@ -69,6 +69,14 @@ type NucleoIdempotencium struct {
 	UpdatedAt    time.Time
 }
 
+type NucleoIntentosLogin struct {
+	Correo         string
+	Fallos         int32
+	BloqueadoHasta *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type NucleoPermiso struct {
 	Codigo      string
 	Descripcion string
@@ -107,6 +115,7 @@ type NucleoSesione struct {
 	RevocadaEn   *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	MfaFallos    int32
 }
 
 type NucleoTokensApi struct {

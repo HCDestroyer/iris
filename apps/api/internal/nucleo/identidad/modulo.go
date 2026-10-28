@@ -23,6 +23,13 @@ type Config struct {
 	Cifrador *nucleo.Cifrador
 	// EmisorTOTP aparece en la app autenticadora ("Iris" por defecto).
 	EmisorTOTP string
+	// LoginMaxFallos: inicios de sesión fallidos seguidos (por correo, dentro de LoginVentana)
+	// que bloquean ese correo durante LoginBloqueo. 10, 15 min y 15 min por defecto.
+	LoginMaxFallos int32
+	LoginVentana   time.Duration
+	LoginBloqueo   time.Duration
+	// MFAMaxFallos: códigos TOTP inválidos que revocan la sesión pendiente (5 por defecto).
+	MFAMaxFallos int32
 }
 
 // Modulo reúne los casos de uso de identidad.
@@ -56,6 +63,18 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	if cfg.EmisorTOTP == "" {
 		cfg.EmisorTOTP = "Iris"
+	}
+	if cfg.LoginMaxFallos <= 0 {
+		cfg.LoginMaxFallos = 10
+	}
+	if cfg.LoginVentana <= 0 {
+		cfg.LoginVentana = 15 * time.Minute
+	}
+	if cfg.LoginBloqueo <= 0 {
+		cfg.LoginBloqueo = 15 * time.Minute
+	}
+	if cfg.MFAMaxFallos <= 0 {
+		cfg.MFAMaxFallos = 5
 	}
 	m := &Modulo{cfg: cfg}
 	m.CrearUsuario = nuevoCrearUsuario()

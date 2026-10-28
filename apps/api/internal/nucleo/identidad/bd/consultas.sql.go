@@ -124,6 +124,35 @@ func (q *Queries) AsignarRol(ctx context.Context, arg AsignarRolParams) error {
 	return err
 }
 
+const bloquearLogin = `-- name: BloquearLogin :exec
+UPDATE nucleo.intentos_login SET fallos = 0, bloqueado_hasta = $1, updated_at = now()
+WHERE correo = $2
+`
+
+type BloquearLoginParams struct {
+	Hasta  *time.Time
+	Correo string
+}
+
+func (q *Queries) BloquearLogin(ctx context.Context, arg BloquearLoginParams) error {
+	_, err := q.db.Exec(ctx, bloquearLogin, arg.Hasta, arg.Correo)
+	return err
+}
+
+const bloqueoLogin = `-- name: BloqueoLogin :one
+
+SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_login
+WHERE correo = $1 AND bloqueado_hasta > now()
+`
+
+// Límites de intentos -------------------------------------------------------
+func (q *Queries) BloqueoLogin(ctx context.Context, correo string) (time.Time, error) {
+	row := q.db.QueryRow(ctx, bloqueoLogin, correo)
+	var bloqueado_hasta time.Time
+	err := row.Scan(&bloqueado_hasta)
+	return bloqueado_hasta, err
+}
+
 const candadoSemilla = `-- name: CandadoSemilla :exec
 
 SELECT pg_advisory_xact_lock($1::bigint)
@@ -152,7 +181,7 @@ const crearSesion = `-- name: CrearSesion :one
 
 INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at
+RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos
 `
 
 type CrearSesionParams struct {
@@ -190,6 +219,7 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		&i.RevocadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MfaFallos,
 	)
 	return i, err
 }
@@ -314,6 +344,17 @@ func (q *Queries) DesactivarUsuario(ctx context.Context, arg DesactivarUsuarioPa
 	return i, err
 }
 
+const fallosMFASesion = `-- name: FallosMFASesion :one
+SELECT mfa_fallos FROM nucleo.sesiones WHERE id = $1
+`
+
+func (q *Queries) FallosMFASesion(ctx context.Context, id int64) (int32, error) {
+	row := q.db.QueryRow(ctx, fallosMFASesion, id)
+	var mfa_fallos int32
+	err := row.Scan(&mfa_fallos)
+	return mfa_fallos, err
+}
+
 const guardarPermiso = `-- name: GuardarPermiso :exec
 INSERT INTO nucleo.permisos (codigo, descripcion) VALUES ($1, $2)
 ON CONFLICT (codigo) DO UPDATE SET descripcion = excluded.descripcion, updated_at = now()
@@ -364,6 +405,15 @@ type GuardarSecretoTOTPParams struct {
 
 func (q *Queries) GuardarSecretoTOTP(ctx context.Context, arg GuardarSecretoTOTPParams) error {
 	_, err := q.db.Exec(ctx, guardarSecretoTOTP, arg.TotpSecreto, arg.ID)
+	return err
+}
+
+const limpiarIntentosLogin = `-- name: LimpiarIntentosLogin :exec
+DELETE FROM nucleo.intentos_login WHERE correo = $1
+`
+
+func (q *Queries) LimpiarIntentosLogin(ctx context.Context, correo string) error {
+	_, err := q.db.Exec(ctx, limpiarIntentosLogin, correo)
 	return err
 }
 
@@ -635,6 +685,41 @@ func (q *Queries) QuitarRolesDeUsuario(ctx context.Context, usuarioID int64) err
 	return err
 }
 
+const registrarFalloLogin = `-- name: RegistrarFalloLogin :one
+INSERT INTO nucleo.intentos_login (correo, fallos) VALUES ($1, 1)
+ON CONFLICT (correo) DO UPDATE
+SET fallos = CASE WHEN nucleo.intentos_login.updated_at < $2::timestamptz THEN 1
+                  ELSE nucleo.intentos_login.fallos + 1 END,
+    updated_at = now()
+RETURNING fallos
+`
+
+type RegistrarFalloLoginParams struct {
+	Correo string
+	Desde  time.Time
+}
+
+// Cuenta un fallo; si el último fue antes de @desde, la cuenta empieza de nuevo.
+func (q *Queries) RegistrarFalloLogin(ctx context.Context, arg RegistrarFalloLoginParams) (int32, error) {
+	row := q.db.QueryRow(ctx, registrarFalloLogin, arg.Correo, arg.Desde)
+	var fallos int32
+	err := row.Scan(&fallos)
+	return fallos, err
+}
+
+const registrarFalloMFA = `-- name: RegistrarFalloMFA :one
+UPDATE nucleo.sesiones SET mfa_fallos = mfa_fallos + 1, updated_at = now()
+WHERE id = $1 AND mfa_pendiente AND revocada_en IS NULL
+RETURNING mfa_fallos
+`
+
+func (q *Queries) RegistrarFalloMFA(ctx context.Context, id int64) (int32, error) {
+	row := q.db.QueryRow(ctx, registrarFalloMFA, id)
+	var mfa_fallos int32
+	err := row.Scan(&mfa_fallos)
+	return mfa_fallos, err
+}
+
 const registrarPasoTOTP = `-- name: RegistrarPasoTOTP :execrows
 UPDATE nucleo.usuarios SET totp_ultimo_paso = $1, updated_at = now()
 WHERE id = $2 AND totp_ultimo_paso < $1
@@ -783,7 +868,7 @@ func (q *Queries) RolesPorCodigos(ctx context.Context, codigos []string) ([]Nucl
 }
 
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
-SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at
+SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
 WHERE s.token_hash = $1 AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo
@@ -810,6 +895,7 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 		&i.NucleoSesione.RevocadaEn,
 		&i.NucleoSesione.CreatedAt,
 		&i.NucleoSesione.UpdatedAt,
+		&i.NucleoSesione.MfaFallos,
 		&i.NucleoUsuario.ID,
 		&i.NucleoUsuario.Nombre,
 		&i.NucleoUsuario.Correo,

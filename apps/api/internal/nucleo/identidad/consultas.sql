@@ -177,3 +177,33 @@ SELECT * FROM nucleo.tokens_api WHERE id = @id FOR UPDATE;
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- Límites de intentos -------------------------------------------------------
+
+-- name: BloqueoLogin :one
+SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_login
+WHERE correo = @correo AND bloqueado_hasta > now();
+
+-- name: RegistrarFalloLogin :one
+-- Cuenta un fallo; si el último fue antes de @desde, la cuenta empieza de nuevo.
+INSERT INTO nucleo.intentos_login (correo, fallos) VALUES (@correo, 1)
+ON CONFLICT (correo) DO UPDATE
+SET fallos = CASE WHEN nucleo.intentos_login.updated_at < @desde::timestamptz THEN 1
+                  ELSE nucleo.intentos_login.fallos + 1 END,
+    updated_at = now()
+RETURNING fallos;
+
+-- name: BloquearLogin :exec
+UPDATE nucleo.intentos_login SET fallos = 0, bloqueado_hasta = @hasta, updated_at = now()
+WHERE correo = @correo;
+
+-- name: LimpiarIntentosLogin :exec
+DELETE FROM nucleo.intentos_login WHERE correo = @correo;
+
+-- name: FallosMFASesion :one
+SELECT mfa_fallos FROM nucleo.sesiones WHERE id = @id;
+
+-- name: RegistrarFalloMFA :one
+UPDATE nucleo.sesiones SET mfa_fallos = mfa_fallos + 1, updated_at = now()
+WHERE id = @id AND mfa_pendiente AND revocada_en IS NULL
+RETURNING mfa_fallos;

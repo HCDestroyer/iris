@@ -175,6 +175,9 @@ func (c *Caso[In, Out]) auditarError(ctx context.Context, t *Tx, entrada any, ca
 	actx := context.WithoutCancel(ctx)
 	tx, err := bd.Begin(actx)
 	if err == nil {
+		for _, fn := range t.alFallar {
+			c.correrAlFallar(actx, tx, fn)
+		}
 		err = registrar(actx, t, tx, c.Accion, t.entradaAuditada(entrada), causa)
 		if err == nil {
 			err = tx.Commit(actx)
@@ -184,6 +187,22 @@ func (c *Caso[In, Out]) auditarError(ctx context.Context, t *Tx, entrada any, ca
 	}
 	if err != nil {
 		slog.ErrorContext(ctx, "auditoria: no se pudo auditar el error", "accion", c.Accion, "err", err, "causa", causa)
+	}
+}
+
+// correrAlFallar corre un gancho AlFallar en un savepoint: si falla, solo se revierte lo suyo.
+func (c *Caso[In, Out]) correrAlFallar(ctx context.Context, tx pgx.Tx, fn func(context.Context, pgx.Tx) error) {
+	sp, err := tx.Begin(ctx)
+	if err == nil {
+		err = fn(ctx, sp)
+		if err == nil {
+			err = sp.Commit(ctx)
+		} else {
+			_ = sp.Rollback(ctx)
+		}
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "auditoria: falló un gancho AlFallar", "accion", c.Accion, "err", err)
 	}
 }
 
