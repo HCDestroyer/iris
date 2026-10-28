@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { Problema, ResultadoOperacion } from "./contrato";
+import type { CambiosConTurno, Problema, ResultadoOperacion } from "./contrato";
 import { ErrorSync, ErrorTransporte } from "./errores";
 import { DIA_MS, MotorSync } from "./motor";
 import { itemDePrueba, ordenDePrueba } from "./pruebas/fabricas";
-import { CABLE, FECHA, montar } from "./pruebas/montaje";
+import { CABLE, FECHA, montar, paqueteDePrueba } from "./pruebas/montaje";
 import { vaciarPromesas } from "./pruebas/reloj-manual";
 
 function problema(codigo: string, errors: Problema["errors"] = null): Problema {
@@ -502,6 +502,32 @@ describe("paquete del día y cambios", () => {
         expect(motor.obtenerEstado().ordenes.map((o) => o.id).sort()).toEqual([1, 3]);
     });
 
+    it("sin ruta ordena por la hora de la cita de la agenda (las sin cita al final); con ruta, por sus paradas", async () => {
+        const { motor, transporte } = await montar();
+        const cita = (inicio: string) => ({ tecnicoId: 5, inicio, fin: inicio, ventanaInicio: null, ventanaFin: null });
+        const ordenes = [
+            // La cita de la agenda manda sobre `programadaInicio`, y se compara la hora real (no el texto).
+            ordenDePrueba(1, { programadaInicio: "2026-10-28T13:00:00Z", cita: cita("2026-10-28T11:00:00-06:00") }),
+            ordenDePrueba(2, { programadaInicio: "2026-10-28T16:00:00Z", cita: cita("2026-10-28T16:00:00Z") }),
+            ordenDePrueba(3, { programadaInicio: null }),
+            ordenDePrueba(4, { programadaInicio: "2026-10-28T15:30:00Z" }),
+        ];
+        transporte.paquete = (fecha) => ({ fecha, servidorEn: "2026-10-28T12:00:00Z", ordenes, existencias: { disponible: false, motivo: "sin_conector", bodegas: [] }, cursor: "d1" });
+        await motor.cargarPaquete(FECHA);
+        expect(motor.obtenerEstado().ordenes.map((o) => o.id)).toEqual([4, 2, 1, 3]);
+
+        transporte.paquete = (fecha) => ({
+            fecha,
+            servidorEn: "2026-10-28T12:00:00Z",
+            ordenes,
+            existencias: { disponible: false, motivo: "sin_conector", bodegas: [] },
+            ruta: { id: 9, ordenIds: [3, 1] },
+            cursor: "d2",
+        });
+        await motor.cargarPaquete(FECHA);
+        expect(motor.obtenerEstado().ordenes.map((o) => o.id)).toEqual([3, 1, 4, 2]);
+    });
+
     it("pide cambios por cursor, página por página, y guarda el último cursor", async () => {
         const { motor, transporte, almacen } = await montar();
         const paginas: Record<string, ReturnType<typeof transporte.cambios>> = {
@@ -533,13 +559,55 @@ describe("paquete del día y cambios", () => {
         reloj.fijar(reloj.ahora() + 1);
         const vencido = await reabrir();
         const estado = vencido.obtenerEstado();
-        expect(estado).toMatchObject({ caducado: true, fecha: null, ruta: null, existencias: null, pendientes: 1 });
+        expect(estado).toMatchObject({ caducado: true, fecha: null, ruta: null, turno: null, existencias: null, pendientes: 1 });
         expect(estado.ordenes.map((o) => o.id)).toEqual([1]);
 
         transporte.sinRed = false;
         await vencido.cargarPaquete(FECHA);
         await vencido.sincronizar();
         expect(vencido.obtenerEstado()).toMatchObject({ caducado: false, pendientes: 0 });
+    });
+
+    it("guarda el turno de la agenda con el día del paquete, sobrevive sin señal y lo actualiza por cambios", async () => {
+        const { motor, transporte, reabrir } = await montar();
+        expect(motor.obtenerEstado().turno).toBeNull();
+        const turno = {
+            inicio: "2026-10-28T14:00:00Z",
+            fin: "2026-10-28T23:00:00Z",
+            tramos: [
+                { inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T18:00:00Z" },
+                { inicio: "2026-10-28T19:00:00Z", fin: "2026-10-28T23:00:00Z" },
+            ],
+        };
+        transporte.paquete = (fecha) => ({ ...paqueteDePrueba(fecha), turno });
+        await motor.cargarPaquete(FECHA);
+        expect(motor.obtenerEstado().turno).toEqual({ ...turno, fecha: FECHA });
+
+        // Sin señal, al reabrir la app sigue ahí.
+        transporte.sinRed = true;
+        const reabierto = await reabrir();
+        expect(reabierto.obtenerEstado().turno).toEqual({ ...turno, fecha: FECHA });
+
+        // Cambios sin turno (lo de hoy) no lo tocan; si la API lo manda, lo reemplaza.
+        transporte.sinRed = false;
+        await reabierto.sincronizar();
+        expect(reabierto.obtenerEstado().turno).toEqual({ ...turno, fecha: FECHA });
+        const nuevo = { inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T18:00:00Z", tramos: [{ inicio: "2026-10-28T14:00:00Z", fin: "2026-10-28T18:00:00Z" }] };
+        transporte.cambios = (cursor) => {
+            const conTurno: CambiosConTurno = { cambios: [], cursor, hayMas: false, turno: nuevo };
+            return conTurno;
+        };
+        await reabierto.sincronizar();
+        expect(reabierto.obtenerEstado().turno).toEqual({ ...nuevo, fecha: FECHA });
+
+        // Un día sin turno en el paquete (no trabaja o ausente) lo borra; cerrar sesión también.
+        transporte.paquete = (fecha) => paqueteDePrueba(fecha);
+        await reabierto.cargarPaquete("2026-10-29");
+        expect(reabierto.obtenerEstado().turno).toBeNull();
+        transporte.paquete = (fecha) => ({ ...paqueteDePrueba(fecha), turno });
+        await reabierto.cargarPaquete(FECHA);
+        await reabierto.olvidarDatosDelServidor();
+        expect(reabierto.obtenerEstado().turno).toBeNull();
     });
 
     it("sin paquete no hay cambios que pedir", async () => {

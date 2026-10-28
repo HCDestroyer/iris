@@ -137,6 +137,21 @@ type Modulo struct {
 	ListarEventosPropia *auditoria.Caso[EntradaListarEventos, nucleo.Pagina[EventoOrden]]
 	ListarTipos         *auditoria.Caso[struct{}, nucleo.Pagina[TipoOrden]]
 
+	// Plantillas de formularios (plantillas.go), formularios de la orden (formularios.go) y
+	// pausa (pausas.go).
+	ListarPlantillas       *auditoria.Caso[EntradaListarPlantillas, nucleo.Pagina[PlantillaFormulario]]
+	VerPlantilla           *auditoria.Caso[EntradaVerPlantilla, PlantillaFormularioDetalle]
+	CrearPlantilla         *auditoria.Caso[EntradaCrearPlantilla, PlantillaFormulario]
+	EditarPlantilla        *auditoria.Caso[EntradaEditarPlantilla, PlantillaFormulario]
+	ActivarPlantilla       *auditoria.Caso[EntradaVersionPlantilla, PlantillaFormulario]
+	DesactivarPlantilla    *auditoria.Caso[EntradaVersionPlantilla, PlantillaFormulario]
+	AsignarFormulario      *auditoria.Caso[EntradaAgregarFormulario, Orden]
+	QuitarFormulario       *auditoria.Caso[EntradaQuitarFormulario, Orden]
+	AgregarFormularioCampo *auditoria.Caso[EntradaAgregarFormularioCampo, Orden]
+	QuitarFormularioCampo  *auditoria.Caso[EntradaQuitarFormularioCampo, Orden]
+	PausarOrden            *auditoria.Caso[EntradaPausar, Orden]
+	ReanudarOrden          *auditoria.Caso[EntradaReanudar, Orden]
+
 	// App de campo (sync_*.go).
 	LeerPaquete          *auditoria.Caso[EntradaPaquete, Paquete]
 	LeerCambios          *auditoria.Caso[EntradaCambios, Cambios]
@@ -196,6 +211,18 @@ func Nuevo(cfg Config) *Modulo {
 	m.ListarEventos = m.nuevoListarEventos(nucleo.PermOrdenesVer)
 	m.ListarEventosPropia = m.nuevoListarEventos(nucleo.PermOrdenesVerPropias)
 	m.ListarTipos = nuevoListarTipos()
+	m.ListarPlantillas = m.nuevoListarPlantillas()
+	m.VerPlantilla = m.nuevoVerPlantilla()
+	m.CrearPlantilla = m.nuevoCrearPlantilla()
+	m.EditarPlantilla = m.nuevoEditarPlantilla()
+	m.ActivarPlantilla = m.nuevoActivarPlantilla(true)
+	m.DesactivarPlantilla = m.nuevoActivarPlantilla(false)
+	m.AsignarFormulario = m.nuevoAsignarFormulario()
+	m.QuitarFormulario = m.nuevoQuitarFormulario()
+	m.AgregarFormularioCampo = m.nuevoAgregarFormularioCampo()
+	m.QuitarFormularioCampo = m.nuevoQuitarFormularioCampo()
+	m.PausarOrden = m.nuevoPausarOrden()
+	m.ReanudarOrden = m.nuevoReanudarOrden()
 	m.LeerPaquete = m.nuevoLeerPaquete()
 	m.LeerCambios = m.nuevoLeerCambios()
 	m.RegistrarDispositivo = m.nuevoRegistrarDispositivo()

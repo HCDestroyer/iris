@@ -89,7 +89,7 @@ type datosRuta struct {
 	ficha   *agendabd.AgendaTecnico
 }
 
-var estadosFijos = []string{"en_camino", "en_sitio", "cerrada", "fallida"}
+var estadosFijos = []string{"en_camino", "en_sitio", "pausada", "cerrada", "fallida"}
 
 // leerDatosRuta arma la entrada del plan (la misma fuera y dentro de la transacción).
 func (m *Modulo) leerDatosRuta(ctx context.Context, q *agendabd.Queries, empresa *int64, tecnico int64, dia, ahora time.Time, manual []int64) (datosRuta, error) {

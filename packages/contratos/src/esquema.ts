@@ -376,6 +376,190 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/comercial/cobertura": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cobertura para el mapa
+         * @description Permiso: `prospectos.ver`. Routers con coordenadas de la instantánea de Argos y los umbrales (círculos viable y requiere obra).
+         */
+        get: operations["coberturaComercial"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/comercial/planes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Planes de Argos para cotizar
+         * @description Permiso: `cotizaciones.crear`. GET /planes?activo=true[&router_id=] de Argos por el conector (los planes son de toda la instalación). disponible = false con motivo si no se pueden leer.
+         */
+        get: operations["planesComerciales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/comercial/umbrales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Umbrales de la factibilidad de la empresa
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["verUmbrales"];
+        put?: never;
+        /**
+         * Fijar los umbrales de la empresa
+         * @description Permiso: `factibilidad.configurar`. Sin límite de zona. Emite `factibilidad.umbrales_cambiados`.
+         */
+        post: operations["fijarUmbrales"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contratos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contrato
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["verContrato"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contratos/{id}/firmar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar la firma del cliente
+         * @description Permiso: `contratos.firmar`. Firma capturada como imagen (SVG). Genera el PDF firmado como adjunto; su SHA-256 queda en la auditoría. Emite `contrato.firmado`.
+         */
+        post: operations["firmarContrato"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contratos/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Volver a generar el PDF borrador
+         * @description Permiso: `contratos.crear`. Si no quedó guardado.
+         */
+        post: operations["generarPdfContrato"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cotizaciones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cotización
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["verCotizacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cotizaciones/{id}/aceptar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aceptar la cotización
+         * @description Permiso: `cotizaciones.aceptar`. La vigente y no vencida, con el prospecto en cotizado. Emite `cotizacion.aceptada`.
+         */
+        post: operations["aceptarCotizacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cotizaciones/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Volver a generar el PDF
+         * @description Permiso: `cotizaciones.crear`. Si no quedó guardado (pdf.estado ≠ completo). Mismos datos, mismo PDF.
+         */
+        post: operations["generarPdfCotizacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cuadrillas": {
         parameters: {
             query?: never;
@@ -936,7 +1120,7 @@ export interface paths {
         put?: never;
         /**
          * Asignar una orden a un técnico o cuadrilla
-         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).
+         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino (pausada: 422 `orden_pausada`; reprográmala). Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).
          */
         post: operations["asignarOrden"];
         delete?: never;
@@ -956,7 +1140,7 @@ export interface paths {
         put?: never;
         /**
          * Cancelar una orden
-         * @description Permiso: `ordenes.cancelar`. Desde cualquier estado no final, con motivo. Emite `orden.estado_cambiada`.
+         * @description Permiso: `ordenes.cancelar`. Desde cualquier estado no final (también pausada: cierra la pausa), con motivo. Emite `orden.estado_cambiada`.
          */
         post: operations["cancelarOrden"];
         delete?: never;
@@ -976,7 +1160,7 @@ export interface paths {
         put?: never;
         /**
          * Cerrar una orden
-         * @description Permiso: `ordenes.cerrar`. en_sitio → cerrada. Exige el checklist obligatorio, los equipos del tipo y la firma si la plantilla la pide (422 `cierre_incompleto`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).
+         * @description Permiso: `ordenes.cerrar`. en_sitio → cerrada (pausada: 422 `orden_pausada`). Exige los ítems obligatorios de todos los formularios (422 `cierre_incompleto` con `errors[].field = formularios.<id>.checklist.<código>`), los equipos del tipo y la firma si algún formulario la pide (`firma`) y los adjuntos subidos (422 `faltan_adjuntos`). Emite `orden.cerrada` (el núcleo hace los pendientes en Argos).
          */
         post: operations["cerrarOrden"];
         delete?: never;
@@ -1076,7 +1260,7 @@ export interface paths {
         put?: never;
         /**
          * Marcar la orden como fallida
-         * @description Permiso: `ordenes.fallar`. programada, en_camino o en_sitio → fallida, con su motivo. Se puede reprogramar. Emite `orden.estado_cambiada`.
+         * @description Permiso: `ordenes.fallar`. programada, en_camino o en_sitio → fallida, con su motivo (pausada: 422 `orden_pausada`, hay que reanudar). Se puede reprogramar. Emite `orden.estado_cambiada`.
          */
         post: operations["fallarOrden"];
         delete?: never;
@@ -1099,6 +1283,46 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Reemplaza la anterior. El SVG nunca sale por la API ni en la auditoría.
          */
         post: operations["capturarFirmaOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/formularios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agregar un formulario a la orden
+         * @description Permiso: `ordenes.asignar_formulario`. Una plantilla activa, común o de la empresa de la orden, en su versión actual (queda fija). Orden abierta (no cerrada, fallida ni cancelada). 422 `plantilla_inactiva`, `validacion` (plantillaId); 409 `formulario_duplicado` (la plantilla ya está en la orden). Emite `orden.formulario_agregado`.
+         */
+        post: operations["asignarFormularioOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/formularios/{fid}/quitar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar un formulario de la orden
+         * @description Permiso: `ordenes.asignar_formulario`. Solo si no tiene respuestas (422 `formulario_con_respuestas`); 409 `formulario_ya_quitado`. Emite `orden.formulario_quitado`.
+         */
+        post: operations["quitarFormularioOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1185,6 +1409,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/pausar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pausar una orden en curso
+         * @description Permiso: `ordenes.pausar`. en_camino o en_sitio → pausada, con motivo (`esperando_material`, `cliente_ausente`, `clima`, `acceso`, `otro` con nota). Sigue abierta: conserva su cita y su lugar en la ruta y admite evidencias; no se cierra, falla, sale ni llega sin reanudar (422 `orden_pausada`); sí se cancela o reprograma. 409 `orden_ya_pausada`. Emite `orden.estado_cambiada` y `orden.pausada`.
+         */
+        post: operations["pausarOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/programar": {
         parameters: {
             query?: never;
@@ -1225,6 +1469,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/reanudar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanudar una orden pausada
+         * @description Permiso: `ordenes.reanudar`. pausada → el estado de antes de la pausa (en_camino o en_sitio). Suma la pausa a `tiempoPausadoSeg`. 409 `orden_no_pausada`. Emite `orden.estado_cambiada` y `orden.reanudada`.
+         */
+        post: operations["reanudarOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/reprogramar": {
         parameters: {
             query?: never;
@@ -1236,7 +1500,7 @@ export interface paths {
         put?: never;
         /**
          * Reprogramar una orden
-         * @description Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.
+         * @description Permiso: `ordenes.reprogramar`. programada, en_camino, pausada (cierra la pausa) o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.
          */
         post: operations["reprogramarOrden"];
         delete?: never;
@@ -1259,6 +1523,110 @@ export interface paths {
         get: operations["listarPermisos"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas de formulario (catálogo)
+         * @description Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`.
+         */
+        get: operations["listarPlantillas"];
+        put?: never;
+        /**
+         * Crear una plantilla de formulario
+         * @description Permiso: `plantillas.crear`. Exige el permiso sin límite de zona. De la empresa activa o, con `comun`, de todas (con empresas registradas, solo con `empresas.todas`). 422 `codigo_duplicado`. Emite `plantilla.creada`.
+         */
+        post: operations["crearPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver una plantilla (una versión) y su historial de versiones
+         * @description Permiso: `plantillas.ver`.
+         */
+        get: operations["verPlantilla"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una plantilla de formulario
+         * @description Permiso: `plantillas.activar`. 422 `sin_cambios`; desactivar la plantilla por defecto de un tipo de orden: 422 `plantilla_por_defecto`. Emite `plantilla.activada` o `plantilla.desactivada`.
+         */
+        post: operations["activarPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una plantilla de formulario (no se ofrece más; los formularios ya agregados siguen)
+         * @description Permiso: `plantillas.desactivar`. 422 `sin_cambios`; desactivar la plantilla por defecto de un tipo de orden: 422 `plantilla_por_defecto`. Emite `plantilla.activada` o `plantilla.desactivada`.
+         */
+        post: operations["desactivarPlantilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plantillas/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una plantilla de formulario
+         * @description Permiso: `plantillas.editar`. Reemplaza nombre, descripción, tipo, firma e ítems. Si la versión actual ya está en alguna orden, crea una versión nueva (las órdenes conservan la suya); si no, la reescribe. Las comunes, con empresas registradas, solo con `empresas.todas` (403). Emite `plantilla.actualizada`.
+         */
+        post: operations["editarPlantilla"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1431,6 +1799,298 @@ export interface paths {
          * @description Solo la sesión del portal (actor cliente: cliente y empresa de Argos de la sesión); cualquier otra credencial, 403. Mensaje del cliente. en_espera → abierto (reanuda) y resuelto → abierto (reabre); en cerrado, 422 `transicion_invalida`. Emite `ticket.mensaje_cliente` (y `ticket.estado_cambiado` si cambió). Tope por cliente (429 `demasiados_mensajes`): 10 mensajes por minuto en todos sus tickets.
          */
         post: operations["responderTicketPortal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prospectos (embudo comercial)
+         * @description Permiso: `prospectos.ver`. Cursor (id desc). Con alcance por zona: los de tus zonas y los tuyos (vendedor).
+         */
+        get: operations["listarProspectos"];
+        put?: never;
+        /**
+         * Registrar un prospecto
+         * @description Permiso: `prospectos.crear`. Guarda la Idempotency-Key. Emite `prospecto.creado`.
+         */
+        post: operations["crearProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prospecto con su embudo
+         * @description Permiso: `prospectos.ver`. Factibilidad vigente, cotización viva, contrato vivo, pendientes del alta en Argos y las acciones que corresponden.
+         */
+        get: operations["verProspecto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/actividades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Actividades del prospecto
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["listarActividades"];
+        put?: never;
+        /**
+         * Registrar una llamada, visita o nota
+         * @description Permiso: `prospectos.registrar_actividad`. Guarda la Idempotency-Key. Emite `prospecto.actividad_registrada`.
+         */
+        post: operations["registrarActividad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/asignar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar el vendedor
+         * @description Permiso: `prospectos.asignar`. El vendedor ve el prospecto (prospectos.ver con alcance) y opera en su empresa. Emite `prospecto.asignado`.
+         */
+        post: operations["asignarProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/contactar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar contactado
+         * @description Permiso: `prospectos.contactar`. nuevo → contactado. Emite `prospecto.estado_cambiado`.
+         */
+        post: operations["contactarProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/contrato": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generar el contrato
+         * @description Permiso: `contratos.crear`. Plantilla estandar_v1 con los datos del prospecto y la cotización aceptada; PDF borrador para leer. cotizado → contrato. Emite `contrato.creado`.
+         */
+        post: operations["crearContrato"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/cotizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cotizaciones del prospecto (todas las revisiones)
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["listarCotizaciones"];
+        put?: never;
+        /**
+         * Cotizar (o una revisión nueva)
+         * @description Permiso: `cotizaciones.crear`. Exactamente una línea de plan (de Argos con conector). Reemplaza la vigente o aceptada sin borrarla y anula el contrato en borrador. Genera el PDF (adjunto). Guarda la Idempotency-Key. Emite `cotizacion.creada`.
+         */
+        post: operations["crearCotizacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar un prospecto
+         * @description Permiso: `prospectos.editar`. Solo hasta cotizado. Emite `prospecto.actualizado`.
+         */
+        post: operations["editarProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historial del prospecto
+         * @description Permiso: `prospectos.ver`.
+         */
+        get: operations["eventosProspecto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/factibilidad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluar la factibilidad
+         * @description Permiso: `factibilidad.evaluar`. Distancia al router más cercano de la instantánea de Argos con los umbrales de la empresa. Sin datos: indeterminado con motivo. Emite `factibilidad.evaluada`.
+         */
+        post: operations["evaluarFactibilidad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/factibilidad-manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar la factibilidad de una visita técnica
+         * @description Permiso: `factibilidad.registrar_manual`. Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.
+         */
+        post: operations["factibilidadManual"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/ganar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ganar el prospecto
+         * @description Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`.
+         */
+        post: operations["ganarProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/perder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar perdido
+         * @description Permiso: `prospectos.perder`. Con motivo; anula el contrato vivo. Emite `prospecto.perdido`.
+         */
+        post: operations["perderProspecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/prospectos/{id}/reabrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reabrir un prospecto perdido
+         * @description Permiso: `prospectos.reabrir`. perdido → contactado.
+         */
+        post: operations["reabrirProspecto"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2211,6 +2871,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usuarios/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver un usuario
+         * @description Permiso: `usuarios.ver`. Mismo alcance que la lista: Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo. Fuera de eso, 404 como un id inexistente.
+         */
+        get: operations["verUsuario"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/usuarios/{id}/asignar-empresa": {
         parameters: {
             query?: never;
@@ -2242,7 +2922,7 @@ export interface paths {
         put?: never;
         /**
          * Desactivar un usuario
-         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.desactivar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
          */
         post: operations["desactivarUsuario"];
         delete?: never;
@@ -2262,7 +2942,7 @@ export interface paths {
         put?: never;
         /**
          * Editar un usuario
-         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
          */
         post: operations["editarUsuario"];
         delete?: never;
@@ -2291,6 +2971,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usuarios/{id}/reiniciar-mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reiniciar el MFA de otro usuario
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         */
+        post: operations["reiniciarMFAUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/yo": {
         parameters: {
             query?: never;
@@ -2305,6 +3005,26 @@ export interface paths {
         get: operations["obtenerYo"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/yo/contrasena": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar la contraseña propia
+         * @description Solo con sesión del panel. Exige la contraseña actual; la nueva debe tener 12 caracteres o más y ser distinta. Cierra las demás sesiones del usuario (la actual sigue). Límite como el login: tras 10 contraseñas actuales incorrectas seguidas (15 min) responde 429 `demasiados_intentos` con `Retry-After`, cierra la sesión y bloquea el cambio 15 min. Con una contraseña temporal (`cambioContrasenaRequerido`), es lo único que la sesión puede hacer además de `GET /yo` y cerrar sesión: el resto responde 403 `cambio_contrasena_requerido`.
+         */
+        post: operations["cambiarContrasenaPropia"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2442,6 +3162,38 @@ export interface components {
             /** @description <IRIS_BASE_URL>/soporte/entrar#<ticket>: válida 60 s y de un solo uso; se muestra una sola vez */
             url: string;
         };
+        AccionesDisponible: {
+            aceptar: boolean;
+            /** @description Ganar exige confirmarObra (factibilidad requiere_obra) */
+            confirmaObra: boolean;
+            contactar: boolean;
+            contratar: boolean;
+            cotizar: boolean;
+            evaluar: boolean;
+            firmar: boolean;
+            ganar: boolean;
+            perder: boolean;
+            reabrir: boolean;
+        };
+        Actividad: {
+            /** Format: int64 */
+            autorId: number | null;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            ocurridaEn: string;
+            /** Format: int64 */
+            prospectoId: number;
+            proximaAccion: string | null;
+            /** Format: date-time */
+            proximaFecha: string | null;
+            resultado: string | null;
+            /** @enum {string} */
+            tipo: "llamada" | "visita" | "nota" | "mensaje";
+        };
         Adjunto: {
             /** @description Ítem del checklist que respalda (o null) */
             claveChecklist: string | null;
@@ -2502,6 +3254,32 @@ export interface components {
             ocurridoEn: string;
             /** @enum {string} */
             tipo: "foto" | "firma" | "documento";
+        };
+        Alta: {
+            /** Format: int64 */
+            clienteArgosId: number | null;
+            /** @description El alta no pudo avanzar y necesita revisión manual (no se reintenta sola) */
+            error: string | null;
+            /** @enum {string} */
+            estado: "esperando_cliente" | "esperando_servicio" | "completa";
+            /**
+             * @description local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes
+             * @enum {string}
+             */
+            modo: "local" | "argos";
+            /**
+             * Format: int64
+             * @description Orden de instalación (al completarse el alta)
+             */
+            ordenId: number | null;
+            ordenNumero: string | null;
+            /**
+             * Format: int64
+             * @description Router de Argos del servicio
+             */
+            routerId: number | null;
+            /** Format: int64 */
+            servicioArgosId: number | null;
         };
         Asignable: {
             ausencias: components["schemas"]["Franja"][] | null;
@@ -2648,6 +3426,8 @@ export interface components {
             cursor: string;
             /** @description Quedan cambios: pedir otra vez con el cursor */
             hayMas: boolean;
+            /** @description Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece) */
+            plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
         };
@@ -2704,8 +3484,11 @@ export interface components {
              * @description Llegada real al sitio (ausente o null si todavía no llega)
              */
             enSitioEn?: string | null;
-            /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            /**
+             * @description Estado de la orden (pausada: sigue abierta y conserva la cita)
+             * @enum {string}
+             */
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /** Format: date-time */
             fin: string;
             /** Format: date-time */
@@ -2819,6 +3602,16 @@ export interface components {
             /** Format: int64 */
             zonaId: number | null;
         };
+        Cobertura: {
+            /** @description false = no hay datos para dibujar cobertura (motivo); nunca suponer «sin cobertura» */
+            disponible: boolean;
+            /** @description sin_conector, conector_apagado, sin_empresa, sin_instantanea, sin_routers_con_coordenadas */
+            motivo: string | null;
+            /** @description distancia (fase 6: ozmap) */
+            motor: string;
+            routers: components["schemas"]["RouterCobertura"][] | null;
+            umbrales: components["schemas"]["Umbrales"];
+        };
         Comodato: {
             disponible: boolean;
             equipos: components["schemas"]["EquipoComodato"][] | null;
@@ -2884,6 +3677,81 @@ export interface components {
             nombre: string | null;
             telefono: string | null;
         };
+        Contrato: {
+            /** Format: int64 */
+            cotizacionId: number;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @enum {string} */
+            estado: "borrador" | "firmado" | "anulado";
+            /** Format: date-time */
+            firmadoEn: string | null;
+            /**
+             * Format: int64
+             * @description Usuario de Iris que registró la firma
+             */
+            firmadoPor: number | null;
+            firmanteDocumento: string | null;
+            firmanteNombre: string | null;
+            /** Format: int64 */
+            id: number;
+            motivoAnulacion: string | null;
+            /** @description CTR-000001 */
+            numero: string;
+            /** @description El borrador para leer antes de firmar */
+            pdf?: components["schemas"]["DocumentoPDF"];
+            /** @description El PDF firmado (su SHA-256 queda en la auditoría) */
+            pdfFirmado?: components["schemas"]["DocumentoPDF"];
+            plantilla: string;
+            /** Format: int64 */
+            prospectoId: number;
+            /** Format: int32 */
+            version: number;
+        };
+        Cotizacion: {
+            /** Format: date-time */
+            aceptadaEn: string | null;
+            /** Format: int64 */
+            aceptadaPor: number | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            creadoPor: number | null;
+            /** @enum {string} */
+            estado: "vigente" | "aceptada" | "reemplazada";
+            /** Format: int64 */
+            id: number;
+            lineas: components["schemas"]["LineaCotizacion"][] | null;
+            moneda: string;
+            notas: string;
+            /** @description COT-000001 */
+            numero: string;
+            pdf?: components["schemas"]["DocumentoPDF"];
+            /**
+             * Format: int64
+             * @description Plan de Argos de la línea de plan
+             */
+            planId: number | null;
+            /** Format: int64 */
+            prospectoId: number;
+            /** Format: int64 */
+            reemplazadaPor: number | null;
+            /**
+             * Format: int32
+             * @description 1, 2, 3… (una nueva reemplaza la anterior sin borrarla)
+             */
+            revision: number;
+            /** @description Decimal (2 cifras) */
+            totalMensual: string;
+            /** @description Decimal (2 cifras): instalación, equipos y otros, menos descuentos únicos */
+            totalUnico: string;
+            /** @description vigente y pasada su vigencia (no se puede aceptar) */
+            vencida: boolean;
+            /** Format: int32 */
+            version: number;
+            /** Format: date-time */
+            vigenteHasta: string;
+        };
         Cuadrilla: {
             activa: boolean;
             /** Format: date-time */
@@ -2921,6 +3789,17 @@ export interface components {
             };
             /** Format: int64 */
             total: number;
+        };
+        DocumentoPDF: {
+            adjuntoId: string;
+            /**
+             * @description no_generado: no se pudo guardar; POST …/pdf lo vuelve a generar
+             * @enum {string}
+             */
+            estado: "pendiente" | "subiendo" | "completo" | "rechazado" | "no_generado";
+            sha256: string | null;
+            /** @description GET (adjuntos.ver) */
+            urlDescarga: string;
         };
         Empresa: {
             /** Format: date-time */
@@ -2967,9 +3846,59 @@ export interface components {
             /** @description Horus Flow; ausente sin conector activo */
             horus?: components["schemas"]["EnlaceExterno"];
         };
+        EntradaAceptarCotizacion: {
+            /**
+             * Format: int32
+             * @description Versión de la cotización
+             */
+            version: number;
+        };
         EntradaActivarMFA: {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
+        };
+        EntradaActividad: {
+            descripcion: string;
+            /**
+             * Format: date-time
+             * @description Cuándo pasó (por defecto ahora; no en el futuro)
+             */
+            ocurridaEn?: string;
+            /** @description Qué sigue (llamar de nuevo, visita…) */
+            proximaAccion?: string;
+            /**
+             * Format: date-time
+             * @description Cuándo; exige proximaAccion
+             */
+            proximaFecha?: string;
+            /** @description Contestó, no contestó, interesado… */
+            resultado?: string;
+            /** @enum {string} */
+            tipo: "llamada" | "visita" | "nota" | "mensaje";
+        };
+        EntradaAgregarFormulario: {
+            /**
+             * Format: int64
+             * @description Plantilla activa, común o de la empresa de la orden (se agrega su versión actual)
+             */
+            plantillaId: number;
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaAgregarFormularioCampo: {
+            /**
+             * Format: int64
+             * @description Plantilla del catálogo del paquete
+             */
+            plantillaId: number;
+            /**
+             * Format: int64
+             * @description Versión que veía el teléfono (la del catálogo); ausente = la actual
+             */
+            versionId?: number;
         };
         EntradaAgregarNota: {
             texto: string;
@@ -3009,6 +3938,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaAsignarProspecto: {
+            /**
+             * Format: int64
+             * @description Ausente = sin vendedor
+             */
+            vendedorId?: number;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAsignarTicket: {
             /**
              * Format: int64
@@ -3029,6 +3967,12 @@ export interface components {
         EntradaCambiarBuzon: {
             /** Format: int32 */
             version: number;
+        };
+        EntradaCambiarContrasena: {
+            /** @description Contraseña actual (la temporal, si la hay) */
+            actual: string;
+            /** @description Nueva contraseña: mínimo 12 caracteres y distinta de la actual */
+            nueva: string;
         };
         EntradaCambioConector: {
             motivo?: string;
@@ -3133,6 +4077,30 @@ export interface components {
             /** @description Sin smtp, las respuestas de los agentes no salen por correo */
             smtp?: components["schemas"]["EntradaSMTP"];
         };
+        EntradaCrearContrato: {
+            /**
+             * Format: int32
+             * @description Versión del prospecto
+             */
+            version: number;
+        };
+        EntradaCrearCotizacion: {
+            /** @description Exactamente una línea de plan */
+            lineas: components["schemas"]["EntradaLinea"][] | null;
+            /** @description GTQ por defecto */
+            moneda?: string;
+            notas?: string;
+            /**
+             * Format: int32
+             * @description Versión del prospecto
+             */
+            version: number;
+            /**
+             * Format: date-time
+             * @description Por defecto 15 días; hasta 180
+             */
+            vigenteHasta?: string;
+        };
         EntradaCrearCuadrilla: {
             nombre: string;
             /** @description Zonas que atiende (vacío = todas) */
@@ -3199,6 +4167,65 @@ export interface components {
             /**
              * Format: int64
              * @description Zona (Argos); define el alcance. Por defecto, la del servicio o el cliente en la instantánea
+             */
+            zonaId?: number;
+        };
+        EntradaCrearPlantilla: {
+            /** @description Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión */
+            borrador?: boolean;
+            codigo: string;
+            /** @description Común a todas las empresas (exige empresas.todas con empresas registradas); por defecto, de la empresa activa */
+            comun?: boolean;
+            descripcion?: string;
+            items: components["schemas"]["EntradaItemPlantilla"][] | null;
+            nombre: string;
+            requiereFirma?: boolean;
+            /**
+             * @description Tipo de orden; ausente = cualquiera
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+        };
+        EntradaCrearProspecto: {
+            /** Format: email */
+            correo?: string;
+            direccion: string;
+            /** @description NIT o DPI */
+            documento?: string;
+            /**
+             * Format: int64
+             * @description Empresa en Argos: la activa (otra: 422 empresa_no_coincide); solo el sistema la elige aquí
+             */
+            empresaId?: number;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            nombre: string;
+            notas?: string;
+            /**
+             * @description Por defecto panel (desde el panel) u otro; argos solo la integración de Argos o el sistema
+             * @enum {string}
+             */
+            origen?: "panel" | "web" | "referido" | "argos" | "otro";
+            /** @description Quién lo refirió, campaña… */
+            origenDetalle?: string;
+            /**
+             * Format: int64
+             * @description Plan de Argos que le interesa
+             */
+            planInteresId?: number;
+            planInteresNombre?: string;
+            /** @description Hasta 30 (lo que acepta Argos) */
+            telefono?: string;
+            /**
+             * Format: int64
+             * @description Responsable de ventas; exige prospectos.asignar
+             */
+            vendedorId?: number;
+            /**
+             * Format: int64
+             * @description Zona (Argos o local). Con alcance por zona, obligatoria y tuya
              */
             zonaId?: number;
         };
@@ -3363,6 +4390,50 @@ export interface components {
              */
             version: number;
         };
+        EntradaEditarPlantilla: {
+            descripcion?: string;
+            items: components["schemas"]["EntradaItemPlantilla"][] | null;
+            nombre: string;
+            requiereFirma?: boolean;
+            /**
+             * @description Ausente = cualquiera
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaEditarProspecto: {
+            /** Format: email */
+            correo?: string;
+            direccion?: string;
+            documento?: string;
+            /**
+             * Format: double
+             * @description Cambiar las coordenadas obliga a evaluar de nuevo la factibilidad antes de ganar
+             */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            nombre?: string;
+            notas?: string;
+            origenDetalle?: string;
+            /** Format: int64 */
+            planInteresId?: number;
+            planInteresNombre?: string;
+            /** @description Hasta 30 (lo que acepta Argos) */
+            telefono?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+            /** Format: int64 */
+            zonaId?: number;
+        };
         EntradaEditarTecnico: {
             /** Format: double */
             baseLat?: number;
@@ -3467,6 +4538,33 @@ export interface components {
              */
             version: number;
         };
+        EntradaFactibilidad: {
+            notas?: string;
+            /**
+             * Format: int32
+             * @description Versión del prospecto
+             */
+            version: number;
+        };
+        EntradaFactibilidadManual: {
+            caja?: string;
+            /** @description Obligatorio si hay una evaluación automática no_viable sobre las mismas coordenadas: la manual la anula */
+            motivoAnulacion?: string;
+            /** @description Qué se vio en la visita (al menos 20 caracteres) */
+            notas: string;
+            /** @enum {string} */
+            resultado: "viable" | "no_viable" | "requiere_obra";
+            /**
+             * Format: int64
+             * @description Router de Argos desde donde se atiende (de la empresa del prospecto); viaja a Argos en POST /servicios
+             */
+            routerId?: number;
+            /**
+             * Format: int32
+             * @description Versión del prospecto
+             */
+            version: number;
+        };
         EntradaFallarOrden: {
             /** @description Obligatorio con motivo otro */
             detalle?: string;
@@ -3500,6 +4598,22 @@ export interface components {
              */
             version: number;
         };
+        EntradaFirmar: {
+            /** @description DPI o NIT de quien firma */
+            firmanteDocumento?: string;
+            firmanteNombre: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /** @description Firma en SVG: <svg width="…" height="…"> con <path d="…"> (comandos M, L, C, Q, H, V, Z; como jSignature o un pad de firma) */
+            svg: string;
+            /**
+             * Format: int32
+             * @description Versión del contrato
+             */
+            version: number;
+        };
         EntradaFusionarTickets: {
             /**
              * Format: int64
@@ -3511,6 +4625,17 @@ export interface components {
              * Format: int32
              * @description Versión leída del ticket duplicado; si cambió, 409
              */
+            version: number;
+        };
+        EntradaGanar: {
+            /** @description Obligatorio (true) si la factibilidad es requiere_obra */
+            confirmarObra?: boolean;
+            /**
+             * Format: int64
+             * @description Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido
+             */
+            routerId?: number;
+            /** Format: int32 */
             version: number;
         };
         EntradaIMAP: {
@@ -3531,6 +4656,41 @@ export interface components {
             /** Format: email */
             correo: string;
         };
+        EntradaItemPlantilla: {
+            /** @description Único en la plantilla (las fotos se suben con claveChecklist = codigo) */
+            codigo: string;
+            etiqueta: string;
+            /** @description El cierre lo exige */
+            obligatorio?: boolean;
+            /** @description Solo seleccion (al menos una; sin repetir) */
+            opciones?: string[] | null;
+            /** @enum {string} */
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
+            /** @description numero y medicion (dBm, Mbps…) */
+            unidad?: string;
+        };
+        EntradaLinea: {
+            /** @description Por defecto 1 */
+            cantidad?: string;
+            /** @description En la línea de plan con conector sale de Argos */
+            descripcion?: string;
+            /**
+             * Format: int64
+             * @description Plan de Argos (obligatorio en la línea de plan con conector; sin conector no va)
+             */
+            planId?: number;
+            /** @description En la línea de plan con conector sale de Argos (si Argos no publica el precio, va aquí). En un descuento, el monto a restar */
+            precioUnitario?: string;
+            /**
+             * Format: int64
+             * @description Producto de Argos (equipo, instalación), opcional
+             */
+            productoId?: number;
+            /** @description Mensual: el plan siempre; equipo, descuento y otro pueden serlo (por defecto, único) */
+            recurrente?: boolean;
+            /** @enum {string} */
+            tipo: "plan" | "instalacion" | "equipo" | "descuento" | "otro";
+        };
         EntradaLote: {
             /** @description Cursor de cambios que tiene el teléfono (se devuelve igual) */
             cursor?: string;
@@ -3545,14 +4705,16 @@ export interface components {
             plataforma?: string;
         };
         EntradaMarcarChecklist: {
-            /** @description Código del ítem (o itemId) */
+            /** @description Código del ítem (o itemId); si se repite en varios formularios, con formularioId */
             codigo?: string;
+            /** @description Formulario de la orden (opcional con itemId) */
+            formularioId?: string;
             /**
              * Format: int64
-             * @description Ítem de la plantilla de la orden (o codigo)
+             * @description Ítem de un formulario de la orden (identifica su formulario); o codigo
              */
             itemId?: number;
-            /** @description si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto */
+            /** @description si_no: boolean; texto: string; seleccion: una de sus opciones; numero y medicion: number; foto: uuid del adjunto */
             valor: unknown;
             /**
              * Format: int32
@@ -3575,6 +4737,23 @@ export interface components {
              * @description Versión leída (opcional); si se envía y cambió, 409
              */
             version?: number;
+        };
+        EntradaPausar: {
+            /** @enum {string} */
+            motivo: "esperando_material" | "cliente_ausente" | "clima" | "acceso" | "otro";
+            /** @description Obligatoria con motivo otro */
+            nota?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaPerder: {
+            /** @description Por qué se perdió (precio, sin cobertura, competencia…) */
+            motivo: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaPonerEnEspera: {
             /** @description Qué se espera (del cliente, de un proveedor…) */
@@ -3672,8 +4851,26 @@ export interface components {
              */
             version: number;
         };
+        EntradaQuitarFormulario: {
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaQuitarFormularioCampo: {
+            /** @description Un formulario que agregó el mismo técnico, sin respuestas */
+            formularioId: string;
+        };
         EntradaReabrirTicket: {
             motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaReanudar: {
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -3749,6 +4946,19 @@ export interface components {
             /** @enum {string} */
             motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
         };
+        EntradaReiniciarMFA: {
+            /** @description Contraseña temporal (mínimo 12 caracteres, distinta de la actual) que el administrador entrega al usuario fuera de banda. Reemplaza la actual; al entrar con ella, el usuario debe cambiarla antes de cualquier otra cosa. Nunca se audita ni va en eventos */
+            contrasenaTemporal: string;
+            /** @description Por qué se reinicia (queda en la auditoría y en el evento) */
+            motivo: string;
+            /** @description Revoca también sus tokens iris_pat_ (true por omisión; emite token.revocado por cada uno) */
+            revocarTokens?: boolean;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EntradaReintentarHTTPBody: {
             /** Format: int32 */
             version: number;
@@ -3792,6 +5002,11 @@ export interface components {
             /** @description Sin usuario no se autentica */
             usuario?: string;
         };
+        EntradaTransicion: {
+            motivo?: string;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaURLPublica: {
             /** @description Origen de la interfaz del otro sistema (https://…); null = la URL base del conector */
             urlPublica: string | null;
@@ -3800,6 +5015,20 @@ export interface components {
              * @description Versión que leíste (409 si cambió)
              */
             version: number;
+        };
+        EntradaUmbrales: {
+            /**
+             * Format: int32
+             * @description Mayor o igual que viableM
+             */
+            obraM: number;
+            /**
+             * Format: int32
+             * @description Versión leída (0 si eran los por defecto)
+             */
+            version: number;
+            /** Format: int32 */
+            viableM: number;
         };
         EntradaUsarMaterial: {
             /**
@@ -3830,6 +5059,13 @@ export interface components {
         };
         EntradaVersion: {
             motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaVersionPlantilla: {
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -3886,7 +5122,7 @@ export interface components {
         };
         EstadoOrden: {
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /** Format: int32 */
             version: number;
         };
@@ -3907,7 +5143,7 @@ export interface components {
              * @description Hora de registro en el servidor
              */
             creadoEn: string;
-            /** @description GPS (lat, lon, precision), técnico, fechas, según el tipo */
+            /** @description GPS (lat, lon, precision), técnico, fechas, formulario (accion agregado|quitado, formulario_id, plantilla_id, nombre, origen) o pausa (pausa_id, motivo, nota), según el tipo */
             datos: {
                 [key: string]: unknown;
             };
@@ -3921,7 +5157,24 @@ export interface components {
              */
             ocurridoEn: string;
             /** @enum {string} */
-            tipo: "creada" | "estado" | "asignada" | "programada";
+            tipo: "creada" | "estado" | "asignada" | "programada" | "formulario";
+        };
+        EventoProspecto: {
+            a: string | null;
+            /** Format: int64 */
+            actorId: number | null;
+            actorTipo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            datos: {
+                [key: string]: unknown;
+            };
+            de: string | null;
+            /** Format: int64 */
+            id: number;
+            motivo: string | null;
+            /** @description creado, estado, asignado, factibilidad, cotizacion, contrato, alta… */
+            tipo: string;
         };
         EventoTicket: {
             a: string | null;
@@ -3965,6 +5218,62 @@ export interface components {
             bodegaId: number;
             lineas: components["schemas"]["Existencia"][] | null;
         };
+        Factibilidad: {
+            /**
+             * Format: int64
+             * @description Manual que anula esta evaluación automática no_viable
+             */
+            anulaId: number | null;
+            /** @description Caja sugerida (fase 6, OZmap) */
+            caja: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /**
+             * Format: double
+             * @description Distancia en línea recta al router, en metros
+             */
+            distanciaM: number | null;
+            /** Format: int64 */
+            evaluadaPor: number | null;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: double
+             * @description Coordenadas evaluadas (las del prospecto en ese momento)
+             */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            /** @description Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas */
+            motivo: string | null;
+            motivoAnulacion: string | null;
+            /** @description distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6) */
+            motor: string;
+            notas: string;
+            /**
+             * Format: int32
+             * @description Umbral aplicado: requiere obra hasta estos metros
+             */
+            obraM: number | null;
+            /** Format: int64 */
+            prospectoId: number;
+            /**
+             * @description indeterminado: no hay datos para decidir (motivo); nunca se inventa
+             * @enum {string}
+             */
+            resultado: "viable" | "no_viable" | "requiere_obra" | "indeterminado";
+            /**
+             * Format: int64
+             * @description Router sugerido (Argos)
+             */
+            routerId: number | null;
+            routerNombre: string | null;
+            /**
+             * Format: int32
+             * @description Umbral aplicado: viable hasta estos metros
+             */
+            viableM: number | null;
+        };
         Ficha: {
             cliente: components["schemas"]["ClienteResumen"];
             /** @description Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron */
@@ -3990,6 +5299,31 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             ocurridoEn: string;
+        };
+        FormularioOrden: {
+            /** Format: date-time */
+            agregadoEn: string;
+            /** Format: int64 */
+            agregadoPor: number | null;
+            codigo: string;
+            /** @description Tiene alguna marca o adjunto: ya no se puede quitar */
+            conRespuestas: boolean;
+            /** @description Agregado por el técnico sin señal: el id de su operación del lote */
+            id: string;
+            /** @description Nombre de la plantilla en su versión */
+            nombre: string;
+            /** Format: int32 */
+            numeroVersion: number;
+            /**
+             * @description tipo: el de la orden al crearla; despacho: lo asignó despacho; tecnico: lo agregó el técnico en campo
+             * @enum {string}
+             */
+            origen: "tipo" | "despacho" | "tecnico";
+            /** Format: int64 */
+            plantillaId: number;
+            requiereFirma: boolean;
+            /** Format: int64 */
+            versionId: number;
         };
         Franja: {
             /** Format: date-time */
@@ -4035,6 +5369,8 @@ export interface components {
         ItemChecklist: {
             codigo: string;
             etiqueta: string;
+            /** @description Formulario de la orden al que pertenece (formularios[].id) */
+            formularioId?: string;
             /** Format: int64 */
             itemId: number;
             /** Format: int64 */
@@ -4045,13 +5381,15 @@ export interface components {
              * @description Hora de la marca vigente (gana la más reciente)
              */
             ocurridoEn: string | null;
+            /** @description Solo seleccion: las opciones válidas */
+            opciones?: string[] | null;
             /** Format: int32 */
             posicion: number;
             /** @enum {string} */
-            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion";
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             /** @description Para medicion y numero (dBm, Mbps…) */
             unidad: string;
-            /** @description si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto. null = sin marcar */
+            /** @description si_no: boolean; texto y seleccion: string (una de las opciones); numero y medicion: number; foto: uuid del adjunto. null = sin marcar */
             valor: Record<string, never> | null;
         };
         ItemPlantilla: {
@@ -4060,11 +5398,32 @@ export interface components {
             /** Format: int64 */
             id: number;
             obligatorio: boolean;
+            /** @description Solo seleccion */
+            opciones?: string[] | null;
             /** Format: int32 */
             posicion: number;
             /** @enum {string} */
-            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion";
+            tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             unidad: string;
+        };
+        LineaCotizacion: {
+            /** @description Decimal (2 cifras) */
+            cantidad: string;
+            descripcion: string;
+            /** Format: int64 */
+            planId: number | null;
+            /** Format: int32 */
+            posicion: number;
+            /** @description Decimal (2 cifras) */
+            precioUnitario: string;
+            /** Format: int64 */
+            productoId: number | null;
+            /** @description Mensual (plan) o único */
+            recurrente: boolean;
+            /** @enum {string} */
+            tipo: "plan" | "instalacion" | "equipo" | "descuento" | "otro";
+            /** @description Decimal (2 cifras); negativo en los descuentos */
+            total: string;
         };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
@@ -4172,7 +5531,7 @@ export interface components {
             /** Format: int64 */
             ordenId: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -4185,10 +5544,10 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
@@ -4216,7 +5575,7 @@ export interface components {
             /** Format: date-time */
             enSitioEn: string | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4239,6 +5598,16 @@ export interface components {
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema";
+            /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -4270,6 +5639,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4289,15 +5663,16 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
              */
             bodegaId: number | null;
+            /** @description Ítems de todos los formularios (formularioId), en el orden de los formularios */
             checklist: components["schemas"]["ItemChecklist"][] | null;
             /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
             cita?: components["schemas"]["CitaOrden"];
@@ -4327,7 +5702,7 @@ export interface components {
             enSitioEn: string | null;
             equipos: components["schemas"]["EquipoOrden"][] | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4335,6 +5710,8 @@ export interface components {
             finalizadaEn: string | null;
             /** @description Ausente si no hay firma */
             firma?: components["schemas"]["FirmaOrden"];
+            /** @description Formularios vigentes, en el orden en que se agregaron */
+            formularios?: components["schemas"]["FormularioOrden"][] | null;
             /** Format: int64 */
             id: number;
             /** Format: double */
@@ -4355,6 +5732,18 @@ export interface components {
              */
             origen?: "panel" | "api" | "argos" | "sistema";
             /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
+            /** @description Pausas de la orden (la en curso, con fin null) */
+            pausas?: components["schemas"]["PausaOrden"][] | null;
+            /**
              * Format: int64
              * @description Plantilla de checklist
              */
@@ -4368,6 +5757,7 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
             resultado: "exitosa" | "parcial" | "fallida" | "cancelada" | null;
@@ -4388,6 +5778,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4407,15 +5802,16 @@ export interface components {
             /** Format: date-time */
             asignadaEn: string | null;
             /**
-             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial) o existencia_insuficiente (más material que la existencia de la bodega según Argos)
+             * @description La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)
              * @enum {string}
              */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /**
              * Format: int64
              * @description Bodega del técnico en Argos (materiales y devoluciones)
              */
             bodegaId: number | null;
+            /** @description Ítems de todos los formularios (formularioId), en el orden de los formularios */
             checklist: components["schemas"]["ItemChecklist"][] | null;
             /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
             cita?: components["schemas"]["CitaOrden"];
@@ -4442,7 +5838,7 @@ export interface components {
             enSitioEn: string | null;
             equipos: components["schemas"]["EquipoOrden"][] | null;
             /** @enum {string} */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada";
             /**
              * Format: date-time
              * @description Cierre, falla o cancelación
@@ -4450,6 +5846,8 @@ export interface components {
             finalizadaEn: string | null;
             /** @description Ausente si no hay firma */
             firma?: components["schemas"]["FirmaOrden"];
+            /** @description Formularios vigentes, en el orden en que se agregaron */
+            formularios?: components["schemas"]["FormularioOrden"][] | null;
             /** Format: int64 */
             id: number;
             /** Format: double */
@@ -4470,6 +5868,18 @@ export interface components {
              */
             origen?: "panel" | "api" | "argos" | "sistema";
             /**
+             * @description Solo pausada: el estado al que vuelve al reanudar
+             * @enum {string}
+             */
+            pausadaDesde?: "en_camino" | "en_sitio";
+            /**
+             * Format: date-time
+             * @description Solo pausada: inicio de la pausa en curso
+             */
+            pausadaEn?: string;
+            /** @description Pausas de la orden (la en curso, con fin null) */
+            pausas?: components["schemas"]["PausaOrden"][] | null;
+            /**
              * Format: int64
              * @description Plantilla de checklist
              */
@@ -4483,6 +5893,7 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
             resultado: "exitosa" | "parcial" | "fallida" | "cancelada" | null;
@@ -4501,6 +5912,11 @@ export interface components {
              * @description Ticket de origen
              */
             ticketId: number | null;
+            /**
+             * Format: int64
+             * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
+             */
+            tiempoPausadoSeg?: number;
             /** @enum {string} */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
             /** Format: int64 */
@@ -4512,6 +5928,11 @@ export interface components {
              * @description Zona (Argos); define el alcance
              */
             zonaId: number | null;
+        };
+        PaginaActividad: {
+            data: components["schemas"]["Actividad"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
         };
         PaginaAdjunto: {
             data: components["schemas"]["Adjunto"][] | null;
@@ -4535,6 +5956,11 @@ export interface components {
         };
         PaginaConector: {
             data: components["schemas"]["Conector"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaCotizacion: {
+            data: components["schemas"]["Cotizacion"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -4580,6 +6006,16 @@ export interface components {
         };
         PaginaPermisoInfo: {
             data: components["schemas"]["PermisoInfo"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaPlantillaFormulario: {
+            data: components["schemas"]["PlantillaFormulario"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaProspecto: {
+            data: components["schemas"]["Prospecto"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -4639,8 +6075,10 @@ export interface components {
             existencias: components["schemas"]["Existencias"];
             /** @description Día del paquete (YYYY-MM-DD, America/Guatemala) */
             fecha: string;
-            /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio */
+            /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino, en sitio y pausadas */
             ordenes: components["schemas"]["OrdenCampo"][] | null;
+            /** @description Catálogo de plantillas activas de la empresa (y las comunes), en su versión actual, para orden.agregar_formulario */
+            plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Ruta publicada del día (ausente si no hay): ordenes viene en su orden y las que no están en ella, después */
             ruta?: components["schemas"]["RutaCampo"];
             /**
@@ -4696,7 +6134,7 @@ export interface components {
              * @description Estado actual de la orden; vacío si oculta
              * @enum {string}
              */
-            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada" | "";
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada" | "";
             /** @description Ya estaba en camino, en sitio o terminada al proponer: va primero, en el orden real */
             fija: boolean;
             /**
@@ -4764,6 +6202,36 @@ export interface components {
             /** @description La orden sigue en este técnico y día; false = se movió después de proponer */
             vigente: boolean;
         };
+        PausaOrden: {
+            /**
+             * Format: int64
+             * @description Quien la reanudó, canceló o reprogramó
+             */
+            cerradaPor: number | null;
+            /** @enum {string|null} */
+            cierre: "reanudada" | "cancelada" | "reprogramada" | null;
+            /** @enum {string} */
+            desdeEstado: "en_camino" | "en_sitio";
+            /**
+             * Format: int64
+             * @description null = en curso
+             */
+            duracionSeg: number | null;
+            /**
+             * Format: date-time
+             * @description null = en curso
+             */
+            fin: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            inicio: string;
+            /** @enum {string} */
+            motivo: "esperando_material" | "cliente_ausente" | "clima" | "acceso" | "otro";
+            nota: string | null;
+            /** Format: int64 */
+            pausadaPor: number | null;
+        };
         Pendiente: {
             /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
             conflicto: string | null;
@@ -4820,15 +6288,47 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        PendienteArgos: {
+            /** @description pendiente, en_curso, hecho, fallido_negocio, agotado, bloqueado */
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            idempotencyKey: string;
+            /** Format: int32 */
+            intentos: number;
+            /** @description crear_cliente, crear_servicio */
+            operacion: string;
+            ultimoError: string | null;
+            /**
+             * Format: int32
+             * @description Para POST /integraciones/pendientes/{id}/reintentar
+             */
+            version: number;
+        };
         /**
          * Permiso
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
+        };
+        PlanComercial: {
+            activo: boolean;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @description Mensualidad (decimal, 2 cifras); null si Argos no la publica */
+            precio: string | null;
+        };
+        PlanesDisponibles: {
+            data: components["schemas"]["PlanComercial"][] | null;
+            /** @description false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo) */
+            disponible: boolean;
+            /** @description sin_conector, conector_apagado, argos_no_disponible… */
+            motivo: string | null;
         };
         Plantilla: {
             codigo: string;
@@ -4837,6 +6337,108 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PlantillaFormulario: {
+            /** @description Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen */
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Nunca se activó: editarla reescribe su versión. Si es false, toda edición crea una versión nueva */
+            borrador?: boolean;
+            /** @description Único por empresa (las comunes, entre las comunes) */
+            codigo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string;
+            /**
+             * Format: int64
+             * @description null = común a todas las empresas
+             */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            items: components["schemas"]["ItemPlantilla"][] | null;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Número de la versión de estos ítems (1, 2, …)
+             */
+            numeroVersion: number;
+            /** @description Es la plantilla por defecto de un tipo de orden (no se puede desactivar) */
+            porDefecto: boolean;
+            requiereFirma: boolean;
+            /**
+             * @description Tipo de orden para el que se ofrece; null = cualquiera
+             * @enum {string|null}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            /**
+             * Format: int32
+             * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Número de la versión actual (la que se agrega a las órdenes nuevas)
+             */
+            versionActual: number;
+            /**
+             * Format: int64
+             * @description Versión de la plantilla de estos ítems
+             */
+            versionId: number;
+        };
+        PlantillaFormularioDetalle: {
+            /** @description Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen */
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Nunca se activó: editarla reescribe su versión. Si es false, toda edición crea una versión nueva */
+            borrador?: boolean;
+            /** @description Único por empresa (las comunes, entre las comunes) */
+            codigo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string;
+            /**
+             * Format: int64
+             * @description null = común a todas las empresas
+             */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            items: components["schemas"]["ItemPlantilla"][] | null;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Número de la versión de estos ítems (1, 2, …)
+             */
+            numeroVersion: number;
+            /** @description Es la plantilla por defecto de un tipo de orden (no se puede desactivar) */
+            porDefecto: boolean;
+            requiereFirma: boolean;
+            /**
+             * @description Tipo de orden para el que se ofrece; null = cualquiera
+             * @enum {string|null}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            /**
+             * Format: int32
+             * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Número de la versión actual (la que se agrega a las órdenes nuevas)
+             */
+            versionActual: number;
+            /**
+             * Format: int64
+             * @description Versión de la plantilla de estos ítems
+             */
+            versionId: number;
+            /** @description De la más nueva a la más vieja */
+            versiones: components["schemas"]["VersionPlantilla"][] | null;
         };
         PosicionTecnico: {
             /**
@@ -4899,6 +6501,128 @@ export interface components {
             /** Format: date-time */
             en: string;
             motivo: string | null;
+        };
+        Prospecto: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Alta del cliente (solo ganado) */
+            alta?: components["schemas"]["Alta"];
+            correo: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            direccion: string;
+            /** @description NIT o DPI */
+            documento: string | null;
+            /**
+             * Format: int64
+             * @description Empresa en Argos (null sin conector)
+             */
+            empresaId: number | null;
+            /** @enum {string} */
+            estado: "nuevo" | "contactado" | "factibilidad" | "cotizado" | "contrato" | "ganado" | "perdido";
+            /** Format: date-time */
+            ganadoEn: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            motivoPerdida: string | null;
+            nombre: string;
+            notas: string;
+            /** @description PR-000001 */
+            numero: string;
+            /** @description Se ganó con factibilidad requiere_obra confirmada */
+            obraConfirmada: boolean;
+            /** @enum {string} */
+            origen: "panel" | "web" | "referido" | "argos" | "otro";
+            /** @description Quién lo refirió, campaña… */
+            origenDetalle: string | null;
+            /** Format: date-time */
+            perdidoEn: string | null;
+            /**
+             * Format: int64
+             * @description Plan de Argos que le interesa
+             */
+            planInteresId: number | null;
+            planInteresNombre: string | null;
+            telefono: string | null;
+            /**
+             * Format: int64
+             * @description Responsable de ventas (usuario de Iris)
+             */
+            vendedorId: number | null;
+            /** Format: int32 */
+            version: number;
+            /** Format: int64 */
+            zonaId: number | null;
+        };
+        ProspectoDetalle: {
+            /** @description Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual) */
+            acciones: components["schemas"]["AccionesDisponible"];
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Alta del cliente (solo ganado) */
+            alta?: components["schemas"]["Alta"];
+            /** @description El borrador o firmado */
+            contrato?: components["schemas"]["Contrato"];
+            correo: string | null;
+            /** @description La vigente o aceptada */
+            cotizacion?: components["schemas"]["Cotizacion"];
+            /** Format: date-time */
+            creadoEn: string;
+            direccion: string;
+            /** @description NIT o DPI */
+            documento: string | null;
+            /**
+             * Format: int64
+             * @description Empresa en Argos (null sin conector)
+             */
+            empresaId: number | null;
+            /** @enum {string} */
+            estado: "nuevo" | "contactado" | "factibilidad" | "cotizado" | "contrato" | "ganado" | "perdido";
+            /** @description La última evaluación */
+            factibilidad?: components["schemas"]["Factibilidad"];
+            /** Format: date-time */
+            ganadoEn: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            motivoPerdida: string | null;
+            nombre: string;
+            notas: string;
+            /** @description PR-000001 */
+            numero: string;
+            /** @description Se ganó con factibilidad requiere_obra confirmada */
+            obraConfirmada: boolean;
+            /** @enum {string} */
+            origen: "panel" | "web" | "referido" | "argos" | "otro";
+            /** @description Quién lo refirió, campaña… */
+            origenDetalle: string | null;
+            /** @description Acciones en Argos del alta (POST /clientes y POST /servicios) */
+            pendientes: components["schemas"]["PendienteArgos"][] | null;
+            /** Format: date-time */
+            perdidoEn: string | null;
+            /**
+             * Format: int64
+             * @description Plan de Argos que le interesa
+             */
+            planInteresId: number | null;
+            planInteresNombre: string | null;
+            telefono: string | null;
+            /**
+             * Format: int64
+             * @description Responsable de ventas (usuario de Iris)
+             */
+            vendedorId: number | null;
+            /** Format: int32 */
+            version: number;
+            /** Format: int64 */
+            zonaId: number | null;
         };
         PruebaServidor: {
             /** @enum {string|null} */
@@ -5054,7 +6778,7 @@ export interface components {
         };
         ResultadoOperacion: {
             /** @enum {string} */
-            aviso?: "checklist_no_vigente" | "existencia_insuficiente";
+            aviso?: "checklist_no_vigente" | "existencia_insuficiente" | "version_anterior" | "pausa_ajustada";
             /** @description problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>) */
             error?: components["schemas"]["Problema"];
             /** @enum {string} */
@@ -5079,6 +6803,19 @@ export interface components {
             sistema: boolean;
             /** Format: int32 */
             version: number;
+        };
+        RouterCobertura: {
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            nombre: string;
+            /** Format: date-time */
+            sincronizadoEn: string;
+            /** Format: int64 */
+            zonaId: number | null;
         };
         Ruta: {
             /** @description true = sin OSRM: orden por ventana y distancia en línea recta (haversine × 1,3 a 30 km/h); tiempos aproximados */
@@ -5686,6 +7423,27 @@ export interface components {
             /** Format: date-time */
             servidorEn: string;
         };
+        Umbrales: {
+            /** Format: int64 */
+            empresaId: number | null;
+            /**
+             * Format: int32
+             * @description Requiere obra hasta estos metros; más lejos, no viable
+             */
+            obraM: number;
+            /** @description La empresa no tiene los suyos: son los de Iris */
+            porDefecto: boolean;
+            /**
+             * Format: int32
+             * @description Versión de los de la empresa (0 si son los por defecto)
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Viable hasta estos metros del router más cercano
+             */
+            viableM: number;
+        };
         UsoCapacidad: {
             /** Format: int32 */
             cupos: number | null;
@@ -5704,6 +7462,8 @@ export interface components {
             activo: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido) */
+            cambioContrasenaRequerido?: boolean;
             correo: string;
             /** Format: date-time */
             creadoEn: string;
@@ -5719,6 +7479,23 @@ export interface components {
             tipo: "persona" | "integracion";
             /** Format: int32 */
             version: number;
+        };
+        VersionPlantilla: {
+            /** Format: date-time */
+            creadaEn: string;
+            /** Format: int64 */
+            creadaPor: number | null;
+            /**
+             * Format: int64
+             * @description Formularios de órdenes que la usan (con uso, editar crea otra versión)
+             */
+            formularios: number;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** Format: int32 */
+            numero: number;
+            requiereFirma: boolean;
         };
         WebhookRecibido: {
             /** @description true: ese id de webhook ya se había recibido; no se vuelve a procesar */
@@ -7389,6 +9166,716 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    coberturaComercial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cobertura"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    planesComerciales: {
+        parameters: {
+            query?: {
+                /** @description Router sugerido por la factibilidad: solo los planes que ofrece */
+                routerId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanesDisponibles"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verUmbrales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Umbrales"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    fijarUmbrales: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaUmbrales"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Umbrales"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verContrato: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contrato"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    firmarContrato: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFirmar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contrato"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarPdfContrato: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contrato"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verCotizacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cotizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    aceptarCotizacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAceptarCotizacion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cotizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarPdfCotizacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cotizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9256,7 +11743,7 @@ export interface operations {
                 /** @description Tamaño de página */
                 limit?: number;
                 /** @description Uno o varios estados (estado=pendiente,programada) */
-                estado?: ("pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada")[] | null;
+                estado?: ("pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada")[] | null;
                 /** @description Uno o varios tipos */
                 tipo?: ("instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento")[] | null;
                 tecnicoId?: number;
@@ -10277,6 +12764,174 @@ export interface operations {
             };
         };
     };
+    asignarFormularioOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAgregarFormulario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarFormularioOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                /** @description Formulario de la orden (formularios[].id) */
+                fid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaQuitarFormulario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     iniciarCaminoOrden: {
         parameters: {
             query?: never;
@@ -10609,6 +13264,89 @@ export interface operations {
             };
         };
     };
+    pausarOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPausar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     programarOrden: {
         parameters: {
             query?: never;
@@ -10707,6 +13445,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaMotivo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reanudarOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReanudar"];
             };
         };
         responses: {
@@ -10887,6 +13708,451 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPlantillas: {
+        parameters: {
+            query?: {
+                /** @description Las de ese tipo y las de cualquier tipo */
+                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+                /** @description Busca en nombre y código */
+                q?: string;
+                /** @description Incluye las inactivas */
+                todas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaPlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearPlantilla"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verPlantilla: {
+        parameters: {
+            query?: {
+                /** @description Número de versión; 0 o ausente = la actual */
+                numeroVersion?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormularioDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarPlantilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarPlantilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaFormulario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11645,6 +14911,1326 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarProspectos: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido */
+                estado?: string;
+                origen?: "panel" | "web" | "referido" | "argos" | "otro" | "";
+                vendedorId?: number;
+                sinVendedor?: boolean;
+                zonaId?: number;
+                /** @description Solo los que tienen lat/lon (mapa de prospectos) */
+                conCoordenadas?: boolean;
+                /** @description Busca en número, nombre, teléfono, correo y dirección */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaProspecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearProspecto"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verProspecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarActividades: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaActividad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarActividad: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActividad"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Actividad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asignarProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsignarProspecto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    contactarProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTransicion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearContrato: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearContrato"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contrato"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarCotizaciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCotizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearCotizacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearCotizacion"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cotizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarProspecto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eventosProspecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventoProspecto"][] | null;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    evaluarFactibilidad: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFactibilidad"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Factibilidad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    factibilidadManual: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFactibilidadManual"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Factibilidad"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    ganarProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaGanar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    perderProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPerder"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reabrirProspecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTransicion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14769,6 +19355,73 @@ export interface operations {
             };
         };
     };
+    verUsuario: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     asignarEmpresaUsuario: {
         parameters: {
             query?: never;
@@ -15083,6 +19736,89 @@ export interface operations {
             };
         };
     };
+    reiniciarMFAUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReiniciarMFA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     obtenerYo: {
         parameters: {
             query?: never;
@@ -15112,6 +19848,69 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiarContrasenaPropia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarContrasena"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

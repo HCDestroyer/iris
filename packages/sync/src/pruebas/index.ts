@@ -4,5 +4,6 @@ export { AlmacenMemoria } from "../almacen-memoria";
 export { RelojManual, vaciarPromesas } from "./reloj-manual";
 export { TransporteFalso, type Llamada } from "./transporte-falso";
 export { SubidorFalso } from "./subidor-falso";
+export { TransportePosicionesFalso } from "./posiciones-falso";
 export { ordenDePrueba, itemDePrueba } from "./fabricas";
 export { CABLE, FECHA, montar, paqueteDePrueba, type Montaje } from "./montaje";

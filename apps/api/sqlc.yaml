@@ -45,6 +45,13 @@ sql:
         package: identidadbd
         out: internal/nucleo/identidad/bd
   - <<: *base
+    queries: internal/nucleo/clave/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: clavebd
+        out: internal/nucleo/clave/bd
+  - <<: *base
     queries: internal/integracion/conector/consultas.sql
     gen:
       go:
@@ -110,6 +117,7 @@ sql:
           campo_orden_materiale: CampoOrdenMaterial
           campo_posicione: CampoPosicion
           campo_posiciones_ultima: CampoPosicionUltima
+          campo_plantilla_versione: CampoPlantillaVersion
   - <<: *base
     queries: internal/agenda/consultas.sql
     gen:
@@ -137,3 +145,30 @@ sql:
               pointer: true
         rename:
           agenda_capacidade: AgendaCapacidad
+  - <<: *base
+    queries: internal/comercial/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: comercialbd
+        out: internal/comercial/bd
+        overrides:
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+        rename:
+          comercial_cotizacione: ComercialCotizacion
+          comercial_actividade: ComercialActividad
+          comercial_factibilidade: ComercialFactibilidad

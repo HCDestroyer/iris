@@ -1,4 +1,5 @@
 import { crearCliente, type ClienteIris } from "@iris/contratos";
+import { CODIGO_CAMBIO_REQUERIDO, notificarCambioRequerido } from "../cuenta/sesion";
 import { CABECERA_EMPRESA, empresaGuardada, esProblemaEmpresa, notificarProblemaEmpresa, type ProblemaEmpresa } from "../empresa";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "./errores";
 
@@ -34,12 +35,14 @@ export type OpcionesCliente = {
     leerEmpresa?: () => number | undefined;
     /** Aviso de un 422/403 de empresa en cualquier respuesta; por defecto, a los oyentes del panel. */
     alProblemaEmpresa?: (problema: ProblemaEmpresa) => void;
+    /** Aviso de un 403 `cambio_contrasena_requerido` (contraseña temporal); por defecto, al panel. */
+    alCambioRequerido?: () => void;
 };
 
 const PREFIJO_PROBLEMA = "urn:iris:problema:";
 
-/** Código de un problem+json de empresa (`empresa_requerida`…), si la respuesta lo es. */
-async function problemaEmpresa(respuesta: Response): Promise<ProblemaEmpresa | undefined> {
+/** Código de un problem+json 403/422 (`empresa_requerida`, `cambio_contrasena_requerido`…), si la respuesta lo es. */
+async function codigoProblema(respuesta: Response): Promise<string | undefined> {
     if ((respuesta.status !== 403 && respuesta.status !== 422) || !respuesta.headers.get("Content-Type")?.includes("json")) {
         return undefined;
     }
@@ -47,11 +50,10 @@ async function problemaEmpresa(respuesta: Response): Promise<ProblemaEmpresa | u
         const cuerpo: unknown = await respuesta.clone().json();
         const tipo = typeof cuerpo === "object" && cuerpo !== null ? (cuerpo as { type?: unknown }).type : undefined;
         if (typeof tipo === "string" && tipo.startsWith(PREFIJO_PROBLEMA)) {
-            const codigo = tipo.slice(PREFIJO_PROBLEMA.length);
-            return esProblemaEmpresa(codigo) ? codigo : undefined;
+            return tipo.slice(PREFIJO_PROBLEMA.length);
         }
     } catch {
-        // Cuerpo ilegible: no es un problema de empresa.
+        // Cuerpo ilegible: no es un problema conocido.
     }
     return undefined;
 }
@@ -66,6 +68,7 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
     const leerCookies = opciones.leerCookies ?? (() => (typeof document === "undefined" ? "" : document.cookie));
     const leerEmpresa = opciones.leerEmpresa ?? empresaGuardada;
     const alProblemaEmpresa = opciones.alProblemaEmpresa ?? notificarProblemaEmpresa;
+    const alCambioRequerido = opciones.alCambioRequerido ?? notificarCambioRequerido;
     const cliente = crearCliente({
         querySerializer: { array: { style: "form", explode: false } },
         baseUrl: opciones.baseUrl ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
@@ -87,9 +90,11 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
             return request;
         },
         async onResponse({ response }) {
-            const problema = await problemaEmpresa(response);
-            if (problema) {
-                alProblemaEmpresa(problema);
+            const codigo = await codigoProblema(response);
+            if (codigo !== undefined && esProblemaEmpresa(codigo)) {
+                alProblemaEmpresa(codigo);
+            } else if (codigo === CODIGO_CAMBIO_REQUERIDO && response.status === 403) {
+                alCambioRequerido();
             }
             return undefined;
         },

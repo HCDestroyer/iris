@@ -27,14 +27,15 @@ export type EntradaMenu = {
 };
 
 /*
- * Despacho y Comercial todavía no tienen permisos en el enum `Permiso` (los publica I2
- * con sus módulos). Mientras tanto son «Próximamente» para todos. Estas aserciones de tipos
- * fallan en `pnpm typecheck` en cuanto el permiso exista en el contrato, para que se pase de `null` al permiso real en la misma PR que regenera packages/contratos.
+ * `despacho.ver` todavía no existe en el enum `Permiso` (pedido a I2 en
+ * .claude/integration/i3.md). Despacho usa mientras tanto `agenda.ver`, el permiso real más
+ * cercano (calendario y mover citas; el mapa en vivo pide además `campo.ver_posiciones`). Esta
+ * aserción de tipos falla en `pnpm typecheck` en cuanto el permiso exista en el contrato, para
+ * pasar al permiso real en la misma PR que regenera packages/contratos.
  */
 type AunNoExiste<P extends string> = P extends Permiso ? false : true;
 export const permisosPendientes = {
     "despacho.ver": true satisfies AunNoExiste<"despacho.ver">,
-    "prospectos.ver": true satisfies AunNoExiste<"prospectos.ver">,
 } as const;
 
 export const MENU: readonly EntradaMenu[] = [
@@ -46,9 +47,9 @@ export const MENU: readonly EntradaMenu[] = [
         icono: ClipboardList,
         permisos: ["ordenes.ver", "ordenes.ver_propias"],
     },
-    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"], proximamente: true },
-    { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: null, proximamente: true },
-    { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: null, proximamente: true },
+    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
+    { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
+    { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {
         href: "/administracion",

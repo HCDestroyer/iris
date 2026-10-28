@@ -5,6 +5,7 @@ import { Boton, cn, type Tono } from "@iris/ui";
 import { CloudCheck, CloudUpload, KeyRound, Building2, RefreshCw, TriangleAlert, Wifi, WifiOff, type LucideIcon } from "lucide-react";
 import { horaCorta } from "@/lib/campo/fechas";
 import { useCampo } from "./contexto";
+import { IndicadorUbicacion } from "./ubicacion";
 
 const CONEXION: Record<Conexion, { tono: Tono; icono: LucideIcon; texto: string }> = {
     en_linea: { tono: "success", icono: Wifi, texto: "En línea" },
@@ -73,6 +74,7 @@ export function BarraConexion() {
                     )}
                 </Boton>
             </div>
+            <IndicadorUbicacion className="-ml-2 mt-0.5" />
             {estado.proximoIntento !== null && estado.conexion !== "sin_sesion" && !nada ? (
                 <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                     <span>Reintento a las {horaCorta(new Date(estado.proximoIntento).toISOString())}</span>

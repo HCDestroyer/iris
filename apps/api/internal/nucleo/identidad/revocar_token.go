@@ -26,8 +26,9 @@ func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 			if err != nil {
 				return TokenAPI{}, err
 			}
-			// Revocar tokens de otro usuario exige operar en todas sus empresas.
-			if err := exigirEmpresasDe(ctx, q, antes.UsuarioID, "revocar tokens de este usuario"); err != nil {
+			// Revocar tokens de otro usuario exige operar en todas sus empresas; fuera de ese
+			// alcance, 404 como un token inexistente (no se revela su dueño ni sus empresas).
+			if err := exigirVisible(ctx, q, antes.UsuarioID, "revocar tokens de este usuario"); err != nil {
 				return TokenAPI{}, err
 			}
 			if antes.RevocadoEn != nil {

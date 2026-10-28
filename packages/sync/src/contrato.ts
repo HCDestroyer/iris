@@ -24,6 +24,20 @@ export type ExistenciasBodega = Schema<"ExistenciasBodega">;
 export type Existencia = Schema<"Existencia">;
 export type RutaCampo = Schema<"RutaCampo">;
 export type Cambios = Schema<"Cambios">;
+/** Turno del técnico ese día según la agenda, sin las ausencias (`Paquete.turno`, I2). */
+export type TurnoCampo = Schema<"TurnoCampo">;
+export type TramoCampo = Schema<"TramoCampo">;
+/**
+ * `GET /campo/cambios` aún no trae el turno; si la API lo agrega con la misma forma del paquete,
+ * el motor lo toma sin cambios (hasta entonces solo cuenta el del paquete).
+ */
+export type CambiosConTurno = Cambios & { turno?: TurnoCampo };
+export type CitaOrden = Schema<"CitaOrden">;
+
+/** Ubicación en vivo del técnico (`POST /campo/posiciones`, I2). */
+export type EntradaPosiciones = Schema<"EntradaPosiciones">;
+export type PuntoPosicion = Schema<"PuntoPosicion">;
+export type RespuestaPosiciones = Schema<"RespuestaPosiciones">;
 export type CambioOrden = Schema<"CambioOrden">;
 
 export type EntradaLote = Schema<"EntradaLote">;
@@ -49,6 +63,7 @@ export const ESTADOS_ORDEN = [
     "programada",
     "en_camino",
     "en_sitio",
+    "pausada",
     "cerrada",
     "fallida",
     "cancelada",
@@ -66,6 +81,10 @@ export const TIPOS_OPERACION = [
     "adjunto.registrar",
     "orden.cerrar",
     "orden.fallar",
+    "orden.pausar",
+    "orden.reanudar",
+    "orden.agregar_formulario",
+    "orden.quitar_formulario",
 ] as const satisfies readonly TipoOperacion[];
 
 export const MOTIVOS_FALLA = [
@@ -98,6 +117,10 @@ export interface DatosPorTipo {
     "adjunto.registrar": SinVersion<Schema<"EntradaRegistrarAdjunto">>;
     "orden.cerrar": SinVersion<Schema<"EntradaCerrarOrden">>;
     "orden.fallar": SinVersion<Schema<"EntradaFallarOrden">>;
+    "orden.pausar": SinVersion<Schema<"EntradaPausar">>;
+    "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
+    "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
+    "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */

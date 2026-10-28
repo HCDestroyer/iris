@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -33,12 +34,13 @@ const (
 
 // EntradaMarcarChecklist es la entrada de ordenes.marcar_checklist.
 type EntradaMarcarChecklist struct {
-	ID      int64   `json:"-"`
-	Version *int32  `json:"version,omitempty" minimum:"1" doc:"Versión leída (opcional); si cambió, 409"`
-	ItemID  *int64  `json:"itemId,omitempty" minimum:"1" doc:"Ítem de la plantilla de la orden (o codigo)"`
-	Codigo  *string `json:"codigo,omitempty" maxLength:"60" doc:"Código del ítem (o itemId)"`
-	Valor   any     `json:"valor" doc:"si_no: boolean; texto: string; numero y medicion: number; foto: uuid del adjunto"`
-	Sync    *OpSync `json:"-"`
+	ID           int64      `json:"-"`
+	Version      *int32     `json:"version,omitempty" minimum:"1" doc:"Versión leída (opcional); si cambió, 409"`
+	ItemID       *int64     `json:"itemId,omitempty" minimum:"1" doc:"Ítem de un formulario de la orden (identifica su formulario); o codigo"`
+	Codigo       *string    `json:"codigo,omitempty" maxLength:"60" doc:"Código del ítem (o itemId); si se repite en varios formularios, con formularioId"`
+	FormularioID *uuid.UUID `json:"formularioId,omitempty" doc:"Formulario de la orden (opcional con itemId)"`
+	Valor        any        `json:"valor" doc:"si_no: boolean; texto: string; seleccion: una de sus opciones; numero y medicion: number; foto: uuid del adjunto"`
+	Sync         *OpSync    `json:"-"`
 }
 
 // EntradaAgregarNota es la entrada de ordenes.agregar_nota.
@@ -105,8 +107,9 @@ func (e EntradaEquipo) ordenID() int64           { return e.ID }
 func (e EntradaCapturarFirma) ordenID() int64    { return e.ID }
 func (e EntradaRegistrarAdjunto) ordenID() int64 { return e.ID }
 
-// estadosEnCurso: la orden admite checklist, materiales, equipos y firma.
-var estadosEnCurso = []string{EstadoProgramada, EstadoEnCamino, EstadoEnSitio}
+// estadosEnCurso: la orden admite checklist, materiales, equipos y firma (también pausada:
+// sigue abierta y el técnico puede dejar evidencia).
+var estadosEnCurso = []string{EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada}
 
 // idDeEvidencia: el id de la operación del lote (el cliente ya lo conoce) o uno v7 nuevo.
 func idDeEvidencia(s *OpSync) (uuid.UUID, error) {
@@ -139,7 +142,7 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 			if err := exigirEstado(f, "marcar el checklist de", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
-			item, err := itemDeOrden(ctx, q, f, in.ItemID, in.Codigo)
+			item, fo, err := itemDeOrden(ctx, q, f, in.ItemID, in.Codigo, in.FormularioID)
 			if err != nil {
 				return f, "", err
 			}
@@ -155,14 +158,14 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 			}
 			// Gana la marca más reciente por ocurrido_en (empate: la que llega después); la otra
 			// queda en el historial (contratos/sync.md §3).
-			previa, err := q.MarcaChecklist(ctx, campobd.MarcaChecklistParams{OrdenID: f.ID, ItemID: item.ID})
+			previa, err := q.MarcaChecklist(ctx, campobd.MarcaChecklistParams{FormularioID: fo.ID, ItemID: item.ID})
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return f, "", err
 			}
 			vigente := errors.Is(err, pgx.ErrNoRows) || !cuando.Before(previa.OcurridoEn)
 			canal := string(contexto.CanalDe(ctx))
 			if err := q.CrearHistorialChecklist(ctx, campobd.CrearHistorialChecklistParams{
-				OrdenID: f.ID, ItemID: item.ID, Valor: valor, MarcadoPor: actorUsuario(t), Canal: canal,
+				FormularioID: fo.ID, OrdenID: f.ID, ItemID: item.ID, Valor: valor, MarcadoPor: actorUsuario(t), Canal: canal,
 				OcurridoEn: cuando, OperacionID: operacionDe(in.Sync), Vigente: vigente,
 			}); err != nil {
 				return f, "", err
@@ -171,40 +174,18 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 			if vigente {
 				aviso = ""
 				if err := q.GuardarMarcaChecklist(ctx, campobd.GuardarMarcaChecklistParams{
-					OrdenID: f.ID, ItemID: item.ID, Valor: valor, MarcadoPor: actorUsuario(t), Canal: canal,
+					FormularioID: fo.ID, OrdenID: f.ID, ItemID: item.ID, Valor: valor, MarcadoPor: actorUsuario(t), Canal: canal,
 					OcurridoEn: cuando, OperacionID: operacionDe(in.Sync),
 				}); err != nil {
 					return f, "", err
 				}
-				t.RegistrarCambios("orden_checklist", fmt.Sprintf("%d:%s", f.ID, item.Codigo),
+				t.RegistrarCambios("orden_checklist", fmt.Sprintf("%d:%s:%s", f.ID, fo.ID, item.Codigo),
 					map[string]any{"valor": string(previa.Valor)}, map[string]any{"valor": string(valor)})
 			}
-			t.Anotar(map[string]any{"item": item.Codigo, "vigente": vigente})
+			t.Anotar(map[string]any{"item": item.Codigo, "formulario_id": fo.ID, "vigente": vigente})
 			f, err = tocar(ctx, t, q, f)
 			return f, aviso, err
 		})
-}
-
-// itemDeOrden busca el ítem en la plantilla de la orden, por id o por código.
-func itemDeOrden(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, id *int64, codigo *string) (campobd.CampoPlantillaItem, error) {
-	invalido := campoInvalido("itemId", "El ítem no es de la plantilla de la orden", "item")
-	if f.PlantillaID == nil {
-		return campobd.CampoPlantillaItem{}, invalido
-	}
-	var item campobd.CampoPlantillaItem
-	var err error
-	switch {
-	case id != nil:
-		item, err = q.ItemPorID(ctx, *id)
-	case codigo != nil:
-		item, err = q.ItemPorCodigo(ctx, campobd.ItemPorCodigoParams{PlantillaID: *f.PlantillaID, Codigo: strings.TrimSpace(*codigo)})
-	default:
-		return item, campoObligatorio("itemId")
-	}
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.PlantillaID != *f.PlantillaID) {
-		return item, invalido
-	}
-	return item, err
 }
 
 // validarValor comprueba el valor según el tipo del ítem y lo devuelve como JSON.
@@ -229,6 +210,11 @@ func validarValor(item campobd.CampoPlantillaItem, valor any) ([]byte, error) {
 		n, ok := valor.(float64)
 		if !ok || math.IsNaN(n) || math.IsInf(n, 0) {
 			return nil, invalido("Debe ser un número")
+		}
+	case ItemSeleccion:
+		s, ok := valor.(string)
+		if !ok || !slices.Contains(opcionesDe(item.Opciones), s) {
+			return nil, invalido("Debe ser una de las opciones del ítem")
 		}
 	case ItemFoto:
 		s, ok := valor.(string)
@@ -501,7 +487,7 @@ func (m *Modulo) nuevoRegistrarAdjunto() *auditoria.Caso[EntradaRegistrarAdjunto
 				return f, "", err
 			}
 			if in.ItemID != nil {
-				item, err := itemDeOrden(ctx, q, f, in.ItemID, nil)
+				item, _, err := itemDeOrden(ctx, q, f, in.ItemID, nil, nil)
 				if err != nil {
 					return f, "", err
 				}

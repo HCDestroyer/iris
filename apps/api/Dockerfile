@@ -36,7 +36,8 @@ FROM final AS worker
 COPY --from=build /salida/worker /usr/local/bin/worker
 ENTRYPOINT ["/usr/local/bin/worker"]
 
-# API HTTP. Órdenes: servir (por defecto), migrar, admin crear, portal acceso, integracion crear…
+# API HTTP. Órdenes: servir (por defecto), migrar, salud, clave rotar, admin crear, portal acceso,
+# integracion crear…
 # Va al final para que un `docker build` sin --target construya la API.
 FROM final AS api
 COPY --from=build /salida/iris /usr/local/bin/iris
@@ -44,3 +45,5 @@ ENV PORT=8080
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/iris"]
 CMD ["servir"]
+# Sin shell ni curl: la propia orden hace el GET a /api/v1/salud en $PORT (sale 0 o 1).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/iris", "salud"]

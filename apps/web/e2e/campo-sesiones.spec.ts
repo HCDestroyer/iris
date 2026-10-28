@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
+import { conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { TECNICO, TECNICO_B } from "./datos-campo";
 
 /*
@@ -62,6 +62,7 @@ test("la cola de A nunca se envía con la sesión de B, no se pierde y A no ve �
     await sinSenal(page, api);
     await page.getByRole("link", { name: /OT-000101/ }).click();
     await page.getByRole("button", { name: "En camino" }).click();
+    await declinarUbicacion(page);
     await page.getByLabel("Nueva nota").fill("Nota de Tomás");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("2 pendientes por enviar");
@@ -114,6 +115,7 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await sinSenal(page, api);
     await page.getByRole("link", { name: /OT-000101/ }).click();
     await page.getByRole("button", { name: "En camino" }).click();
+    await declinarUbicacion(page);
     await page.getByRole("button", { name: "Menú" }).click();
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     const aviso = page.getByRole("dialog").getByText("Tienes 1 cambio sin enviar");

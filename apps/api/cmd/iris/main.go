@@ -2,6 +2,9 @@
 //
 //	iris                    servidor HTTP (también `iris servir`)
 //	iris migrar             migraciones goose + River y sincroniza permisos y roles base
+//	iris salud [--url …] [--timeout 3s]   GET a /api/v1/salud local; sale 0 o 1 (healthcheck)
+//	iris clave rotar [--simular] [--ignorar-ilegibles]   re-cifra con IRIS_CLAVE_CIFRADO lo
+//	                        cifrado con IRIS_CLAVE_CIFRADO_ANTERIOR (una transacción, auditada)
 //	iris admin crear --correo admin@isp.gt --nombre "Admin" [--contrasena-stdin]
 //	iris portal acceso --cliente <id> --empresa <id> [--nombre "Ana"]   URL de entrada al portal
 //	iris integracion crear --sistema argosisp|horus --empresa 1,2 [--correo …] [--nombre …]
@@ -29,6 +32,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
@@ -55,6 +59,11 @@ func main() {
 func correr(args []string) error {
 	ctx, cancelar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelar()
+
+	// El healthcheck solo necesita el puerto: no carga ni exige el resto de la configuración.
+	if len(args) > 0 && args[0] == "salud" {
+		return salud(ctx, args[1:], os.Stdout)
+	}
 
 	cfg, err := config.Cargar()
 	if err != nil {
@@ -88,13 +97,18 @@ func correr(args []string) error {
 			return errors.New(usoIntegracion)
 		}
 		return crearIntegracion(ctx, cfg, args[1:])
+	case "clave":
+		if len(args) == 0 || args[0] != "rotar" {
+			return errors.New(usoClave)
+		}
+		return rotarClave(ctx, cfg, args[1:], os.Stdout)
 	case "campo":
 		if len(args) == 0 || args[0] != "semilla" {
 			return errors.New(usoSemillaCampo)
 		}
 		return semillaCampo(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso, integracion crear, campo semilla)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, salud, admin crear, portal acceso, integracion crear, campo semilla, clave rotar)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -109,7 +123,8 @@ func cifrador(cfg config.Config) (*nucleo.Cifrador, error) {
 	if cfg.ClaveCifrado == "" {
 		return nil, nil
 	}
-	return nucleo.NuevoCifrador(cfg.ClaveCifrado)
+	// Con IRIS_CLAVE_CIFRADO_ANTERIOR (rotación en curso) descifra con las dos claves.
+	return nucleo.NuevoCifrador(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 }
 
 func modulo(cfg config.Config) (*identidad.Modulo, error) {
@@ -173,6 +188,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	nucleo.AvisarClaveAnterior(log, acfg.Cifrador)
 	cola, err := integracion.NuevoClienteInsercion(pool, migraciones.EsquemaRiver, log)
 	if err != nil {
 		return err
@@ -213,9 +229,23 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
+	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
+	// (pendientes hacia Argos y orden de instalación en campo).
+	comercial.RegistrarAdjuntos()
+	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
+		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola)})
+	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
+	// (y la anterior, para comparar durante una rotación).
+	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
+	if err != nil {
+		return err
+	}
+	if len(clavesIdem) == 0 {
+		log.Warn("IRIS_CLAVE_CIFRADO vacía: la idempotencia usa una clave aleatoria del proceso (tras reiniciar, una Idempotency-Key repetida responde 422)")
+	}
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
-		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
+		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
@@ -224,6 +254,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			pend.Registrar,
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
+			com.Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})

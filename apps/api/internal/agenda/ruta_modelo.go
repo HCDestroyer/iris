@@ -49,7 +49,7 @@ type ParadaRuta struct {
 	OrdenID         int64      `json:"ordenId" doc:"0 si la orden está fuera de tu alcance (oculta)"`
 	Numero          string     `json:"numero"`
 	Tipo            string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento," doc:"Vacío si oculta"`
-	Estado          string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,cerrada,fallida,cancelada," doc:"Estado actual de la orden; vacío si oculta"`
+	Estado          string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada," doc:"Estado actual de la orden; vacío si oculta"`
 	Oculta          bool       `json:"oculta" doc:"Fuera de tu alcance: solo la posición en la secuencia (sin orden, estado, horas, lugar ni viaje); el viaje de la parada siguiente sale en 0"`
 	Vigente         bool       `json:"vigente" doc:"La orden sigue en este técnico y día; false = se movió después de proponer"`
 	Direccion       string     `json:"direccion"`

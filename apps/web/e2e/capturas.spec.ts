@@ -26,9 +26,9 @@ test("capturas de inicio de sesión y del panel", async ({ page, context, baseUR
     await expect(page.locator("main").getByText(LECTOR.correo).filter({ visible: true })).toBeVisible();
     await page.screenshot({ path: nombre("04-usuarios"), fullPage: true });
 
-    await page.goto("/agenda");
-    await expect(page.getByRole("heading", { name: "Próximamente" })).toBeVisible();
-    await page.screenshot({ path: nombre("05-proximamente"), fullPage: true });
+    await page.goto("/comercial");
+    await expect(page.getByRole("heading", { name: "Comercial" })).toBeVisible();
+    await page.screenshot({ path: nombre("05-comercial"), fullPage: true });
 
     if (info.project.name.startsWith("telefono")) {
         await abrirMenu(page);

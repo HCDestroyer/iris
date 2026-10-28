@@ -22,7 +22,28 @@ const (
 	CabeceraCSRF  = "X-CSRF-Token"
 	CabeceraCanal = "X-Iris-Canal"
 	rutaIniciar   = "/api/v1/sesion"
+	// RutaCambiarContrasena: lo único que cambia estado que puede hacer una sesión con
+	// contraseña temporal (además de cerrar sesión).
+	RutaCambiarContrasena = "/api/v1/yo/contrasena"
 )
+
+// permitidaConTemporal dice si una sesión con contraseña temporal puede hacer la petición:
+// cambiar la contraseña, ver /yo, entrar o salir, y las rutas sin datos (salud, listo, docs).
+// Todo lo demás (también mfa.configurar) responde 403 cambio_contrasena_requerido, así quien
+// solo tuviera la contraseña vieja (ya no sirve) ni la temporal antes que el usuario no puede
+// quedarse con el MFA sin cambiarla primero.
+func permitidaConTemporal(r *http.Request) bool {
+	switch {
+	case r.Method == http.MethodPost && (r.URL.Path == RutaCambiarContrasena || r.URL.Path == rutaIniciar):
+		return true
+	case r.Method == http.MethodDelete && r.URL.Path == rutaIniciar:
+		return true
+	case r.Method == http.MethodGet && (r.URL.Path == "/api/v1/yo" || r.URL.Path == "/api/v1/salud" ||
+		r.URL.Path == "/api/v1/listo" || strings.HasPrefix(r.URL.Path, "/api/v1/docs") || strings.HasPrefix(r.URL.Path, "/api/v1/openapi")):
+		return true
+	}
+	return !strings.HasPrefix(r.URL.Path, "/api/")
+}
 
 // Middleware resuelve las credenciales de cada petición y deja en el contexto el actor, sus
 // permisos efectivos, el canal y la sesión. No decide si la petición puede pasar: eso lo hace
@@ -95,10 +116,15 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 							return
 						}
 					}
-					s := fila.NucleoSesione
-					ctx = contexto.ConSesion(ctx, contexto.Sesion{ID: s.ID, UsuarioID: s.UsuarioID, MFAPendiente: s.MfaPendiente})
+					s, u := fila.NucleoSesione, fila.NucleoUsuario
+					ctx = contexto.ConSesion(ctx, contexto.Sesion{ID: s.ID, UsuarioID: s.UsuarioID, MFAPendiente: s.MfaPendiente,
+						CambioContrasena: u.DebeCambiarContrasena})
+					if u.DebeCambiarContrasena && !s.MfaPendiente && !permitidaConTemporal(r) {
+						nucleo.EscribirProblema(w, nucleo.NuevoProblema(http.StatusForbidden, "cambio_contrasena_requerido",
+							"Cambio de contraseña requerido", "Tienes una contraseña temporal: cámbiala (POST /api/v1/yo/contrasena) antes de continuar"))
+						return
+					}
 					if !s.MfaPendiente {
-						u := fila.NucleoUsuario
 						permisos, err := cargarPermisos(ctx, q, u.ID, nil)
 						if err != nil {
 							log.ErrorContext(ctx, "identidad: cargar permisos", "err", err)

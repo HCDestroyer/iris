@@ -1,6 +1,10 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
+import { apiAgenda, type ApiAgenda } from "./api-agenda";
+import { apiComercial, type ApiComercial } from "./api-comercial";
+import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
+import { apiRutas, type ApiRutas } from "./api-rutas";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
 import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
@@ -15,7 +19,7 @@ type Problema = Schema<"Problema">;
 type Permiso = Schema<"Permiso">;
 
 export const CSRF = "csrf-e2e";
-export const CONTRASENA = "correcta-123";
+export const CONTRASENA = CONTRASENA_DEFECTO;
 export const CODIGO_OK = "123456";
 export const CODIGO_BLOQUEA = "999999";
 
@@ -45,6 +49,14 @@ export const CONSULTA = usuario({ id: 7, nombre: "Carlos Ruiz", correo: "carlos@
 export const SUPERVISOR_ZONA = usuario({ id: 8, nombre: "Zoe Hernández", correo: "zoe@iris.test", roles: [{ rol: "supervisor", zonaId: 2 }] });
 /** Despacho: órdenes y pendientes en Argos, pero sin `integraciones.reintentar`. */
 export const DESPACHO = usuario({ id: 9, nombre: "Diego Castro", correo: "diego@iris.test", roles: [{ rol: "despacho" }] });
+/** Solo puede asignar órdenes (sin programar ni reprogramar): prueba de §10 en el despacho. */
+export const ASIGNADOR = usuario({ id: 10, nombre: "Andrés Coj", correo: "andres@iris.test", roles: [{ rol: "despacho" }] });
+/** Entra con una contraseña temporal (tras un reinicio de MFA): solo puede cambiarla. */
+export const TEMPORAL = usuario({ id: 11, nombre: "Tomás Ajú", correo: "tomas@iris.test", cambioContrasenaRequerido: true, roles: [{ rol: "supervisor" }] });
+/** Vendedora (rol ventas): todo lo comercial menos configurar umbrales; sin ver usuarios ni reintentar. */
+export const VENDEDORA = usuario({ id: 13, nombre: "Valeria Cux", correo: "valeria@iris.test", roles: [{ rol: "ventas" }] });
+/** Admin con MFA: prueba que «Reiniciar MFA» no se ofrece sobre uno mismo. */
+export const ELENA = usuario({ id: 12, nombre: "Elena Toj", correo: "elena@iris.test", mfaActivo: true, roles: [{ rol: "admin" }] });
 export const BLOQUEADO = "bloqueado@iris.test";
 
 const PERMISOS_BUZONES: Permiso[] = ["buzones.activar", "buzones.crear", "buzones.desactivar", "buzones.editar", "buzones.ver"];
@@ -80,11 +92,38 @@ const PERMISOS_ORDENES: Permiso[] = [
     "ordenes.ver",
 ];
 
+/** Permisos comerciales del rol `ventas` (i2.md, «Seguimiento comercial»). */
+export const PERMISOS_VENTAS: Permiso[] = [
+    "adjuntos.ver",
+    "agenda.ver",
+    "contratos.crear",
+    "contratos.firmar",
+    "cotizaciones.aceptar",
+    "cotizaciones.crear",
+    "factibilidad.evaluar",
+    "prospectos.asignar",
+    "prospectos.contactar",
+    "prospectos.crear",
+    "prospectos.editar",
+    "prospectos.ganar",
+    "prospectos.perder",
+    "prospectos.reabrir",
+    "prospectos.registrar_actividad",
+    "prospectos.ver",
+];
+
 export const PERMISOS_ADMIN: Permiso[] = [
+    ...PERMISOS_VENTAS.filter((p) => p !== "adjuntos.ver" && p !== "agenda.ver"),
+    "factibilidad.configurar",
+    "factibilidad.registrar_manual",
     ...PERMISOS_BUZONES,
     "adjuntos.ver",
     "agenda.ver",
+    "campo.ver_posiciones",
     "integraciones.reintentar",
+    "rutas.proponer",
+    "rutas.publicar",
+    "rutas.ver",
     "integraciones.ver_pendientes",
     ...PERMISOS_ORDENES,
     "clientes.estado_cuenta",
@@ -100,21 +139,26 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.crear",
     "usuarios.desactivar",
     "usuarios.editar",
+    "usuarios.reiniciar_mfa",
     "usuarios.ver",
 ];
 
 const permisosPorCorreo: Record<string, Permiso[]> = {
     [ADMIN.correo]: PERMISOS_ADMIN,
+    [ELENA.correo]: PERMISOS_ADMIN,
+    [TEMPORAL.correo]: ["tickets.ver", "usuarios.ver"],
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["clientes.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
+    [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "clientes.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
+    [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
-const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO];
+const usuarios = [ADMIN, CON_MFA, LECTOR, SOPORTE, CONSULTA, SUPERVISOR_ZONA, DESPACHO, ASIGNADOR, TEMPORAL, ELENA, VENDEDORA];
 
 export const PAGINA_1: Schema<"PaginaUsuario"> = {
     data: [ADMIN, CON_MFA, LECTOR, SOPORTE],
@@ -124,6 +168,7 @@ export const PAGINA_2: Schema<"PaginaUsuario"> = {
     data: [
         usuario({ id: 4, nombre: "Integración Argos", correo: "argos@integraciones.iris", tipo: "integracion", roles: [{ rol: "integracion" }] }),
         usuario({ id: 5, nombre: "Pedro Gómez", correo: "pedro@iris.test", activo: false, roles: [] }),
+        ELENA,
     ],
     nextCursor: null,
 };
@@ -146,6 +191,13 @@ export type OpcionesApi = {
     enlaces?: Schema<"EnlacesExternos">;
     /** Buzones iniciales (por defecto, `buzonesIniciales`). */
     buzones?: Schema<"Buzon">[];
+    /**
+     * Escenario del despacho: coordenadas, la cita de Jorge con ventana (OT-000040), Rosa ausente,
+     * los tres técnicos asignables y las reglas de la agenda al programar (422).
+     */
+    despacho?: boolean;
+    /** Comercial con Argos conectado: planes de Argos, cobertura con routers y alta en Argos al ganar. */
+    comercialConector?: boolean;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -169,6 +221,14 @@ export type ApiFalsa = {
     cambiarVersionOrden: (ordenId: number) => void;
     /** El worker tocó el pendiente: sube su versión (el próximo reintento con la vieja da 409). */
     cambiarVersionPendiente: (pendienteId: number) => void;
+    /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
+    agenda: ApiAgenda["escenario"];
+    /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
+    rutas: ApiRutas["rutas"];
+    /** Prospectos, cotizaciones y contratos del escenario comercial. */
+    comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
+    /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
+    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
 };
 
 const OPERATIVAS = [
@@ -180,6 +240,14 @@ const OPERATIVAS = [
     "/api/v1/ordenes",
     "/api/v1/adjuntos",
     "/api/v1/integraciones/pendientes",
+    "/api/v1/agenda",
+    "/api/v1/tecnicos",
+    "/api/v1/campo/posiciones",
+    "/api/v1/rutas",
+    "/api/v1/prospectos",
+    "/api/v1/comercial",
+    "/api/v1/cotizaciones",
+    "/api/v1/contratos",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -215,7 +283,18 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let siguienteTicket = 1000;
     let buzones: Schema<"Buzon">[] | undefined = opciones.buzones;
     let siguienteBuzon = 100;
-    const ordenes = apiOrdenes(empresas.map((e) => e.id));
+    // La agenda valida contra las órdenes: se crean juntas (solo con `despacho` se aplican sus reglas).
+    const enlace: { agenda?: ApiAgenda } = {};
+    const ordenes = apiOrdenes(
+        empresas.map((e) => e.id),
+        opciones.despacho ? { tecnicos: [3, 11, 12], validarCita: (o, e, accion) => enlace.agenda?.validarCita(o, e, accion) } : {},
+    );
+    const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
+    enlace.agenda = agenda;
+    const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
+    const comercial = apiComercial({ conector: opciones.comercialConector === true });
+    const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
+    const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -267,8 +346,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                     { "Retry-After": "540" },
                 );
             }
-            const u = usuarios.find((x) => x.correo === entrada.correo);
-            if (!u || entrada.contrasena !== CONTRASENA) {
+            const leido = usuarios.find((x) => x.correo === entrada.correo);
+            const u = leido ? cuenta.ver(leido) : undefined;
+            if (!u || !cuenta.contrasenaValida(u, entrada.contrasena)) {
                 return problema(route, {
                     type: "urn:iris:problema:credenciales_invalidas",
                     title: "Credenciales inválidas",
@@ -316,7 +396,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 });
             }
             mfaPendiente.delete(correo);
-            const u = usuarios.find((x) => x.correo === correo);
+            const leido = usuarios.find((x) => x.correo === correo);
+            const u = leido ? cuenta.ver(leido) : undefined;
             const respuesta: Schema<"SesionIniciada"> = { csrfToken: CSRF, mfaRequerido: false, expiraEn: "2026-10-28T23:00:00Z", ...(u ? { usuario: u } : {}) };
             return route.fulfill({
                 status: 200,
@@ -326,9 +407,14 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             });
         }
 
-        const actual = usuarios.find((x) => x.correo === correoSesion);
-        if (!actual) {
+        const leido = usuarios.find((x) => x.correo === correoSesion);
+        if (!leido) {
             return problema(route, { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 });
+        }
+        const actual = cuenta.ver(leido);
+        // Contraseña temporal: todo salvo /yo, cambiarla y salir responde 403 (identidad/middleware.go).
+        if (await cuenta.cortar(route, actual, metodo, ruta)) {
+            return;
         }
         const permisos = permisosPorCorreo[actual.correo] ?? [];
 
@@ -386,7 +472,17 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             if (!permisos.includes("usuarios.ver")) {
                 return problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
             }
-            return route.fulfill({ json: url.searchParams.get("cursor") === PAGINA_1.nextCursor ? PAGINA_2 : PAGINA_1 });
+            const visible = (u: Schema<"Usuario">) => !cuenta.fueraDeAlcance(u.id);
+            const q = url.searchParams.get("q")?.toLowerCase();
+            if (q) {
+                const data = listables.map(cuenta.ver).filter((u) => visible(u) && (u.correo.toLowerCase().includes(q) || u.nombre.toLowerCase().includes(q)));
+                return route.fulfill({ json: { data, nextCursor: null } satisfies Schema<"PaginaUsuario"> });
+            }
+            const pagina = url.searchParams.get("cursor") === PAGINA_1.nextCursor ? PAGINA_2 : PAGINA_1;
+            return route.fulfill({ json: { ...pagina, data: (pagina.data ?? []).map(cuenta.ver).filter(visible) } satisfies Schema<"PaginaUsuario"> });
+        }
+        if (await cuenta.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, idempotencia: cabeceras["idempotency-key"] })) {
+            return;
         }
 
         const adopcion = /^\/api\/v1\/empresas\/(\d+)\/adoptar-sin-empresa$/.exec(ruta);
@@ -502,6 +598,16 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             const id = Number(ruta.split("/").pop());
             const f = ficha(id, id === 502);
             return f ? route.fulfill({ json: f }) : noEncontrado();
+        }
+
+        if (await comercial.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], actual, puede })) {
+            return;
+        }
+        if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
+            return;
+        }
+        if (await rutas.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
+            return;
         }
 
         if (
@@ -636,6 +742,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             fallos.set(ruta, n);
         },
         ordenes: ordenes.escenario,
+        agenda: agenda.escenario,
+        rutas: rutas.rutas,
+        comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
+        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

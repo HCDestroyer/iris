@@ -254,29 +254,31 @@ type CampoOrdenCambio struct {
 }
 
 type CampoOrdenChecklist struct {
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID pgtype.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  pgtype.UUID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	FormularioID uuid.UUID
 }
 
 type CampoOrdenChecklistHistorial struct {
-	ID          int64
-	OrdenID     int64
-	ItemID      int64
-	Valor       []byte
-	MarcadoPor  *int64
-	Canal       string
-	OcurridoEn  time.Time
-	OperacionID pgtype.UUID
-	Vigente     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           int64
+	OrdenID      int64
+	ItemID       int64
+	Valor        []byte
+	MarcadoPor   *int64
+	Canal        string
+	OcurridoEn   time.Time
+	OperacionID  pgtype.UUID
+	Vigente      bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	FormularioID uuid.UUID
 }
 
 type CampoOrdenEquipo struct {
@@ -315,6 +317,22 @@ type CampoOrdenEvento struct {
 	UpdatedAt   time.Time
 }
 
+type CampoOrdenFormulario struct {
+	ID          uuid.UUID
+	OrdenID     int64
+	PlantillaID int64
+	VersionID   int64
+	Origen      string
+	AgregadoPor *int64
+	AgregadoEn  time.Time
+	Canal       string
+	OperacionID pgtype.UUID
+	QuitadoEn   *time.Time
+	QuitadoPor  *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type CampoOrdenMateriale struct {
 	ID               uuid.UUID
 	OrdenID          int64
@@ -342,6 +360,25 @@ type CampoOrdenNota struct {
 	OperacionID pgtype.UUID
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type CampoOrdenPausa struct {
+	ID              int64
+	OrdenID         int64
+	Motivo          string
+	Nota            *string
+	DesdeEstado     string
+	Inicio          time.Time
+	Fin             *time.Time
+	Cierre          *string
+	PausadaPor      *int64
+	CerradaPor      *int64
+	Canal           string
+	CanalCierre     *string
+	OperacionID     pgtype.UUID
+	OperacionCierre pgtype.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type CampoOrdene struct {
@@ -380,6 +417,9 @@ type CampoOrdene struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Origen           string
+	PausadaDesde     *string
+	PausadaEn        *time.Time
+	PausadaSeg       int64
 }
 
 type CampoPlantillaItem struct {
@@ -393,13 +433,26 @@ type CampoPlantillaItem struct {
 	Unidad      string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	VersionID   int64
+	Opciones    []byte
+}
+
+type CampoPlantillaVersione struct {
+	ID            int64
+	PlantillaID   int64
+	Numero        int32
+	Nombre        string
+	RequiereFirma bool
+	CreadaPor     *int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type CampoPlantillasChecklist struct {
 	ID               int64
 	Codigo           string
 	Nombre           string
-	TipoCodigo       string
+	TipoCodigo       *string
 	RequiereFirma    bool
 	Activa           bool
 	Version          int32
@@ -409,6 +462,11 @@ type CampoPlantillasChecklist struct {
 	CargoProductoID  *int64
 	CargoMonto       pgtype.Numeric
 	CargoDescripcion string
+	EmpresaID        *int64
+	Descripcion      string
+	CreadoPor        *int64
+	VersionActualID  int64
+	AlgunaVezActiva  bool
 }
 
 type CampoPosicione struct {
@@ -464,6 +522,167 @@ type CampoTiposOrden struct {
 	CargoProductoID  *int64
 	CargoMonto       pgtype.Numeric
 	CargoDescripcion string
+}
+
+type ComercialActividade struct {
+	ID            int64
+	EmpresaID     *int64
+	ProspectoID   int64
+	Tipo          string
+	Descripcion   string
+	Resultado     *string
+	OcurridaEn    time.Time
+	ProximaAccion *string
+	ProximaFecha  *time.Time
+	AutorID       *int64
+	Idempotencia  *string
+	CreatedAt     time.Time
+}
+
+type ComercialContrato struct {
+	ID                int64
+	Numero            string
+	EmpresaID         *int64
+	ProspectoID       int64
+	CotizacionID      int64
+	Plantilla         string
+	Estado            string
+	Contenido         []byte
+	PdfAdjuntoID      pgtype.UUID
+	FirmanteNombre    *string
+	FirmanteDocumento *string
+	FirmaSvg          *string
+	FirmaLat          *float64
+	FirmaLon          *float64
+	FirmadoEn         *time.Time
+	FirmadoPor        *int64
+	PdfFirmadoID      pgtype.UUID
+	PdfFirmadoSha256  *string
+	MotivoAnulacion   *string
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type ComercialCotizacionLinea struct {
+	ID             int64
+	CotizacionID   int64
+	Posicion       int32
+	Tipo           string
+	PlanID         *int64
+	ProductoID     *int64
+	Descripcion    string
+	Cantidad       pgtype.Numeric
+	PrecioUnitario pgtype.Numeric
+	Recurrente     bool
+	Total          pgtype.Numeric
+}
+
+type ComercialCotizacione struct {
+	ID             int64
+	Numero         string
+	EmpresaID      *int64
+	ProspectoID    int64
+	Revision       int32
+	Estado         string
+	Moneda         string
+	TotalMensual   pgtype.Numeric
+	TotalUnico     pgtype.Numeric
+	VigenteHasta   time.Time
+	PlanID         *int64
+	Notas          string
+	Cliente        []byte
+	PdfAdjuntoID   pgtype.UUID
+	ReemplazadaPor *int64
+	AceptadaEn     *time.Time
+	AceptadaPor    *int64
+	CreadoPor      *int64
+	Idempotencia   *string
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type ComercialFactibilidade struct {
+	ID              int64
+	EmpresaID       *int64
+	ProspectoID     int64
+	Resultado       string
+	Motor           string
+	Motivo          *string
+	Lat             *float64
+	Lon             *float64
+	RouterID        *int64
+	RouterNombre    *string
+	Caja            *string
+	DistanciaM      *float64
+	ViableM         *int32
+	ObraM           *int32
+	Notas           string
+	EvaluadaPor     *int64
+	CreatedAt       time.Time
+	AnulaID         *int64
+	MotivoAnulacion *string
+}
+
+type ComercialProspecto struct {
+	ID                int64
+	Numero            string
+	EmpresaID         *int64
+	Origen            string
+	OrigenDetalle     *string
+	Nombre            string
+	Documento         *string
+	Telefono          *string
+	Correo            *string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	ZonaID            *int64
+	PlanInteresID     *int64
+	PlanInteresNombre *string
+	VendedorID        *int64
+	Estado            string
+	Notas             string
+	MotivoPerdida     *string
+	PerdidoEn         *time.Time
+	GanadoEn          *time.Time
+	ObraConfirmada    bool
+	AltaModo          *string
+	AltaEstado        *string
+	ClienteArgosID    *int64
+	ServicioArgosID   *int64
+	OrdenID           *int64
+	CreadoPor         *int64
+	Idempotencia      *string
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	RouterID          *int64
+	AltaError         *string
+}
+
+type ComercialProspectoEvento struct {
+	ID          int64
+	ProspectoID int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	Datos       []byte
+	ActorTipo   string
+	ActorID     *int64
+	CreatedAt   time.Time
+}
+
+type ComercialUmbralesFactibilidad struct {
+	ID        int64
+	EmpresaID *int64
+	ViableM   int32
+	ObraM     int32
+	Version   int32
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type IntegracionArgosCliente struct {
@@ -674,6 +893,8 @@ type NucleoIdempotencium struct {
 	ExpiraEn     time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	HashFormato  int16
+	HashClaveID  []byte
 }
 
 type NucleoIntentosLogin struct {
@@ -772,19 +993,20 @@ type NucleoTokensApi struct {
 }
 
 type NucleoUsuario struct {
-	ID             int64
-	Nombre         string
-	Correo         string
-	Tipo           string
-	ContrasenaHash *string
-	TotpSecreto    []byte
-	TotpActivo     bool
-	TotpUltimoPaso int64
-	Activo         bool
-	UsuarioArgosID *int64
-	Version        int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                    int64
+	Nombre                string
+	Correo                string
+	Tipo                  string
+	ContrasenaHash        *string
+	TotpSecreto           []byte
+	TotpActivo            bool
+	TotpUltimoPaso        int64
+	Activo                bool
+	UsuarioArgosID        *int64
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DebeCambiarContrasena bool
 }
 
 type NucleoUsuariosEmpresa struct {

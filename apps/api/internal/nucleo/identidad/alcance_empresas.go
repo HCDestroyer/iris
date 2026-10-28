@@ -2,7 +2,9 @@ package identidad
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -99,4 +101,16 @@ func UsuarioEnEmpresa(ctx context.Context, bd identidadbd.DBTX, usuarioID, empre
 		return !hay, err
 	}
 	return q.UsuarioEnEmpresa(ctx, identidadbd.UsuarioEnEmpresaParams{UsuarioID: usuarioID, EmpresaID: empresaID})
+}
+
+// exigirVisible es exigirEmpresasDe para acciones sobre un usuario por id: si el objetivo está
+// fuera del alcance de empresas del actor responde 404, igual que si no existiera, para no
+// revelar que existe ni su versión. Va antes de ExigirVersion.
+func exigirVisible(ctx context.Context, q *identidadbd.Queries, objetivo int64, que string) error {
+	err := exigirEmpresasDe(ctx, q, objetivo, que)
+	var p *nucleo.Problema
+	if errors.As(err, &p) && p.Status == http.StatusForbidden {
+		return nucleo.NoEncontrado("")
+	}
+	return err
 }

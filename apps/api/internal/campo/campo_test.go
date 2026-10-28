@@ -322,6 +322,8 @@ func completarChecklist(t *testing.T, e entorno, ctx context.Context, id int64) 
 			v = -19.5
 		case campo.ItemFoto:
 			v = uuid.Must(uuid.NewV7()).String()
+		case campo.ItemSeleccion:
+			v = it.Opciones[0]
 		}
 		if _, err := e.m.MarcarChecklist.Ejecutar(ctx, campo.EntradaMarcarChecklist{ID: id, ItemID: &it.ItemID, Valor: v}); err != nil {
 			t.Fatalf("marcar %s: %v", it.Codigo, err)

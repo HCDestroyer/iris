@@ -6,14 +6,16 @@ export type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./a
 export { AlmacenMemoria } from "./almacen-memoria";
 export { aplicarOperacion, bodegaDeOrden, descontarExistencias, fusionarMarca, valorDe, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
 export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
-export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi } from "./http";
-export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal } from "./modelo";
+export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi } from "./http";
+export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 export {
     CODIGO_BLOQUEADA,
     CODIGOS_TERMINALES,
+    compararOrdenesDelDia,
     cubreFaltante,
     DIA_MS,
     faltantesDe,
+    inicioCita,
     MotorSync,
     type Aviso,
     type Conexion,
@@ -25,6 +27,18 @@ export {
     type ResultadoRegistro,
     type ResumenSubidas,
 } from "./motor";
+export {
+    ColaPosiciones,
+    msDeRetryAfter,
+    normalizarPunto,
+    type AlmacenPosiciones,
+    type CambiosPosiciones,
+    type DescartadasLocales,
+    type EstadoPosiciones,
+    type OpcionesColaPosiciones,
+    type PosicionLocal,
+    type TransportePosiciones,
+} from "./posiciones";
 export { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 export type { RespuestaApi, Subidor, Transporte } from "./transporte";
 export { crearGeneradorUuid7, msDeUuid7, RE_UUID7, type FuenteAzar, type GeneradorUuid7 } from "./uuid7";

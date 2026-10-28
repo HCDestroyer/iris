@@ -9,10 +9,11 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
 | `usuario.creado` | `usuario_id`, `tipo` | Alta de un usuario (`usuarios.crear`, también desde `iris admin crear`). |
-| `usuario.actualizado` | `usuario_id`, `campos[]` (nombres de los campos que cambiaron) | `usuarios.editar`. |
+| `usuario.actualizado` | `usuario_id`, `campos[]` (nombres de los campos que cambiaron) | `usuarios.editar`. También `yo.cambiar_contrasena` (`POST /yo/contrasena`, el propio usuario; `campos` = `["contrasena_hash", "cambio_requerido"]` o solo el primero). |
 | `usuario.desactivado` | `usuario_id`, `motivo` | `usuarios.desactivar`. Revoca sus sesiones; sus tokens dejan de autenticar mientras esté inactivo, sin revocarse ni emitir `token.revocado`. |
+| `usuario.mfa_reiniciado` | `usuario_id`, `motivo`, `sesiones_cerradas` (número), `tokens_revocados` (número) | `usuarios.reiniciar_mfa` (un administrador, nunca el propio usuario): borra su secreto TOTP, reemplaza su contraseña por una temporal (nunca va en el evento) que debe cambiar al entrar, revoca sus sesiones y, salvo `revocarTokens: false`, sus tokens (un `token.revocado` con `motivo = mfa_reiniciado` por cada uno). Un segundo reinicio sin MFA configurado es 422. |
 | `token.creado` | `token_id`, `usuario_id` | Alta de un token `iris_pat_`. |
-| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`. |
+| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`, y `usuarios.reiniciar_mfa` (uno por token, `motivo = mfa_reiniciado`). |
 | `empresa.creada` | `empresa_id`, `origen` (`manual`) | `empresas.crear` (un administrador registra una empresa de Argos). Lleva `empresa_id` = la empresa. Las que registra el canje del conector no emiten este evento (van en `conector.creado`). |
 | `empresa.actualizada` | `empresa_id`, `campos[]` | `empresas.editar` (nombre, NIT). |
 | `usuario.empresa_asignada` | `usuario_id`, `empresa_id` | `usuarios.asignar_empresa`, y `usuarios.crear` con `empresas` (uno por empresa). Lleva `empresa_id` = la empresa asignada. |
@@ -84,6 +85,17 @@ acción necesita, esa acción nace `fallido_negocio` con `datos_incompletos` y e
 | `materiales[]` | `{ producto_id, cantidad (número o texto, > 0; si no, `cantidad_no_positiva`), bodega_id? }` → `POST /inventario/consumos`. |
 | `equipos[]` | `{ accion: instalar \| retirar, unidad_id?, serie?, mac?, condicion?, bodega_id? }`. Instalar: `unidad_id` o `serie`. Retirar: `unidad_id` obligatorio; `condicion: "perdido"` → pérdida; otra condición (`bueno`, `danado`…) → devolución con esa condición. En `cambio_equipo`, cada asignación espera a todas las devoluciones/pérdidas de la orden. |
 | `cargo` (o null) | `{ producto_id?, monto? (> 0; si no, `monto_no_positivo`), descripcion? }` (producto o monto) → `POST /facturas/cargo-unico`. |
+
+## Plantillas de formularios (I2)
+
+Emite el módulo `campo` con `empresa_id` = la de la plantilla en el sobre (null = común a todas las
+empresas).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `plantilla.creada` | `plantilla_id`, `codigo`, `empresa_id` (o null), `version_id`, `numero_version` (1) | `plantillas.crear`. |
+| `plantilla.actualizada` | `plantilla_id`, `version_id`, `numero_version`, `version_nueva` (bool: la actual ya estaba en alguna orden y se creó otra), `activa` | `plantillas.editar`. |
+| `plantilla.activada` / `plantilla.desactivada` | `plantilla_id` | `plantillas.activar` / `plantillas.desactivar`. |
 
 ## Agenda (I2)
 
@@ -205,5 +217,44 @@ repite).
 | `orden.creada` | `orden_id`, `numero`, `tipo` (`instalacion` \| `visita` \| `retiro` \| `cambio_equipo` \| `mantenimiento`), `empresa_id`, `ticket_id`, `prospecto_id`, `cliente_id`, `servicio_id`, `zona_id` (o null), `origen` (`panel` \| `api` \| `argos` \| `sistema`) | `ordenes.crear` (también desde un ticket con `ticketId`, y la orden de retiro automática con `origen = argos`). |
 | `orden.asignada` | `orden_id`, `tecnico_id`, `cuadrilla_id`, `tecnico_anterior_id` (o null) | `ordenes.asignar`, y `programar`/`reprogramar` cuando cambian el técnico. |
 | `orden.programada` | `orden_id`, `numero`, `tecnico_id`, `cuadrilla_id` (de la orden, o null), `tecnico_cuadrilla_id` (de la ficha del técnico, o null), `inicio`, `fin`, `ventana_inicio`/`ventana_fin` (ventana de llegada acordada con el cliente, o null), `reprogramada` (bool), `origen` (`programar` \| `reprogramar` \| `asignar`), `motivo` (o null) | Lo emite **agenda** (`agenda.ReservarCita`) en la transacción de `ordenes.programar`, `ordenes.reprogramar` y de `ordenes.asignar` cuando una orden programada cambia de técnico (`origen = asignar`, misma hora). |
-| `orden.estado_cambiada` | `orden_id`, `numero`, `de`, `a`, `motivo` (o null), `tecnico_id` | Toda transición (programar, iniciar camino, llegar, cerrar —`motivo` = resultado—, fallar —`motivo` = `<motivo_falla>: <detalle>`—, cancelar, reabrir, reprogramar y la vuelta a pendiente o programada al reasignar). |
+| `orden.estado_cambiada` | `orden_id`, `numero`, `de`, `a`, `motivo` (o null), `tecnico_id` | Toda transición (programar, iniciar camino, llegar, cerrar —`motivo` = resultado—, fallar —`motivo` = `<motivo_falla>: <detalle>`—, pausar —`a = pausada`, `motivo` = `<motivo>` o `<motivo>: <nota>`—, reanudar —`de = pausada`, `motivo = reanudada`—, cancelar, reabrir, reprogramar y la vuelta a pendiente o programada al reasignar). |
+| `orden.pausada` | `orden_id`, `numero`, `pausa_id`, `motivo` (`esperando_material` \| `cliente_ausente` \| `clima` \| `acceso` \| `otro`), `nota` (o null), `desde` (`en_camino` \| `en_sitio`), `inicio`, `tecnico_id` | `ordenes.pausar` (panel u `orden.pausar` del lote), junto con `orden.estado_cambiada`. |
+| `orden.reanudada` | `orden_id`, `numero`, `pausa_id`, `a` (el estado de antes de la pausa), `duracion_seg`, `tiempo_pausado_seg` (total de la orden), `tecnico_id` | `ordenes.reanudar` (panel u `orden.reanudar` del lote). Cancelar o reprogramar una pausada cierra la pausa sin este evento (solo `orden.estado_cambiada`). |
+| `orden.formulario_agregado` | `orden_id`, `formulario_id` (uuid), `plantilla_id`, `version_id`, `numero_version`, `origen` (`despacho` \| `tecnico`), `tecnico_id` | `ordenes.asignar_formulario` (despacho) u `orden.agregar_formulario` del lote (el técnico). El formulario del tipo (origen `tipo`) va con `orden.creada`, sin este evento. |
+| `orden.formulario_quitado` | `orden_id`, `formulario_id`, `plantilla_id`, `origen`, `canal` | Quitar un formulario sin respuestas (despacho, o el técnico uno que agregó él). |
 | `orden.cerrada` | `orden_id`, `numero`, `tipo`, `resultado` (`exitosa` \| `parcial`), `empresa_id`, `cliente_id`, `servicio_id`, `ticket_id`, `prospecto_id`, `tecnico_id`, `bodega_id` (o null), `cerrada_en`, `retirar_servicio` (bool: retiro exitoso), `equipos_validados` (bool: false si algún equipo retirado no se verificó contra el comodato de Argos —sin conector o Argos caído—; tratarlo como dato no verificado), `materiales[]` (`producto_id`, `cantidad` —sumada por producto y bodega, 3 decimales—, `bodega_id` (o null), `excede_existencia`), `equipos[]` (`id`, `accion` `instalar` \| `retirar`, `unidad_id`, `serie`, `mac` `AA:BB:CC:DD:EE:FF`, `modelo`, `condicion` `buena` \| `danada` \| `perdido` (solo retirar; `perdido` = pérdida del comodato), `bodega_id`, `validado`) | `ordenes.cerrar`. Lo consume el núcleo (I1) para los pendientes en Argos (contrato §3): con `resultado = exitosa`, activar la instalación y el comodato, devoluciones o pérdidas, retiro del servicio; materiales → consumo desde la bodega. `cargo` (o null): `{ producto_id?, monto? (texto/número > 0, 2 decimales), descripcion }` si el tipo de orden o su plantilla dicen cobrar (visita cobrada; ver «Cargo» en `apps/api/internal/campo/README.md`). |
+
+## Comercial (I2)
+
+Emite el módulo `comercial`, con `empresa_id` en el sobre = la del prospecto (null sin conector).
+Montos como texto decimal con 2 cifras (`"250.00"`). Fechas en UTC.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `prospecto.creado` | `prospecto_id`, `numero`, `empresa_id`, `origen` (`panel`, `web`, `referido`, `argos`, `otro`), `zona_id` (o null), `vendedor_id` (o null) | `prospectos.crear`. |
+| `prospecto.actualizado` | `prospecto_id`, `campos[]` (`nombre`, `documento`, `telefono`, `correo`, `direccion`, `lat`, `lon`, `zona_id`, `plan_interes_id`, `plan_interes_nombre`, `origen_detalle`, `notas`) | `prospectos.editar` (hasta cotizado). |
+| `prospecto.asignado` | `prospecto_id`, `vendedor_id` (o null), `vendedor_anterior_id` (o null) | `prospectos.asignar`. |
+| `prospecto.estado_cambiado` | `prospecto_id`, `de`, `a`, `motivo` (o null) | Cada cambio de estado del embudo: `contactar`, factibilidad (nuevo/contactado → factibilidad), cotizar (→ cotizado; también desde contrato si se anula el borrador), contratar (→ contrato), `perder`, `reabrir` (perdido → contactado) y `ganar`. |
+| `prospecto.actividad_registrada` | `prospecto_id`, `actividad_id`, `tipo` (`llamada`, `visita`, `nota`, `mensaje`), `proxima_fecha` (o null) | `prospectos.registrar_actividad`. |
+| `prospecto.perdido` | `prospecto_id`, `empresa_id`, `motivo`, `de` (estado anterior) | `prospectos.perder`. Anula el contrato vivo (`contrato.anulado`). |
+| `prospecto.ganado` | `prospecto_id`, `empresa_id`, `modo` (`local` \| `argos`), `contrato_id`, `cotizacion_id`, `plan_id` (o null), `obra_confirmada`, `router_id` (argos), `orden_id` (local: la orden de instalación; argos: null hasta el alta), `pendientes[]` (argos: el id del pendiente `crear_cliente`) | `prospectos.ganar`. |
+| `prospecto.alta_actualizada` | `prospecto_id`, `estado` (`esperando_cliente` \| `esperando_servicio` \| `completa`), `cliente_id`, `servicio_id` (o null), `orden_id` (o null), `error` (solo si el alta quedó para revisión manual) | El alta en Argos avanza (actor sistema): cliente creado → se encola el servicio; servicio creado → orden de instalación (`orden.creada` con `origen = sistema` y `prospecto_id`). |
+| `factibilidad.evaluada` | `prospecto_id`, `factibilidad_id`, `resultado` (`viable`, `no_viable`, `requiere_obra`, `indeterminado`), `motor` (`distancia`, `manual`; `ozmap` en la fase 6), `motivo` (indeterminado: `sin_conector`, `conector_apagado`, `sin_coordenadas`, `sin_empresa`, `sin_instantanea`, `sin_routers_con_coordenadas`, `planta_no_disponible`; si no, null), `router_id` (sugerido, o null), `caja` (o null), `distancia_m` (o null), `anula_id` (la automática no_viable que anula una manual, o null) | `factibilidad.evaluar` y `factibilidad.registrar_manual`. |
+| `factibilidad.umbrales_cambiados` | `empresa_id`, `viable_m`, `obra_m` | `factibilidad.configurar`. |
+| `cotizacion.creada` | `cotizacion_id`, `prospecto_id`, `numero`, `revision`, `plan_id` (o null sin conector), `total_mensual`, `total_unico`, `moneda`, `reemplaza_id` (la anterior, que queda `reemplazada`, o null) | `cotizaciones.crear`. |
+| `cotizacion.aceptada` | `cotizacion_id`, `prospecto_id`, `numero` | `cotizaciones.aceptar`. |
+| `contrato.creado` | `contrato_id`, `prospecto_id`, `cotizacion_id`, `numero` | `contratos.crear`. |
+| `contrato.firmado` | `contrato_id`, `prospecto_id`, `numero`, `adjunto_id` (PDF firmado), `sha256` | `contratos.firmar`. El SVG de la firma nunca va en el evento. |
+| `contrato.anulado` | `contrato_id`, `prospecto_id`, `de` (`borrador` \| `firmado`), `motivo` | Una cotización nueva anula el borrador; perder anula el vivo. |
+
+Pendientes hacia Argos (contratos/argosisp.md §3, «Prospecto ganado»), `entidad = prospecto`:
+`crear_cliente` (`POST /clientes`, `iris:cliente:<prospecto_id>`) y `crear_servicio`
+(`POST /servicios`, `iris:servicio:<prospecto_id>`, `depende_de` = el del cliente). Cuerpos según
+Argos 1.2 (solo los opcionales con valor; se serializan una vez y se guardan en el pendiente: la
+cola y la repetición mandan los mismos bytes, que es la huella de idempotencia de Argos):
+
+- `POST /clientes`: `nombre`, `codigo_externo = "iris:prospecto:<id>"`, y si hay: `nit_cui` (documento), `email`, `telefono`, `direccion`, `coordenadas` (`"lat,lng"`), `zona_id`. Sin `empresa_id` (el cliente es de la instalación).
+- `POST /servicios`: `cliente_id`, `router_id` (el sugerido por la factibilidad o el elegido al ganar), `plan_id`, `empresa_id` (la del prospecto), `estado_inicial = "pendiente_instalacion"`, y si hay: `direccion`, `coordenadas`. Sin `origen_tipo`/`origen_id`.
+- Respuesta: `2xx` con `{ id }`; repetir la clave con los mismos bytes devuelve el 2xx original (`Idempotent-Replayed: true`). Tras recuperar el id, Iris comprueba con `GET /clientes/{id}` que `codigo_externo` sea el del prospecto (y con `GET /servicios/{id}` que el servicio sea de ese cliente); si no, `alta.error`.
+
+Consume `integracion.pendiente_hecho` con `entidad = prospecto` (avanza el alta; idempotente).

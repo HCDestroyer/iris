@@ -16,10 +16,17 @@ describe("menú por permisos", () => {
         }
     });
 
-    it("sin permisos: solo Inicio y los módulos «Próximamente» sin permiso", () => {
+    it("sin permisos: solo Inicio", () => {
         const visibles = menuVisible([]).map((e) => e.etiqueta);
-        expect(visibles).toEqual(["Inicio", "Despacho", "Comercial"]);
+        expect(visibles).toEqual(["Inicio"]);
         expect(menuVisible(null)).toEqual(menuVisible([]));
+    });
+
+    it("prospectos.ver muestra Comercial, con pantalla", () => {
+        const comercial = menuVisible(["prospectos.ver"]).find((e) => e.href === "/comercial");
+        expect(comercial).toBeDefined();
+        expect(comercial?.proximamente).toBeUndefined();
+        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/comercial");
     });
 
     it("ordenes.ver u ordenes.ver_propias muestran Órdenes (con tablero)", () => {
@@ -31,10 +38,13 @@ describe("menú por permisos", () => {
         expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/ordenes");
     });
 
-    it("agenda.ver muestra Agenda («Próximamente» hasta el despacho de I3)", () => {
-        const agenda = menuVisible(["agenda.ver"]).find((e) => e.href === "/agenda");
-        expect(agenda?.proximamente).toBe(true);
-        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/agenda");
+    it("agenda.ver muestra Agenda y Despacho, con pantalla (sin «Próximamente»)", () => {
+        for (const href of ["/agenda", "/despacho"]) {
+            const entrada = menuVisible(["agenda.ver"]).find((e) => e.href === href);
+            expect(entrada).toBeDefined();
+            expect(entrada?.proximamente).toBeUndefined();
+            expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain(href);
+        }
     });
 
     it("tickets.ver muestra Tickets", () => {

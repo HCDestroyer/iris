@@ -5,9 +5,9 @@ import { Camara, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, T
 import { CircleCheck, CloudUpload, ImageOff, TriangleAlert } from "lucide-react";
 import { useCallback, useState } from "react";
 import { leerExif } from "@/lib/campo/exif";
-import { obtenerPosicion } from "@/lib/campo/gps";
 import { comprimirFoto } from "@/lib/campo/imagen";
 import { useCampo } from "./contexto";
+import { useUbicacion } from "./ubicacion";
 
 export interface OpcionesFoto {
     ordenId: number;
@@ -21,6 +21,7 @@ export interface OpcionesFoto {
  */
 export function useTomarFoto() {
     const { motor, agregarMiniatura, notificar } = useCampo();
+    const { posicionSiPermitida } = useUbicacion();
     const [procesando, setProcesando] = useState(false);
     const tomar = useCallback(
         async (archivo: File, opciones: OpcionesFoto): Promise<string | null> => {
@@ -29,7 +30,7 @@ export function useTomarFoto() {
                 const original = new Uint8Array(await archivo.arrayBuffer());
                 const exif = archivo.type === "image/jpeg" || /\.jpe?g$/i.test(archivo.name) ? leerExif(original) : {};
                 const foto = await comprimirFoto(archivo);
-                const posicion = exif.lat !== undefined ? null : await obtenerPosicion(4000);
+                const posicion = exif.lat !== undefined ? null : await posicionSiPermitida(4000);
                 const lat = exif.lat ?? posicion?.lat;
                 const lon = exif.lon ?? posicion?.lon;
                 const { adjunto } = await motor.agregarAdjunto({
@@ -52,7 +53,7 @@ export function useTomarFoto() {
                 setProcesando(false);
             }
         },
-        [motor, agregarMiniatura, notificar],
+        [motor, agregarMiniatura, notificar, posicionSiPermitida],
     );
     return { tomar, procesando };
 }

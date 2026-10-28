@@ -1,7 +1,7 @@
 import { crearCliente, type Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
 import { ErrorTransporte } from "./errores";
-import { crearSubidorApi, crearTransporteApi } from "./http";
+import { crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi } from "./http";
 
 interface Pedido {
     url: string;
@@ -177,5 +177,49 @@ describe("crearSubidorApi", () => {
     it("falla si la respuesta no trae Upload-Offset", async () => {
         const { fetch } = fetchFalso(() => new Response(null, { status: 200 }));
         await expect(crearSubidorApi(clienteCon(fetch)).consultarOffset(adjunto.id)).rejects.toBeInstanceOf(ErrorTransporte);
+    });
+});
+
+describe("crearTransportePosicionesApi", () => {
+    const entrada: Schema<"EntradaPosiciones"> = {
+        dispositivoId: "d1",
+        enviadoEn: "2026-10-28T15:00:00Z",
+        puntos: [{ lat: 14.6, lon: -90.5, precision: 10, registradaEn: "2026-10-28T14:59:00Z" }],
+    };
+
+    it("envía el lote de puntos con canal campo y toma la hora de servidorEn", async () => {
+        const respuesta: Schema<"RespuestaPosiciones"> = {
+            aceptadas: 1,
+            duplicadas: 0,
+            descartadas: 0,
+            motivos: {},
+            servidorEn: "2026-10-28T15:00:01Z",
+            desfaseMs: 1000,
+        };
+        const { fetch, pedidos } = fetchFalso(() => json(respuesta));
+        const r = await crearTransportePosicionesApi(clienteCon(fetch)).enviarPosiciones(entrada);
+        expect(r).toEqual({ datos: respuesta, horaServidor: Date.parse("2026-10-28T15:00:01Z") });
+        expect(pedidos[0]?.url).toBe("https://iris.test/api/v1/campo/posiciones");
+        expect(pedidos[0]?.metodo).toBe("POST");
+        expect(pedidos[0]?.cabeceras.get("X-Iris-Canal")).toBe("campo");
+        expect(JSON.parse(new TextDecoder().decode(pedidos[0]?.cuerpo))).toEqual(entrada);
+    });
+
+    it("un 429 llega con su Retry-After; un 403 requiere_sesion_campo es de sesión", async () => {
+        const { fetch } = fetchFalso(() =>
+            json(problema("demasiadas_posiciones", 429), { status: 429, headers: { "Content-Type": "application/problem+json", "Retry-After": "17" } }),
+        );
+        const e429 = await crearTransportePosicionesApi(clienteCon(fetch))
+            .enviarPosiciones(entrada)
+            .catch((e: unknown) => e);
+        expect(e429).toBeInstanceOf(ErrorTransporte);
+        expect(e429).toMatchObject({ status: 429, codigo: "demasiadas_posiciones", esReintentable: true });
+        expect((e429 as ErrorTransporte).cabeceras?.get("Retry-After")).toBe("17");
+
+        const { fetch: f403 } = fetchFalso(() => json(problema("requiere_sesion_campo", 403), { status: 403, headers: { "Content-Type": "application/problem+json" } }));
+        const e403 = await crearTransportePosicionesApi(clienteCon(f403))
+            .enviarPosiciones(entrada)
+            .catch((e: unknown) => e);
+        expect(e403).toMatchObject({ status: 403, codigo: "requiere_sesion_campo", esDeSesion: true });
     });
 });

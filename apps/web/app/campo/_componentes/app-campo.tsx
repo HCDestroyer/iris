@@ -2,9 +2,10 @@
 
 import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
 import { abrirMotor, type MotorAbierto } from "@/lib/campo/motor";
+import { dependenciasNavegador, olvidarTurno, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import {
     cerrarSesionApi,
     cierrePendiente,
@@ -12,21 +13,26 @@ import {
     empresaDeTrabajo,
     empresaElegida,
     guardarSesion,
+    irACambiarContrasena,
     leerYo,
     marcarCierrePendiente,
     olvidarSesion,
     sesionDesdeYo,
     sesionGuardada,
     usableSinSenal,
+    CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { Pantallas } from "./pantallas";
+import { ProveedorUbicacion, TurnoAutomatico } from "./ubicacion";
 
 type Arranque =
     | { fase: "cargando" }
     | { fase: "sin_sesion" }
+    /** Contraseña temporal: va a `/cambiar-contrasena?siguiente=/campo`. */
+    | { fase: "cambiar_contrasena" }
     /** Sin señal y sin una verificación reciente de la sesión guardada (o tras cerrar sesión). */
     | { fase: "conectate"; motivo: "sin_verificar" | "sesion_cerrada" }
     | { fase: "error"; error: unknown }
@@ -69,6 +75,14 @@ export function AppCampo() {
             const cache = sesionGuardada();
             try {
                 const yo = await leerYo(cache ? empresaElegida(cache.usuarioId) : null);
+                if (yo.usuario.cambioContrasenaRequerido) {
+                    // Contraseña temporal: lo único que la sesión puede hacer es cambiarla.
+                    if (vivo) {
+                        setArranque({ fase: "cambiar_contrasena" });
+                    }
+                    irACambiarContrasena();
+                    return;
+                }
                 const sesion = sesionDesdeYo(yo);
                 guardarSesion(sesion);
                 if (vivo) {
@@ -78,7 +92,10 @@ export function AppCampo() {
                 if (!vivo) {
                     return;
                 }
-                if (e instanceof ErrorApi && e.estado === 401) {
+                if (e instanceof ErrorApi && e.codigo === CODIGO_CAMBIO_CONTRASENA) {
+                    setArranque({ fase: "cambiar_contrasena" });
+                    irACambiarContrasena();
+                } else if (e instanceof ErrorApi && e.estado === 401) {
                     setArranque({ fase: "sin_sesion" });
                     window.location.replace(RUTA_ENTRAR);
                 } else if (e instanceof ErrorApi && e.estado === 0) {
@@ -103,11 +120,17 @@ export function AppCampo() {
         }
     }, []);
 
-    if (arranque.fase === "cargando" || arranque.fase === "sin_sesion") {
+    if (arranque.fase === "cargando" || arranque.fase === "sin_sesion" || arranque.fase === "cambiar_contrasena") {
+        const texto =
+            arranque.fase === "cargando"
+                ? "Abriendo Iris Campo…"
+                : arranque.fase === "sin_sesion"
+                  ? "Llevándote a iniciar sesión…"
+                  : "Tienes que cambiar tu contraseña: llevándote a cambiarla…";
         return (
             <Centro>
                 <MarcaIris />
-                <Cargando visible texto={arranque.fase === "cargando" ? "Abriendo Iris Campo…" : "Llevándote a iniciar sesión…"} />
+                <Cargando visible texto={texto} />
             </Centro>
         );
     }
@@ -178,14 +201,24 @@ function ConEmpresa({ sesion, ...salidas }: { sesion: SesionCampo } & Salidas) {
     const [elegida, setElegida] = useState(() => empresaElegida(sesion.usuarioId));
     const empresa = empresaDeTrabajo(sesion, elegida);
     const [eligiendo, setEligiendo] = useState(false);
+    /** Termina el turno del motor abierto (lo registra `ConMotor`). */
+    const finTurno = useRef<(() => void) | null>(null);
+    const registrarFinTurno = useCallback((fn: () => void) => {
+        finTurno.current = fn;
+    }, []);
 
     const cambiar = useCallback(
         (id: number) => {
+            if (id !== empresa) {
+                // El turno es de una empresa: al cambiar, se termina el de la anterior.
+                finTurno.current?.();
+                finTurno.current = null;
+            }
             elegirEmpresa(sesion.usuarioId, id);
             setElegida(id);
             setEligiendo(false);
         },
-        [sesion.usuarioId],
+        [sesion.usuarioId, empresa],
     );
 
     if (sesion.modoEmpresa === "sin_empresa" || (sesion.modoEmpresa !== "sin_conector" && sesion.empresas.length === 0)) {
@@ -208,16 +241,26 @@ function ConEmpresa({ sesion, ...salidas }: { sesion: SesionCampo } & Salidas) {
             </Centro>
         );
     }
-    return <ConMotor key={`${sesion.usuarioId}-${empresa ?? 0}`} sesion={sesion} empresa={empresa} pedirEmpresa={() => setEligiendo(true)} {...salidas} />;
+    return (
+        <ConMotor
+            key={`${sesion.usuarioId}-${empresa ?? 0}`}
+            sesion={sesion}
+            empresa={empresa}
+            pedirEmpresa={() => setEligiendo(true)}
+            registrarFinTurno={registrarFinTurno}
+            {...salidas}
+        />
+    );
 }
 
 function ConMotor({
     sesion,
     empresa,
     pedirEmpresa,
+    registrarFinTurno,
     alSesionAjena,
     alCerrarSesion,
-}: { sesion: SesionCampo; empresa: number | null; pedirEmpresa: () => void } & Salidas) {
+}: { sesion: SesionCampo; empresa: number | null; pedirEmpresa: () => void; registrarFinTurno: (fn: () => void) => void } & Salidas) {
     const [abierto, setAbierto] = useState<MotorAbierto | null>(null);
     const [error, setError] = useState<unknown>(null);
     const [intento, setIntento] = useState(0);
@@ -228,6 +271,7 @@ function ConMotor({
         // Entró otra persona: se detiene y se desmonta sin enviar nada; su base queda intacta.
         const ajena = () => {
             actual?.motor.detener();
+            actual?.posiciones.detener();
             alSesionAjena(sesion.nombre);
         };
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena)
@@ -237,6 +281,7 @@ function ConMotor({
                     setAbierto(m);
                 } else {
                     m.motor.detener();
+                    m.posiciones.detener();
                     m.almacen.cerrar();
                 }
             })
@@ -244,19 +289,38 @@ function ConMotor({
         return () => {
             vivo = false;
             actual?.motor.detener();
+            actual?.posiciones.detener();
             actual?.almacen.cerrar();
         };
     }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena]);
+
+    // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
+    const rastreador = useMemo(
+        () => (abierto ? new RastreadorUbicacion(abierto.posiciones, dependenciasNavegador(sesion.usuarioId, empresa)) : null),
+        [abierto, sesion.usuarioId, empresa],
+    );
+
+    useEffect(() => {
+        if (rastreador) {
+            registrarFinTurno(() => rastreador.terminarTurno());
+        }
+    }, [rastreador, registrarFinTurno]);
 
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
             if (!abierto) {
                 return;
             }
-            const { motor, almacen } = abierto;
+            const { motor, posiciones, almacen } = abierto;
+            // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
+            // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
+            rastreador?.terminarTurno();
             motor.detener();
+            posiciones.detener();
+            // El turno es de esta persona: el próximo que entre en el teléfono empieza fuera de turno.
+            olvidarTurno(sesion.usuarioId, empresa);
             if (conservarPendientes) {
-                // Solo la cola y los adjuntos pendientes; nada que se pueda ver sin entrar.
+                // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
             } else {
                 await almacen.borrar();
@@ -271,7 +335,7 @@ function ConMotor({
                 alCerrarSesion(true);
             }
         },
-        [abierto, sesion.usuarioId, alCerrarSesion],
+        [abierto, rastreador, sesion.usuarioId, empresa, alCerrarSesion],
     );
 
     if (error) {
@@ -298,7 +362,7 @@ function ConMotor({
             </Centro>
         );
     }
-    if (!abierto) {
+    if (!abierto || !rastreador) {
         return (
             <Centro>
                 <MarcaIris />
@@ -307,8 +371,11 @@ function ConMotor({
         );
     }
     return (
-        <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-        </ProveedorCampo>
+        <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
+            <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
+                <TurnoAutomatico rastreador={rastreador} />
+                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+            </ProveedorCampo>
+        </ProveedorUbicacion>
     );
 }
