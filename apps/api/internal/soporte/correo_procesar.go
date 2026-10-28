@@ -288,22 +288,7 @@ func autorDelCorreo(e soportebd.SoporteCorreosEntrante) string {
 // respuestaDelCliente agrega el correo como mensaje público del cliente y aplica la regla de
 // estado: en_espera → abierto (reanuda) y resuelto → abierto (reabre).
 func (m *Modulo) respuestaDelCliente(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes soportebd.SoporteTicket, e soportebd.SoporteCorreosEntrante) (ResultadoProcesarCorreo, error) {
-	ahora := m.ahora()
-	cal, err := cargarCalendario(ctx, q, antes.CalendarioID)
-	if err != nil {
-		return ResultadoProcesarCorreo{}, err
-	}
-	despues := antes
-	var motivo *string
-	switch antes.Estado {
-	case EstadoEnEspera:
-		salirDeEspera(&despues, cal, ahora)
-		despues.Estado, motivo = EstadoAbierto, ptr("El cliente respondió por correo")
-	case EstadoResuelto:
-		acumularPausa(&despues, cal, antes.ResueltoEn, ahora)
-		despues.Estado, despues.ResueltoEn, motivo = EstadoAbierto, nil, ptr("El cliente respondió por correo a un ticket resuelto")
-	}
-	f, err := guardar(ctx, t, q, antes, despues, cal)
+	f, motivo, err := m.reactivarPorCliente(ctx, t, q, antes, "correo")
 	if err != nil {
 		return ResultadoProcesarCorreo{}, err
 	}

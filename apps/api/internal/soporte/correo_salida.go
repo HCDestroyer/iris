@@ -73,7 +73,9 @@ func (m *Modulo) nuevoEncolarRespuesta() *auditoria.Caso[EntradaEncolarRespuesta
 			if err != nil {
 				return ResultadoEncolarRespuesta{}, err
 			}
-			if msj.TicketID != tk.ID || !msj.Publico || msj.AutorTipo != "usuario" {
+			// Mensajes públicos de un agente o de Iris (aviso de un incidente resuelto); nunca
+			// los del propio cliente.
+			if msj.TicketID != tk.ID || !msj.Publico || (msj.AutorTipo != "usuario" && msj.AutorTipo != "sistema") {
 				return nada("no_es_respuesta_de_agente")
 			}
 			contacto := normalizarCorreo(derefStr(tk.ContactoCorreo))

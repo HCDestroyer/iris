@@ -145,6 +145,9 @@ Una tarea está terminada solo si:
 | `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
 | `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
+| `ticket.resolucion_propuesta` | soporte (Horus) | ticket_id, accion (resolver \| cerrar), motivo, origen, entrante_id |
+| `ticket.mensaje_cliente` | soporte (portal) | ticket_id, mensaje_id, canal |
+| `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id |

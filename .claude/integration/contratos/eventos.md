@@ -68,6 +68,8 @@ Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin c
 | `ticket.fusionado` | `ticket_id` (el duplicado), `destino_id`, `motivo` (o null) | `tickets.fusionar`. |
 | `ticket.sla_en_riesgo` | `ticket_id`, `sla` (`respuesta` \| `resolucion`), `vence_en` | Cron: el reloj pasó el 80 % de su objetivo. Una vez por ticket, reloj y `vence_en` (si el vencimiento se corre, el nuevo plazo vuelve a alertar); no se emite si ya venció. |
 | `ticket.sla_vencido` | `ticket_id`, `sla` (`respuesta` \| `resolucion`), `vence_en` | Cron: el reloj venció sin cumplirse. Una vez por ticket, reloj y `vence_en`. |
+| `ticket.resolucion_propuesta` | `ticket_id`, `accion` (`resolver` \| `cerrar`), `motivo` (texto de la nota), `origen` (`horus`), `entrante_id` | Horus avisó que el problema terminó: `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` con `arriba` sobre un maestro abierto (`resolver`), o `horus.hallazgo_resuelto` (`resolver` si el ticket está abierto, `cerrar` si ya está resuelto). Iris no cambia el estado: un agente confirma. Una vez por propuesta (si ya estaba la misma, no se repite). |
+| `ticket.mensaje_cliente` | `ticket_id`, `mensaje_id`, `canal` (`portal`) | El cliente escribió en su ticket desde el portal (`POST /portal/tickets/{id}/responder`); si reanudó o reabrió, sale además `ticket.estado_cambiado`. |
 
 ## Correo de soporte (I2)
 
@@ -83,6 +85,24 @@ ticket de siempre (`ticket.creado`, `ticket.estado_cambiado` al reanudar o reabr
 | `buzon.activado` / `buzon.desactivado` | `buzon_id` | `buzones.activar` / `buzones.desactivar`. |
 
 Consume `ticket.respondido` (suscriptor `soporte.correo_saliente`, idempotente por `mensaje_id`):
-si el ticket es de origen `correo` y el mensaje es público de un agente, encola el envío por el
-SMTP del buzón, siempre al contacto del ticket.
+si el ticket es de origen `correo` y el mensaje es público de un agente (o un aviso de Iris, como el
+de un incidente maestro resuelto), encola el envío por el SMTP del buzón, siempre al contacto del
+ticket.
+
+`ticket.respondido` también sale, uno por hijo, al resolver un incidente maestro (`tickets.resolver`
+sobre un ticket con `maestro`): el mensaje público de Iris que avisa al cliente.
+
+## Tickets desde Horus (I2)
+
+Emite el módulo `soporte` (suscriptor `soporte.horus` de los eventos `horus.*`, actor sistema). Un
+maestro nuevo o un ticket por hallazgo emiten los de siempre (`ticket.creado`, con `origen =
+horus`); reabrir o cerrar un maestro, `ticket.estado_cambiado`.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `soporte.horus_descartado` | `evento` (el `horus.*`), `entrante_id`, `empresa_id` (la del evento o null), `motivo` (`sin_empresa` \| `empresa_no_registrada` \| `error`), `detalle` | Un evento de Horus que debía crear o tocar un ticket no se aplicó: sin empresa (o con una no registrada) habiendo empresas registradas, o una regla de negocio lo impidió (`error`, con el código y el detalle; p. ej. la categoría de la regla de hallazgos está inactiva). Alerta interna para el NOC; no se reintenta. Una vez por `entrante_id`. |
+
+Consume `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado`, `horus.hallazgo_abierto` y
+`horus.hallazgo_resuelto` (idempotente por `entrante_id`, tabla `soporte.horus_eventos`); reglas en
+`apps/api/internal/soporte/README.md` («Tickets desde Horus»).
 

@@ -381,6 +381,7 @@ type SoporteCategoria struct {
 	Version       int32
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	VisiblePortal bool
 }
 
 type SoporteCorreosEntrante struct {
@@ -439,6 +440,29 @@ type SoporteFeriado struct {
 	Desde        pgtype.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type SoporteHorusEvento struct {
+	EntranteID int64
+	Evento     string
+	EmpresaID  *int64
+	Resultado  string
+	TicketID   *int64
+	Detalle    *string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type SoporteReglasHallazgo struct {
+	ID             int64
+	EmpresaID      *int64
+	CategoriaHorus string
+	CategoriaID    int64
+	Prioridad      string
+	Activa         bool
+	Version        int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type SoporteSla struct {
@@ -502,6 +526,15 @@ type SoporteTicket struct {
 	UpdatedAt          time.Time
 	Idempotencia       *string
 	ContactoVerificado bool
+	Maestro            *string
+	RouterID           *int64
+	InfraID            *string
+	IncidenteNombre    *string
+	HallazgoID         *string
+	UrlHorus           *string
+	Propuesta          *string
+	PropuestaEn        *time.Time
+	PropuestaMotivo    *string
 }
 
 type SoporteTicketEvento struct {

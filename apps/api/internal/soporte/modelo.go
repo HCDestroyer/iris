@@ -71,6 +71,45 @@ type Ticket struct {
 	Version           int32      `json:"version"`
 	CreadoEn          time.Time  `json:"creadoEn"`
 	ActualizadoEn     time.Time  `json:"actualizadoEn"`
+	// Incidente: el ticket lo abrió Horus (maestro de un router o servicio de infraestructura, o
+	// un hallazgo de seguridad). Ausente en los demás.
+	Incidente *IncidenteHorus `json:"incidente,omitempty" doc:"Solo si lo abrió Horus (maestro o hallazgo)"`
+	// Propuesta: Horus avisó que el problema terminó; un agente decide (resolver o cerrar).
+	Propuesta *PropuestaTicket `json:"propuesta,omitempty" doc:"Propuesta pendiente de Horus (el router volvió, el hallazgo se resolvió); se descarta al cambiar de estado"`
+}
+
+// IncidenteHorus describe de dónde viene un ticket abierto por Horus.
+type IncidenteHorus struct {
+	Tipo       string  `json:"tipo" enum:"router,infra,hallazgo" doc:"router / infra = incidente maestro (los tickets de clientes afectados son sus hijos); hallazgo = hallazgo de seguridad"`
+	RouterID   *int64  `json:"routerId" nullable:"true" doc:"Router en Argos"`
+	InfraID    *string `json:"infraId" nullable:"true" doc:"Servicio de infraestructura en Horus"`
+	Nombre     *string `json:"nombre" nullable:"true" doc:"Nombre del router o servicio según Horus"`
+	HallazgoID *string `json:"hallazgoId" nullable:"true" doc:"Hallazgo en Horus"`
+	URLHorus   *string `json:"urlHorus" nullable:"true" doc:"«Ver en Horus» (mismo origen que el conector)"`
+}
+
+// PropuestaTicket es una acción que Horus sugiere y un agente confirma.
+type PropuestaTicket struct {
+	Accion string    `json:"accion" enum:"resolver,cerrar"`
+	En     time.Time `json:"en"`
+	Motivo *string   `json:"motivo" nullable:"true"`
+}
+
+func incidenteDe(f soportebd.SoporteTicket) *IncidenteHorus {
+	switch {
+	case f.Maestro != nil:
+		return &IncidenteHorus{Tipo: *f.Maestro, RouterID: f.RouterID, InfraID: f.InfraID, Nombre: f.IncidenteNombre, URLHorus: f.UrlHorus}
+	case f.HallazgoID != nil:
+		return &IncidenteHorus{Tipo: "hallazgo", RouterID: f.RouterID, HallazgoID: f.HallazgoID, URLHorus: f.UrlHorus}
+	}
+	return nil
+}
+
+func propuestaDe(f soportebd.SoporteTicket) *PropuestaTicket {
+	if f.Propuesta == nil || f.PropuestaEn == nil {
+		return nil
+	}
+	return &PropuestaTicket{Accion: *f.Propuesta, En: *f.PropuestaEn, Motivo: f.PropuestaMotivo}
 }
 
 func aTicket(f soportebd.SoporteTicket, ahora time.Time) Ticket {
@@ -87,6 +126,7 @@ func aTicket(f soportebd.SoporteTicket, ahora time.Time) Ticket {
 		SLAResolucion: reloj(f.SlaResolucionMin, f.RiesgoResolucion, f.VenceResolucion, f.ResueltoEn, f.Estado == EstadoEnEspera, ref),
 		EnEsperaDesde: f.EnEsperaDesde, CerradoEn: f.CerradoEn, TicketPadreID: f.TicketPadreID,
 		FusionadoEnID: f.FusionadoEnID, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
+		Incidente: incidenteDe(f), Propuesta: propuestaDe(f),
 	}
 }
 
