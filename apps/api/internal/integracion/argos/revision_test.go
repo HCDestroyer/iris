@@ -12,7 +12,6 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
-	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -327,7 +326,7 @@ func TestSSRFConectorYLecturas(t *testing.T) {
 	// Lecturas con un conector guardado en una red interna: se bloquean sin llegar al destino.
 	e.sembrarCliente(81, "Ana Interna")
 	antes := e.argos.llamadasA("/api/v1/clientes")
-	lctx := contexto.ConEmpresa(pruebas.ContextoUsuario(e.pool, 1, nucleo.PermClientesVer), 1)
+	lctx := pruebas.ContextoUsuarioEnEmpresa(e.pool, 1, 1, nucleo.PermClientesVer)
 	if _, err := m.BuscarClientes.Ejecutar(lctx, argos.EntradaBuscarClientes{Q: "ana", Limit: 5}); !esProblema(err, "destino_no_permitido") {
 		t.Fatalf("lectura hacia red interna: %v", err)
 	}

@@ -26,6 +26,10 @@ func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 			if err != nil {
 				return TokenAPI{}, err
 			}
+			// Revocar tokens de otro usuario exige operar en todas sus empresas.
+			if err := exigirEmpresasDe(ctx, q, antes.UsuarioID, "revocar tokens de este usuario"); err != nil {
+				return TokenAPI{}, err
+			}
 			if antes.RevocadoEn != nil {
 				return TokenAPI{}, nucleo.ReglaNegocio("token_revocado", "El token ya está revocado")
 			}

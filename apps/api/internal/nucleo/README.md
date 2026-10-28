@@ -22,5 +22,5 @@ guardan: repetir la clave da 409 `idempotencia_no_repetible`. Una clave abandona
 **Eventos que emite** (`identidad`, con `empresa_id` null): `usuario.creado`,
 `usuario.actualizado`, `usuario.desactivado`, `token.creado`, `token.revocado`; y, con la
 empresa afectada, `empresa.creada`, `empresa.actualizada`, `usuario.empresa_asignada`,
-`usuario.empresa_quitada` (payloads en `.claude/integration/contratos/eventos.md`). **No consume
+`usuario.empresa_quitada`, `empresa.datos_adoptados` (payloads en `.claude/integration/contratos/eventos.md`). **No consume
 eventos.**

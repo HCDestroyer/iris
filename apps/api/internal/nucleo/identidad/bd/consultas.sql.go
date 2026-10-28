@@ -652,16 +652,26 @@ func (q *Queries) LimpiarIntentosLogin(ctx context.Context, correo string) error
 }
 
 const listarEmpresas = `-- name: ListarEmpresas :many
-SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id > $1 ORDER BY id LIMIT $2
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas
+WHERE id > $1 AND ($2::boolean OR id = ANY($3::bigint[]))
+ORDER BY id LIMIT $4
 `
 
 type ListarEmpresasParams struct {
 	DespuesDe int64
+	Todas     bool
+	Empresas  []int64
 	Limite    int32
 }
 
+// Sin @todas, solo las de @empresas (las del actor).
 func (q *Queries) ListarEmpresas(ctx context.Context, arg ListarEmpresasParams) ([]NucleoEmpresa, error) {
-	rows, err := q.db.Query(ctx, listarEmpresas, arg.DespuesDe, arg.Limite)
+	rows, err := q.db.Query(ctx, listarEmpresas,
+		arg.DespuesDe,
+		arg.Todas,
+		arg.Empresas,
+		arg.Limite,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -757,20 +767,34 @@ func (q *Queries) ListarRoles(ctx context.Context, arg ListarRolesParams) ([]Nuc
 }
 
 const listarTokens = `-- name: ListarTokens :many
-SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api
-WHERE id > $1 AND ($2::bigint IS NULL OR usuario_id = $2)
+SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api t
+WHERE t.id > $1 AND ($2::bigint IS NULL OR t.usuario_id = $2)
+  AND ($3::boolean OR t.usuario_id = $4
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY($5::bigint[])))
 ORDER BY id
-LIMIT $3
+LIMIT $6
 `
 
 type ListarTokensParams struct {
 	DespuesDe int64
 	UsuarioID *int64
+	Todas     bool
+	Yo        int64
+	Empresas  []int64
 	Limite    int32
 }
 
+// Sin @todas, solo los tokens propios y los de usuarios que comparten alguna empresa (@empresas).
 func (q *Queries) ListarTokens(ctx context.Context, arg ListarTokensParams) ([]NucleoTokensApi, error) {
-	rows, err := q.db.Query(ctx, listarTokens, arg.DespuesDe, arg.UsuarioID, arg.Limite)
+	rows, err := q.db.Query(ctx, listarTokens,
+		arg.DespuesDe,
+		arg.UsuarioID,
+		arg.Todas,
+		arg.Yo,
+		arg.Empresas,
+		arg.Limite,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -803,24 +827,35 @@ func (q *Queries) ListarTokens(ctx context.Context, arg ListarTokensParams) ([]N
 }
 
 const listarUsuarios = `-- name: ListarUsuarios :many
-SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios
-WHERE id > $1
-  AND ($2::text IS NULL OR nombre ILIKE '%' || $2 || '%' OR correo ILIKE '%' || $2 || '%')
-  AND ($3::boolean IS NULL OR activo = $3)
+SELECT id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at FROM nucleo.usuarios u
+WHERE u.id > $1
+  AND ($2::boolean OR u.id = $3
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = u.id AND ue.empresa_id = ANY($4::bigint[])))
+  AND ($5::text IS NULL OR nombre ILIKE '%' || $5 || '%' OR correo ILIKE '%' || $5 || '%')
+  AND ($6::boolean IS NULL OR activo = $6)
 ORDER BY id
-LIMIT $4
+LIMIT $7
 `
 
 type ListarUsuariosParams struct {
 	DespuesDe int64
+	Todas     bool
+	Yo        int64
+	Empresas  []int64
 	Q         *string
 	Activo    *bool
 	Limite    int32
 }
 
+// Sin @todas (empresas.todas global o sin empresas registradas), solo el propio usuario y los
+// que comparten alguna empresa con él (@empresas).
 func (q *Queries) ListarUsuarios(ctx context.Context, arg ListarUsuariosParams) ([]NucleoUsuario, error) {
 	rows, err := q.db.Query(ctx, listarUsuarios,
 		arg.DespuesDe,
+		arg.Todas,
+		arg.Yo,
+		arg.Empresas,
 		arg.Q,
 		arg.Activo,
 		arg.Limite,
@@ -1202,6 +1237,23 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 	return i, err
 }
 
+const tieneEmpresasTodasGlobal = `-- name: TieneEmpresasTodasGlobal :one
+SELECT EXISTS (
+    SELECT 1 FROM nucleo.usuarios_roles ur
+    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+    WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
+      AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
+)
+`
+
+// El usuario tiene empresas.todas por un rol sin límite de zona ni cuadrilla.
+func (q *Queries) TieneEmpresasTodasGlobal(ctx context.Context, usuarioID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tieneEmpresasTodasGlobal, usuarioID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const tocarSesion = `-- name: TocarSesion :exec
 UPDATE nucleo.sesiones SET ultimo_uso = now()
 WHERE id = $1 AND ultimo_uso < now() - interval '1 minute'
@@ -1313,6 +1365,31 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 		&i.NucleoUsuario.UpdatedAt,
 	)
 	return i, err
+}
+
+const usuarioEnEmpresa = `-- name: UsuarioEnEmpresa :one
+SELECT COALESCE(
+    EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = $1 AND ue.empresa_id = $2)
+    OR (EXISTS (SELECT 1 FROM nucleo.empresas e WHERE e.id = $2)
+        AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                    WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
+                      AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
+    false)::boolean AS en_empresa
+`
+
+type UsuarioEnEmpresaParams struct {
+	UsuarioID int64
+	EmpresaID int64
+}
+
+// El usuario opera en la empresa: la tiene asignada o tiene empresas.todas sin límite (y la
+// empresa está registrada).
+func (q *Queries) UsuarioEnEmpresa(ctx context.Context, arg UsuarioEnEmpresaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, usuarioEnEmpresa, arg.UsuarioID, arg.EmpresaID)
+	var en_empresa bool
+	err := row.Scan(&en_empresa)
+	return en_empresa, err
 }
 
 const usuarioPorCorreo = `-- name: UsuarioPorCorreo :one

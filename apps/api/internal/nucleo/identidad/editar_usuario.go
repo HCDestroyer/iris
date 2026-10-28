@@ -56,13 +56,20 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 					return Usuario{}, nucleo.Conflicto("correo_en_uso", "Ya existe un usuario con el correo "+correo)
 				}
 			}
+			// Editar a otro usuario (nombre, roles, lo que sea) exige operar en todas sus empresas.
+			actor := contexto.ActorDe(ctx)
+			propio := actor.Tipo == contexto.ActorUsuario && actor.ID == in.ID
+			if !propio {
+				if err := exigirEmpresasDe(ctx, q, in.ID, "editar a este usuario"); err != nil {
+					return Usuario{}, err
+				}
+			}
 			// Tomar la cuenta (contraseña, correo) o quitar roles exige superar al objetivo; con
 			// sesión propia no (un token, aunque sea del mismo usuario, sí: no puede escalar a
 			// la sesión completa cambiando la contraseña).
 			quitaRoles := in.Roles != nil && quitaAsignaciones(rolesPrevios[in.ID], *in.Roles)
 			if in.Contrasena != nil || correo != antes.Correo || quitaRoles {
-				actor := contexto.ActorDe(ctx)
-				if actor.Tipo != contexto.ActorUsuario || actor.ID != in.ID {
+				if !propio {
 					if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "cambiar la contraseña, el correo o quitar roles a este usuario"); err != nil {
 						return Usuario{}, err
 					}

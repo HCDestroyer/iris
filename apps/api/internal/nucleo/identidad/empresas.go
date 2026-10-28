@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -57,7 +59,16 @@ func nuevoListarEmpresas() *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Em
 			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
 				return nucleo.Pagina[Empresa]{}, err
 			}
-			filas, err := identidadbd.New(t).ListarEmpresas(ctx, identidadbd.ListarEmpresasParams{DespuesDe: despues, Limite: int32(in.Limite() + 1)}) //nolint:gosec // ≤ 201
+			q := identidadbd.New(t)
+			// Sin empresas.todas global, solo las propias.
+			a, err := alcanceDelActor(ctx, q)
+			if err != nil {
+				return nucleo.Pagina[Empresa]{}, err
+			}
+			filas, err := q.ListarEmpresas(ctx, identidadbd.ListarEmpresasParams{
+				DespuesDe: despues, Limite: int32(in.Limite() + 1), //nolint:gosec // ≤ 201
+				Todas: a.todas, Empresas: lista(a.propias),
+			})
 			if err != nil {
 				return nucleo.Pagina[Empresa]{}, err
 			}
@@ -162,7 +173,7 @@ func exigirEmpresaPropia(ctx context.Context, q *identidadbd.Queries, empresaID 
 	}
 	actor := contexto.ActorDe(ctx)
 	propias, err := q.EmpresasAccesibles(ctx, identidadbd.EmpresasAccesiblesParams{
-		Todas: contexto.PermisosDe(ctx).Tiene(string(nucleo.PermEmpresasTodas)), UsuarioID: actor.ID,
+		Todas: todasGlobal(ctx), UsuarioID: actor.ID,
 	})
 	if err != nil {
 		return err
@@ -191,6 +202,10 @@ func nuevoCambiarEmpresaUsuario(asignar bool) *auditoria.Caso[EntradaEmpresaUsua
 				return Usuario{}, err
 			}
 			if err := exigirEmpresaPropia(ctx, q, in.EmpresaID); err != nil {
+				return Usuario{}, err
+			}
+			// Y solo a usuarios cuyas empresas son todas tuyas (sin empresas.todas global).
+			if err := exigirEmpresasDe(ctx, q, in.UsuarioID, "cambiar las empresas de este usuario"); err != nil {
 				return Usuario{}, err
 			}
 			antes, err := empresasDe(ctx, q, in.UsuarioID)
@@ -259,4 +274,79 @@ func empresasResumen(ctx context.Context, q *identidadbd.Queries, ids []int64) (
 		salida = append(salida, EmpresaResumen{ID: f.ID, Nombre: f.Nombre})
 	}
 	return salida, nil
+}
+
+// Adoptar datos sin empresa ----------------------------------------------------------------
+
+// EntradaAdoptarSinEmpresa: empresa que adopta los datos operativos con empresa_id null.
+type EntradaAdoptarSinEmpresa struct {
+	ID int64 `json:"-"`
+}
+
+// DatosAdoptados dice cuántas filas pasaron a la empresa en cada tabla registrada.
+type DatosAdoptados struct {
+	EmpresaID int64            `json:"empresaId"`
+	Filas     map[string]int64 `json:"filas" doc:"Filas adoptadas por tabla (esquema.tabla), también las que quedaron en 0"`
+	Total     int64            `json:"total"`
+}
+
+// nuevoAdoptarSinEmpresa: al pasar de «sin conector» a «con conector» (se registra la primera
+// empresa), los datos operativos guardados con empresa_id null dejan de verse para todos. Esta
+// acción los asigna, en una transacción, a la empresa dada, en cada tabla registrada con
+// nucleo.RegistrarTablaConEmpresa. Solo un admin global (empresas.adoptar + empresas.todas sin
+// límite). Repetirla adopta lo que haya quedado null (0 filas si nada).
+func nuevoAdoptarSinEmpresa() *auditoria.Caso[EntradaAdoptarSinEmpresa, DatosAdoptados] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaAdoptarSinEmpresa, DatosAdoptados]{
+		Accion:     "empresas.adoptar",
+		Permiso:    nucleo.PermEmpresasAdoptar,
+		SinEmpresa: true, // administración: mueve datos entre «sin empresa» y una empresa
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAdoptarSinEmpresa) (DatosAdoptados, error) {
+			t.FijarEntidad("empresa", in.ID)
+			t.FijarEmpresa(in.ID)
+			if !todasGlobal(ctx) {
+				return DatosAdoptados{}, nucleo.Prohibido("Solo quien opera en todas las empresas (admin global) adopta datos sin empresa")
+			}
+			if _, err := identidadbd.New(t).EmpresaPorID(ctx, in.ID); err != nil {
+				return DatosAdoptados{}, err // 404
+			}
+			salida := DatosAdoptados{EmpresaID: in.ID, Filas: map[string]int64{}}
+			for _, tabla := range nucleo.TablasConEmpresa() {
+				// El nombre viene del registro (validado como esquema.tabla), nunca del cliente.
+				tag, err := t.Exec(ctx, "UPDATE "+identificadorTabla(tabla)+" SET empresa_id = $1 WHERE empresa_id IS NULL", in.ID)
+				if err != nil {
+					return DatosAdoptados{}, err
+				}
+				salida.Filas[tabla] = tag.RowsAffected()
+				salida.Total += tag.RowsAffected()
+			}
+			t.Anotar(map[string]any{"filas": salida.Filas})
+			return salida, t.Emitir("empresa.datos_adoptados", map[string]any{"empresa_id": in.ID, "filas": salida.Filas})
+		},
+	})
+}
+
+// identificadorTabla escribe "esquema.tabla" como identificador SQL entre comillas.
+func identificadorTabla(tabla string) string {
+	esquema, nombre, _ := strings.Cut(tabla, ".")
+	return pgx.Identifier{esquema, nombre}.Sanitize()
+}
+
+// hayDatosSinEmpresa: con empresas registradas, si alguna tabla registrada tiene filas con
+// empresa_id null (datos de antes del conector que nadie ve).
+func hayDatosSinEmpresa(ctx context.Context, bd identidadbd.DBTX) (bool, error) {
+	q := identidadbd.New(bd)
+	hay, err := q.HayEmpresas(ctx)
+	if err != nil || !hay {
+		return false, err
+	}
+	for _, tabla := range nucleo.TablasConEmpresa() {
+		var existe bool
+		if err := bd.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+identificadorTabla(tabla)+" WHERE empresa_id IS NULL)").Scan(&existe); err != nil {
+			return false, err
+		}
+		if existe {
+			return true, nil
+		}
+	}
+	return false, nil
 }

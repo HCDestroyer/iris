@@ -109,3 +109,23 @@ func TestCatalogoOrdenadoYSinRepetidos(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistroDeTablasConEmpresa(t *testing.T) {
+	for _, malo := range []string{"tickets", "soporte.tickets; DROP TABLE x", "Soporte.Tickets", "auditoria.acciones"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%q debía entrar en pánico", malo)
+				}
+			}()
+			nucleo.RegistrarTablaConEmpresa(malo)
+		}()
+	}
+	nucleo.RegistrarTablaConEmpresa("prueba.b")
+	nucleo.RegistrarTablaConEmpresa("prueba.a")
+	nucleo.RegistrarTablaConEmpresa("prueba.b")
+	t.Cleanup(func() { nucleo.QuitarTablaConEmpresa("prueba.a"); nucleo.QuitarTablaConEmpresa("prueba.b") })
+	if got := nucleo.TablasConEmpresa(); len(got) != 2 || got[0] != "prueba.a" || got[1] != "prueba.b" {
+		t.Fatalf("registro: %v", got)
+	}
+}

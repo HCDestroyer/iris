@@ -30,6 +30,7 @@ const (
 
 // Empresas (multiempresa igual que Argos).
 const (
+	PermEmpresasAdoptar        Permiso = "empresas.adoptar"
 	PermEmpresasCrear          Permiso = "empresas.crear"
 	PermEmpresasEditar         Permiso = "empresas.editar"
 	PermEmpresasTodas          Permiso = "empresas.todas"
@@ -58,6 +59,7 @@ type DefPermiso struct {
 var Catalogo = []DefPermiso{
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
+	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
 	{PermEmpresasCrear, "Registrar a mano una empresa de Argos (id, nombre, NIT) cuando el conector no la trajo"},
 	{PermEmpresasEditar, "Editar el nombre y el NIT de una empresa registrada"},
 	{PermEmpresasTodas, "Operar en todas las empresas sin asignación (rol global); el resto solo en sus empresas asignadas"},

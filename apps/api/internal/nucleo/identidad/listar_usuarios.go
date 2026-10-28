@@ -6,6 +6,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
@@ -36,6 +37,12 @@ func nuevoListarUsuarios() *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[
 				p.Activo = &activo
 			}
 			q := identidadbd.New(t)
+			// Sin empresas.todas global, solo usuarios que comparten alguna empresa (y uno mismo).
+			a, err := alcanceDelActor(ctx, q)
+			if err != nil {
+				return nucleo.Pagina[Usuario]{}, err
+			}
+			p.Todas, p.Empresas, p.Yo = a.todas, lista(a.propias), contexto.ActorDe(ctx).ID
 			filas, err := q.ListarUsuarios(ctx, p)
 			if err != nil {
 				return nucleo.Pagina[Usuario]{}, err

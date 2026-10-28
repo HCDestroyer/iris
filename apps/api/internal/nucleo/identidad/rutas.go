@@ -91,6 +91,11 @@ type conID[T any] struct {
 
 type vacio struct{}
 
+type soloID struct {
+	nucleo.ConIdempotencia
+	ID int64 `path:"id" minimum:"1"`
+}
+
 type soloClave struct {
 	nucleo.ConIdempotencia
 }
@@ -152,7 +157,9 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	// Usuarios --------------------------------------------------------------------------
-	huma.Register(api, operacion("listarUsuarios", http.MethodGet, "/api/v1/usuarios", "Listar usuarios", nucleo.PermUsuariosVer, http.StatusOK),
+	listarUsuarios := operacion("listarUsuarios", http.MethodGet, "/api/v1/usuarios", "Listar usuarios", nucleo.PermUsuariosVer, http.StatusOK)
+	listarUsuarios.Description += " " + descPorEmpresa
+	huma.Register(api, listarUsuarios,
 		func(ctx context.Context, in *EntradaListarUsuarios) (*cuerpo[nucleo.Pagina[Usuario]], error) {
 			return responder(m.ListarUsuarios.Ejecutar(ctx, *in))
 		})
@@ -162,14 +169,18 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.CrearUsuario.Ejecutar(ctx, in.Body))
 		})
 
-	huma.Register(api, operacion("editarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/editar", "Editar un usuario", nucleo.PermUsuariosEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
+	editarUsuario := operacion("editarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/editar", "Editar un usuario", nucleo.PermUsuariosEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	editarUsuario.Description += " " + descAdminPorEmpresa
+	huma.Register(api, editarUsuario,
 		func(ctx context.Context, in *conID[EntradaEditarUsuario]) (*cuerpo[Usuario], error) {
 			e := in.Body
 			e.ID = in.ID
 			return responder(m.EditarUsuario.Ejecutar(ctx, e))
 		})
 
-	huma.Register(api, operacion("desactivarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/desactivar", "Desactivar un usuario", nucleo.PermUsuariosDesactivar, http.StatusOK, http.StatusNotFound, http.StatusConflict),
+	desactivarUsuario := operacion("desactivarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/desactivar", "Desactivar un usuario", nucleo.PermUsuariosDesactivar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	desactivarUsuario.Description += " " + descAdminPorEmpresa
+	huma.Register(api, desactivarUsuario,
 		func(ctx context.Context, in *conID[EntradaDesactivarUsuario]) (*cuerpo[Usuario], error) {
 			e := in.Body
 			e.ID = in.ID
@@ -196,7 +207,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	asignar := operacion("asignarEmpresaUsuario", http.MethodPost, "/api/v1/usuarios/{id}/asignar-empresa", "Asignar una empresa a un usuario", nucleo.PermUsuariosAsignarEmpresa, http.StatusOK, http.StatusNotFound)
-	asignar.Description += " Solo empresas en que operas tú (403). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas."
+	asignar.Description += " Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas."
 	huma.Register(api, asignar, func(ctx context.Context, in *conID[EntradaEmpresaUsuario]) (*cuerpo[Usuario], error) {
 		e := in.Body
 		e.UsuarioID = in.ID
@@ -204,11 +215,17 @@ func (m *Modulo) Registrar(api huma.API) {
 	})
 
 	quitar := operacion("quitarEmpresaUsuario", http.MethodPost, "/api/v1/usuarios/{id}/quitar-empresa", "Quitar una empresa a un usuario", nucleo.PermUsuariosQuitarEmpresa, http.StatusOK, http.StatusNotFound)
-	quitar.Description += " Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance (403). 422 `empresa_no_asignada`."
+	quitar.Description += " Solo empresas en que operas tú y usuarios cuyos permisos tienes sin límite de alcance y cuyas empresas son todas tuyas (403). 422 `empresa_no_asignada`."
 	huma.Register(api, quitar, func(ctx context.Context, in *conID[EntradaEmpresaUsuario]) (*cuerpo[Usuario], error) {
 		e := in.Body
 		e.UsuarioID = in.ID
 		return responder(m.QuitarEmpresaUsuario.Ejecutar(ctx, e))
+	})
+
+	adoptar := operacion("adoptarSinEmpresa", http.MethodPost, "/api/v1/empresas/{id}/adoptar-sin-empresa", "Asignar a una empresa los datos guardados sin empresa", nucleo.PermEmpresasAdoptar, http.StatusOK, http.StatusNotFound)
+	adoptar.Description += " Solo admin global (además, `empresas.todas` sin límite; 403 si no). Al registrar la primera empresa, los datos operativos guardados en modo sin conector (`empresa_id` null) dejan de verse; esta acción los asigna, en una transacción, a la empresa `{id}` en cada tabla operativa registrada. Emite `empresa.datos_adoptados`. `GET /yo` avisa con `hayDatosSinEmpresa`."
+	huma.Register(api, adoptar, func(ctx context.Context, in *soloID) (*cuerpo[DatosAdoptados], error) {
+		return responder(m.AdoptarSinEmpresa.Ejecutar(ctx, EntradaAdoptarSinEmpresa{ID: in.ID}))
 	})
 
 	// Roles y permisos ------------------------------------------------------------------
@@ -243,6 +260,12 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.RevocarToken.Ejecutar(ctx, e))
 		})
 }
+
+// descAdminPorEmpresa y descPorEmpresa documentan la regla de empresas en la administración.
+const (
+	descAdminPorEmpresa = "Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403)."
+	descPorEmpresa      = "Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo."
+)
 
 // descNoRepetible documenta las operaciones cuya respuesta lleva un secreto.
 const descNoRepetible = "La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`."

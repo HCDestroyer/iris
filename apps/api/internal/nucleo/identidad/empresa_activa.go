@@ -69,7 +69,7 @@ func MiddlewareEmpresa(log *slog.Logger) func(http.Handler) http.Handler {
 // ("" = no vino). Devuelve *nucleo.Problema 403 empresa_no_permitida si la cabecera no vale.
 func ResolverEmpresa(ctx context.Context, q *identidadbd.Queries, cabecera string) (contexto.Empresas, error) {
 	actor := contexto.ActorDe(ctx)
-	todas := contexto.PermisosDe(ctx).Tiene(string(nucleo.PermEmpresasTodas))
+	todas := todasGlobal(ctx) // con alcance de zona o cuadrilla no vale como «todas»
 	disponibles, err := q.EmpresasAccesibles(ctx, identidadbd.EmpresasAccesiblesParams{Todas: todas, UsuarioID: actor.ID})
 	if err != nil {
 		return contexto.Empresas{}, err

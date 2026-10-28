@@ -91,6 +91,10 @@ func Nuevo[In, Out any](c Caso[In, Out]) *Caso[In, Out] {
 	return &c
 }
 
+// ErrEmpresaNoResuelta: una acción operativa de un usuario llegó sin empresa resuelta
+// (contexto.EmpresasDe con Estado EmpresaNoResuelta). Responde 500 sin detalle.
+var ErrEmpresaNoResuelta = errors.New("auditoria: acción operativa de un usuario sin empresa resuelta")
+
 type claveCaso int
 
 const claveTxCaso claveCaso = 0
@@ -162,7 +166,16 @@ func (c *Caso[In, Out]) autorizar(ctx context.Context) error {
 			return nucleo.EmpresaRequerida()
 		case contexto.EmpresaSinAsignar:
 			return nucleo.SinEmpresa()
-		case contexto.EmpresaNoResuelta, contexto.EmpresaActiva, contexto.EmpresaSinConector:
+		case contexto.EmpresaNoResuelta:
+			// Fallar cerrado: un usuario, token o integración siempre llega con la empresa
+			// resuelta (middleware de empresa en HTTP; contexto.ConEmpresas en pruebas). Si no,
+			// es un error de cableado y correr con EmpresaDe = 0 sería «sin filtro».
+			if actor.EsUsuario() {
+				slog.ErrorContext(ctx, "auditoria: acción operativa de un usuario sin empresa resuelta",
+					"accion", c.Accion, "actor", actor.ID, "tipo", actor.Tipo)
+				return ErrEmpresaNoResuelta
+			}
+		case contexto.EmpresaActiva, contexto.EmpresaSinConector:
 		}
 	}
 	return nil

@@ -56,6 +56,7 @@ type Modulo struct {
 	EditarEmpresa         *auditoria.Caso[EntradaEditarEmpresa, Empresa]
 	AsignarEmpresaUsuario *auditoria.Caso[EntradaEmpresaUsuario, Usuario]
 	QuitarEmpresaUsuario  *auditoria.Caso[EntradaEmpresaUsuario, Usuario]
+	AdoptarSinEmpresa     *auditoria.Caso[EntradaAdoptarSinEmpresa, DatosAdoptados]
 
 	CrearToken   *auditoria.Caso[EntradaCrearToken, TokenCreado]
 	RevocarToken *auditoria.Caso[EntradaRevocarToken, TokenAPI]
@@ -100,6 +101,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.EditarEmpresa = nuevoEditarEmpresa()
 	m.AsignarEmpresaUsuario = nuevoCambiarEmpresaUsuario(true)
 	m.QuitarEmpresaUsuario = nuevoCambiarEmpresaUsuario(false)
+	m.AdoptarSinEmpresa = nuevoAdoptarSinEmpresa()
 	m.CrearToken = nuevoCrearToken()
 	m.RevocarToken = nuevoRevocarToken()
 	m.ListarTokens = nuevoListarTokens()

@@ -21,6 +21,8 @@ type Yo struct {
 	EmpresaActiva    *EmpresaResumen  `json:"empresaActiva,omitempty" doc:"Empresa activa de esta petición (X-Iris-Empresa o la única disponible); ausente si no hay"`
 	ModoEmpresa      string           `json:"modoEmpresa" enum:"activa,por_elegir,sin_empresa,sin_conector" doc:"activa: hay empresa activa; por_elegir: tiene varias y falta X-Iris-Empresa (lo operativo responde 422 empresa_requerida); sin_empresa: no tiene ninguna asignada (lo operativo responde 403 sin_empresa); sin_conector: no hay empresas registradas y se trabaja con empresa_id null"`
 	TodasLasEmpresas bool             `json:"todasLasEmpresas" doc:"Tiene empresas.todas (rol global)"`
+	// HayDatosSinEmpresa: para quien puede adoptarlos (admin global).
+	HayDatosSinEmpresa bool `json:"hayDatosSinEmpresa" doc:"Solo para admin global (empresas.adoptar): hay empresas registradas y quedan datos operativos con empresa_id null, que nadie ve; se asignan con POST /empresas/{id}/adoptar-sin-empresa. false para los demás"`
 }
 
 func nuevoObtenerYo() *auditoria.Caso[struct{}, Yo] {
@@ -71,6 +73,11 @@ func nuevoObtenerYo() *auditoria.Caso[struct{}, Yo] {
 			}
 			if actor.TokenID != 0 {
 				yo.TokenID = &actor.TokenID
+			}
+			if todasGlobal(ctx) && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermEmpresasAdoptar)) {
+				if yo.HayDatosSinEmpresa, err = hayDatosSinEmpresa(ctx, t); err != nil {
+					return Yo{}, err
+				}
 			}
 			return yo, nil
 		},

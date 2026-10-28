@@ -41,11 +41,15 @@ func entornoEmpresas(t *testing.T) *entorno {
 	t.Helper()
 	e := nuevoEntorno(t)
 	pool := pruebas.Pool(t)
-	for _, sql := range []string{"DELETE FROM nucleo.usuarios_empresas", "DELETE FROM nucleo.empresas"} {
-		if _, err := pool.Exec(context.Background(), sql); err != nil {
-			t.Fatal(err)
+	limpiar := func() {
+		for _, sql := range []string{"DELETE FROM nucleo.usuarios_empresas", "DELETE FROM nucleo.empresas"} {
+			if _, err := pool.Exec(context.Background(), sql); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
+	limpiar()
+	t.Cleanup(limpiar) // las demás pruebas del paquete corren en modo sin conector
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Identidad: e.mod, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){func(api huma.API) {
@@ -213,27 +217,44 @@ func TestEmpresaDeTokens(t *testing.T) {
 	lim.pedir(http.MethodGet, "/api/v1/prueba/empresa", nil, identidad.CabeceraEmpresa, "1").problema(t, 403, "empresa_no_permitida")
 }
 
-// Nadie da ni quita acceso a una empresa en que no opera.
+// Nadie da ni quita acceso a una empresa en que no opera, ni cambia las empresas de un usuario
+// que opera en alguna empresa ajena o en ninguna (revisión de empresa activa, punto 1).
 func TestAsignarEmpresaSoloPropia(t *testing.T) {
 	e := entornoEmpresas(t)
 	pool := pruebas.Pool(t)
 	ctx := pruebas.ContextoSistema(pool)
-	for id, nombre := range map[int64]string{1: "Uno", 2: "Dos"} {
+	for id, nombre := range map[int64]string{1: "Uno", 2: "Dos", 3: "Tres"} {
 		if _, err := e.mod.CrearEmpresa.Ejecutar(ctx, identidad.EntradaCrearEmpresa{ID: id, Nombre: nombre}); err != nil {
 			t.Fatal(err)
 		}
 	}
+	asignar := func(usuario int64, empresas ...int64) {
+		t.Helper()
+		for _, emp := range empresas {
+			if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(ctx, identidad.EntradaEmpresaUsuario{UsuarioID: usuario, EmpresaID: emp}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	idJefe, _ := e.usuario("lectura")
 	idOtro, _ := e.usuario("lectura")
-	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(ctx, identidad.EntradaEmpresaUsuario{UsuarioID: idJefe, EmpresaID: 1}); err != nil {
-		t.Fatal(err)
-	}
+	idSinEmpresa, _ := e.usuario("lectura")
+	idAjeno, _ := e.usuario("lectura")
+	asignar(idJefe, 1, 3)
+	asignar(idOtro, 1)
+	asignar(idAjeno, 2)
 	jefe := pruebas.ContextoUsuario(pool, idJefe, nucleo.PermUsuariosAsignarEmpresa)
 	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idOtro, EmpresaID: 2}); !esProblema(err, "prohibido") {
 		t.Fatalf("asignar una empresa ajena debía ser 403: %v", err)
 	}
-	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idOtro, EmpresaID: 1}); err != nil {
+	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idOtro, EmpresaID: 3}); err != nil {
 		t.Fatalf("asignar la propia: %v", err)
+	}
+	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idSinEmpresa, EmpresaID: 1}); !esProblema(err, "prohibido") {
+		t.Fatalf("a un usuario sin empresas solo le asigna un admin global: %v", err)
+	}
+	if _, err := e.mod.AsignarEmpresaUsuario.Ejecutar(jefe, identidad.EntradaEmpresaUsuario{UsuarioID: idAjeno, EmpresaID: 1}); !esProblema(err, "prohibido") {
+		t.Fatalf("a un usuario de otra empresa no se le asigna: %v", err)
 	}
 }
 

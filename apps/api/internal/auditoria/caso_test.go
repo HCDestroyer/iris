@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -311,5 +312,48 @@ func TestMascara(t *testing.T) {
 	}
 	if auditoria.SnakeCase("contrasenaHash") != "contrasena_hash" || auditoria.SnakeCase("usuarioID") != "usuario_id" {
 		t.Errorf("SnakeCase: %s %s", auditoria.SnakeCase("contrasenaHash"), auditoria.SnakeCase("usuarioID"))
+	}
+}
+
+// Revisión de la empresa activa, punto 5: una acción operativa de un usuario sin la empresa
+// resuelta falla cerrado (500 sin detalle) en vez de correr con EmpresaDe = 0; lo
+// administrativo (SinEmpresa) y el actor sistema corren igual.
+func TestOperativoSinEmpresaResueltaFallaCerrado(t *testing.T) {
+	pool := pruebas.Pool(t)
+	corrio := false
+	operativo := auditoria.Nuevo(auditoria.Caso[struct{}, int64]{
+		Accion: "sonda.operativa", Permiso: nucleo.PermClientesVer,
+		Logica: func(ctx context.Context, _ *auditoria.Tx, _ struct{}) (int64, error) {
+			corrio = true
+			return contexto.EmpresaDe(ctx), nil
+		},
+	})
+	admin := auditoria.Nuevo(auditoria.Caso[struct{}, int64]{
+		Accion: "sonda.admin", Permiso: nucleo.PermUsuariosVer, SinEmpresa: true,
+		Logica: func(context.Context, *auditoria.Tx, struct{}) (int64, error) { return 1, nil },
+	})
+	// Usuario sin pasar por el middleware ni por los ayudantes de prueba.
+	crudo := contexto.ConActor(context.Background(), contexto.Actor{Tipo: contexto.ActorToken, ID: 3, TokenID: 9},
+		contexto.NuevosPermisos(map[string][]contexto.Alcance{"clientes.ver": {{}}, "usuarios.ver": {{}}}))
+	crudo = nucleo.ConBD(contexto.ConRequestID(crudo, contexto.NuevoRequestID()), pool)
+	_, err := operativo.Ejecutar(crudo, struct{}{})
+	if !errors.Is(err, auditoria.ErrEmpresaNoResuelta) || corrio {
+		t.Fatalf("debía fallar sin correr: %v corrio=%v", err, corrio)
+	}
+	if p, interno := nucleo.AProblema(err); !interno || p.Status != http.StatusInternalServerError || strings.Contains(p.Detail, "empresa") {
+		t.Fatalf("problema: %+v interno=%v", p, interno)
+	}
+	if _, err := admin.Ejecutar(crudo, struct{}{}); err != nil {
+		t.Fatalf("lo administrativo corre: %v", err)
+	}
+	// Con estado resuelto (ayudantes de prueba) y con el actor sistema, corre.
+	if id, err := operativo.Ejecutar(pruebas.ContextoUsuario(pool, 3, nucleo.PermClientesVer), struct{}{}); err != nil || id != 0 {
+		t.Fatalf("sin conector: %d %v", id, err)
+	}
+	if id, err := operativo.Ejecutar(pruebas.ContextoUsuarioEnEmpresa(pool, 3, 7, nucleo.PermClientesVer), struct{}{}); err != nil || id != 7 {
+		t.Fatalf("con empresa: %d %v", id, err)
+	}
+	if _, err := operativo.Ejecutar(pruebas.ContextoSistema(pool), struct{}{}); err != nil {
+		t.Fatalf("sistema: %v", err)
 	}
 }
