@@ -30,6 +30,27 @@ describe("proxy /api → IRIS_API_URL", () => {
         expect(await r.json()).toEqual({ ok: true });
     });
 
+    it("no reenvía la IP que diga el navegador (X-Forwarded-For, X-Real-IP, Forwarded)", async () => {
+        let enviadas = new Headers();
+        const fetchFalso: typeof fetch = async (_url, init) => {
+            enviadas = new Headers(init?.headers);
+            return new Response("{}", { status: 200 });
+        };
+        const peticion = new Request("http://panel.test/api/v1/yo", {
+            headers: {
+                "X-Forwarded-For": "10.0.0.1, 203.0.113.9",
+                "X-Real-IP": "10.0.0.1",
+                Forwarded: "for=10.0.0.1",
+                "X-Iris-Empresa": "2",
+            },
+        });
+        await reenviar(peticion, fetchFalso, "http://api");
+        expect(enviadas.get("x-forwarded-for")).toBeNull();
+        expect(enviadas.get("x-real-ip")).toBeNull();
+        expect(enviadas.get("forwarded")).toBeNull();
+        expect(enviadas.get("x-iris-empresa")).toBe("2");
+    });
+
     it("conserva Retry-After del 429", async () => {
         const fetchFalso: typeof fetch = async () =>
             new Response("{}", { status: 429, headers: { "Retry-After": "60", "Content-Type": "application/problem+json" } });

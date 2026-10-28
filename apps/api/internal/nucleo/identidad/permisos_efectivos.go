@@ -39,8 +39,12 @@ func cargarPermisos(ctx context.Context, q *identidadbd.Queries, usuarioID int64
 // exigirSuperior aplica a un usuario existente la regla de resolverRoles: para tomar control
 // de su cuenta (contraseña, correo, tokens), quitarle roles o desactivarlo, quien actúa debe
 // tener sin límite de alcance cada permiso actual del objetivo. Así un admin de zona no toma
-// la cuenta de un admin global.
+// la cuenta de un admin global. Además, por empresa (exigirEmpresasDe): sin empresas.todas
+// global, solo usuarios cuyas empresas son todas del actor.
 func exigirSuperior(ctx context.Context, q *identidadbd.Queries, quien contexto.Permisos, objetivo int64, que string) error {
+	if err := exigirEmpresasDe(ctx, q, objetivo, que); err != nil {
+		return err
+	}
 	actuales, err := cargarPermisos(ctx, q, objetivo, nil)
 	if err != nil {
 		return err

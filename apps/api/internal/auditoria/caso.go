@@ -57,8 +57,20 @@ type Caso[In, Out any] struct {
 	Logica func(ctx context.Context, t *Tx, in In) (Out, error)
 	// AuditarExito decide si un resultado exitoso deja fila en auditoria.acciones (nil =
 	// siempre). Para lecturas sin datos sensibles o telemetría. Si la ejecución registró
-	// cambios, la fila se escribe igual. Los errores se auditan siempre.
+	// cambios, la fila se escribe igual. Los errores se auditan siempre, salvo AuditarError.
 	AuditarExito func(Out) bool
+	// AuditarError decide si un error deja fila en auditoria.acciones (nil = siempre). Solo para
+	// rechazos de anónimos en endpoints públicos (firma o código inválidos), que cualquiera
+	// puede provocar sin límite: auditarlos dejaría inundar la tabla. Quien la use debe contar
+	// o registrar en el log (con muestreo) lo que no audita. Los ganchos AlFallar corren igual.
+	AuditarError func(error) bool
+	// SinEmpresa marca una acción que no es operativa (administración de usuarios, roles,
+	// tokens, empresas y conectores): corre sin empresa activa. Las demás acciones con Acceso
+	// ConPermiso son operativas: si la petición pasó por el middleware de empresa y quedó sin
+	// elegir (varias empresas, sin X-Iris-Empresa) responden 422 empresa_requerida, y si el
+	// actor no tiene empresas, 403 sin_empresa. Así ningún caso de uso operativo corre con
+	// EmpresaDe = 0 «sin filtro» para un usuario.
+	SinEmpresa bool
 }
 
 // Nuevo valida la definición y devuelve el caso listo. Entra en pánico si está mal armado (se
@@ -78,6 +90,10 @@ func Nuevo[In, Out any](c Caso[In, Out]) *Caso[In, Out] {
 	}
 	return &c
 }
+
+// ErrEmpresaNoResuelta: una acción operativa de un usuario llegó sin empresa resuelta
+// (contexto.EmpresasDe con Estado EmpresaNoResuelta). Responde 500 sin detalle.
+var ErrEmpresaNoResuelta = errors.New("auditoria: acción operativa de un usuario sin empresa resuelta")
 
 type claveCaso int
 
@@ -118,7 +134,7 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 		return registrar(ctx, t, tx, c.Accion, t.entradaAuditada(entrada), nil)
 	})
 	if err != nil {
-		c.auditarError(ctx, t, entrada, err)
+		c.auditarError(ctx, t, entrada, err, c.AuditarError == nil || c.AuditarError(err))
 		var cero Out
 		return cero, err
 	}
@@ -144,6 +160,24 @@ func (c *Caso[In, Out]) autorizar(ctx context.Context) error {
 	if c.Acceso == ConPermiso && !contexto.PermisosDe(ctx).Tiene(string(c.Permiso)) {
 		return nucleo.Prohibido(fmt.Sprintf("Falta el permiso %s", c.Permiso))
 	}
+	if c.Acceso == ConPermiso && !c.SinEmpresa {
+		switch contexto.EmpresasDe(ctx).Estado {
+		case contexto.EmpresaPorElegir:
+			return nucleo.EmpresaRequerida()
+		case contexto.EmpresaSinAsignar:
+			return nucleo.SinEmpresa()
+		case contexto.EmpresaNoResuelta:
+			// Fallar cerrado: un usuario, token o integración siempre llega con la empresa
+			// resuelta (middleware de empresa en HTTP; contexto.ConEmpresas en pruebas). Si no,
+			// es un error de cableado y correr con EmpresaDe = 0 sería «sin filtro».
+			if actor.EsUsuario() {
+				slog.ErrorContext(ctx, "auditoria: acción operativa de un usuario sin empresa resuelta",
+					"accion", c.Accion, "actor", actor.ID, "tipo", actor.Tipo)
+				return ErrEmpresaNoResuelta
+			}
+		case contexto.EmpresaActiva, contexto.EmpresaSinConector:
+		}
+	}
 	return nil
 }
 
@@ -160,8 +194,12 @@ func (t *Tx) entradaAuditada(entrada any) any {
 }
 
 // auditarError escribe la fila de error en una transacción aparte (la de la acción ya se
-// revirtió). Nunca falla la petición: si no puede auditar, lo registra en el log.
-func (c *Caso[In, Out]) auditarError(ctx context.Context, t *Tx, entrada any, causa error) {
+// revirtió). Nunca falla la petición: si no puede auditar, lo registra en el log. Con
+// auditar = false solo corren los ganchos AlFallar (AuditarError).
+func (c *Caso[In, Out]) auditarError(ctx context.Context, t *Tx, entrada any, causa error, auditar bool) {
+	if !auditar && (t == nil || len(t.alFallar) == 0) {
+		return
+	}
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		slog.ErrorContext(ctx, "auditoria: sin base para auditar el error", "accion", c.Accion, "err", causa)
@@ -178,7 +216,9 @@ func (c *Caso[In, Out]) auditarError(ctx context.Context, t *Tx, entrada any, ca
 		for _, fn := range t.alFallar {
 			c.correrAlFallar(actx, tx, fn)
 		}
-		err = registrar(actx, t, tx, c.Accion, t.entradaAuditada(entrada), causa)
+		if auditar {
+			err = registrar(actx, t, tx, c.Accion, t.entradaAuditada(entrada), causa)
+		}
 		if err == nil {
 			err = tx.Commit(actx)
 		} else {

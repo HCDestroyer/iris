@@ -19,8 +19,9 @@ type EntradaDesactivarUsuario struct {
 
 func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaDesactivarUsuario, Usuario]{
-		Accion:  "usuarios.desactivar",
-		Permiso: nucleo.PermUsuariosDesactivar,
+		Accion:     "usuarios.desactivar",
+		Permiso:    nucleo.PermUsuariosDesactivar,
+		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaDesactivarUsuario) (Usuario, error) {
 			q := identidadbd.New(t)
 			t.FijarEntidad("usuario", in.ID)
@@ -55,7 +56,11 @@ func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 			if err := t.Emitir("usuario.desactivado", map[string]any{"usuario_id": in.ID, "motivo": in.Motivo}); err != nil {
 				return Usuario{}, err
 			}
-			return aUsuario(despues, roles[in.ID]), nil
+			empresas, err := empresasDe(ctx, q, in.ID)
+			if err != nil {
+				return Usuario{}, err
+			}
+			return aUsuario(despues, roles[in.ID], empresas[in.ID]), nil
 		},
 	})
 }
