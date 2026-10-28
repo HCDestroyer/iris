@@ -64,6 +64,11 @@ const (
 	PermIntegracionesVer        Permiso = "integraciones.ver"
 )
 
+// Portal de soporte (/soporte).
+const (
+	PermPortalEmitir Permiso = "portal.emitir"
+)
+
 // DefPermiso es una entrada del catálogo.
 type DefPermiso struct {
 	Codigo      Permiso
@@ -84,6 +89,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
+	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},

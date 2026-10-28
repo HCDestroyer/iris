@@ -198,11 +198,50 @@ type NucleoIntentosLogin struct {
 	UpdatedAt      time.Time
 }
 
+type NucleoIntentosPortal struct {
+	Ip             string
+	Fallos         int32
+	BloqueadoHasta *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type NucleoPermiso struct {
 	Codigo      string
 	Descripcion string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type NucleoPortalAcceso struct {
+	ID         int64
+	TicketHash []byte
+	ClienteID  int64
+	EmpresaID  int64
+	Nombre     string
+	EmitidoPor *int64
+	TokenID    *int64
+	ExpiraEn   time.Time
+	UsadoEn    *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type NucleoPortalSesione struct {
+	ID         int64
+	AccesoID   int64
+	ClienteID  int64
+	EmpresaID  int64
+	Nombre     string
+	TokenHash  []byte
+	CsrfHash   []byte
+	Ip         string
+	UserAgent  string
+	ExpiraEn   time.Time
+	UltimoUso  time.Time
+	RevocadaEn *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type NucleoRole struct {

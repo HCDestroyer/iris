@@ -1,0 +1,391 @@
+package servidor_test
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
+)
+
+// Portal de soporte: el cliente de Argos entra con un ticket de un solo uso y queda como actor
+// cliente, aislado del panel y de las otras empresas.
+
+// sondaCliente es un caso de uso del portal (como los que escribirá I2) que devuelve la empresa
+// y el canal con que corrió.
+var sondaCliente = auditoria.Nuevo(auditoria.Caso[struct{}, string]{
+	Accion: "sonda.portal", Acceso: auditoria.Cliente,
+	AuditarExito: func(string) bool { return false },
+	Logica: func(ctx context.Context, _ *auditoria.Tx, _ struct{}) (string, error) {
+		a := contexto.ActorDe(ctx)
+		return string(contexto.CanalDe(ctx)) + ":" + itoa(contexto.EmpresaDe(ctx)) + ":" + itoa(a.ClienteID), nil
+	},
+})
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+type salidaTexto struct {
+	Body struct {
+		Valor string `json:"valor"`
+	}
+}
+
+// entornoPortal: empresas 1 y 2 registradas, soporte montado (para probar que el cliente no
+// llega a /tickets) y sondas en /api/v1/portal/prueba/…: una del portal (Acceso Cliente) y una
+// operativa (ConPermiso).
+func entornoPortal(t *testing.T, cfg identidad.Config) *entorno {
+	t.Helper()
+	pool := pruebas.Pool(t)
+	limpiar := func() {
+		for _, sql := range []string{
+			"DELETE FROM nucleo.portal_sesiones", "DELETE FROM nucleo.portal_accesos", "DELETE FROM nucleo.intentos_portal",
+			"DELETE FROM integracion.argos_clientes WHERE id = 88",
+			"DELETE FROM nucleo.usuarios_empresas", "DELETE FROM nucleo.empresas",
+		} {
+			if _, err := pool.Exec(context.Background(), sql); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	limpiar()
+	t.Cleanup(limpiar) // las demás pruebas del paquete corren en modo sin conector
+	clave := make([]byte, 32)
+	_, _ = rand.Read(clave)
+	cif, err := nucleo.NuevoCifrador(base64.StdEncoding.EncodeToString(clave))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Cifrador = cif
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://iris.prueba"
+	}
+	mod := identidad.Nuevo(cfg)
+	ctx := pruebas.ContextoSistema(pool)
+	for id, nombre := range map[int64]string{1: "Uno", 2: "Dos"} {
+		if _, err := mod.CrearEmpresa.Ejecutar(ctx, identidad.EntradaCrearEmpresa{ID: id, Nombre: nombre}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sondaRuta := func(id, ruta string, fn func(context.Context) (string, error)) func(huma.API) {
+		return func(api huma.API) {
+			huma.Register(api, huma.Operation{OperationID: id, Method: http.MethodGet, Path: ruta},
+				func(ctx context.Context, _ *struct{}) (*salidaTexto, error) {
+					v, err := fn(ctx)
+					if err != nil {
+						return nil, err
+					}
+					s := &salidaTexto{}
+					s.Body.Valor = v
+					return s, nil
+				})
+		}
+	}
+	h, _ := servidor.Nuevo(servidor.Deps{
+		BD: pool, Identidad: mod, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Modulos: []func(huma.API){
+			soporte.Nuevo(soporte.Config{}).Registrar,
+			sondaRuta("sondaPortal", "/api/v1/portal/prueba/cliente", func(ctx context.Context) (string, error) {
+				return sondaCliente.Ejecutar(ctx, struct{}{})
+			}),
+			sondaRuta("sondaPanelEnPortal", "/api/v1/portal/prueba/panel", func(ctx context.Context) (string, error) {
+				id, err := sonda.Ejecutar(ctx, struct{}{})
+				return itoa(id), err
+			}),
+		},
+	})
+	e := &entorno{t: t, srv: httptest.NewServer(h), mod: mod}
+	t.Cleanup(e.srv.Close)
+	return e
+}
+
+// argos crea el usuario de integración «Argos» (rol admin, empresa 1) y un cliente HTTP con un
+// token suyo limitado a los permisos dados (como se configura el conector del lado de Iris).
+func (e *entorno) argos(permisos ...nucleo.Permiso) *cliente {
+	e.t.Helper()
+	ctx := pruebas.ContextoSistema(pruebas.Pool(e.t))
+	u, err := e.mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{
+		Nombre: "Argos", Correo: pruebas.Correo("argos"), Tipo: "integracion",
+		Roles: []identidad.AsignacionRol{{Rol: "admin"}}, Empresas: []int64{1},
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	tk, err := e.mod.CrearToken.Ejecutar(ctx, identidad.EntradaCrearToken{UsuarioID: u.ID, Nombre: "portal", Permisos: permisos})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	c := e.cliente()
+	c.bearer = tk.Valor
+	return c
+}
+
+// emitir pide un acceso al portal y devuelve el ticket (lo que sigue a #).
+func emitir(t *testing.T, argos *cliente, clienteID, empresaID int64) string {
+	t.Helper()
+	r := argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": clienteID, "empresaId": empresaID, "nombre": "Ana Pérez"})
+	if r.status != http.StatusCreated {
+		t.Fatalf("emitir: %d %s", r.status, r.crudo)
+	}
+	url, _ := r.cuerpo["url"].(string)
+	base, ticket, ok := strings.Cut(url, "#")
+	if !ok || base != "https://iris.prueba/soporte/entrar" || len(ticket) < 40 {
+		t.Fatalf("url de acceso inesperada: %q", url)
+	}
+	return ticket
+}
+
+// entrarPortal canjea el ticket con un navegador nuevo; guarda el CSRF del portal.
+func (e *entorno) entrarPortal(ticket string) (*cliente, respuesta) {
+	e.t.Helper()
+	c := e.cliente()
+	r := c.pedir(http.MethodPost, "/api/v1/portal/sesion", map[string]any{"ticket": ticket})
+	if r.status == http.StatusOK {
+		c.csrf, _ = r.cuerpo["csrfToken"].(string)
+	}
+	return c, r
+}
+
+func TestPortalEmitirYEntrar(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false})
+	argos := e.argos(nucleo.PermPortalEmitir)
+
+	// Emitir: con permiso, solo para sus empresas; sin permiso, 403.
+	ticket := emitir(t, argos, 77, 1)
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 2}).problema(t, 403, "empresa_no_permitida")
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 1}, identidad.CabeceraEmpresa, "2").
+		problema(t, 403, "empresa_no_permitida")
+	e.argos(nucleo.PermTicketsVer).pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 1}).
+		problema(t, 403, "prohibido")
+	e.cliente().pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 1}).
+		problema(t, 401, "no_autenticado")
+	// Si Iris ya conoce al cliente (instantánea de Argos) y es de otra empresa, 422.
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		`INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (88, 2, 'Otro', now())`); err != nil {
+		t.Fatal(err)
+	}
+	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 88, "empresaId": 1}).problema(t, 422, "empresa_no_coincide")
+	// El ticket no se guarda en claro.
+	var enClaro int
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		`SELECT count(*) FROM nucleo.portal_accesos WHERE encode(ticket_hash, 'escape') LIKE '%' || $1 || '%'`, ticket).Scan(&enClaro); err != nil || enClaro != 0 {
+		t.Fatalf("ticket en claro: %d %v", enClaro, err)
+	}
+
+	// Canje: cookie propia HttpOnly + SameSite=Lax y CSRF de doble envío.
+	portal, r := e.entrarPortal(ticket)
+	if r.status != 200 || portal.csrf == "" {
+		t.Fatalf("entrar: %d %s", r.status, r.crudo)
+	}
+	cli := r.cuerpo["cliente"].(map[string]any)
+	if cli["clienteId"] != float64(77) || cli["empresaId"] != float64(1) || cli["nombre"] != "Ana Pérez" {
+		t.Fatalf("cliente de la sesión: %v", cli)
+	}
+	var setCookie string
+	for _, v := range r.h.Values("Set-Cookie") {
+		if strings.HasPrefix(v, identidad.CookiePortal+"=") {
+			setCookie = v
+		}
+	}
+	if !strings.Contains(setCookie, "HttpOnly") || !strings.Contains(setCookie, "SameSite=Lax") || !strings.Contains(setCookie, "Path=/") {
+		t.Fatalf("cookie del portal: %s", setCookie)
+	}
+	if k := portal.cookie(identidad.CookiePortal); k == nil || strings.Contains(string(r.crudo), k.Value) {
+		t.Fatal("falta la cookie iris_portal o su valor salió en el cuerpo")
+	}
+	if k := portal.cookie(identidad.CookiePortalCSRF); k == nil || k.Value != portal.csrf {
+		t.Fatal("falta la cookie iris_portal_csrf")
+	}
+	if portal.cookie(identidad.CookieSesion) != nil {
+		t.Fatal("el portal no debe abrir una sesión del panel")
+	}
+	// Auditado con el actor cliente (actor_id = id del cliente en Argos) y su empresa.
+	var actor, canal string
+	var actorID, empresa int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		`SELECT actor_tipo, actor_id, empresa_id, canal FROM auditoria.acciones WHERE accion = 'portal.entrar' ORDER BY id DESC LIMIT 1`).
+		Scan(&actor, &actorID, &empresa, &canal); err != nil || actor != "cliente" || actorID != 77 || empresa != 1 {
+		t.Fatalf("auditoría del canje: %s %d %d %s %v", actor, actorID, empresa, canal, err)
+	}
+
+	// Un solo uso: el mismo ticket ya no entra; uno vencido tampoco.
+	_, r = e.entrarPortal(ticket)
+	r.problema(t, 401, "ticket_invalido")
+	vencido := emitir(t, argos, 77, 1)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE nucleo.portal_accesos SET expira_en = now() - interval '1 second' WHERE usado_en IS NULL`); err != nil {
+		t.Fatal(err)
+	}
+	_, r = e.entrarPortal(vencido)
+	r.problema(t, 401, "ticket_invalido")
+
+	// La sesión del portal.
+	r = portal.pedir(http.MethodGet, "/api/v1/portal/sesion", nil)
+	if r.status != 200 || r.cuerpo["cliente"].(map[string]any)["clienteId"] != float64(77) {
+		t.Fatalf("sesión del portal: %d %s", r.status, r.crudo)
+	}
+	// Un caso del portal corre con canal portal y la empresa de la sesión.
+	r = portal.pedir(http.MethodGet, "/api/v1/portal/prueba/cliente", nil)
+	if r.status != 200 || r.cuerpo["valor"] != "portal:1:77" {
+		t.Fatalf("sonda del portal: %d %s", r.status, r.crudo)
+	}
+	if r := portal.pedir(http.MethodGet, "/api/v1/portal/prueba/cliente", nil, identidad.CabeceraEmpresa, "1"); r.status != 200 {
+		t.Fatalf("con su propia empresa: %d %s", r.status, r.crudo)
+	}
+
+	// Cerrar: exige el CSRF del portal.
+	sinCSRF := *portal
+	sinCSRF.csrf = ""
+	sinCSRF.pedir(http.MethodDelete, "/api/v1/portal/sesion", nil).problema(t, 403, "csrf_invalido")
+	otro := *portal
+	otro.csrf = "no-es-el-csrf-del-portal"
+	otro.pedir(http.MethodDelete, "/api/v1/portal/sesion", nil).problema(t, 403, "csrf_invalido")
+	if r := portal.pedir(http.MethodDelete, "/api/v1/portal/sesion", nil); r.status != http.StatusNoContent {
+		t.Fatalf("cerrar: %d %s", r.status, r.crudo)
+	}
+	portal.pedir(http.MethodGet, "/api/v1/portal/sesion", nil).problema(t, 401, "no_autenticado")
+}
+
+func TestPortalCookieSegura(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: true})
+	argos := e.argos(nucleo.PermPortalEmitir)
+	_, r := e.entrarPortal(emitir(t, argos, 77, 1))
+	if r.status != 200 {
+		t.Fatalf("entrar: %d %s", r.status, r.crudo)
+	}
+	for _, v := range r.h.Values("Set-Cookie") {
+		if strings.HasPrefix(v, "iris_portal") && !strings.Contains(v, "Secure") {
+			t.Fatalf("cookie sin Secure: %s", v)
+		}
+	}
+}
+
+// El actor cliente no llega al panel: ni a /tickets, /usuarios o /yo (la cookie del portal no
+// cuenta fuera de /api/v1/portal/), ni a una acción del panel montada bajo /portal (403), ni a
+// otra empresa.
+func TestPortalAislamientoDelActorCliente(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false})
+	portal, r := e.entrarPortal(emitir(t, e.argos(nucleo.PermPortalEmitir), 77, 1))
+	if r.status != 200 {
+		t.Fatalf("entrar: %d %s", r.status, r.crudo)
+	}
+	for _, ruta := range []string{"/api/v1/tickets", "/api/v1/usuarios", "/api/v1/yo", "/api/v1/empresas", "/api/v1/tokens"} {
+		portal.pedir(http.MethodGet, ruta, nil).problema(t, 401, "no_autenticado")
+	}
+	portal.pedir(http.MethodPost, "/api/v1/tickets", map[string]any{"asunto": "Desde el portal"}).problema(t, 401, "no_autenticado")
+	portal.pedir(http.MethodGet, "/api/v1/portal/prueba/panel", nil).problema(t, 403, "prohibido")
+	portal.pedir(http.MethodGet, "/api/v1/portal/prueba/cliente", nil, identidad.CabeceraEmpresa, "2").problema(t, 403, "empresa_no_permitida")
+	portal.pedir(http.MethodGet, "/api/v1/portal/sesion", nil, identidad.CabeceraEmpresa, "x").problema(t, 403, "empresa_no_permitida")
+
+	// Directo a los casos de uso: el actor cliente solo pasa por Acceso Cliente.
+	ctx := pruebas.ContextoCliente(pruebas.Pool(t), 77, 1)
+	if _, err := soporte.Nuevo(soporte.Config{}).ListarTickets.Ejecutar(ctx, soporte.EntradaListarTickets{}); !esProblema(err, "prohibido") {
+		t.Fatalf("listar tickets como cliente: %v", err)
+	}
+	if _, err := e.mod.ObtenerYo.Ejecutar(ctx, struct{}{}); !esProblema(err, "prohibido") {
+		t.Fatalf("yo como cliente (Autenticado): %v", err)
+	}
+	if _, err := e.mod.ListarUsuarios.Ejecutar(ctx, identidad.EntradaListarUsuarios{}); !esProblema(err, "prohibido") {
+		t.Fatalf("usuarios como cliente: %v", err)
+	}
+	// Una persona del panel no usa los casos del portal: su sesión no cuenta en /api/v1/portal/
+	// y, directo al caso de uso, 403.
+	_, correo := e.usuario("admin")
+	panel := e.cliente()
+	if r := panel.entrar(correo); r.status != 200 {
+		t.Fatalf("login: %d %s", r.status, r.crudo)
+	}
+	panel.pedir(http.MethodGet, "/api/v1/portal/sesion", nil).problema(t, 401, "no_autenticado")
+	panel.pedir(http.MethodGet, "/api/v1/portal/prueba/cliente", nil).problema(t, 401, "no_autenticado")
+	if _, err := sondaCliente.Ejecutar(pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), 1, 1, nucleo.PermTicketsVer), struct{}{}); !esProblema(err, "prohibido") {
+		t.Fatalf("sonda del portal con un usuario: %v", err)
+	}
+	if _, err := sondaCliente.Ejecutar(nucleo.ConBD(context.Background(), pruebas.Pool(t)), struct{}{}); !esProblema(err, "no_autenticado") {
+		t.Fatalf("sonda del portal anónima: %v", err)
+	}
+	// Con las dos cookies en el mismo navegador (sin el CSRF del panel), el portal entra; en
+	// /api/v1/portal/ cuenta la del portal y en el panel la del panel.
+	ambos := e.cliente()
+	ambos.http.Jar = panel.http.Jar
+	_, r = ambos.entrarPortalCon(emitir(t, e.argos(nucleo.PermPortalEmitir), 78, 1))
+	if r.status != 200 {
+		t.Fatalf("entrar con sesión del panel: %d %s", r.status, r.crudo)
+	}
+	if r := ambos.pedir(http.MethodGet, "/api/v1/portal/prueba/cliente", nil); r.status != 200 || r.cuerpo["valor"] != "portal:1:78" {
+		t.Fatalf("portal con las dos cookies: %d %s", r.status, r.crudo)
+	}
+	if r := ambos.pedir(http.MethodGet, "/api/v1/yo", nil); r.status != 200 || r.cuerpo["actor"] != "usuario" {
+		t.Fatalf("panel con las dos cookies: %d %s", r.status, r.crudo)
+	}
+}
+
+func (c *cliente) entrarPortalCon(ticket string) (*cliente, respuesta) {
+	c.t.Helper()
+	r := c.pedir(http.MethodPost, "/api/v1/portal/sesion", map[string]any{"ticket": ticket})
+	return c, r
+}
+
+func TestPortalLimiteDeIntentos(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false, PortalMaxFallos: 3})
+	argos := e.argos(nucleo.PermPortalEmitir)
+	contar := func() int {
+		var n int
+		if err := pruebas.Pool(t).QueryRow(context.Background(),
+			`SELECT count(*) FROM auditoria.acciones WHERE accion = 'portal.entrar' AND resultado = 'error'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	antes, rechazos := contar(), e.mod.RechazosPortalSinAuditar()
+	for range 3 {
+		_, r := e.entrarPortal("ticket-inventado-0123456789abcdef")
+		r.problema(t, 401, "ticket_invalido")
+	}
+	valido := emitir(t, argos, 77, 1)
+	_, r := e.entrarPortal(valido)
+	r.problema(t, 429, "demasiados_intentos")
+	if r.h.Get("Retry-After") == "" {
+		t.Fatal("falta Retry-After")
+	}
+	// Rechazos anónimos: sin fila de auditoría, contados.
+	if contar() != antes || e.mod.RechazosPortalSinAuditar()-rechazos != 4 {
+		t.Fatalf("auditados %d, contados %d", contar()-antes, e.mod.RechazosPortalSinAuditar()-rechazos)
+	}
+	// El ticket válido no se gastó: vencido el bloqueo, entra.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE nucleo.intentos_portal SET bloqueado_hasta = now() - interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, r := e.entrarPortal(valido); r.status != 200 {
+		t.Fatalf("tras el bloqueo: %d %s", r.status, r.crudo)
+	}
+}
+
+// iris portal acceso (consola): el actor sistema emite para una empresa registrada.
+func TestPortalEmitirDesdeConsola(t *testing.T) {
+	e := entornoPortal(t, identidad.Config{CookieSegura: false})
+	ctx := pruebas.ContextoSistema(pruebas.Pool(t))
+	a, err := e.mod.EmitirAccesoPortal.Ejecutar(ctx, identidad.EntradaEmitirAccesoPortal{ClienteID: 5, EmpresaID: 2})
+	if err != nil || !strings.HasPrefix(a.URL, "https://iris.prueba/soporte/entrar#") {
+		t.Fatalf("consola: %+v %v", a, err)
+	}
+	if _, err := e.mod.EmitirAccesoPortal.Ejecutar(ctx, identidad.EntradaEmitirAccesoPortal{ClienteID: 5, EmpresaID: 999}); !esProblema(err, "empresa_no_registrada") {
+		t.Fatalf("empresa no registrada: %v", err)
+	}
+	_, ticket, _ := strings.Cut(a.URL, "#")
+	if _, r := e.entrarPortal(ticket); r.status != 200 || r.cuerpo["cliente"].(map[string]any)["empresaId"] != float64(2) {
+		t.Fatalf("entrar con el acceso de consola: %d %s", r.status, r.crudo)
+	}
+}

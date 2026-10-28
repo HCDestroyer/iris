@@ -49,6 +49,8 @@ type Config struct {
 	HorusRedesPermitidas []netip.Prefix
 	// IRIS_HORUS_TIMEOUT: tiempo máximo de cada llamada a Horus (5s).
 	HorusTimeout time.Duration
+	// IRIS_DURACION_SESION_PORTAL: vida de una sesión del portal de soporte (2h).
+	DuracionSesionPortal time.Duration
 	// IRIS_WEBHOOK_VENTANA: desfase máximo aceptado en X-Webhook-Timestamp (5m).
 	WebhookVentana time.Duration
 	// IRIS_CONECTORES_PERMITIR_HTTP: acepta conectores con base_url http:// (solo desarrollo;
@@ -73,7 +75,8 @@ func Cargar() (Config, error) {
 		ArgosTimeout:        5 * time.Second,
 		HorusTimeout:        5 * time.Second,
 
-		WebhookVentana: 5 * time.Minute,
+		DuracionSesionPortal: 2 * time.Hour,
+		WebhookVentana:       5 * time.Minute,
 	}
 	var errs []string
 	if c.DBURL == "" {
@@ -135,7 +138,7 @@ func Cargar() (Config, error) {
 		"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo,
 		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,
 		"IRIS_ARGOS_TIMEOUT":        &c.ArgosTimeout, "IRIS_WEBHOOK_VENTANA": &c.WebhookVentana,
-		"IRIS_HORUS_TIMEOUT": &c.HorusTimeout,
+		"IRIS_HORUS_TIMEOUT": &c.HorusTimeout, "IRIS_DURACION_SESION_PORTAL": &c.DuracionSesionPortal,
 	} {
 		if v := os.Getenv(nombre); v != "" {
 			d, err := time.ParseDuration(v)

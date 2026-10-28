@@ -6,6 +6,7 @@
 package identidad
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -30,11 +31,27 @@ type Config struct {
 	LoginBloqueo   time.Duration
 	// MFAMaxFallos: códigos TOTP inválidos que revocan la sesión pendiente (5 por defecto).
 	MFAMaxFallos int32
+
+	// Portal de soporte (portal.go).
+	// BaseURL pública de Iris (IRIS_BASE_URL): la URL de entrada al portal que se entrega a
+	// Argos es <BaseURL>/soporte/entrar#<ticket> (vacía = relativa).
+	BaseURL string
+	// DuracionSesionPortal: vida absoluta de una sesión del portal (2 h).
+	DuracionSesionPortal time.Duration
+	// VigenciaAccesoPortal: vida del ticket de acceso (60 s, un solo uso).
+	VigenciaAccesoPortal time.Duration
+	// PortalMaxFallos: canjes fallidos de una IP (dentro de PortalVentana) que la bloquean
+	// durante PortalBloqueo. 20, 15 min y 15 min por defecto.
+	PortalMaxFallos int32
+	PortalVentana   time.Duration
+	PortalBloqueo   time.Duration
 }
 
 // Modulo reúne los casos de uso de identidad.
 type Modulo struct {
 	cfg Config
+	// rechazosPortal cuenta los canjes del portal rechazados sin auditar (401, 429).
+	rechazosPortal atomic.Int64
 
 	CrearUsuario      *auditoria.Caso[EntradaCrearUsuario, Usuario]
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
@@ -61,6 +78,11 @@ type Modulo struct {
 	CrearToken   *auditoria.Caso[EntradaCrearToken, TokenCreado]
 	RevocarToken *auditoria.Caso[EntradaRevocarToken, TokenAPI]
 	ListarTokens *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]
+
+	EmitirAccesoPortal  *auditoria.Caso[EntradaEmitirAccesoPortal, AccesoPortalEmitido]
+	EntrarPortal        *auditoria.Caso[EntradaEntrarPortal, SesionPortal]
+	ObtenerSesionPortal *auditoria.Caso[struct{}, SesionPortalActual]
+	CerrarSesionPortal  *auditoria.Caso[struct{}, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -82,6 +104,21 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	if cfg.MFAMaxFallos <= 0 {
 		cfg.MFAMaxFallos = 5
+	}
+	if cfg.DuracionSesionPortal <= 0 {
+		cfg.DuracionSesionPortal = 2 * time.Hour
+	}
+	if cfg.VigenciaAccesoPortal <= 0 {
+		cfg.VigenciaAccesoPortal = 60 * time.Second
+	}
+	if cfg.PortalMaxFallos <= 0 {
+		cfg.PortalMaxFallos = 20
+	}
+	if cfg.PortalVentana <= 0 {
+		cfg.PortalVentana = 15 * time.Minute
+	}
+	if cfg.PortalBloqueo <= 0 {
+		cfg.PortalBloqueo = 15 * time.Minute
 	}
 	m := &Modulo{cfg: cfg}
 	m.CrearUsuario = nuevoCrearUsuario()
@@ -105,6 +142,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.CrearToken = nuevoCrearToken()
 	m.RevocarToken = nuevoRevocarToken()
 	m.ListarTokens = nuevoListarTokens()
+	m.EmitirAccesoPortal = nuevoEmitirAccesoPortal(cfg)
+	m.EntrarPortal = nuevoEntrarPortal(m)
+	m.ObtenerSesionPortal = nuevoObtenerSesionPortal()
+	m.CerrarSesionPortal = nuevoCerrarSesionPortal()
 	return m
 }
 

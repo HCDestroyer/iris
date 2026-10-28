@@ -3,6 +3,7 @@
 //	iris                    servidor HTTP (también `iris servir`)
 //	iris migrar             migraciones goose + River y sincroniza permisos y roles base
 //	iris admin crear --correo admin@isp.gt --nombre "Admin" [--contrasena-stdin]
+//	iris portal acceso --cliente <id> --empresa <id> [--nombre "Ana"]   URL de entrada al portal
 package main
 
 import (
@@ -70,8 +71,13 @@ func correr(args []string) error {
 			return errors.New("uso: iris admin crear --correo <correo> --nombre <nombre> [--contrasena-stdin]")
 		}
 		return crearAdmin(ctx, cfg, args[1:])
+	case "portal":
+		if len(args) == 0 || args[0] != "acceso" {
+			return errors.New(usoPortal)
+		}
+		return accesoPortal(ctx, cfg, args[1:])
 	}
-	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear)", orden)
+	return fmt.Errorf("orden desconocida %q (servir, migrar, admin crear, portal acceso)", orden)
 }
 
 func conectar(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
@@ -94,7 +100,10 @@ func modulo(cfg config.Config) (*identidad.Modulo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return identidad.Nuevo(identidad.Config{DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c}), nil
+	return identidad.Nuevo(identidad.Config{
+		DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c,
+		BaseURL: cfg.BaseURL, DuracionSesionPortal: cfg.DuracionSesionPortal,
+	}), nil
 }
 
 // configArgos arma la configuración del conector Argos desde el entorno.
@@ -246,5 +255,42 @@ func crearAdmin(ctx context.Context, cfg config.Config, args []string) error {
 	if generada {
 		fmt.Printf("Contraseña (no se vuelve a mostrar): %s\n", contrasena)
 	}
+	return nil
+}
+
+const usoPortal = "uso: iris portal acceso --cliente <id de Argos> --empresa <id de Argos> [--nombre <nombre>]"
+
+// accesoPortal emite la URL de entrada al portal de soporte para un cliente de Argos, como lo
+// haría Argos con portal.emitir (pruebas locales sin Argos). Solo con acceso a la base: corre
+// como actor sistema, por el mismo caso de uso (auditado). La empresa debe estar registrada.
+func accesoPortal(ctx context.Context, cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("portal acceso", flag.ContinueOnError)
+	cliente := fs.Int64("cliente", 0, "id del cliente en Argos")
+	empresa := fs.Int64("empresa", 0, "id de la empresa en Argos (registrada en Iris)")
+	nombre := fs.String("nombre", "", "nombre a mostrar en el portal")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *cliente <= 0 || *empresa <= 0 {
+		return errors.New(usoPortal)
+	}
+	pool, err := conectar(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := identidad.SincronizarCatalogo(ctx, pool); err != nil {
+		return err
+	}
+	id, err := modulo(cfg)
+	if err != nil {
+		return err
+	}
+	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	a, err := id.EmitirAccesoPortal.Ejecutar(cctx, identidad.EntradaEmitirAccesoPortal{ClienteID: *cliente, EmpresaID: *empresa, Nombre: *nombre})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Acceso al portal (un solo uso, vence %s):\n%s\n", a.ExpiraEn.Format(time.RFC3339), a.URL)
 	return nil
 }

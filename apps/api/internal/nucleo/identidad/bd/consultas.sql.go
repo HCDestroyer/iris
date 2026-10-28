@@ -159,6 +159,21 @@ func (q *Queries) BloquearLogin(ctx context.Context, arg BloquearLoginParams) er
 	return err
 }
 
+const bloquearPortal = `-- name: BloquearPortal :exec
+UPDATE nucleo.intentos_portal SET fallos = 0, bloqueado_hasta = $1, updated_at = now()
+WHERE ip = $2
+`
+
+type BloquearPortalParams struct {
+	Hasta *time.Time
+	Ip    string
+}
+
+func (q *Queries) BloquearPortal(ctx context.Context, arg BloquearPortalParams) error {
+	_, err := q.db.Exec(ctx, bloquearPortal, arg.Hasta, arg.Ip)
+	return err
+}
+
 const bloqueoLogin = `-- name: BloqueoLogin :one
 
 SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_login
@@ -168,6 +183,18 @@ WHERE correo = $1 AND bloqueado_hasta > now()
 // Límites de intentos -------------------------------------------------------
 func (q *Queries) BloqueoLogin(ctx context.Context, correo string) (time.Time, error) {
 	row := q.db.QueryRow(ctx, bloqueoLogin, correo)
+	var bloqueado_hasta time.Time
+	err := row.Scan(&bloqueado_hasta)
+	return bloqueado_hasta, err
+}
+
+const bloqueoPortal = `-- name: BloqueoPortal :one
+SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_portal
+WHERE ip = $1 AND bloqueado_hasta > now()
+`
+
+func (q *Queries) BloqueoPortal(ctx context.Context, ip string) (time.Time, error) {
+	row := q.db.QueryRow(ctx, bloqueoPortal, ip)
 	var bloqueado_hasta time.Time
 	err := row.Scan(&bloqueado_hasta)
 	return bloqueado_hasta, err
@@ -195,6 +222,51 @@ func (q *Queries) CompletarMFASesion(ctx context.Context, id int64) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const crearAccesoPortal = `-- name: CrearAccesoPortal :one
+
+INSERT INTO nucleo.portal_accesos (ticket_hash, cliente_id, empresa_id, nombre, emitido_por, token_id, expira_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, ticket_hash, cliente_id, empresa_id, nombre, emitido_por, token_id, expira_en, usado_en, created_at, updated_at
+`
+
+type CrearAccesoPortalParams struct {
+	TicketHash []byte
+	ClienteID  int64
+	EmpresaID  int64
+	Nombre     string
+	EmitidoPor *int64
+	TokenID    *int64
+	ExpiraEn   time.Time
+}
+
+// Portal de soporte (actor cliente) -----------------------------------------------
+func (q *Queries) CrearAccesoPortal(ctx context.Context, arg CrearAccesoPortalParams) (NucleoPortalAcceso, error) {
+	row := q.db.QueryRow(ctx, crearAccesoPortal,
+		arg.TicketHash,
+		arg.ClienteID,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.EmitidoPor,
+		arg.TokenID,
+		arg.ExpiraEn,
+	)
+	var i NucleoPortalAcceso
+	err := row.Scan(
+		&i.ID,
+		&i.TicketHash,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.EmitidoPor,
+		&i.TokenID,
+		&i.ExpiraEn,
+		&i.UsadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const crearEmpresa = `-- name: CrearEmpresa :one
@@ -267,6 +339,56 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MfaFallos,
+	)
+	return i, err
+}
+
+const crearSesionPortal = `-- name: CrearSesionPortal :one
+INSERT INTO nucleo.portal_sesiones (acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at
+`
+
+type CrearSesionPortalParams struct {
+	AccesoID  int64
+	ClienteID int64
+	EmpresaID int64
+	Nombre    string
+	TokenHash []byte
+	CsrfHash  []byte
+	Ip        string
+	UserAgent string
+	ExpiraEn  time.Time
+}
+
+func (q *Queries) CrearSesionPortal(ctx context.Context, arg CrearSesionPortalParams) (NucleoPortalSesione, error) {
+	row := q.db.QueryRow(ctx, crearSesionPortal,
+		arg.AccesoID,
+		arg.ClienteID,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.TokenHash,
+		arg.CsrfHash,
+		arg.Ip,
+		arg.UserAgent,
+		arg.ExpiraEn,
+	)
+	var i NucleoPortalSesione
+	err := row.Scan(
+		&i.ID,
+		&i.AccesoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.TokenHash,
+		&i.CsrfHash,
+		&i.Ip,
+		&i.UserAgent,
+		&i.ExpiraEn,
+		&i.UltimoUso,
+		&i.RevocadaEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -424,6 +546,18 @@ func (q *Queries) EditarEmpresa(ctx context.Context, arg EditarEmpresaParams) (N
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const empresaDeClienteArgos = `-- name: EmpresaDeClienteArgos :one
+SELECT empresa_id FROM integracion.argos_clientes WHERE id = $1
+`
+
+// Empresa del cliente según la instantánea de Argos (sin fila si Iris nunca lo leyó).
+func (q *Queries) EmpresaDeClienteArgos(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, empresaDeClienteArgos, id)
+	var empresa_id int64
+	err := row.Scan(&empresa_id)
+	return empresa_id, err
 }
 
 const empresaPorID = `-- name: EmpresaPorID :one
@@ -1044,6 +1178,28 @@ func (q *Queries) RegistrarFalloMFA(ctx context.Context, id int64) (int32, error
 	return mfa_fallos, err
 }
 
+const registrarFalloPortal = `-- name: RegistrarFalloPortal :one
+INSERT INTO nucleo.intentos_portal (ip, fallos) VALUES ($1, 1)
+ON CONFLICT (ip) DO UPDATE
+SET fallos = CASE WHEN nucleo.intentos_portal.updated_at < $2::timestamptz THEN 1
+                  ELSE nucleo.intentos_portal.fallos + 1 END,
+    updated_at = now()
+RETURNING fallos
+`
+
+type RegistrarFalloPortalParams struct {
+	Ip    string
+	Desde time.Time
+}
+
+// Cuenta un canje fallido de la IP; si el último fue antes de @desde, la cuenta empieza de nuevo.
+func (q *Queries) RegistrarFalloPortal(ctx context.Context, arg RegistrarFalloPortalParams) (int32, error) {
+	row := q.db.QueryRow(ctx, registrarFalloPortal, arg.Ip, arg.Desde)
+	var fallos int32
+	err := row.Scan(&fallos)
+	return fallos, err
+}
+
 const registrarPasoTOTP = `-- name: RegistrarPasoTOTP :execrows
 UPDATE nucleo.usuarios SET totp_ultimo_paso = $1, updated_at = now()
 WHERE id = $2 AND totp_ultimo_paso < $1
@@ -1069,6 +1225,19 @@ WHERE id = $1 AND revocada_en IS NULL
 
 func (q *Queries) RevocarSesion(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.Exec(ctx, revocarSesion, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const revocarSesionPortal = `-- name: RevocarSesionPortal :execrows
+UPDATE nucleo.portal_sesiones SET revocada_en = now(), updated_at = now()
+WHERE id = $1 AND revocada_en IS NULL
+`
+
+func (q *Queries) RevocarSesionPortal(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, revocarSesionPortal, id)
 	if err != nil {
 		return 0, err
 	}
@@ -1191,6 +1360,59 @@ func (q *Queries) RolesPorCodigos(ctx context.Context, codigos []string) ([]Nucl
 	return items, nil
 }
 
+const sesionPortalPorID = `-- name: SesionPortalPorID :one
+SELECT id, acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at FROM nucleo.portal_sesiones WHERE id = $1
+`
+
+func (q *Queries) SesionPortalPorID(ctx context.Context, id int64) (NucleoPortalSesione, error) {
+	row := q.db.QueryRow(ctx, sesionPortalPorID, id)
+	var i NucleoPortalSesione
+	err := row.Scan(
+		&i.ID,
+		&i.AccesoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.TokenHash,
+		&i.CsrfHash,
+		&i.Ip,
+		&i.UserAgent,
+		&i.ExpiraEn,
+		&i.UltimoUso,
+		&i.RevocadaEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sesionPortalVigentePorHash = `-- name: SesionPortalVigentePorHash :one
+SELECT id, acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at FROM nucleo.portal_sesiones
+WHERE token_hash = $1 AND revocada_en IS NULL AND expira_en > now()
+`
+
+func (q *Queries) SesionPortalVigentePorHash(ctx context.Context, tokenHash []byte) (NucleoPortalSesione, error) {
+	row := q.db.QueryRow(ctx, sesionPortalVigentePorHash, tokenHash)
+	var i NucleoPortalSesione
+	err := row.Scan(
+		&i.ID,
+		&i.AccesoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.TokenHash,
+		&i.CsrfHash,
+		&i.Ip,
+		&i.UserAgent,
+		&i.ExpiraEn,
+		&i.UltimoUso,
+		&i.RevocadaEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
 SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at
 FROM nucleo.sesiones s
@@ -1261,6 +1483,16 @@ WHERE id = $1 AND ultimo_uso < now() - interval '1 minute'
 
 func (q *Queries) TocarSesion(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, tocarSesion, id)
+	return err
+}
+
+const tocarSesionPortal = `-- name: TocarSesionPortal :exec
+UPDATE nucleo.portal_sesiones SET ultimo_uso = now()
+WHERE id = $1 AND ultimo_uso < now() - interval '1 minute'
+`
+
+func (q *Queries) TocarSesionPortal(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, tocarSesionPortal, id)
 	return err
 }
 
@@ -1363,6 +1595,33 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 		&i.NucleoUsuario.Version,
 		&i.NucleoUsuario.CreatedAt,
 		&i.NucleoUsuario.UpdatedAt,
+	)
+	return i, err
+}
+
+const tomarAccesoPortal = `-- name: TomarAccesoPortal :one
+UPDATE nucleo.portal_accesos
+SET usado_en = now(), updated_at = now()
+WHERE ticket_hash = $1 AND usado_en IS NULL AND expira_en > now()
+RETURNING id, ticket_hash, cliente_id, empresa_id, nombre, emitido_por, token_id, expira_en, usado_en, created_at, updated_at
+`
+
+// Un solo uso: lo marca usado solo si estaba vigente.
+func (q *Queries) TomarAccesoPortal(ctx context.Context, ticketHash []byte) (NucleoPortalAcceso, error) {
+	row := q.db.QueryRow(ctx, tomarAccesoPortal, ticketHash)
+	var i NucleoPortalAcceso
+	err := row.Scan(
+		&i.ID,
+		&i.TicketHash,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.EmitidoPor,
+		&i.TokenID,
+		&i.ExpiraEn,
+		&i.UsadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

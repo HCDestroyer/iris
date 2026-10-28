@@ -259,6 +259,9 @@ func (m *Modulo) Registrar(api huma.API) {
 			e.ID = in.ID
 			return responder(m.RevocarToken.Ejecutar(ctx, e))
 		})
+
+	// Portal de soporte (actor cliente) -------------------------------------------------
+	m.registrarPortal(api)
 }
 
 // descAdminPorEmpresa y descPorEmpresa documentan la regla de empresas en la administración.

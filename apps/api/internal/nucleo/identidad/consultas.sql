@@ -289,3 +289,58 @@ SELECT COALESCE(
                     WHERE ur.usuario_id = @usuario_id AND rp.permiso = 'empresas.todas'
                       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
     false)::boolean AS en_empresa;
+
+-- Portal de soporte (actor cliente) -----------------------------------------------
+
+-- name: CrearAccesoPortal :one
+INSERT INTO nucleo.portal_accesos (ticket_hash, cliente_id, empresa_id, nombre, emitido_por, token_id, expira_en)
+VALUES (@ticket_hash, @cliente_id, @empresa_id, @nombre, @emitido_por, @token_id, @expira_en)
+RETURNING *;
+
+-- name: TomarAccesoPortal :one
+-- Un solo uso: lo marca usado solo si estaba vigente.
+UPDATE nucleo.portal_accesos
+SET usado_en = now(), updated_at = now()
+WHERE ticket_hash = @ticket_hash AND usado_en IS NULL AND expira_en > now()
+RETURNING *;
+
+-- name: CrearSesionPortal :one
+INSERT INTO nucleo.portal_sesiones (acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en)
+VALUES (@acceso_id, @cliente_id, @empresa_id, @nombre, @token_hash, @csrf_hash, @ip, @user_agent, @expira_en)
+RETURNING *;
+
+-- name: SesionPortalVigentePorHash :one
+SELECT * FROM nucleo.portal_sesiones
+WHERE token_hash = @token_hash AND revocada_en IS NULL AND expira_en > now();
+
+-- name: SesionPortalPorID :one
+SELECT * FROM nucleo.portal_sesiones WHERE id = @id;
+
+-- name: TocarSesionPortal :exec
+UPDATE nucleo.portal_sesiones SET ultimo_uso = now()
+WHERE id = @id AND ultimo_uso < now() - interval '1 minute';
+
+-- name: RevocarSesionPortal :execrows
+UPDATE nucleo.portal_sesiones SET revocada_en = now(), updated_at = now()
+WHERE id = @id AND revocada_en IS NULL;
+
+-- name: EmpresaDeClienteArgos :one
+-- Empresa del cliente según la instantánea de Argos (sin fila si Iris nunca lo leyó).
+SELECT empresa_id FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: BloqueoPortal :one
+SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_portal
+WHERE ip = @ip AND bloqueado_hasta > now();
+
+-- name: RegistrarFalloPortal :one
+-- Cuenta un canje fallido de la IP; si el último fue antes de @desde, la cuenta empieza de nuevo.
+INSERT INTO nucleo.intentos_portal (ip, fallos) VALUES (@ip, 1)
+ON CONFLICT (ip) DO UPDATE
+SET fallos = CASE WHEN nucleo.intentos_portal.updated_at < @desde::timestamptz THEN 1
+                  ELSE nucleo.intentos_portal.fallos + 1 END,
+    updated_at = now()
+RETURNING fallos;
+
+-- name: BloquearPortal :exec
+UPDATE nucleo.intentos_portal SET fallos = 0, bloqueado_hasta = @hasta, updated_at = now()
+WHERE ip = @ip;

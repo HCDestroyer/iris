@@ -33,6 +33,12 @@ const (
 //
 // CSRF por doble envío: la cabecera X-CSRF-Token debe ser igual a la cookie iris_csrf y a lo
 // que la sesión guardó al iniciarse. El inicio de sesión (POST /api/v1/sesion) no lo exige.
+//
+// Portal de soporte: en /api/v1/portal/… la cookie iris_portal autentica al actor cliente
+// (portal.go), con su propio CSRF (iris_portal_csrf), y la cookie del panel no cuenta (una
+// sesión del panel abierta en el mismo navegador no estorba al portal). Fuera de esas rutas la
+// cookie del portal no cuenta: el actor cliente no llega a ningún endpoint del panel. El Bearer
+// vale en las dos (Argos emite los accesos al portal con su token).
 // Va después de nucleo.ConBD.
 func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 	if log == nil {
@@ -56,6 +62,19 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 					return
 				}
 				next.ServeHTTP(w, r.WithContext(nctx))
+				return
+			}
+
+			if strings.HasPrefix(r.URL.Path, PrefijoRutasPortal) {
+				if c, err := r.Cookie(CookiePortal); err == nil && c.Value != "" {
+					nctx, prob := autenticarPortal(ctx, q, r, c.Value)
+					if prob != nil {
+						nucleo.EscribirProblema(w, prob)
+						return
+					}
+					ctx = nctx
+				}
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
@@ -130,9 +149,39 @@ func autenticarBearer(ctx context.Context, q *identidadbd.Queries, auth string) 
 	return ctx, nil
 }
 
+// autenticarPortal resuelve la cookie del portal: sesión vigente → actor cliente (canal portal,
+// su empresa como activa); vencida o revocada → la petición sigue como anónima. Las peticiones
+// que cambian estado exigen el CSRF del portal, salvo el canje (POST /api/v1/portal/sesion).
+func autenticarPortal(ctx context.Context, q *identidadbd.Queries, r *http.Request, valor string) (context.Context, *nucleo.Problema) {
+	s, err := q.SesionPortalVigentePorHash(ctx, Hash256(valor))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ctx, nil
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "identidad: leer sesión del portal", "err", err)
+		return ctx, nucleo.ErrorInterno()
+	}
+	if metodoConEstado(r.Method) && (r.Method != http.MethodPost || r.URL.Path != rutaSesionPortal) {
+		if !csrfCookieValido(r, CookiePortalCSRF, s.CsrfHash) {
+			return ctx, nucleo.NuevoProblema(http.StatusForbidden, "csrf_invalido",
+				"CSRF inválido", "Falta la cabecera X-CSRF-Token o no coincide con la sesión del portal")
+		}
+	}
+	ctx = contexto.ComoCliente(ctx, actorCliente(s.ClienteID, s.EmpresaID, s.Nombre))
+	ctx = contexto.ConSesionPortal(ctx, s.ID)
+	if err := q.TocarSesionPortal(ctx, s.ID); err != nil {
+		slog.WarnContext(ctx, "identidad: actualizar último uso de sesión del portal", "err", err)
+	}
+	return ctx, nil
+}
+
 func csrfValido(r *http.Request, esperado []byte) bool {
+	return csrfCookieValido(r, CookieCSRF, esperado)
+}
+
+func csrfCookieValido(r *http.Request, nombreCookie string, esperado []byte) bool {
 	cabecera := r.Header.Get(CabeceraCSRF)
-	cookie, err := r.Cookie(CookieCSRF)
+	cookie, err := r.Cookie(nombreCookie)
 	if cabecera == "" || err != nil {
 		return false
 	}

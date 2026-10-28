@@ -57,6 +57,10 @@ func claveDeActor(a contexto.Actor) string {
 	if a.TokenID != 0 {
 		return fmt.Sprintf("token:%d", a.TokenID)
 	}
+	if a.Tipo == contexto.ActorCliente {
+		// El actor cliente no es un usuario (ID 0): sus claves son por cliente y empresa.
+		return fmt.Sprintf("cliente:%d:%d", a.EmpresaID, a.ClienteID)
+	}
 	return fmt.Sprintf("%s:%d", a.Tipo, a.ID)
 }
 
