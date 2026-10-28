@@ -262,8 +262,8 @@ ON CONFLICT (orden_id) DO UPDATE SET
     ventana_fin = EXCLUDED.ventana_fin, version = agenda.citas.version + 1, updated_at = now()
 RETURNING *;
 
--- name: QuitarCita :execrows
-DELETE FROM agenda.citas WHERE orden_id = @orden_id;
+-- name: QuitarCita :many
+DELETE FROM agenda.citas WHERE orden_id = @orden_id RETURNING *;
 
 -- name: Solapes :many
 -- Citas del técnico que ocupan su agenda (orden programada, en camino o en sitio) y se cruzan
@@ -293,7 +293,7 @@ SELECT usuario_id FROM agenda.tecnicos WHERE cuadrilla_id = @cuadrilla_id;
 -- name: AgendaCitas :many
 -- Calendario de despacho: citas que tocan [desde, hasta) con su orden.
 SELECT c.*, o.numero, o.estado, o.zona_id, o.cuadrilla_id AS orden_cuadrilla_id, o.direccion, o.lat, o.lon,
-       o.cliente_id, o.servicio_id, o.version AS orden_version, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
+       o.cliente_id, o.servicio_id, o.version AS orden_version, o.en_sitio_en, tp.codigo AS tipo_codigo, t.cuadrilla_id AS tecnico_cuadrilla_id
 FROM agenda.citas c
 JOIN campo.ordenes o ON o.id = c.orden_id
 JOIN campo.tipos_orden tp ON tp.id = c.tipo_id
@@ -312,3 +312,139 @@ WHERE c.inicio < @hasta AND c.fin > @desde
        OR t.cuadrilla_id = ANY(@cuadrillas::bigint[]))
 ORDER BY c.inicio, c.id
 LIMIT 2000;
+
+-- Rutas del día ---------------------------------------------------------------------
+
+-- name: CandadoRuta :exec
+-- Serializa la propuesta y la publicación de la ruta de un técnico en un día.
+SELECT pg_advisory_xact_lock(hashtextextended(concat('agenda.ruta:', @tecnico_id::bigint, ':', @fecha::date), 0));
+
+-- name: CitasParaRuta :many
+-- Citas del técnico que empiezan en [desde, hasta) en la empresa (null = sin conector), de
+-- órdenes suyas programadas, en curso o terminadas (las canceladas y pendientes no tienen cita).
+SELECT c.orden_id, c.inicio, c.fin, c.ventana_inicio, c.ventana_fin,
+       o.numero, o.estado, o.lat, o.lon, o.direccion, o.zona_id, o.cuadrilla_id,
+       o.en_camino_en, o.en_sitio_en, o.finalizada_en, tp.codigo AS tipo_codigo, tp.duracion_min
+FROM agenda.citas c
+JOIN campo.ordenes o ON o.id = c.orden_id
+JOIN campo.tipos_orden tp ON tp.id = o.tipo_id
+WHERE c.tecnico_id = @tecnico_id AND o.tecnico_id = @tecnico_id
+  AND c.inicio >= @desde AND c.inicio < @hasta
+  AND c.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+  AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+  AND o.estado IN ('programada', 'en_camino', 'en_sitio', 'cerrada', 'fallida')
+ORDER BY c.inicio, c.orden_id
+LIMIT 101;
+
+-- name: RutaPorID :one
+SELECT * FROM agenda.rutas WHERE id = @id;
+
+-- name: RutaPorIDParaActualizar :one
+SELECT * FROM agenda.rutas WHERE id = @id FOR UPDATE;
+
+-- name: RutaVigente :one
+-- El borrador o la publicada del técnico ese día en la empresa.
+SELECT * FROM agenda.rutas
+WHERE tecnico_id = @tecnico_id AND fecha = @fecha AND estado = @estado
+  AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+FOR UPDATE;
+
+-- name: RutaPublicadaDe :one
+SELECT * FROM agenda.rutas
+WHERE tecnico_id = @tecnico_id AND fecha = @fecha AND estado = 'publicada'
+  AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint;
+
+-- name: CrearRuta :one
+INSERT INTO agenda.rutas (empresa_id, tecnico_id, fecha, estado, modo, motor, motivo_motor, origen_salida,
+    salida_lat, salida_lon, sale_en, termina_en, fin_turno, distancia_m, viaje_seg, espera_seg, geometria,
+    propuesta_por, propuesta_en)
+VALUES (@empresa_id, @tecnico_id, @fecha, 'borrador', @modo, @motor, @motivo_motor, @origen_salida,
+    @salida_lat, @salida_lon, @sale_en, @termina_en, @fin_turno, @distancia_m, @viaje_seg, @espera_seg, @geometria,
+    @propuesta_por, @propuesta_en)
+RETURNING *;
+
+-- name: RehacerBorrador :one
+-- Una nueva propuesta sobre el borrador existente (sus paradas se reemplazan).
+UPDATE agenda.rutas SET modo = @modo, motor = @motor, motivo_motor = @motivo_motor, origen_salida = @origen_salida,
+    salida_lat = @salida_lat, salida_lon = @salida_lon, sale_en = @sale_en, termina_en = @termina_en,
+    fin_turno = @fin_turno, distancia_m = @distancia_m, viaje_seg = @viaje_seg, espera_seg = @espera_seg,
+    geometria = @geometria, propuesta_por = @propuesta_por, propuesta_en = @propuesta_en,
+    desactualizada = false, desactualizada_en = NULL, motivo_desactualizada = NULL,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'borrador'
+RETURNING *;
+
+-- name: QuitarParadasDeBorrador :exec
+DELETE FROM agenda.ruta_paradas p USING agenda.rutas r
+WHERE p.ruta_id = r.id AND r.id = @ruta_id AND r.estado = 'borrador';
+
+-- name: CrearParadas :exec
+INSERT INTO agenda.ruta_paradas (ruta_id, posicion, orden_id, lat, lon, duracion_min, ventana_inicio, ventana_fin,
+    cita_inicio, fija, llegada_estimada, salida_estimada, viaje_seg, distancia_m, espera_seg, retraso_seg)
+SELECT @ruta_id, p.posicion, p.orden_id, p.lat, p.lon, p.duracion_min, p.ventana_inicio, p.ventana_fin,
+    p.cita_inicio, p.fija, p.llegada_estimada, p.salida_estimada, p.viaje_seg, p.distancia_m, p.espera_seg, p.retraso_seg
+FROM jsonb_to_recordset(@paradas::jsonb)
+     AS p (posicion smallint, orden_id bigint, lat double precision, lon double precision, duracion_min integer,
+           ventana_inicio timestamptz, ventana_fin timestamptz, cita_inicio timestamptz, fija boolean,
+           llegada_estimada timestamptz, salida_estimada timestamptz, viaje_seg integer, distancia_m integer,
+           espera_seg integer, retraso_seg integer);
+
+-- name: ParadasDeRutas :many
+-- Paradas con el estado actual de su orden (llegada y salida reales).
+SELECT p.*, o.numero, o.estado, o.direccion, o.zona_id, o.cuadrilla_id, o.tecnico_id AS orden_tecnico_id,
+       o.en_camino_en, o.en_sitio_en, o.finalizada_en, tp.codigo AS tipo_codigo
+FROM agenda.ruta_paradas p
+JOIN campo.ordenes o ON o.id = p.orden_id
+JOIN campo.tipos_orden tp ON tp.id = o.tipo_id
+WHERE p.ruta_id = ANY(@rutas::bigint[])
+ORDER BY p.ruta_id, p.posicion;
+
+-- name: PublicarRuta :one
+UPDATE agenda.rutas SET estado = 'publicada', publicada_por = @publicada_por, publicada_en = @publicada_en,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'borrador'
+RETURNING *;
+
+-- name: ReemplazarRuta :one
+UPDATE agenda.rutas SET estado = 'reemplazada', reemplazada_en = @reemplazada_en, reemplazada_por_id = @reemplazada_por_id,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'publicada'
+RETURNING *;
+
+-- name: MarcarRutasDesactualizadas :many
+-- Borrador y publicada del técnico ese día (en la empresa) que todavía no estaban marcados.
+UPDATE agenda.rutas SET desactualizada = true, desactualizada_en = @ahora, motivo_desactualizada = @motivo,
+    version = version + 1, updated_at = now()
+WHERE tecnico_id = @tecnico_id AND fecha = @fecha AND estado IN ('borrador', 'publicada')
+  AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+  AND NOT desactualizada
+RETURNING *;
+
+-- name: ListarRutas :many
+-- Rutas de un día en la empresa (null = sin conector; todas_empresas: actor sistema).
+SELECT r.*, u.nombre AS tecnico_nombre, t.cuadrilla_id AS tecnico_cuadrilla_id,
+       (SELECT count(*) FROM agenda.ruta_paradas p WHERE p.ruta_id = r.id)::integer AS paradas,
+       (SELECT count(*) FROM agenda.ruta_paradas p WHERE p.ruta_id = r.id AND p.retraso_seg > 0)::integer AS fuera_de_ventana
+FROM agenda.rutas r
+JOIN nucleo.usuarios u ON u.id = r.tecnico_id
+LEFT JOIN agenda.tecnicos t ON t.usuario_id = r.tecnico_id
+WHERE r.fecha = @fecha
+  AND (@todas_empresas::boolean OR r.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint)
+  AND (sqlc.narg(tecnico_id)::bigint IS NULL OR r.tecnico_id = sqlc.narg(tecnico_id))
+  AND (sqlc.narg(cuadrilla_id)::bigint IS NULL OR t.cuadrilla_id = sqlc.narg(cuadrilla_id))
+  AND (@incluir_reemplazadas::boolean OR r.estado <> 'reemplazada')
+  AND (sqlc.narg(estado)::text IS NULL OR r.estado = sqlc.narg(estado))
+ORDER BY u.nombre, r.tecnico_id, r.id DESC
+LIMIT 500;
+
+-- name: PosicionesDelDia :many
+-- Recorrido real del técnico en [desde, hasta), en la empresa (null = sin conector).
+SELECT lat, lon, precision_m, registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en >= @desde AND registrada_en < @hasta
+  AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+ORDER BY registrada_en
+LIMIT 20000;
+
+-- name: UltimaPosicionEnEmpresa :one
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas
+WHERE tecnico_id = @tecnico_id AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint;

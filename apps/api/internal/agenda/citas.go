@@ -80,6 +80,25 @@ func (m *Modulo) ReservarCita(ctx context.Context, t *auditoria.Tx, r Reserva) (
 	} else {
 		t.RegistrarCambios("cita", c.ID, nil, aCita(c))
 	}
+	// Reasignación en caliente: la ruta del día anterior (otro técnico u otra hora) y la del
+	// nuevo quedan marcadas para recalcular.
+	if !hayPrevia || previa.TecnicoID != r.TecnicoID || !previa.Inicio.Equal(inicio) || !previa.Fin.Equal(fin) {
+		motivo := fmt.Sprintf("La orden %s se programó", r.Numero)
+		switch {
+		case hayPrevia && previa.TecnicoID != r.TecnicoID:
+			motivo = fmt.Sprintf("La orden %s cambió de técnico", r.Numero)
+		case hayPrevia:
+			motivo = fmt.Sprintf("La orden %s cambió de hora", r.Numero)
+		}
+		if hayPrevia {
+			if err := m.marcarRutas(ctx, t, previa.EmpresaID, previa.TecnicoID, previa.Inicio, r.OrdenID, motivo); err != nil {
+				return Cita{}, err
+			}
+		}
+		if err := m.marcarRutas(ctx, t, r.EmpresaID, r.TecnicoID, inicio, r.OrdenID, motivo); err != nil {
+			return Cita{}, err
+		}
+	}
 	cita := aCita(c)
 	return cita, t.Emitir("orden.programada", map[string]any{
 		"orden_id": r.OrdenID, "numero": r.Numero, "tecnico_id": r.TecnicoID, "cuadrilla_id": r.CuadrillaID,
@@ -89,10 +108,19 @@ func (m *Modulo) ReservarCita(ctx context.Context, t *auditoria.Tx, r Reserva) (
 }
 
 // QuitarCita libera la agenda de una orden que deja de estar programada (sin técnico,
-// cancelada o reabierta). No falla si no tenía cita.
-func QuitarCita(ctx context.Context, db agendabd.DBTX, ordenID int64) error {
-	_, err := agendabd.New(db).QuitarCita(ctx, ordenID)
-	return err
+// cancelada o reabierta) y marca para recalcular la ruta del día que la tenía (motivo: qué
+// pasó, para despacho). No falla si no tenía cita.
+func (m *Modulo) QuitarCita(ctx context.Context, t *auditoria.Tx, ordenID int64, motivo string) error {
+	quitadas, err := agendabd.New(t).QuitarCita(ctx, ordenID)
+	if err != nil {
+		return err
+	}
+	for _, c := range quitadas {
+		if err := m.marcarRutas(ctx, t, c.EmpresaID, c.TecnicoID, c.Inicio, ordenID, motivo); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CitasDeOrdenes: la cita de cada orden (para el paquete de campo y el detalle).
