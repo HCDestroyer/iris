@@ -328,6 +328,8 @@ function describirEvento(e: Evento): string {
             return `SLA${relojTexto(e.datos)} en riesgo`;
         case "sla_vencido":
             return `SLA${relojTexto(e.datos)} vencido`;
+        case "aviso_incidente":
+            return "Avisó al cliente del incidente de red";
     }
 }
 

@@ -27,13 +27,12 @@ export type EntradaMenu = {
 };
 
 /*
- * Agenda, Despacho y Comercial todavía no tienen permisos en el enum `Permiso` (los publica I2
+ * Despacho y Comercial todavía no tienen permisos en el enum `Permiso` (los publica I2
  * con sus módulos). Mientras tanto son «Próximamente» para todos. Estas aserciones de tipos
  * fallan en `pnpm typecheck` en cuanto el permiso exista en el contrato, para que se pase de `null` al permiso real en la misma PR que regenera packages/contratos.
  */
 type AunNoExiste<P extends string> = P extends Permiso ? false : true;
 export const permisosPendientes = {
-    "agenda.ver": true satisfies AunNoExiste<"agenda.ver">,
     "despacho.ver": true satisfies AunNoExiste<"despacho.ver">,
     "prospectos.ver": true satisfies AunNoExiste<"prospectos.ver">,
 } as const;
@@ -47,7 +46,7 @@ export const MENU: readonly EntradaMenu[] = [
         icono: ClipboardList,
         permisos: ["ordenes.ver", "ordenes.ver_propias"],
     },
-    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: null, proximamente: true },
+    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"], proximamente: true },
     { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: null, proximamente: true },
     { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: null, proximamente: true },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },

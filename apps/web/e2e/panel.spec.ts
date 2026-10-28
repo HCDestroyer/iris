@@ -3,15 +3,16 @@ import { ADMIN, LECTOR, PAGINA_1, PAGINA_2, conSesion, simularApi } from "./api-
 import { abrirMenu, avisoError, menu } from "./ayudas";
 
 test.describe("menú por permisos", () => {
-    test("sin usuarios.ver, tokens.ver, tickets.ver ni ordenes.* no aparecen Usuarios, Administración, Tickets ni Órdenes", async ({ page, context, baseURL }) => {
+    test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.* ni agenda.ver no aparecen Usuarios, Administración, Tickets, Órdenes ni Agenda", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
         await page.goto("/");
         await abrirMenu(page);
         const nav = menu(page);
-        for (const etiqueta of ["Inicio", "Agenda", "Despacho", "Comercial"]) {
+        for (const etiqueta of ["Inicio", "Despacho", "Comercial"]) {
             await expect(nav.getByRole("link", { name: new RegExp(`^${etiqueta}`) })).toBeVisible();
         }
+        await expect(nav.getByRole("link", { name: /^Agenda/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /^Tickets/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /^Órdenes/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: "Usuarios" })).toHaveCount(0);
