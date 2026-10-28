@@ -18,6 +18,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
@@ -54,6 +55,7 @@ func escribir(salida string) error {
 			pendientes.Nuevo(pendientes.Config{}).Registrar,
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
+			comercial.Nuevo(comercial.Config{}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()

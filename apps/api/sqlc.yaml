@@ -145,3 +145,30 @@ sql:
               pointer: true
         rename:
           agenda_capacidade: AgendaCapacidad
+  - <<: *base
+    queries: internal/comercial/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: comercialbd
+        out: internal/comercial/bd
+        overrides:
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+        rename:
+          comercial_cotizacione: ComercialCotizacion
+          comercial_actividade: ComercialActividad
+          comercial_factibilidade: ComercialFactibilidad

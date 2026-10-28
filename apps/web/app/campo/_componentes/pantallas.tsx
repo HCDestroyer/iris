@@ -6,12 +6,18 @@ import { Building2, LogOut, Menu, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SelectorTema } from "@/componentes/selector-tema";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
+import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
 import { BarraConexion } from "./barra-conexion";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
 import { ListaOrdenes } from "./lista-ordenes";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
+import { useUbicacion } from "./ubicacion";
+
+/** Espera tras el primer error al bajar el paquete; se duplica en cada falla, hasta 10 min. */
+const ESPERA_BASE_MS = 5_000;
+const ESPERA_MAX_MS = 10 * 60_000;
 
 export type CargaPaquete = { estado: "inactiva" | "cargando" | "lista" } | { estado: "error"; mensaje: string };
 
@@ -19,48 +25,109 @@ export type CargaPaquete = { estado: "inactiva" | "cargando" | "lista" } | { est
 export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; pedirEmpresa: () => void }) {
     const { motor, estado, sesion, vista, notificacion } = useCampo();
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
+    const { envio } = useUbicacion();
     const bajadoEnVisita = useRef(false);
+    /** Una descarga a la vez. */
+    const descargando = useRef(false);
+    /** Día (Guatemala) del último intento automático o manual. */
+    const ultimoIntento = useRef<string | null>(null);
+    /** Tras un error: fallos seguidos y hasta cuándo no se reintenta solo (espera exponencial). */
+    const espera = useRef({ fallos: 0, hasta: 0 });
+    /** Sin sesión o sin empresa: no se reintenta solo (hay que entrar o elegir empresa). */
+    const bloqueada = useRef(false);
 
-    const bajarPaquete = useCallback(async () => {
-        setCarga({ estado: "cargando" });
-        try {
-            await motor.cargarPaquete(hoyEnGuatemala());
-            bajadoEnVisita.current = true;
-            setCarga({ estado: "lista" });
-        } catch (e) {
-            const sinSenal = e instanceof ErrorTransporte && e.tipo === "red";
-            setCarga({
-                estado: "error",
-                mensaje: sinSenal ? "Sin señal: se usan las órdenes guardadas en el teléfono." : "No se pudieron bajar las órdenes del día.",
-            });
-        }
-    }, [motor]);
+    /**
+     * Baja el paquete del día. `manual` (botones): muestra «Bajando…» y no mira la espera. Lo
+     * automático con datos ya en el teléfono va en segundo plano (la pantalla no parpadea).
+     */
+    const bajarPaquete = useCallback(
+        async (manual = true) => {
+            if (descargando.current) {
+                return;
+            }
+            descargando.current = true;
+            const hoy = hoyEnGuatemala();
+            ultimoIntento.current = hoy;
+            if (manual || motor.obtenerEstado().fecha === null) {
+                setCarga({ estado: "cargando" });
+            }
+            try {
+                await motor.cargarPaquete(hoy);
+                bajadoEnVisita.current = true;
+                espera.current = { fallos: 0, hasta: 0 };
+                bloqueada.current = false;
+                setCarga({ estado: "lista" });
+            } catch (e) {
+                if (e instanceof ErrorTransporte && pideCambioContrasena(e.problema)) {
+                    irACambiarContrasena();
+                    return;
+                }
+                if (e instanceof ErrorTransporte && (e.esDeSesion || e.esDeEmpresa)) {
+                    bloqueada.current = true;
+                } else {
+                    const fallos = espera.current.fallos + 1;
+                    espera.current = { fallos, hasta: Date.now() + Math.min(ESPERA_BASE_MS * 2 ** (fallos - 1), ESPERA_MAX_MS) };
+                }
+                const sinSenal = e instanceof ErrorTransporte && e.tipo === "red";
+                setCarga({
+                    estado: "error",
+                    mensaje: sinSenal ? "Sin señal: se usan las órdenes guardadas en el teléfono." : "No se pudieron bajar las órdenes del día.",
+                });
+            } finally {
+                descargando.current = false;
+            }
+        },
+        [motor],
+    );
 
-    // Conexión del navegador → motor; paquete al abrir (y al cambiar de empresa: otro motor) y al
-    // volver la señal o cambiar de día; luego el bucle pide cambios cada minuto.
+    // Conexión del navegador → motor; paquete al abrir (y al cambiar de empresa: otro motor), al
+    // volver la señal o a la app (respetando la espera tras un error) y al cambiar de día; luego el
+    // bucle pide cambios cada minuto.
     useEffect(() => {
         const revisar = () => {
             const enLinea = navigator.onLine;
             motor.establecerConexion(enLinea);
-            const estadoActual = motor.obtenerEstado();
-            if (enLinea && (!bajadoEnVisita.current || estadoActual.fecha !== hoyEnGuatemala())) {
-                void bajarPaquete();
+            const { fecha, conexion } = motor.obtenerEstado();
+            if (!enLinea || bloqueada.current || conexion === "sin_sesion" || conexion === "sin_empresa") {
+                return;
             }
+            if ((bajadoEnVisita.current && fecha === hoyEnGuatemala()) || Date.now() < espera.current.hasta) {
+                return;
+            }
+            void bajarPaquete(false);
         };
         const alVer = () => document.visibilityState === "visible" && revisar();
         const sinSenal = () => motor.establecerConexion(false);
         revisar();
         motor.iniciar();
+        // Con la app abierta al cambiar el día en Guatemala: el paquete (y el turno) del día nuevo.
+        // Solo una vez por día nuevo; los reintentos tras un error van por `online` y `visibilitychange`.
+        const cadaMinuto = setInterval(() => {
+            if (ultimoIntento.current !== null && ultimoIntento.current !== hoyEnGuatemala()) {
+                espera.current = { fallos: 0, hasta: 0 };
+                ultimoIntento.current = hoyEnGuatemala();
+                revisar();
+            }
+        }, 60_000);
         window.addEventListener("online", revisar);
         window.addEventListener("offline", sinSenal);
         document.addEventListener("visibilitychange", alVer);
         return () => {
+            clearInterval(cadaMinuto);
             window.removeEventListener("online", revisar);
             window.removeEventListener("offline", sinSenal);
             document.removeEventListener("visibilitychange", alVer);
             motor.detener();
         };
     }, [motor, bajarPaquete]);
+
+    // Contraseña temporal (403 `cambio_contrasena_requerido` en el motor o en las ubicaciones).
+    const pideContrasena = pideCambioContrasena(estado.ultimoError?.problema) || pideCambioContrasena(envio.ultimoError?.problema);
+    useEffect(() => {
+        if (pideContrasena) {
+            irACambiarContrasena();
+        }
+    }, [pideContrasena]);
 
     const nombreEmpresa = sesion.empresas.find((e) => e.id === empresa)?.nombre;
 

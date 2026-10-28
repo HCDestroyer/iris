@@ -227,6 +227,17 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			if elegida != nil && !plantillaSirveA(*elegida, empresa) {
 				return Orden{}, campoInvalido("plantillaId", "La plantilla no existe, está inactiva o es de otro tipo", "plantilla")
 			}
+			if in.ProspectoID != nil {
+				// El prospecto (comercial) existe y es de la misma empresa (llave foránea).
+				var delProspecto *int64
+				err := t.QueryRow(ctx, "SELECT empresa_id FROM comercial.prospectos WHERE id = $1", *in.ProspectoID).Scan(&delProspecto)
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && !mismoID(delProspecto, empresa)) {
+					return Orden{}, campoInvalido("prospectoId", "El prospecto no existe o es de otra empresa", "prospecto")
+				}
+				if err != nil {
+					return Orden{}, err
+				}
+			}
 			if err := completarDesdeArgos(ctx, q, &datos, empresa); err != nil {
 				return Orden{}, err
 			}

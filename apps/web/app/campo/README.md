@@ -45,18 +45,37 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   - **Explicación** «¿Compartir tu ubicación?» la primera vez por usuario, aunque el navegador ya
     tenga el permiso (se recuerda al aceptarla; con «Ahora no» se vuelve a mostrar en la próxima
     visita). El navegador pregunta solo tras «Permitir ubicación»; fotos y cierre nunca preguntan.
-  - **Turno:** empieza con «Iniciar turno» o solo con «En camino» / «Llegué» (con la explicación
-    aceptada y el permiso dado), con el aviso «Turno iniciado: se envía tu ubicación cada minuto».
-    Termina solo cuando no quedan órdenes abiertas del día (cerró o falló la última, o se la
-    cancelaron o reasignaron), a mano con «Terminar turno» o, como red de seguridad, a medianoche.
-    Cerrar sesión lo termina antes de esperar a la red y cierra la cola (no entran más puntos).
+  - **Turno de la agenda** (`Paquete.turno`, guardado por el motor por usuario y empresa con el
+    día del paquete, sobrevive sin señal; también el de `/campo/cambios` si algún día lo trae;
+    `lib/campo/turno.ts`): al empezar un tramo se enciende solo (con la explicación aceptada, el
+    permiso dado y sin «Ahora no» en la visita), con el aviso «Turno iniciado: se envía tu
+    ubicación cada minuto»; al terminar el tramo se apaga solo y lo avisa. Un «Terminar turno» a
+    mano dentro de un tramo se respeta hasta el tramo siguiente (también al reabrir la app). Fuera
+    de tramo solo lo mantiene una orden **en curso** (`en_camino` o `en_sitio`; ni pendientes, ni
+    programadas, ni atrasadas, ni pausadas): termina cuando no queda ninguna y, como tope, 2 h
+    después del fin del tramo («Turno terminado: pasaron 2 h de tu horario…»). «En camino» /
+    «Llegué» lo encienden igual fuera de tramo (antes del primer tramo se ata a él; después, tope
+    de 2 h).
+  - **Sin turno en la agenda** (ese día no trabaja, sin ficha o paquete de otro día): empieza con
+    «Iniciar turno» o solo con «En camino» / «Llegué», y termina cuando no queda ninguna orden en
+    curso (la cerró, falló, se la cancelaron o reasignaron) o a mano.
+  - Siempre: «Terminar turno» a mano y, como red de seguridad, fin a medianoche de Guatemala (con la
+    app abierta se baja el paquete del día nuevo una vez por día; tras un error se reintenta al
+    volver la señal o la app, con espera exponencial, y nunca solo sin sesión o sin empresa). El
+    turno local va por usuario y empresa (`iris-campo-turno-<usuario>-<empresa>`) y cambiar de
+    empresa lo termina. Cerrar sesión lo termina antes de esperar a la
+    red y cierra la cola (no entran más puntos).
   - **Indicador** bajo la barra de conexión (icono + texto + color): «Ubicación activa», «Sin
     permiso», «Sin señal GPS», «Buscando GPS…», «Sin GPS», «Fuera de turno» y «Pendientes de
-    enviar: n». El panel muestra último envío, la espera del servidor, «Reintentar» tras una falla o
+    enviar: n»; con agenda, además «En turno hasta 17:00» (o «En turno fuera de horario») o
+    «Fuera de turno · empieza 08:00». El panel muestra los tramos del día, último envío, la espera del servidor, «Reintentar» tras una falla o
     una pausa por 4xx, y «Vuelve a entrar» si la sesión terminó.
 - **«En camino»:** `orden.iniciar_camino` (con GPS si hay permiso) a la cola sin conexión, e inicia
   el turno como se dice arriba. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
   `.claude/integration/i4.md`).
+- **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
+  `cambio_contrasena_requerido` (paquete, lote, ubicaciones), va a
+  `/cambiar-contrasena?siguiente=/campo` (pantalla del panel, I3, #27).
 - **Service worker** (Serwist, `app/sw.ts`, alcance `/campo`): precachea el shell y los estáticos;
   nunca toca `/api`. Manifest «Iris Campo» en `/campo/manifest.webmanifest`.
 
@@ -71,9 +90,12 @@ posiciones no son acciones: no emiten eventos ni se auditan por fila.
 
 ## Pruebas
 
-Vitest (`lib/campo/*.test.ts`, con `ubicacion.test.ts`: turno, permiso, lectura por minuto y día) y Playwright (`e2e/campo.spec.ts`, teléfono claro y oscuro, con
+Vitest (`lib/campo/*.test.ts`, con `ubicacion.test.ts`: turno, permiso, lectura por minuto y día, y
+el turno de la agenda con el reloj falso: cruces de tramo, manual dentro de un tramo, fuera de
+tramo, día sin turno y medianoche de Guatemala; `turno.test.ts`) y Playwright (`e2e/campo.spec.ts`, teléfono claro y oscuro, con
 `context.setOffline`; `e2e/campo-sesiones.spec.ts`: dos técnicos en el mismo navegador, cerrar
 sesión con y sin pendientes, abrir sin señal; `e2e/campo-ubicacion.spec.ts`: explicación antes del
 permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta, 429 con
-`Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
+`Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-turno.spec.ts`:
+turno de la agenda con el reloj de Playwright; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
 con `IRIS_E2E_API_REAL=1 IRIS_E2E_TECNICO=<correo>:<contraseña>`).

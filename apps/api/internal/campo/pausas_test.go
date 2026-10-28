@@ -195,7 +195,7 @@ func TestPausaPorSync(t *testing.T) {
 // transacción (sección Down), se insertan datos como los de main, se corre la sección Up y se
 // revierte todo al final.
 func TestMigracionFormulariosDeOrdenesExistentes(t *testing.T) {
-	crudo, err := os.ReadFile("../../migraciones/20261028215056_campo_formularios_pausas.sql")
+	crudo, err := os.ReadFile("../../migraciones/20261028232521_campo_formularios_pausas.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
