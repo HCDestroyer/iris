@@ -27,6 +27,15 @@ export { Hoja, HojaCerrar, HojaContenido, HojaDisparador, type PropsHojaContenid
 export { InsigniaEstado, type PropsInsigniaEstado } from "./componentes/insignia-estado";
 export { LienzoFirma, type PropsLienzoFirma } from "./componentes/lienzo-firma";
 export { LogoIris, MarcaIris } from "./componentes/marca";
+export {
+    MenuDesplegable,
+    MenuDesplegableContenido,
+    MenuDesplegableDisparador,
+    MenuDesplegableElemento,
+    MenuDesplegableEtiqueta,
+    MenuDesplegableSeparador,
+    type PropsMenuDesplegableElemento,
+} from "./componentes/menu-desplegable";
 export { CampoSelector, Selector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export { Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo } from "./componentes/tabla";
 export {

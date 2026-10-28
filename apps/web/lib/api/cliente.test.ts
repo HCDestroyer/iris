@@ -180,6 +180,30 @@ describe("cliente: empresa activa", () => {
         expect(vistos).toEqual(["empresa_requerida", "empresa_no_permitida"]);
     });
 
+    it("avisa del 403 cambio_contrasena_requerido (contraseña temporal), no de otros 403", async () => {
+        let cambios = 0;
+        const empresa: string[] = [];
+        let respuesta = () => problema({ type: "urn:iris:problema:cambio_contrasena_requerido", title: "Cambio de contraseña requerido", status: 403 });
+        const { fetchFalso } = falso(() => respuesta());
+        const api = crearClienteIris({
+            baseUrl: "http://panel.test",
+            fetch: fetchFalso,
+            leerEmpresa: () => undefined,
+            alProblemaEmpresa: (p) => empresa.push(p),
+            alCambioRequerido: () => cambios++,
+        });
+        const e = (await resolver(api.GET("/api/v1/tickets")).catch((x: unknown) => x)) as ErrorApi;
+        expect(e.codigo).toBe("cambio_contrasena_requerido");
+        expect(cambios).toBe(1);
+        respuesta = () => problema({ type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
+        await resolver(api.GET("/api/v1/tickets")).catch(() => undefined);
+        // Mismo código con otro estado: no es el corte por contraseña temporal.
+        respuesta = () => problema({ type: "urn:iris:problema:cambio_contrasena_requerido", title: "x", status: 422 });
+        await resolver(api.GET("/api/v1/tickets")).catch(() => undefined);
+        expect(cambios).toBe(1);
+        expect(empresa).toEqual([]);
+    });
+
     it("los arreglos de la query van separados por coma", async () => {
         const { llamadas, fetchFalso } = falso(() => Response.json({ data: [], nextCursor: null }));
         const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerEmpresa: () => undefined });
