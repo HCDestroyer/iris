@@ -17,6 +17,14 @@ const NO_REENVIAR_PETICION = new Set([
     "host",
     "content-length",
     "accept-encoding",
+    // IP del cliente: no se reenvía lo que llega. Next (`next start`) solo rellena
+    // X-Forwarded-For con la IP del socket si no viene (`??=`), así que su valor puede ser el
+    // que escribió el navegador, y los Route Handlers no exponen la IP del socket. Sin estas
+    // cabeceras la API ve la IP del panel; IRIS_PROXIES_CONFIABLES debe quedar vacía hasta que
+    // el panel tenga una IP del cliente fiable (p. ej. un proxy delante que la reescriba).
+    "x-forwarded-for",
+    "x-real-ip",
+    "forwarded",
 ]);
 
 // fetch de Node ya descomprime el cuerpo: content-encoding/length ya no describen lo que se reenvía.
