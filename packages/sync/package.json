@@ -1,0 +1,40 @@
+{
+    "name": "@iris/sync",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Motor de sincronización sin conexión de la app de campo: cola local, lote, conflictos, paquete del día y subidas reanudables",
+    "type": "module",
+    "sideEffects": false,
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./dexie": {
+            "types": "./src/almacen-dexie.ts",
+            "default": "./src/almacen-dexie.ts"
+        },
+        "./pruebas": {
+            "types": "./src/pruebas/index.ts",
+            "default": "./src/pruebas/index.ts"
+        }
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "test": "vitest run"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.5",
+        "@types/node": "^22.20.5",
+        "eslint": "^9.39.5",
+        "fake-indexeddb": "^6.2.6",
+        "globals": "^17.13.0",
+        "typescript": "~5.9.3",
+        "typescript-eslint": "^8.72.1",
+        "vitest": "^5.0.5"
+    },
+    "dependencies": {
+        "dexie": "^4.4.7"
+    }
+}
