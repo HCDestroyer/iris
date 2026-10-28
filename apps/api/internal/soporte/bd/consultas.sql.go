@@ -606,7 +606,7 @@ func (q *Queries) ListarCategorias(ctx context.Context, arg ListarCategoriasPara
 
 const listarEventosTicket = `-- name: ListarEventosTicket :many
 SELECT id, ticket_id, empresa_id, tipo, de, a, motivo, datos, actor_tipo, actor_id, actor_nombre, request_id, created_at, updated_at FROM soporte.ticket_eventos
-WHERE ticket_id = $1 AND id > $2 AND tipo <> 'aviso_incidente'
+WHERE ticket_id = $1 AND id > $2
 ORDER BY id
 LIMIT $3
 `
@@ -617,7 +617,6 @@ type ListarEventosTicketParams struct {
 	Limite    int32
 }
 
-// aviso_incidente todavía no está en el enum del contrato (lo agrega el panel cuando lo muestre).
 func (q *Queries) ListarEventosTicket(ctx context.Context, arg ListarEventosTicketParams) ([]SoporteTicketEvento, error) {
 	rows, err := q.db.Query(ctx, listarEventosTicket, arg.TicketID, arg.DespuesDe, arg.Limite)
 	if err != nil {

@@ -56,7 +56,22 @@ var ident = identidad.Nuevo(identidad.Config{})
 // agente crea un usuario real con el rol soporte (los mensajes y la asignación lo referencian).
 func agente(t *testing.T) int64 {
 	t.Helper()
+	catalogoAgenda(t)
 	return usuarioCon(t, identidad.AsignacionRol{Rol: "soporte"})
+}
+
+// catalogoAgenda deja en agenda las zonas 1–20 y las cuadrillas 1–60 que usan las pruebas, sin
+// empresa (de todas) y activas: una prueba de adopción pudo haberlas pasado a una empresa.
+// zona_id y cuadrilla_id de los tickets tienen llave foránea al catálogo.
+func catalogoAgenda(t *testing.T) {
+	t.Helper()
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `
+		INSERT INTO agenda.zonas (id, origen, nombre) SELECT n, 'local', 'Zona ' || n FROM generate_series(1, 20) n
+			ON CONFLICT (id) DO UPDATE SET empresa_id = NULL, activa = true;
+		INSERT INTO agenda.cuadrillas (id, nombre) SELECT n, 'Cuadrilla ' || n FROM generate_series(1, 60) n
+			ON CONFLICT (id) DO UPDATE SET empresa_id = NULL, activa = true`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // usuarioCon crea un usuario persona con los roles dados.

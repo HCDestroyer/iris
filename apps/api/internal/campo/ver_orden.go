@@ -301,6 +301,10 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 	if err != nil {
 		return nil, err
 	}
+	citas, err := q.CitasDeOrdenes(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 
 	marcaDe := map[[2]int64]campobd.CampoOrdenChecklist{}
 	for _, mc := range marcas {
@@ -352,6 +356,11 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 		for _, a := range adjuntos {
 			if a.OrdenID == f.ID {
 				d.Adjuntos = append(d.Adjuntos, AdjuntoOrden{ID: a.ID, Tipo: a.Tipo, ItemID: a.ItemID, Descripcion: a.Descripcion, OcurridoEn: a.OcurridoEn})
+			}
+		}
+		for _, c := range citas {
+			if c.OrdenID == f.ID && (f.Estado == EstadoProgramada || f.Estado == EstadoEnCamino || f.Estado == EstadoEnSitio) {
+				d.Cita = &CitaOrden{TecnicoID: c.TecnicoID, Inicio: c.Inicio, Fin: c.Fin, VentanaInicio: c.VentanaInicio, VentanaFin: c.VentanaFin}
 			}
 		}
 		salida = append(salida, d)

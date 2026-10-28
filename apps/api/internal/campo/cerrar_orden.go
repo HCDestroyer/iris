@@ -2,10 +2,12 @@ package campo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -93,7 +95,17 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if err := cambioDeEstado(ctx, t, q, antes, f, &resultado, gps(in.Lat, in.Lon, nil, cuando), cuando); err != nil {
 				return f, "", err
 			}
-			if err := t.Emitir("orden.cerrada", payloadCerrada(f, tipo.Codigo, d)); err != nil {
+			payload := payloadCerrada(f, tipo.Codigo, d)
+			var plantilla *campobd.CampoPlantillasChecklist
+			if f.PlantillaID != nil {
+				p, err := q.PlantillaPorID(ctx, *f.PlantillaID)
+				if err != nil {
+					return f, "", err
+				}
+				plantilla = &p
+			}
+			payload["cargo"] = cargoDe(f, tipo, plantilla)
+			if err := t.Emitir("orden.cerrada", payload); err != nil {
 				return f, "", err
 			}
 			return f, "", notaEnTicket(ctx, t, f, fmt.Sprintf("La orden %s se cerró (%s).", f.Numero, resultado))
@@ -226,4 +238,38 @@ func AccesoAdjuntos(ctx context.Context, db campobd.DBTX, ordenID string, subir 
 		return 0, err
 	}
 	return deref(f.EmpresaID), nil
+}
+
+// cargoDe: el cargo único que el cierre pide cobrar en Argos (visita cobrada), o nil. La
+// plantilla manda si define cobrar (true o false; con sus propios producto, monto o descripción
+// o, si no los trae, los del tipo); si no, el tipo. Formato que espera la cola de I1
+// (contratos/eventos.md): {producto_id?, monto? (> 0), descripcion?}. Un tipo o plantilla que
+// dice cobrar sin producto ni monto no cobra (la base lo impide en el tipo).
+func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *campobd.CampoPlantillasChecklist) map[string]any {
+	cobrar, producto, monto, descripcion := tipo.Cobrar, tipo.CargoProductoID, tipo.CargoMonto, tipo.CargoDescripcion
+	if plantilla != nil && plantilla.Cobrar != nil {
+		cobrar = *plantilla.Cobrar
+		if plantilla.CargoProductoID != nil || plantilla.CargoMonto.Valid {
+			producto, monto = plantilla.CargoProductoID, plantilla.CargoMonto
+		}
+		if strings.TrimSpace(plantilla.CargoDescripcion) != "" {
+			descripcion = plantilla.CargoDescripcion
+		}
+	}
+	valor, err := monto.Float64Value()
+	conMonto := err == nil && valor.Valid && valor.Float64 > 0
+	if !cobrar || (producto == nil && !conMonto) {
+		return nil
+	}
+	if strings.TrimSpace(descripcion) == "" {
+		descripcion = tipo.Nombre
+	}
+	cargo := map[string]any{"descripcion": strings.TrimSpace(descripcion) + " (" + f.Numero + ")"}
+	if producto != nil {
+		cargo["producto_id"] = *producto
+	}
+	if conMonto {
+		cargo["monto"] = json.Number(strconv.FormatFloat(valor.Float64, 'f', 2, 64))
+	}
+	return cargo
 }

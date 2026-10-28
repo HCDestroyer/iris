@@ -52,18 +52,20 @@ func aplicarHorus(t *testing.T, m *soporte.Modulo, e integracionpkg.Evento) {
 	}
 }
 
-// instantanea guarda un cliente y su servicio (en un router) en la instantánea de Argos.
+// instantanea guarda un cliente y su servicio (en un router) en la instantánea de Argos. Las
+// zonas son de la empresa (en Argos un id de zona es de una sola empresa): 10·empresa + 7 la
+// del cliente y 10·empresa + 8 la del servicio.
 func instantanea(t *testing.T, empresa, cliente, servicio, routerID int64) {
 	t.Helper()
 	pool := pruebas.Pool(t)
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, telefono, zona_id, sincronizado_en)
-		VALUES ($1::bigint, $2, 'Cliente ' || $1::bigint::text, '5555-0000', 7, now()) ON CONFLICT (id) DO NOTHING`, cliente, empresa); err != nil {
+		VALUES ($1::bigint, $2::bigint, 'Cliente ' || $1::bigint::text, '5555-0000', $2::bigint * 10 + 7, now()) ON CONFLICT (id) DO NOTHING`, cliente, empresa); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, router_id, zona_id, sincronizado_en)
-		VALUES ($1, $2, $3, $4, 8, now())`, servicio, empresa, cliente, routerID); err != nil {
+		VALUES ($1, $2::bigint, $3, $4, $2::bigint * 10 + 8, now())`, servicio, empresa, cliente, routerID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -254,6 +256,18 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 	if err := pruebas.Pool(t).QueryRow(context.Background(),
 		"SELECT count(*) FROM soporte.ticket_eventos WHERE ticket_id = $1 AND tipo = 'aviso_incidente'", h1.ID).Scan(&hist); err != nil || hist != 1 {
 		t.Fatalf("historial del aviso: %d %v", hist, err)
+	}
+	// …y sale en GET /tickets/{id}/eventos (en el enum de EventoTicket).
+	evs, err := m.ListarEventos.Ejecutar(sis, soporte.EntradaListarEventos{ID: h1.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aviso := false
+	for _, ev := range evs.Data {
+		aviso = aviso || ev.Tipo == "aviso_incidente"
+	}
+	if !aviso {
+		t.Fatalf("aviso_incidente en el historial: %+v", evs.Data)
 	}
 	// El maestro ya no está abierto: el cliente deja de ver «falla general».
 	if v, err := m.VerTicketPortal.Ejecutar(pruebas.ContextoCliente(pruebas.Pool(t), 6101, 61), soporte.EntradaVerTicketPortal{ID: porPortal.ID}); err != nil || v.AfectadoPorIncidente {

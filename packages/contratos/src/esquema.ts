@@ -72,6 +72,26 @@ export interface paths {
         patch: operations["subirParteAdjunto"];
         trace?: never;
     };
+    "/api/v1/agenda": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Calendario de despacho: citas y ausencias en un rango
+         * @description Permiso: `agenda.ver`. Citas (con su orden, ventana y estado) de la empresa activa según el alcance (zona o cuadrilla de la orden, o cuadrilla del técnico), y ausencias de los técnicos visibles. Hasta 31 días.
+         */
+        get: operations["calendarioAgenda"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/buzones": {
         parameters: {
             query?: never;
@@ -225,9 +245,49 @@ export interface paths {
         };
         /**
          * Paquete del día del técnico
-         * @description Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), ruta (fase 3) y el cursor de cambios.
+         * @description Permiso: `campo.sincronizar`. Órdenes asignadas al actor con la instantánea de cliente y servicio, checklist, comodato y existencias (si hay conector con Argos), la cita de la agenda (con la ventana acordada con el cliente), ruta (aún ausente) y el cursor de cambios.
          */
         get: operations["paqueteCampo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campo/posiciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lote de posiciones GPS del técnico (ubicación en vivo)
+         * @description Permiso: `campo.registrar_posiciones`. Solo el técnico con sesión de la app de campo (`X-Iris-Canal: campo`; si no, 403 `requiere_sesion_campo`). Hasta 500 puntos; lotes por minuto limitados por técnico (429 `demasiadas_posiciones` con `Retry-After`). Puntos de más de 24 h, adelantados o más seguidos que el intervalo mínimo se descartan (se cuentan en `motivos`); un punto repetido (misma hora) no se duplica. Sin auditoría por fila.
+         */
+        post: operations["registrarPosiciones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campo/posiciones/ultimas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Última posición de cada técnico (despacho)
+         * @description Permiso: `campo.ver_posiciones`. De la empresa activa y según el alcance (cuadrilla del técnico o zonas que atiende su cuadrilla). Por defecto, las de las últimas 24 h.
+         */
+        get: operations["ultimasPosiciones"];
         put?: never;
         post?: never;
         delete?: never;
@@ -310,6 +370,110 @@ export interface paths {
         get: operations["obtenerFichaCliente"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cuadrillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cuadrillas con sus zonas y capacidad
+         * @description Permiso: `agenda.ver`.
+         */
+        get: operations["listarCuadrillas"];
+        put?: never;
+        /**
+         * Crear una cuadrilla
+         * @description Permiso: `agenda.crear_cuadrilla`. Exige el permiso sin límite de zona o cuadrilla. Emite `cuadrilla.creada`.
+         */
+        post: operations["crearCuadrilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cuadrillas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una cuadrilla
+         * @description Permiso: `agenda.activar_cuadrilla`.
+         */
+        post: operations["activarCuadrilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cuadrillas/{id}/capacidad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar la capacidad diaria de una cuadrilla
+         * @description Permiso: `agenda.fijar_capacidad`. Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día, sumando sus técnicos.
+         */
+        post: operations["capacidadCuadrilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cuadrillas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una cuadrilla
+         * @description Permiso: `agenda.desactivar_cuadrilla`.
+         */
+        post: operations["desactivarCuadrilla"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cuadrillas/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una cuadrilla
+         * @description Permiso: `agenda.editar_cuadrilla`. Nombre y zonas (reemplaza). Emite `cuadrilla.actualizada`.
+         */
+        post: operations["editarCuadrilla"];
         delete?: never;
         options?: never;
         head?: never;
@@ -772,7 +936,7 @@ export interface paths {
         put?: never;
         /**
          * Asignar una orden a un técnico o cuadrilla
-         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente; otro técnico en camino la deja programada. Emite `orden.asignada`.
+         * @description Permiso: `ordenes.asignar`. pendiente, programada o en_camino. Sin técnico vuelve a pendiente (libera la cita); otro técnico en una orden programada pasa por la agenda con la misma hora (422 como programar) y en camino la deja programada. Emite `orden.asignada` (y `orden.programada` si había cita).
          */
         post: operations["asignarOrden"];
         delete?: never;
@@ -1032,7 +1196,7 @@ export interface paths {
         put?: never;
         /**
          * Programar una orden (técnico y fecha)
-         * @description Permiso: `ordenes.programar`. pendiente → programada. Emite `orden.programada` (y `orden.asignada` si cambia el técnico).
+         * @description Permiso: `ordenes.programar`. pendiente → programada. La agenda valida la cita (ficha del técnico, turno, ausencia, solape, capacidad y ventana: 422 `tecnico_sin_agenda`, `fuera_de_turno`, `tecnico_ausente`, `solape`, `capacidad_excedida`, `fuera_de_ventana`) y emite `orden.programada` (y campo `orden.asignada` si cambia el técnico).
          */
         post: operations["programarOrden"];
         delete?: never;
@@ -1072,7 +1236,7 @@ export interface paths {
         put?: never;
         /**
          * Reprogramar una orden
-         * @description Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Emite `orden.programada`.
+         * @description Permiso: `ordenes.reprogramar`. programada, en_camino o fallida → programada, con motivo. Mismas validaciones de agenda que programar; sin ventana nueva se conserva la anterior si el nuevo inicio cae en ella. Emite `orden.programada`.
          */
         post: operations["reprogramarOrden"];
         delete?: never;
@@ -1385,6 +1549,210 @@ export interface paths {
          * @description Permiso: `campo.sincronizar`. Cada operación usa el permiso de su acción y es idempotente por `id`. Siempre 200 con un resultado por operación, en el mismo orden (aplicada, duplicada o rechazada con su problem+json). Cuerpo de hasta 4 MiB y 200 operaciones (una firma SVG ocupa hasta 200 000 caracteres).
          */
         post: operations["loteSync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fichas de técnicos (según el alcance)
+         * @description Permiso: `agenda.ver`.
+         */
+        get: operations["listarTecnicos"];
+        put?: never;
+        /**
+         * Dar de alta la ficha de agenda de un técnico
+         * @description Permiso: `agenda.crear_tecnico`. El usuario debe ser una persona activa con `ordenes.ver_propias` u `ordenes.ver` que opere en la empresa activa. Nace sin turnos. Emite `tecnico.creado`.
+         */
+        post: operations["crearTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/asignables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Técnicos asignables con su disponibilidad del día
+         * @description Permiso: `agenda.ver`. Técnicos activos que atienden la zona (su cuadrilla) y pueden ver sus órdenes, con turnos, ausencias, citas, huecos libres y capacidad usada del día (hora de Guatemala). Los disponibles primero.
+         */
+        get: operations["tecnicosAsignables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ficha de un técnico con turnos, capacidad y ausencias
+         * @description Permiso: `agenda.ver`.
+         */
+        get: operations["verTecnico"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar la ficha de un técnico
+         * @description Permiso: `agenda.activar_tecnico`.
+         */
+        post: operations["activarTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/ausencias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar una ausencia del técnico
+         * @description Permiso: `agenda.registrar_ausencia`. Devuelve las citas vivas que quedan dentro (no se mueven solas: reprográmalas). Emite `tecnico.ausencia_registrada`.
+         */
+        post: operations["registrarAusencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/ausencias/{ausenciaId}/anular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Anular una ausencia
+         * @description Permiso: `agenda.anular_ausencia`. Queda en el historial. Emite `tecnico.ausencia_anulada`.
+         */
+        post: operations["anularAusencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/capacidad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar la capacidad diaria de un técnico
+         * @description Permiso: `agenda.fijar_capacidad`. Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día.
+         */
+        post: operations["capacidadTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar la ficha de un técnico
+         * @description Permiso: `agenda.desactivar_tecnico`. Deja de ser asignable; sus citas no se mueven.
+         */
+        post: operations["desactivarTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar la ficha de un técnico
+         * @description Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.
+         */
+        post: operations["editarTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/turnos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fijar los turnos semanales de un técnico
+         * @description Permiso: `agenda.fijar_turnos`. Reemplaza los turnos (hora de Guatemala, sin cruces en un día). Las citas ya programadas no se mueven.
+         */
+        post: operations["turnosTecnico"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1900,6 +2268,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/zonas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Zonas (espejo de Argos y locales)
+         * @description Permiso: `agenda.ver`.
+         */
+        get: operations["listarZonas"];
+        put?: never;
+        /**
+         * Crear una zona local
+         * @description Permiso: `agenda.crear_zona`. Exige el permiso sin límite de zona o cuadrilla. Las zonas de Argos llegan solas (espejo del catálogo). Emite `zona.creada`.
+         */
+        post: operations["crearZona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/zonas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar una zona
+         * @description Permiso: `agenda.activar_zona`.
+         */
+        post: operations["activarZona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/zonas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar una zona
+         * @description Permiso: `agenda.desactivar_zona`. Una zona inactiva no se puede usar en tickets ni órdenes nuevos.
+         */
+        post: operations["desactivarZona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/zonas/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar una zona
+         * @description Permiso: `agenda.editar_zona`. Nombre (solo locales y migradas) y polígono GeoJSON. Emite `zona.actualizada`.
+         */
+        post: operations["editarZona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1971,6 +2423,38 @@ export interface components {
             /** @enum {string} */
             tipo: "foto" | "firma" | "documento";
         };
+        Asignable: {
+            ausencias: components["schemas"]["Franja"][] | null;
+            capacidad: components["schemas"]["UsoCapacidad"][] | null;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            /** @description Tiene turno, no está ausente todo el día, le queda capacidad y un hueco del largo del tipo */
+            disponible: boolean;
+            habilidades: string[] | null;
+            /** @description Huecos dentro del turno sin citas vivas ni ausencias */
+            libres: components["schemas"]["Franja"][] | null;
+            /** Format: int32 */
+            minutosLibres: number;
+            /**
+             * @description Por qué no está disponible
+             * @enum {string|null}
+             */
+            motivo: "sin_turno" | "ausente" | "capacidad_completa" | "sin_espacio" | null;
+            nombre: string;
+            /** @description Citas del día (también las cerradas, que cuentan para la capacidad) */
+            ocupado: components["schemas"]["Ocupacion"][] | null;
+            /**
+             * Format: int64
+             * @description Ficha de agenda
+             */
+            tecnicoId: number;
+            turnos: components["schemas"]["Franja"][] | null;
+            /**
+             * Format: int64
+             * @description Usuario: es el tecnicoId de POST /ordenes/{id}/programar
+             */
+            usuarioId: number;
+        };
         AsignacionRol: {
             /**
              * Format: int64
@@ -1984,6 +2468,44 @@ export interface components {
              * @description Limita el rol a una zona
              */
             zonaId?: number;
+        };
+        Ausencia: {
+            /** Format: date-time */
+            anuladaEn: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            detalle: string;
+            /** Format: date-time */
+            fin: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            inicio: string;
+            /** @enum {string} */
+            motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
+            /**
+             * Format: int64
+             * @description Ficha
+             */
+            tecnicoId: number;
+            /** Format: int32 */
+            version: number;
+        };
+        AusenciaAgenda: {
+            /** Format: int64 */
+            fichaId: number;
+            /** Format: date-time */
+            fin: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            inicio: string;
+            motivo: string;
+            /**
+             * Format: int64
+             * @description Usuario técnico
+             */
+            tecnicoId: number;
         };
         Buzon: {
             activo: boolean;
@@ -2023,6 +2545,14 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        Calendario: {
+            ausencias: components["schemas"]["AusenciaAgenda"][] | null;
+            citas: components["schemas"]["CitaAgenda"][] | null;
+            /** Format: date-time */
+            desde: string;
+            /** Format: date-time */
+            hasta: string;
+        };
         CambioOrden: {
             /** @description Ausente si ya no es del técnico (reasignada): quitarla del teléfono */
             orden?: components["schemas"]["OrdenCampo"];
@@ -2038,6 +2568,23 @@ export interface components {
             cursor: string;
             /** @description Quedan cambios: pedir otra vez con el cursor */
             hayMas: boolean;
+        };
+        Capacidad: {
+            /**
+             * Format: int32
+             * @description Citas por día; null = sin límite de cupos
+             */
+            cupos: number | null;
+            /**
+             * Format: int32
+             * @description Minutos programados por día; null = sin límite de minutos
+             */
+            minutos: number | null;
+            /**
+             * @description Tipo de orden; null = todos los tipos
+             * @enum {string|null}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
         };
         Categoria: {
             activa: boolean;
@@ -2060,6 +2607,73 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        CitaAgenda: {
+            /** Format: int64 */
+            clienteId: number | null;
+            /**
+             * Format: int64
+             * @description Cuadrilla de la orden
+             */
+            cuadrillaId: number | null;
+            direccion: string;
+            /** @enum {string} */
+            estado: "pendiente" | "programada" | "en_camino" | "en_sitio" | "cerrada" | "fallida" | "cancelada";
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            numero: string;
+            /** Format: int64 */
+            ordenId: number;
+            /**
+             * Format: int32
+             * @description Versión de la orden (para reprogramar)
+             */
+            ordenVersion: number;
+            /** Format: int64 */
+            servicioId: number | null;
+            /**
+             * Format: int64
+             * @description Usuario técnico
+             */
+            tecnicoId: number;
+            /** @enum {string} */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /** Format: date-time */
+            ventanaFin: string | null;
+            /** Format: date-time */
+            ventanaInicio: string | null;
+            /** Format: int64 */
+            zonaId: number | null;
+        };
+        CitaEnConflicto: {
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
+            numero: string;
+            /** Format: int64 */
+            ordenId: number;
+        };
+        CitaOrden: {
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
+            /** Format: int64 */
+            tecnicoId: number;
+            /** Format: date-time */
+            ventanaFin: string | null;
+            /**
+             * Format: date-time
+             * @description Ventana de llegada acordada con el cliente
+             */
+            ventanaInicio: string | null;
         };
         ClienteCampo: {
             codigo: string;
@@ -2179,6 +2793,24 @@ export interface components {
             nombre: string | null;
             telefono: string | null;
         };
+        Cuadrilla: {
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Capacidad diaria de la cuadrilla (suma de sus técnicos) */
+            capacidad: components["schemas"]["Capacidad"][] | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** Format: int32 */
+            version: number;
+            /** @description Zonas que atiende; vacío = todas */
+            zonaIds: number[] | null;
+        };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
             evento: string;
@@ -2256,15 +2888,23 @@ export interface components {
              */
             version?: number;
         };
+        EntradaAnularAusencia: {
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la ausencia; si cambió, 409
+             */
+            version: number;
+        };
         EntradaAsignarOrden: {
             /**
              * Format: int64
-             * @description Bodega del técnico en Argos (hasta que agenda la tenga); ausente = se conserva
+             * @description Bodega del técnico en Argos; ausente = se conserva
              */
             bodegaId?: number;
             /**
              * Format: int64
-             * @description Cuadrilla; ausente = ninguna
+             * @description Cuadrilla (catálogo de agenda: activa y de la empresa de la orden); ausente = ninguna
              */
             cuadrillaId?: number;
             /**
@@ -2281,7 +2921,7 @@ export interface components {
         EntradaAsignarTicket: {
             /**
              * Format: int64
-             * @description Cuadrilla; ausente = ninguna
+             * @description Cuadrilla (catálogo de agenda: activa y de la empresa del ticket); ausente = ninguna
              */
             cuadrillaId?: number;
             /**
@@ -2402,6 +3042,11 @@ export interface components {
             /** @description Sin smtp, las respuestas de los agentes no salen por correo */
             smtp?: components["schemas"]["EntradaSMTP"];
         };
+        EntradaCrearCuadrilla: {
+            nombre: string;
+            /** @description Zonas que atiende (vacío = todas) */
+            zonaIds?: number[] | null;
+        };
         EntradaCrearEmpresa: {
             /**
              * Format: int64
@@ -2465,6 +3110,26 @@ export interface components {
              * @description Zona (Argos); define el alcance. Por defecto, la del servicio o el cliente en la instantánea
              */
             zonaId?: number;
+        };
+        EntradaCrearTecnico: {
+            /** Format: double */
+            baseLat?: number;
+            /** Format: double */
+            baseLon?: number;
+            /**
+             * Format: int64
+             * @description Bodega del técnico en Argos
+             */
+            bodegaId?: number;
+            /** Format: int64 */
+            cuadrillaId?: number;
+            /** @description Códigos libres (fibra, inalambrico, altura…) */
+            habilidades?: string[] | null;
+            /**
+             * Format: int64
+             * @description Usuario persona con ordenes.ver_propias u ordenes.ver
+             */
+            usuarioId: number;
         };
         EntradaCrearTicket: {
             asunto: string;
@@ -2554,6 +3219,13 @@ export interface components {
              */
             tipo: "persona" | "integracion";
         };
+        EntradaCrearZona: {
+            nombre: string;
+            /** @description GeoJSON Polygon o MultiPolygon ([lon, lat]), hasta 5000 vértices */
+            poligono?: {
+                [key: string]: unknown;
+            };
+        };
         EntradaDesactivarUsuario: {
             motivo: string;
             /**
@@ -2581,9 +3253,35 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaEditarCuadrilla: {
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+            /** @description Zonas que atiende (vacío = todas); reemplaza las anteriores */
+            zonaIds: number[] | null;
+        };
         EntradaEditarEmpresa: {
             nit?: string;
             nombre: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaEditarTecnico: {
+            /** Format: double */
+            baseLat?: number;
+            /** Format: double */
+            baseLon?: number;
+            /** Format: int64 */
+            bodegaId?: number;
+            /** Format: int64 */
+            cuadrillaId?: number;
+            habilidades?: string[] | null;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -2597,6 +3295,21 @@ export interface components {
             correo?: string;
             nombre?: string;
             roles?: components["schemas"]["AsignacionRol"][];
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaEditarZona: {
+            /** @description No se edita en las zonas de Argos (vienen de su catálogo) */
+            nombre?: string;
+            /** @description GeoJSON Polygon o MultiPolygon; ausente = se conserva */
+            poligono?: {
+                [key: string]: unknown;
+            };
+            /** @description Borra el polígono */
+            quitarPoligono?: boolean;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -2675,6 +3388,24 @@ export interface components {
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaFijarCapacidad: {
+            /** @description Una línea por tipo (o null = todos); vacío = sin límite */
+            capacidad: components["schemas"]["Capacidad"][] | null;
+            /**
+             * Format: int32
+             * @description Versión leída de la ficha o la cuadrilla; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaFijarTurnos: {
+            /** @description Vacío = sin turnos (no se le puede programar) */
+            turnos: components["schemas"]["Turno"][] | null;
+            /**
+             * Format: int32
+             * @description Versión leída de la ficha; si cambió, 409
              */
             version: number;
         };
@@ -2779,10 +3510,19 @@ export interface components {
              */
             version: number;
         };
+        EntradaPosiciones: {
+            dispositivoId?: string;
+            /**
+             * Format: date-time
+             * @description Hora del teléfono al enviar (mismo reloj que registradaEn): corrige el desfase
+             */
+            enviadoEn?: string;
+            puntos: components["schemas"]["PuntoPosicion"][] | null;
+        };
         EntradaProgramarOrden: {
             /**
              * Format: int64
-             * @description Bodega del técnico en Argos; ausente = se conserva
+             * @description Bodega del técnico en Argos; ausente = la de su ficha de agenda o se conserva
              */
             bodegaId?: number;
             /**
@@ -2799,9 +3539,19 @@ export interface components {
             motivo?: string;
             /**
              * Format: int64
-             * @description Técnico; obligatorio si la orden no tiene. Otro distinto la reasigna
+             * @description Técnico (usuario); obligatorio si la orden no tiene. Otro distinto la reasigna
              */
             tecnicoId?: number;
+            /**
+             * Format: date-time
+             * @description Fin de la ventana (hasta 24 h después de su inicio)
+             */
+            ventanaFin?: string;
+            /**
+             * Format: date-time
+             * @description Ventana de llegada acordada con el cliente (va con ventanaFin); el inicio debe caer dentro. Al reprogramar sin ventana se conserva la anterior si el nuevo inicio cae en ella
+             */
+            ventanaInicio?: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -2869,6 +3619,21 @@ export interface components {
              * @description Versión leída (opcional); si cambió, 409
              */
             version?: number;
+        };
+        EntradaRegistrarAusencia: {
+            detalle?: string;
+            /**
+             * Format: date-time
+             * @description Posterior al inicio; hasta 366 días
+             */
+            fin: string;
+            /**
+             * Format: date-time
+             * @description UTC (RFC 3339)
+             */
+            inicio: string;
+            /** @enum {string} */
+            motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
         };
         EntradaReintentarHTTPBody: {
             /** Format: int32 */
@@ -2948,6 +3713,14 @@ export interface components {
         EntradaVerificarMFA: {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
+        };
+        EntradaVersion: {
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
         };
         EquipoComodato: {
             mac: string | null;
@@ -3053,8 +3826,11 @@ export interface components {
             motivo: string | null;
             /** Format: int64 */
             ticketId: number;
-            /** @enum {string} */
-            tipo: "creado" | "estado" | "asignado" | "escalado" | "fusionado" | "sla_en_riesgo" | "sla_vencido";
+            /**
+             * @description aviso_incidente: Iris avisó al cliente de este ticket hijo sobre su incidente de red (motivo: «Incidente TK-… resuelto|reabierto»)
+             * @enum {string}
+             */
+            tipo: "creado" | "estado" | "asignado" | "escalado" | "fusionado" | "sla_en_riesgo" | "sla_vencido" | "aviso_incidente";
         };
         Existencia: {
             /** Format: double */
@@ -3100,6 +3876,12 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             ocurridoEn: string;
+        };
+        Franja: {
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
         };
         IPResuelta: {
             /** Format: int64 */
@@ -3243,6 +4025,17 @@ export interface components {
             /** Format: int32 */
             respuestaMin: number;
         };
+        Ocupacion: {
+            estado: string;
+            /** Format: date-time */
+            fin: string;
+            /** Format: date-time */
+            inicio: string;
+            /** @description Vacío si la orden es de otra empresa */
+            numero: string;
+            /** Format: int64 */
+            ordenId: number;
+        };
         OperacionLote: {
             /** @description Los mismos campos (camelCase) que el cuerpo de la acción del panel, sin version */
             datos?: {
@@ -3324,6 +4117,11 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
+             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @enum {string}
+             */
+            origen?: "panel" | "api" | "argos" | "sistema";
+            /**
              * Format: int64
              * @description Plantilla de checklist
              */
@@ -3383,6 +4181,8 @@ export interface components {
              */
             bodegaId: number | null;
             checklist: components["schemas"]["ItemChecklist"][] | null;
+            /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
+            cita?: components["schemas"]["CitaOrden"];
             /** @description Instantánea de Argos; ausente si Iris no la tiene */
             cliente?: components["schemas"]["ClienteCampo"];
             /**
@@ -3431,6 +4231,11 @@ export interface components {
             notas: components["schemas"]["NotaOrden"][] | null;
             /** @description Número legible (OT-000123) */
             numero: string;
+            /**
+             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @enum {string}
+             */
+            origen?: "panel" | "api" | "argos" | "sistema";
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -3494,6 +4299,8 @@ export interface components {
              */
             bodegaId: number | null;
             checklist: components["schemas"]["ItemChecklist"][] | null;
+            /** @description Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada */
+            cita?: components["schemas"]["CitaOrden"];
             /**
              * Format: int64
              * @description Cliente en Argos
@@ -3539,6 +4346,11 @@ export interface components {
             notas: components["schemas"]["NotaOrden"][] | null;
             /** @description Número legible (OT-000123) */
             numero: string;
+            /**
+             * @description De dónde vino: panel, api, argos (retiro automático por servicio retirado) o sistema
+             * @enum {string}
+             */
+            origen?: "panel" | "api" | "argos" | "sistema";
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -3608,6 +4420,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaCuadrilla: {
+            data: components["schemas"]["Cuadrilla"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaEmpresa: {
             data: components["schemas"]["Empresa"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -3658,6 +4475,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaTecnico: {
+            data: components["schemas"]["Tecnico"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaTicket: {
             data: components["schemas"]["Ticket"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -3683,6 +4505,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaZona: {
+            data: components["schemas"]["Zona"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         Paquete: {
             /** @description Cursor para GET /campo/cambios (tomado antes de leer: puede repetir algo, nunca saltarlo) */
             cursor: string;
@@ -3691,7 +4518,7 @@ export interface components {
             fecha: string;
             /** @description Asignadas al técnico: pendientes, programadas hasta ese día (también atrasadas), en camino y en sitio */
             ordenes: components["schemas"]["OrdenCampo"][] | null;
-            /** @description Ruta publicada (fase 3: hoy siempre ausente) */
+            /** @description Ruta publicada (hoy siempre ausente: llega con la propuesta y publicación de rutas) */
             ruta?: components["schemas"]["RutaCampo"];
             /**
              * Format: date-time
@@ -3760,7 +4587,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.sincronizar" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "portal.emitir" | "roles.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -3772,6 +4599,46 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PosicionTecnico: {
+            /**
+             * Format: int64
+             * @description Segundos desde registradaEn
+             */
+            antiguedadSeg: number;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            /**
+             * Format: int64
+             * @description Ficha de agenda
+             */
+            fichaId: number | null;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            nombre: string;
+            /**
+             * Format: double
+             * @description Metros
+             */
+            precision: number | null;
+            /** Format: date-time */
+            recibidaEn: string;
+            /** Format: date-time */
+            registradaEn: string;
+            /** Format: double */
+            rumbo: number | null;
+            /**
+             * Format: int64
+             * @description Usuario técnico
+             */
+            tecnicoId: number;
+            /**
+             * Format: double
+             * @description m/s
+             */
+            velocidad: number | null;
         };
         Problema: {
             /** @description Explicación de este caso */
@@ -3801,6 +4668,32 @@ export interface components {
             detalle: string | null;
             ok: boolean;
         };
+        PuntoPosicion: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /**
+             * Format: double
+             * @description Metros
+             */
+            precision?: number;
+            /**
+             * Format: date-time
+             * @description Hora del punto (reloj del teléfono; se corrige con enviadoEn)
+             */
+            registradaEn: string;
+            /**
+             * Format: double
+             * @description Grados
+             */
+            rumbo?: number;
+            /**
+             * Format: double
+             * @description m/s
+             */
+            velocidad?: number;
+        };
         RelojSLA: {
             /**
              * Format: date-time
@@ -3825,6 +4718,21 @@ export interface components {
              */
             venceEn: string | null;
         };
+        RespuestaAsignables: {
+            data: components["schemas"]["Asignable"][] | null;
+            /**
+             * Format: int32
+             * @description Duración del tipo (0 sin tipo)
+             */
+            duracionMin: number;
+            fecha: string;
+            tipo: string | null;
+        };
+        RespuestaAusencia: {
+            ausencia: components["schemas"]["Ausencia"];
+            /** @description Citas vivas del técnico dentro de la ausencia: reprográmalas */
+            citasEnConflicto: components["schemas"]["CitaEnConflicto"][] | null;
+        };
         RespuestaLote: {
             /** @description Cursor de cambios para seguir con GET /campo/cambios: el que mandó el teléfono o, sin él, el de antes de aplicar el lote (nunca salta un cambio). No avanza con las operaciones del lote: sus efectos ya vienen en resultados[].orden */
             cursor: string;
@@ -3834,6 +4742,31 @@ export interface components {
              */
             desfaseMs: number;
             resultados: components["schemas"]["ResultadoOperacion"][] | null;
+            /** Format: date-time */
+            servidorEn: string;
+        };
+        RespuestaPosiciones: {
+            /**
+             * Format: int64
+             * @description Puntos nuevos guardados
+             */
+            aceptadas: number;
+            /** Format: int64 */
+            descartadas: number;
+            /**
+             * Format: int64
+             * @description servidorEn − enviadoEn (0 sin enviadoEn)
+             */
+            desfaseMs: number;
+            /**
+             * Format: int64
+             * @description Ya estaban (mismo técnico y hora): reenviar un lote es seguro
+             */
+            duplicadas: number;
+            /** @description Descartados por motivo: vieja (más de 24 h), futura (adelantada) o frecuencia (más seguidos que el intervalo mínimo) */
+            motivos: {
+                [key: string]: number;
+            };
             /** Format: date-time */
             servidorEn: string;
         };
@@ -3993,6 +4926,78 @@ export interface components {
             cliente: components["schemas"]["ClientePortal"];
             /** Format: date-time */
             expiraEn: string;
+        };
+        Tecnico: {
+            /** @description Ficha activa y usuario activo */
+            activo: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: double */
+            baseLat: number | null;
+            /** Format: double */
+            baseLon: number | null;
+            /**
+             * Format: int64
+             * @description Bodega del técnico en Argos
+             */
+            bodegaId: number | null;
+            correo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            habilidades: string[] | null;
+            /**
+             * Format: int64
+             * @description Id de la ficha
+             */
+            id: number;
+            nombre: string;
+            /**
+             * Format: int64
+             * @description Usuario (es el tecnicoId de las órdenes)
+             */
+            usuarioId: number;
+            /** Format: int32 */
+            version: number;
+        };
+        TecnicoDetalle: {
+            /** @description Ficha activa y usuario activo */
+            activo: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Vigentes o futuras, sin anular */
+            ausencias: components["schemas"]["Ausencia"][] | null;
+            /** Format: double */
+            baseLat: number | null;
+            /** Format: double */
+            baseLon: number | null;
+            /**
+             * Format: int64
+             * @description Bodega del técnico en Argos
+             */
+            bodegaId: number | null;
+            capacidad: components["schemas"]["Capacidad"][] | null;
+            correo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            habilidades: string[] | null;
+            /**
+             * Format: int64
+             * @description Id de la ficha
+             */
+            id: number;
+            nombre: string;
+            turnos: components["schemas"]["Turno"][] | null;
+            /**
+             * Format: int64
+             * @description Usuario (es el tecnicoId de las órdenes)
+             */
+            usuarioId: number;
+            /** Format: int32 */
+            version: number;
         };
         Ticket: {
             /** Format: date-time */
@@ -4160,6 +5165,36 @@ export interface components {
             /** @description iris_pat_…; guárdalo ahora, no se vuelve a mostrar */
             valor: string;
         };
+        Turno: {
+            /**
+             * Format: int32
+             * @description 1 = lunes … 7 = domingo
+             */
+            dia: number;
+            /** @description HH:MM (hasta 24:00); posterior al inicio */
+            fin: string;
+            /** @description HH:MM */
+            inicio: string;
+        };
+        UltimasPosiciones: {
+            data: components["schemas"]["PosicionTecnico"][] | null;
+            /** Format: date-time */
+            servidorEn: string;
+        };
+        UsoCapacidad: {
+            /** Format: int32 */
+            cupos: number | null;
+            /** Format: int32 */
+            cuposUsados: number;
+            /** @enum {string} */
+            de: "tecnico" | "cuadrilla";
+            /** Format: int32 */
+            minutos: number | null;
+            /** Format: int32 */
+            minutosUsados: number;
+            /** @description null = todos los tipos */
+            tipo: string | null;
+        };
         Usuario: {
             activo: boolean;
             /** Format: date-time */
@@ -4213,6 +5248,40 @@ export interface components {
              */
             tokenId?: number;
             usuario: components["schemas"]["Usuario"];
+        };
+        Zona: {
+            activa: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /**
+             * Format: int64
+             * @description Empresa en Argos; null = todas (o sin conector)
+             */
+            empresaId: number | null;
+            /**
+             * Format: int64
+             * @description Id de Argos (origen argos) o local (desde 10^12)
+             */
+            id: number;
+            nombre: string;
+            /**
+             * @description argos: espejo del catálogo de Argos; local: creada en Iris; migrada: id que ya estaba en uso sin catálogo
+             * @enum {string}
+             */
+            origen: "argos" | "local" | "migrada";
+            /** @description GeoJSON Polygon o MultiPolygon ([lon, lat]) propio de Iris */
+            poligono: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Format: date-time
+             * @description Último refresco desde Argos
+             */
+            sincronizadoEn: string | null;
+            /** Format: int32 */
+            version: number;
         };
     };
     responses: never;
@@ -4674,6 +5743,73 @@ export interface operations {
             };
             /** @description `almacen_no_disponible` */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    calendarioAgenda: {
+        parameters: {
+            query: {
+                /** @description UTC (RFC 3339) */
+                desde: string;
+                /** @description UTC; hasta 31 días después de desde */
+                hasta: string;
+                /** @description Usuario técnico */
+                tecnicoId?: number;
+                /** @description Cuadrilla del técnico o de la orden */
+                cuadrillaId?: number;
+                /** @description Zona de la orden */
+                zonaId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Calendario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5312,6 +6448,139 @@ export interface operations {
             };
         };
     };
+    registrarPosiciones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaPosiciones"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaPosiciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    ultimasPosiciones: {
+        parameters: {
+            query?: {
+                /** @description Usuario técnico */
+                tecnicoId?: number;
+                cuadrillaId?: number;
+                /** @description Técnicos cuya cuadrilla atiende la zona */
+                zonaId?: number;
+                /** @description Solo las posiciones de los últimos N minutos (1440 por defecto) */
+                maxAntiguedadMin?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UltimasPosiciones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarCategoriasTicket: {
         parameters: {
             query?: {
@@ -5615,6 +6884,460 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarCuadrillas: {
+        parameters: {
+            query?: {
+                /** @description Incluye las inactivas */
+                todas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearCuadrilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearCuadrilla"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarCuadrilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    capacidadCuadrilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFijarCapacidad"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarCuadrilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarCuadrilla: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarCuadrilla"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cuadrilla"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9803,6 +11526,848 @@ export interface operations {
             };
         };
     };
+    listarTecnicos: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Técnicos que atienden la zona (por su cuadrilla) */
+                zonaId?: number;
+                /** @description La ficha de ese usuario */
+                usuarioId?: number;
+                /** @description Solo activos (true) o inactivos (false) */
+                activo?: "true" | "false" | "";
+                habilidad?: string;
+                /** @description Nombre o correo */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaTecnico"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearTecnico"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    tecnicosAsignables: {
+        parameters: {
+            query?: {
+                /** @description Zona de la orden: técnicos que la atienden (cuadrilla) y la pueden ver (alcance) */
+                zonaId?: number;
+                /** @description Día en hora de Guatemala (YYYY-MM-DD); hoy por defecto */
+                fecha?: string;
+                /** @description Tipo de orden: duración y capacidad por tipo */
+                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "";
+                cuadrillaId?: number;
+                habilidad?: string;
+                /** @description Orden que se va a reprogramar: su cita actual no cuenta como ocupada */
+                ordenId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaAsignables"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verTecnico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarAusencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRegistrarAusencia"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaAusencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    anularAusencia: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                ausenciaId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAnularAusencia"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ausencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    capacidadTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFijarCapacidad"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarTecnico"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    turnosTecnico: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaFijarTurnos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarTickets: {
         parameters: {
             query?: {
@@ -11848,6 +14413,377 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarZonas: {
+        parameters: {
+            query?: {
+                /** @description Incluye las inactivas */
+                todas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaZona"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearZona: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearZona"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Zona"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarZona: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Zona"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarZona: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Zona"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarZona: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarZona"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Zona"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

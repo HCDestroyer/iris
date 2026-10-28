@@ -111,7 +111,7 @@ func TestHTTPPortalDelCliente(t *testing.T) {
 	v := agente.pedir(http.MethodGet, panel, nil)
 	contacto, _ := v.cuerpo["contacto"].(map[string]any)
 	if v.status != 200 || v.cuerpo["clienteId"] != float64(7101) || v.cuerpo["empresaId"] != float64(71) ||
-		v.cuerpo["servicioId"] != float64(710101) || v.cuerpo["zonaId"] != float64(8) || contacto["nombre"] != "Cliente 7101" {
+		v.cuerpo["servicioId"] != float64(710101) || v.cuerpo["zonaId"] != float64(718) || contacto["nombre"] != "Cliente 7101" {
 		t.Fatalf("el ticket en el panel: %d %s", v.status, v.crudo)
 	}
 	ana.pedir(http.MethodPost, "/api/v1/portal/tickets", map[string]any{"asunto": "Caída", "descripcion": "x", "categoriaId": incidenteRed(t)}).

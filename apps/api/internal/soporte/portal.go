@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -274,6 +275,10 @@ func (m *Modulo) nuevoCrearTicketPortal() *auditoria.Caso[EntradaCrearTicketPort
 				if s.ZonaID != nil {
 					entrada.ZonaID = s.ZonaID
 				}
+			}
+			// La zona de Argos pasa al catálogo de agenda si falta (llave foránea).
+			if entrada.ZonaID, err = agenda.ZonaDeArgos(ctx, t, entrada.ZonaID, &a.EmpresaID); err != nil {
+				return TicketPortal{}, err
 			}
 			f, err := m.crearTicket(ctx, t, entrada, opcionesCrear{})
 			if err != nil {

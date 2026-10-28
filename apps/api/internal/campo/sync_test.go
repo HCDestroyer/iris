@@ -340,7 +340,7 @@ func TestPaqueteYCambios(t *testing.T) {
 	conServicio := deber(e.m.CrearOrden.Ejecutar(cd, campo.EntradaCrearOrden{Tipo: "retiro", Direccion: ptr("Villa Nueva"),
 		ClienteID: ptr(int64(990)), ServicioID: ptr(int64(9901))}))(t)
 	conServicio = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: conServicio.ID, Version: conServicio.Version,
-		TecnicoID: &t1, Inicio: inicio.Add(2 * time.Hour)}))(t)
+		TecnicoID: &t1, Inicio: inicio.Add(3 * time.Hour)}))(t)
 	manana := crearOrden(t, e, cd, "visita")
 	manana = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: manana.ID, Version: manana.Version,
 		TecnicoID: &t1, Inicio: inicio.Add(24 * time.Hour)}))(t)
@@ -388,7 +388,7 @@ func TestPaqueteYCambios(t *testing.T) {
 	if len(vacio.Cambios) != 0 || vacio.Cursor != cursor {
 		t.Fatalf("sin cambios: %+v", vacio)
 	}
-	hoy = deber(e.m.ReprogramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: hoy.ID, Version: hoy.Version, Inicio: inicio.Add(3 * time.Hour), Motivo: ptr("Tráfico")}))(t)
+	hoy = deber(e.m.ReprogramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: hoy.ID, Version: hoy.Version, Inicio: inicio.Add(5 * time.Hour), Motivo: ptr("Tráfico")}))(t)
 	deber(e.m.CancelarOrden.Ejecutar(cd, campo.EntradaMotivo{ID: conServicio.ID, Version: conServicio.Version, Motivo: "Desistió"}))(t)
 	deber(e.m.AsignarOrden.Ejecutar(cd, campo.EntradaAsignarOrden{ID: manana.ID, Version: manana.Version, TecnicoID: &t2}))(t)
 	deber(e.m.AsignarOrden.Ejecutar(cd, campo.EntradaAsignarOrden{ID: ajena.ID, Version: ajena.Version, TecnicoID: &t1}))(t)

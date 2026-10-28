@@ -200,6 +200,12 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
 	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	lpos, err := campo.LimitesPosicionesDesdeEntorno()
+	if err != nil {
+		return err
+	}
+	// Campo programa con su agenda (la misma registra las rutas de agenda).
+	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos})
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo},
@@ -209,7 +215,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			sop.Registrar,
 			adj.RegistrarRutas,
 			pend.Registrar,
-			campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos)}).Registrar,
+			cmp.Registrar,
+			cmp.Agenda().Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})
@@ -427,7 +434,7 @@ const usoSemillaCampo = "uso: iris campo semilla [--correo tecnico@iris.local] [
 
 // semillaCampo prepara datos de desarrollo para la app de campo (I2): un técnico (rol tecnico;
 // se crea si no existe, con una contraseña que se muestra una vez) y órdenes del día
-// programadas para él, por los casos de uso (actor sistema, canal consola, auditado). Con
+// programadas para él (con ficha de agenda y turnos si no la tenía), por los casos de uso (actor sistema, canal consola, auditado). Con
 // empresas registradas, --empresa es obligatoria (el técnico recibe esa empresa).
 func semillaCampo(ctx context.Context, cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("campo semilla", flag.ContinueOnError)

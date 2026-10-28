@@ -2,8 +2,12 @@ package campo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // OpcionesSemilla de la semilla de desarrollo.
@@ -18,11 +22,15 @@ type OpcionesSemilla struct {
 
 // SemillaDesarrollo crea órdenes del día programadas para un técnico, para probar la app de
 // campo sin Argos (iris campo semilla). Corre por los casos de uso con el actor del contexto
-// (consola: sistema), así que todo queda auditado y con sus eventos. La ruta del día no existe
-// todavía (agenda, fase 3): el paquete la manda ausente.
+// (consola: sistema), así que todo queda auditado y con sus eventos. Si el técnico no tiene
+// ficha de agenda, se la da con turnos de lunes a domingo de 07:00 a 19:00; cada orden toma el
+// primer hueco libre del día desde las 08:00.
 func (m *Modulo) SemillaDesarrollo(ctx context.Context, op OpcionesSemilla) ([]Orden, error) {
 	if op.Ordenes <= 0 {
 		op.Ordenes = 3
+	}
+	if err := m.fichaDeSemilla(ctx, op.TecnicoID); err != nil {
+		return nil, err
 	}
 	tipos := []string{"instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"}
 	direcciones := []string{"Zona 10, 5a avenida 12-34, Ciudad de Guatemala", "Mixco, colonia El Naranjo, 3a calle 8-10",
@@ -40,12 +48,41 @@ func (m *Modulo) SemillaDesarrollo(ctx context.Context, op OpcionesSemilla) ([]O
 		if err != nil {
 			return salida, err
 		}
-		inicio := time.Date(hoy.Year(), hoy.Month(), hoy.Day(), 8+2*i%10, 0, 0, 0, loc)
-		o, err = m.ProgramarOrden.Ejecutar(ctx, EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &op.TecnicoID, Inicio: inicio})
+		var programada Orden
+		for mitad := 16; mitad < 36; mitad++ { // 08:00 … 17:30, cada media hora
+			inicio := time.Date(hoy.Year(), hoy.Month(), hoy.Day(), mitad/2, 30*(mitad%2), 0, 0, loc)
+			programada, err = m.ProgramarOrden.Ejecutar(ctx, EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &op.TecnicoID, Inicio: inicio})
+			var p *nucleo.Problema
+			if err == nil || !errors.As(err, &p) || (p.Codigo() != "solape" && p.Codigo() != "fuera_de_turno") {
+				break
+			}
+		}
 		if err != nil {
 			return salida, err
 		}
-		salida = append(salida, o)
+		salida = append(salida, programada)
 	}
 	return salida, nil
+}
+
+// fichaDeSemilla da ficha de agenda (con turnos) al técnico si no la tiene.
+func (m *Modulo) fichaDeSemilla(ctx context.Context, usuario int64) error {
+	ag := m.cfg.Agenda
+	pag, err := ag.ListarTecnicos.Ejecutar(ctx, agenda.EntradaListarTecnicos{UsuarioID: usuario})
+	if err != nil {
+		return err
+	}
+	if len(pag.Data) > 0 {
+		return nil
+	}
+	f, err := ag.CrearTecnico.Ejecutar(ctx, agenda.EntradaCrearTecnico{UsuarioID: usuario, Habilidades: []string{"fibra", "inalambrico"}})
+	if err != nil {
+		return err
+	}
+	turnos := make([]agenda.Turno, 0, 7)
+	for dia := int16(1); dia <= 7; dia++ {
+		turnos = append(turnos, agenda.Turno{Dia: dia, Inicio: "07:00", Fin: "19:00"})
+	}
+	_, err = ag.FijarTurnos.Ejecutar(ctx, agenda.EntradaFijarTurnos{ID: f.ID, Version: f.Version, Turnos: turnos})
+	return err
 }

@@ -136,7 +136,34 @@ func usuarioCon(t *testing.T, roles ...identidad.AsignacionRol) int64 {
 	return u.ID
 }
 
-func tecnico(t *testing.T) int64  { return usuarioCon(t, identidad.AsignacionRol{Rol: "tecnico"}) }
+func tecnico(t *testing.T) int64 {
+	id := usuarioCon(t, identidad.AsignacionRol{Rol: "tecnico"})
+	conAgenda(t, id)
+	return id
+}
+
+// conAgenda da al usuario ficha de agenda con turnos de 00:00 a 24:00 todos los días (para que
+// se le pueda programar sin pensar en turnos).
+func conAgenda(t *testing.T, usuario int64) {
+	t.Helper()
+	pool := pruebas.Pool(t)
+	if _, err := pool.Exec(context.Background(), `
+		WITH f AS (INSERT INTO agenda.tecnicos (usuario_id) VALUES ($1) ON CONFLICT (usuario_id) DO UPDATE SET activo = true RETURNING id)
+		INSERT INTO agenda.turnos (tecnico_id, dia, inicio, fin)
+		SELECT f.id, d, '00:00', '24:00' FROM f, generate_series(1, 7) d
+		WHERE NOT EXISTS (SELECT 1 FROM agenda.turnos tu WHERE tu.tecnico_id = f.id)`, usuario); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// asegurarZona deja la zona en el catálogo de agenda (sin empresa: de todas).
+func asegurarZona(t *testing.T, id int64) {
+	t.Helper()
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		"INSERT INTO agenda.zonas (id, origen, nombre) VALUES ($1::bigint, 'local', 'Zona ' || $1::bigint::text) ON CONFLICT (id) DO UPDATE SET empresa_id = NULL, activa = true", id); err != nil {
+		t.Fatal(err)
+	}
+}
 func despacho(t *testing.T) int64 { return usuarioCon(t, identidad.AsignacionRol{Rol: "despacho"}) }
 
 // permisosDe son los permisos del rol base.
@@ -186,20 +213,40 @@ func deber[T any](v T, err error) func(*testing.T) T {
 // crearOrden crea una orden de instalación (sin conector) como despacho.
 func crearOrden(t *testing.T, e entorno, ctx context.Context, tipo string) campo.Orden {
 	t.Helper()
+	asegurarZona(t, 3)
 	return deber(e.m.CrearOrden.Ejecutar(ctx, campo.EntradaCrearOrden{
 		Tipo: tipo, Direccion: ptr("Zona 10, 5a avenida 12-34"), Lat: ptr(14.6), Lon: ptr(-90.5),
 		ZonaID: ptr(int64(3)), Descripcion: "Trabajo de prueba",
 	}))(t)
 }
 
-// programada crea una orden y la programa para el técnico, hoy a las 10:00 de Guatemala.
+// programada crea una orden y la programa para el técnico, hoy desde las 10:00 de Guatemala:
+// cada orden del mismo técnico toma el siguiente hueco libre de 2 h (la agenda no deja que se
+// crucen).
 func programada(t *testing.T, e entorno, ctxDespacho context.Context, tipo string, tec int64) campo.Orden {
 	t.Helper()
 	o := crearOrden(t, e, ctxDespacho, tipo)
-	return deber(e.m.ProgramarOrden.Ejecutar(ctxDespacho, campo.EntradaProgramarOrden{
-		ID: o.ID, Version: o.Version, TecnicoID: &tec, Inicio: inicio.Add(time.Hour),
-	}))(t)
+	for {
+		huecos.Lock()
+		n := huecos.siguiente[tec]
+		huecos.siguiente[tec] = n + 1
+		huecos.Unlock()
+		p, err := e.m.ProgramarOrden.Ejecutar(ctxDespacho, campo.EntradaProgramarOrden{
+			ID: o.ID, Version: o.Version, TecnicoID: &tec, Inicio: inicio.Add(time.Hour + time.Duration(n)*2*time.Hour),
+		})
+		var pr *nucleo.Problema
+		if n < 6 && errors.As(err, &pr) && pr.Codigo() == "solape" {
+			continue
+		}
+		return deber(p, err)(t)
+	}
 }
+
+// huecos: el siguiente hueco de cada técnico (programada).
+var huecos = struct {
+	sync.Mutex
+	siguiente map[int64]int
+}{siguiente: map[int64]int{}}
 
 type evento struct {
 	Evento  string

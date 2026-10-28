@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -159,6 +160,10 @@ func (m *Modulo) nuevoCancelarOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			}
 			despues := antes
 			despues.Estado, despues.FinalizadaEn, despues.Resultado, despues.Motivo = EstadoCancelada, &ahora, ptr("cancelada"), &motivo
+			// La cita deja de ocupar la agenda del técnico.
+			if err := agenda.QuitarCita(ctx, t, antes.ID); err != nil {
+				return antes, "", err
+			}
 			f, err := guardar(ctx, t, q, antes, despues)
 			if err != nil {
 				return f, "", err
@@ -194,6 +199,10 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			despues := antes
 			despues.Estado, despues.FinalizadaEn, despues.Resultado, despues.MotivoFalla = EstadoPendiente, nil, nil, nil
 			despues.EnCaminoEn, despues.EnSitioEn, despues.Motivo = nil, nil, &motivo
+			// Vuelve a pendiente: hay que programarla de nuevo (otra cita).
+			if err := agenda.QuitarCita(ctx, t, antes.ID); err != nil {
+				return antes, "", err
+			}
 			f, err := guardar(ctx, t, q, antes, despues)
 			if err != nil {
 				return f, "", err

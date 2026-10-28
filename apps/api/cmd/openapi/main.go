@@ -41,6 +41,7 @@ func main() {
 
 func escribir(salida string) error {
 	conectorArgos := argos.Nuevo(argos.Config{})
+	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos)})
 	_, api := servidor.Nuevo(servidor.Deps{
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:   versionContrato,
@@ -51,7 +52,8 @@ func escribir(salida string) error {
 			soporte.Nuevo(soporte.Config{}).Registrar,
 			adjuntos.Nuevo(adjuntos.Config{}).RegistrarRutas,
 			pendientes.Nuevo(pendientes.Config{}).Registrar,
-			campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos)}).Registrar,
+			cmp.Registrar,
+			cmp.Agenda().Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()
