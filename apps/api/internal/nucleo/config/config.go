@@ -56,6 +56,25 @@ type Config struct {
 	// IRIS_CONECTORES_PERMITIR_HTTP: acepta conectores con base_url http:// (solo desarrollo;
 	// false por defecto: el token viaja en Authorization y exige https).
 	ConectoresPermitirHTTP bool
+	// Adjuntos (internal/nucleo/adjuntos).
+	//  IRIS_ADJUNTOS_ALMACEN: local | s3 (por defecto s3 si hay IRIS_S3_ENDPOINT, si no local).
+	//  IRIS_ADJUNTOS_DIR: directorio del almacenamiento local (./datos/adjuntos).
+	//  IRIS_ADJUNTOS_TAMANO_MAX: bytes por adjunto (26214400 = 25 MiB).
+	//  IRIS_ADJUNTOS_MIME: tipos permitidos, separados por coma (vacía = los de adjuntos.MIMEPorDefecto).
+	AdjuntosAlmacen   string
+	AdjuntosDir       string
+	AdjuntosTamanoMax int64
+	AdjuntosMIME      []string
+	//  IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO (50), IRIS_ADJUNTOS_MAX_BYTES_USUARIO (524288000),
+	//  IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD (30): cuotas de subidas sin terminar (429).
+	//  IRIS_ADJUNTOS_ABANDONO (48h): sin actividad por más de esto, la subida se rechaza.
+	AdjuntosMaxEnCursoUsuario int
+	AdjuntosMaxBytesUsuario   int64
+	AdjuntosMaxEnCursoEntidad int
+	AdjuntosAbandono          time.Duration
+	// IRIS_S3_*: almacenamiento S3 compatible (MinIO en dev), el mismo del docker-compose.
+	S3Endpoint, S3Region, S3Bucket, S3AccessKey, S3SecretKey string
+	S3EstiloRuta                                             bool
 	// Version de la compilación (-ldflags "-X main.version=…").
 	Version string
 }
@@ -77,6 +96,15 @@ func Cargar() (Config, error) {
 
 		DuracionSesionPortal: 2 * time.Hour,
 		WebhookVentana:       5 * time.Minute,
+
+		AdjuntosDir:       "./datos/adjuntos",
+		AdjuntosTamanoMax: 25 << 20,
+		S3Endpoint:        os.Getenv("IRIS_S3_ENDPOINT"),
+		S3Region:          os.Getenv("IRIS_S3_REGION"),
+		S3Bucket:          os.Getenv("IRIS_S3_BUCKET"),
+		S3AccessKey:       os.Getenv("IRIS_S3_ACCESS_KEY"),
+		S3SecretKey:       os.Getenv("IRIS_S3_SECRET_KEY"),
+		S3EstiloRuta:      true,
 	}
 	var errs []string
 	if c.DBURL == "" {
@@ -148,10 +176,80 @@ func Cargar() (Config, error) {
 			*destino = d
 		}
 	}
+	errs = append(errs, c.cargarAdjuntos()...)
 	if len(errs) > 0 {
 		return c, fmt.Errorf("configuración: %s", strings.Join(errs, "; "))
 	}
 	return c, nil
+}
+
+func (c *Config) cargarAdjuntos() []string {
+	var errs []string
+	c.AdjuntosAlmacen = strings.ToLower(strings.TrimSpace(os.Getenv("IRIS_ADJUNTOS_ALMACEN")))
+	if c.AdjuntosAlmacen == "" {
+		c.AdjuntosAlmacen = "local"
+		if c.S3Endpoint != "" {
+			c.AdjuntosAlmacen = "s3"
+		}
+	}
+	if c.AdjuntosAlmacen != "local" && c.AdjuntosAlmacen != "s3" {
+		errs = append(errs, "IRIS_ADJUNTOS_ALMACEN inválido: "+c.AdjuntosAlmacen+" (local o s3)")
+	}
+	if v := os.Getenv("IRIS_ADJUNTOS_DIR"); v != "" {
+		c.AdjuntosDir = v
+	}
+	if v := os.Getenv("IRIS_ADJUNTOS_TAMANO_MAX"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			errs = append(errs, "IRIS_ADJUNTOS_TAMANO_MAX inválido: "+v)
+		}
+		c.AdjuntosTamanoMax = n
+	}
+	for _, m := range strings.Split(os.Getenv("IRIS_ADJUNTOS_MIME"), ",") {
+		if m = strings.ToLower(strings.TrimSpace(m)); m != "" {
+			if !strings.Contains(m, "/") || m == "text/html" {
+				errs = append(errs, "IRIS_ADJUNTOS_MIME: tipo inválido o no permitido: "+m)
+			}
+			c.AdjuntosMIME = append(c.AdjuntosMIME, m)
+		}
+	}
+	c.AdjuntosMaxEnCursoUsuario, c.AdjuntosMaxBytesUsuario, c.AdjuntosMaxEnCursoEntidad = 50, 500<<20, 30
+	c.AdjuntosAbandono = 48 * time.Hour
+	for nombre, destino := range map[string]*int64{"IRIS_ADJUNTOS_MAX_BYTES_USUARIO": &c.AdjuntosMaxBytesUsuario} {
+		if v := os.Getenv(nombre); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				errs = append(errs, nombre+" inválido: "+v)
+			}
+			*destino = n
+		}
+	}
+	for nombre, destino := range map[string]*int{
+		"IRIS_ADJUNTOS_MAX_EN_CURSO_USUARIO": &c.AdjuntosMaxEnCursoUsuario, "IRIS_ADJUNTOS_MAX_EN_CURSO_ENTIDAD": &c.AdjuntosMaxEnCursoEntidad,
+	} {
+		if v := os.Getenv(nombre); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				errs = append(errs, nombre+" inválido: "+v)
+			}
+			*destino = n
+		}
+	}
+	if v := os.Getenv("IRIS_ADJUNTOS_ABANDONO"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			errs = append(errs, "IRIS_ADJUNTOS_ABANDONO inválido: "+v)
+		}
+		c.AdjuntosAbandono = d
+	}
+	if v := os.Getenv("IRIS_S3_PATH_STYLE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, "IRIS_S3_PATH_STYLE inválido: "+v)
+		}
+		c.S3EstiloRuta = b
+	}
+	return errs
 }
 
 // ParsearRedes lee una lista de CIDR o IP separadas por coma (una IP sola es /32 o /128).

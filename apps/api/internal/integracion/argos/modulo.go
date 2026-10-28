@@ -17,6 +17,7 @@ package argos
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -162,3 +164,30 @@ func soloLecturas[Out any](Out) bool { return false }
 // RechazosSinAuditar devuelve cuántos 401 anónimos (webhooks y canjes de cualquier conector) se
 // rechazaron sin auditar desde el arranque.
 func (m *Modulo) RechazosSinAuditar() int64 { return m.nucleo.RechazosSinAuditar() }
+
+// ClienteActivo devuelve el cliente HTTP (con la protección contra SSRF) del conector Argos
+// activo, o 503 conector_apagado. Lo usa la cola de pendientes para escribir en Argos.
+func (m *Modulo) ClienteActivo(ctx context.Context, q conector.DBTX) (*Cliente, error) {
+	c, err := m.conectorActivo(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return m.clienteDe(c), nil
+}
+
+// HayConectorActivo indica si hay un conector Argos activo (sin descifrar su token).
+func (m *Modulo) HayConectorActivo(ctx context.Context, q conector.DBTX) (bool, error) {
+	_, err := conectorbd.New(q).ConectorActivo(ctx, Sistema)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// HayConectorRegistrado indica si alguna vez se conectó Argos (hay un conector, activo o
+// apagado). Sin ninguno, Iris está en modo «sin conector» y no encola acciones hacia Argos.
+func (m *Modulo) HayConectorRegistrado(ctx context.Context, q conector.DBTX) (bool, error) {
+	var hay bool
+	err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1)", Sistema).Scan(&hay)
+	return hay, err
+}

@@ -44,3 +44,6 @@ infra/backups/salida/
 *.swp
 *.log
 .integrar-*.log
+
+# Adjuntos en disco local (IRIS_ADJUNTOS_DIR por defecto)
+datos/adjuntos/
