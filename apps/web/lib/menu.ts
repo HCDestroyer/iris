@@ -42,7 +42,7 @@ export const permisosPendientes = {
 
 export const MENU: readonly EntradaMenu[] = [
     { href: "/", etiqueta: "Inicio", icono: LayoutDashboard, permisos: null },
-    { href: "/tickets", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"], proximamente: true },
+    { href: "/tickets", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"] },
     { href: "/ordenes", etiqueta: "Órdenes", icono: ClipboardList, permisos: null, proximamente: true },
     { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: null, proximamente: true },
     { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: null, proximamente: true },

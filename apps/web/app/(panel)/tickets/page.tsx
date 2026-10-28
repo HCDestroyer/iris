@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
-import { Proximamente } from "@/componentes/proximamente";
+import { RequierePermiso } from "@/componentes/requiere-permiso";
+import { Bandeja } from "./bandeja";
 
 export const metadata: Metadata = { title: "Tickets" };
 
 export default function Pagina() {
-    return <Proximamente href="/tickets" descripcion="La bandeja de tickets con SLA, filtros y vistas llega en la fase 1." />;
+    return (
+        <RequierePermiso permisos={["tickets.ver"]}>
+            <Bandeja />
+        </RequierePermiso>
+    );
 }
