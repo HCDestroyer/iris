@@ -367,7 +367,8 @@ WHERE campo.posiciones_ultimas.registrada_en < EXCLUDED.registrada_en;
 
 -- name: UltimasPosiciones :many
 -- Última posición de cada técnico en la empresa, según el alcance del actor (cuadrilla del
--- técnico o las zonas que atiende su cuadrilla).
+-- técnico o las zonas que atiende su cuadrilla, de la empresa activa; una cuadrilla sin zonas no
+-- la ve quien tiene alcance por zona).
 SELECT p.*, u.nombre, t.id AS ficha_id, t.cuadrilla_id
 FROM campo.posiciones_ultimas p
 JOIN nucleo.usuarios u ON u.id = p.tecnico_id
@@ -383,11 +384,12 @@ WHERE (@todas_empresas::boolean
            AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
                 OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = sqlc.narg(zona_id)))))
   AND (@alcance_global::boolean
-       OR t.cuadrilla_id = ANY(@cuadrillas::bigint[])
-       OR (t.cuadrilla_id IS NOT NULL AND cardinality(@zonas::bigint[]) > 0
-           AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
-                OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id
-                           AND cz.zona_id = ANY(@zonas::bigint[])))))
+       OR EXISTS (SELECT 1 FROM agenda.cuadrillas c
+                  WHERE c.id = t.cuadrilla_id
+                    AND (c.empresa_id = sqlc.narg(empresa_id) OR (c.empresa_id IS NULL AND @cuadrilla_comun::boolean))
+                    AND (c.id = ANY(@cuadrillas::bigint[])
+                         OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                                    WHERE cz.cuadrilla_id = c.id AND cz.zona_id = ANY(@zonas::bigint[])))))
 ORDER BY u.nombre, p.tecnico_id
 LIMIT 1000;
 
@@ -396,3 +398,13 @@ SELECT campo.purgar_posiciones(@limite::timestamptz)::integer;
 
 -- name: PurgarUltimasPosiciones :execrows
 DELETE FROM campo.posiciones_ultimas WHERE registrada_en < @limite;
+
+-- name: CandadoPosicionesTecnico :exec
+-- Serializa los lotes de un técnico (el intervalo mínimo se mide contra lo ya guardado).
+SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.posiciones:', @tecnico_id::bigint), 0));
+
+-- name: PosicionesCercanas :many
+-- Horas de las posiciones guardadas del técnico en [desde, hasta], en orden.
+SELECT registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en BETWEEN @desde AND @hasta
+ORDER BY registrada_en;

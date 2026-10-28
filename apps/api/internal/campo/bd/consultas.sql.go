@@ -182,6 +182,16 @@ func (q *Queries) CandadoCambiosTecnico(ctx context.Context, tecnicoID int64) er
 	return err
 }
 
+const candadoPosicionesTecnico = `-- name: CandadoPosicionesTecnico :exec
+SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.posiciones:', $1::bigint), 0))
+`
+
+// Serializa los lotes de un técnico (el intervalo mínimo se mide contra lo ya guardado).
+func (q *Queries) CandadoPosicionesTecnico(ctx context.Context, tecnicoID int64) error {
+	_, err := q.db.Exec(ctx, candadoPosicionesTecnico, tecnicoID)
+	return err
+}
+
 const candadoRetiroServicio = `-- name: CandadoRetiroServicio :exec
 
 SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.retiro:', $1::bigint), 0))
@@ -2125,6 +2135,39 @@ func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillas
 	return i, err
 }
 
+const posicionesCercanas = `-- name: PosicionesCercanas :many
+SELECT registrada_en FROM campo.posiciones
+WHERE tecnico_id = $1 AND registrada_en BETWEEN $2 AND $3
+ORDER BY registrada_en
+`
+
+type PosicionesCercanasParams struct {
+	TecnicoID int64
+	Desde     time.Time
+	Hasta     time.Time
+}
+
+// Horas de las posiciones guardadas del técnico en [desde, hasta], en orden.
+func (q *Queries) PosicionesCercanas(ctx context.Context, arg PosicionesCercanasParams) ([]time.Time, error) {
+	rows, err := q.db.Query(ctx, posicionesCercanas, arg.TecnicoID, arg.Desde, arg.Hasta)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []time.Time
+	for rows.Next() {
+		var registrada_en time.Time
+		if err := rows.Scan(&registrada_en); err != nil {
+			return nil, err
+		}
+		items = append(items, registrada_en)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const purgarPosiciones = `-- name: PurgarPosiciones :one
 SELECT campo.purgar_posiciones($1::timestamptz)::integer
 `
@@ -2425,25 +2468,27 @@ WHERE ($1::boolean
            AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
                 OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = $6))))
   AND ($7::boolean
-       OR t.cuadrilla_id = ANY($8::bigint[])
-       OR (t.cuadrilla_id IS NOT NULL AND cardinality($9::bigint[]) > 0
-           AND (NOT EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id)
-                OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id
-                           AND cz.zona_id = ANY($9::bigint[])))))
+       OR EXISTS (SELECT 1 FROM agenda.cuadrillas c
+                  WHERE c.id = t.cuadrilla_id
+                    AND (c.empresa_id = $2 OR (c.empresa_id IS NULL AND $8::boolean))
+                    AND (c.id = ANY($9::bigint[])
+                         OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                                    WHERE cz.cuadrilla_id = c.id AND cz.zona_id = ANY($10::bigint[])))))
 ORDER BY u.nombre, p.tecnico_id
 LIMIT 1000
 `
 
 type UltimasPosicionesParams struct {
-	TodasEmpresas bool
-	EmpresaID     *int64
-	Desde         time.Time
-	TecnicoID     *int64
-	CuadrillaID   *int64
-	ZonaID        *int64
-	AlcanceGlobal bool
-	Cuadrillas    []int64
-	Zonas         []int64
+	TodasEmpresas  bool
+	EmpresaID      *int64
+	Desde          time.Time
+	TecnicoID      *int64
+	CuadrillaID    *int64
+	ZonaID         *int64
+	AlcanceGlobal  bool
+	CuadrillaComun bool
+	Cuadrillas     []int64
+	Zonas          []int64
 }
 
 type UltimasPosicionesRow struct {
@@ -2465,7 +2510,8 @@ type UltimasPosicionesRow struct {
 }
 
 // Última posición de cada técnico en la empresa, según el alcance del actor (cuadrilla del
-// técnico o las zonas que atiende su cuadrilla).
+// técnico o las zonas que atiende su cuadrilla, de la empresa activa; una cuadrilla sin zonas no
+// la ve quien tiene alcance por zona).
 func (q *Queries) UltimasPosiciones(ctx context.Context, arg UltimasPosicionesParams) ([]UltimasPosicionesRow, error) {
 	rows, err := q.db.Query(ctx, ultimasPosiciones,
 		arg.TodasEmpresas,
@@ -2475,6 +2521,7 @@ func (q *Queries) UltimasPosiciones(ctx context.Context, arg UltimasPosicionesPa
 		arg.CuadrillaID,
 		arg.ZonaID,
 		arg.AlcanceGlobal,
+		arg.CuadrillaComun,
 		arg.Cuadrillas,
 		arg.Zonas,
 	)

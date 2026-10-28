@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -115,6 +116,13 @@ type EntradaPosiciones struct {
 	Puntos        []PuntoPosicion `json:"puntos" minItems:"1" maxItems:"500"`
 }
 
+// MarshalJSON resume el lote para la auditoría de los rechazos (CLAUDE.md §9: las posiciones no
+// se auditan por fila): nunca las coordenadas, solo cuántos puntos traía. Solo afecta la
+// serialización (la API lee el cuerpo con el esquema y json.Unmarshal).
+func (e EntradaPosiciones) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"dispositivoId": e.DispositivoID, "enviadoEn": e.EnviadoEn, "puntos": len(e.Puntos)})
+}
+
 // RespuestaPosiciones dice qué se guardó.
 type RespuestaPosiciones struct {
 	Aceptadas   int            `json:"aceptadas" doc:"Puntos nuevos guardados"`
@@ -134,7 +142,8 @@ func (m *Modulo) nuevoRegistrarPosiciones() *auditoria.Caso[EntradaPosiciones, R
 	lim := func() LimitesPosiciones { return m.cfg.Posiciones }
 	return auditoria.Nuevo(auditoria.Caso[EntradaPosiciones, RespuestaPosiciones]{
 		Accion: "campo.registrar_posiciones", Permiso: nucleo.PermCampoRegistrarPosiciones,
-		// Sin auditoría por fila: ni el lote aceptado ni el rechazo por frecuencia (inundable).
+		// Sin auditoría por fila: ni el lote aceptado ni el rechazo por frecuencia (inundable). Los
+		// demás rechazos se auditan con la entrada resumida ({dispositivoId, enviadoEn, puntos: n}).
 		AuditarExito: soloLecturas[RespuestaPosiciones],
 		AuditarError: func(err error) bool {
 			var p *nucleo.Problema
@@ -146,21 +155,15 @@ func (m *Modulo) nuevoRegistrarPosiciones() *auditoria.Caso[EntradaPosiciones, R
 			if actor.Tipo != contexto.ActorUsuario || actor.ID == 0 || contexto.CanalDe(ctx) != contexto.CanalCampo {
 				return RespuestaPosiciones{}, requiereSesionCampo()
 			}
-			if len(in.Puntos) > l.MaxPorLote {
-				return RespuestaPosiciones{}, campoInvalido("puntos", fmt.Sprintf("Hasta %d puntos por lote", l.MaxPorLote), "maxItems")
-			}
-			if err := sinNulos(in); err != nil {
-				return RespuestaPosiciones{}, err
-			}
 			ahora := m.ahora()
 			salida := RespuestaPosiciones{Motivos: map[string]int{}, ServidorEn: ahora}
-			var desfase time.Duration
-			if in.EnviadoEn != nil {
-				desfase = ahora.Sub(*in.EnviadoEn)
-				salida.DesfaseMs = desfase.Milliseconds()
+			// El lote cuenta para el límite antes de validarlo y fuera de la transacción de la
+			// acción (con el pool): un lote rechazado también gasta su cupo.
+			bd := nucleo.BDDe(ctx)
+			if bd == nil {
+				return salida, nucleo.ErrSinBD
 			}
-			q := campobd.New(t)
-			lote, err := q.ContarLotePosiciones(ctx, campobd.ContarLotePosicionesParams{TecnicoID: actor.ID, Ahora: ahora})
+			lote, err := campobd.New(bd).ContarLotePosiciones(ctx, campobd.ContarLotePosicionesParams{TecnicoID: actor.ID, Ahora: ahora})
 			if err != nil {
 				return salida, err
 			}
@@ -169,6 +172,18 @@ func (m *Modulo) nuevoRegistrarPosiciones() *auditoria.Caso[EntradaPosiciones, R
 				return salida, nucleo.DemasiadosIntentos("demasiadas_posiciones",
 					fmt.Sprintf("Hasta %d lotes de posiciones por minuto; junta los puntos en menos envíos", l.LotesPorMinuto), max(espera, time.Second))
 			}
+			if len(in.Puntos) > l.MaxPorLote {
+				return salida, campoInvalido("puntos", fmt.Sprintf("Hasta %d puntos por lote", l.MaxPorLote), "maxItems")
+			}
+			if err := sinNulos(in); err != nil {
+				return salida, err
+			}
+			var desfase time.Duration
+			if in.EnviadoEn != nil {
+				desfase = ahora.Sub(*in.EnviadoEn)
+				salida.DesfaseMs = desfase.Milliseconds()
+			}
+			q := campobd.New(t)
 			type punto struct {
 				Lat          float64   `json:"lat"`
 				Lon          float64   `json:"lon"`
@@ -208,17 +223,41 @@ func (m *Modulo) nuevoRegistrarPosiciones() *auditoria.Caso[EntradaPosiciones, R
 					Rumbo: p.Rumbo, RegistradaEn: minT(cuando, ahora)})
 			}
 			slices.SortStableFunc(puntos, func(a, b punto) int { return a.RegistradaEn.Compare(b.RegistradaEn) })
+			// Intervalo mínimo contra lo ya guardado del técnico (no solo dentro del lote): con su
+			// candado, se leen sus posiciones cercanas al rango del lote. Misma hora = duplicada;
+			// a menos del intervalo de una guardada o aceptada = frecuencia.
 			guardar := make([]punto, 0, len(puntos))
-			for _, p := range puntos {
-				if n := len(guardar); n > 0 && p.RegistradaEn.Sub(guardar[n-1].RegistradaEn) < l.IntervaloMin {
-					salida.Motivos["frecuencia"]++
-					continue
+			duplicadas := 0
+			if len(puntos) > 0 {
+				if err := q.CandadoPosicionesTecnico(ctx, actor.ID); err != nil {
+					return salida, err
 				}
-				guardar = append(guardar, p)
+				ocupadas, err := q.PosicionesCercanas(ctx, campobd.PosicionesCercanasParams{TecnicoID: actor.ID,
+					Desde: puntos[0].RegistradaEn.Add(-l.IntervaloMin), Hasta: puntos[len(puntos)-1].RegistradaEn.Add(l.IntervaloMin)})
+				if err != nil {
+					return salida, err
+				}
+				enBD := slices.Clone(ocupadas)
+				cmp := func(a, b time.Time) int { return a.Compare(b) }
+				for _, p := range puntos {
+					if _, ya := slices.BinarySearchFunc(enBD, p.RegistradaEn, cmp); ya {
+						duplicadas++
+						continue
+					}
+					i, igual := slices.BinarySearchFunc(ocupadas, p.RegistradaEn, cmp)
+					if igual || (i > 0 && p.RegistradaEn.Sub(ocupadas[i-1]) < l.IntervaloMin) ||
+						(i < len(ocupadas) && ocupadas[i].Sub(p.RegistradaEn) < l.IntervaloMin) {
+						salida.Motivos["frecuencia"]++
+						continue
+					}
+					guardar = append(guardar, p)
+					ocupadas = slices.Insert(ocupadas, i, p.RegistradaEn)
+				}
 			}
 			for _, n := range salida.Motivos {
 				salida.Descartadas += n
 			}
+			salida.Duplicadas = duplicadas
 			if len(guardar) == 0 {
 				return salida, nil
 			}
@@ -244,7 +283,7 @@ func (m *Modulo) nuevoRegistrarPosiciones() *auditoria.Caso[EntradaPosiciones, R
 			if err != nil {
 				return salida, err
 			}
-			salida.Aceptadas, salida.Duplicadas = int(n), len(guardar)-int(n)
+			salida.Aceptadas, salida.Duplicadas = int(n), duplicadas+len(guardar)-int(n)
 			u := guardar[len(guardar)-1]
 			return salida, q.GuardarUltimaPosicion(ctx, campobd.GuardarUltimaPosicionParams{TecnicoID: actor.ID, EmpresaID: empresa,
 				Lat: u.Lat, Lon: u.Lon, PrecisionM: u.PrecisionM, Velocidad: u.Velocidad, Rumbo: u.Rumbo, DispositivoID: dispositivo,
@@ -309,7 +348,8 @@ func (m *Modulo) nuevoUltimasPosiciones() *auditoria.Caso[EntradaUltimasPosicion
 			}
 			filas, err := campobd.New(t).UltimasPosiciones(ctx, campobd.UltimasPosicionesParams{TodasEmpresas: todas, EmpresaID: empresa,
 				Desde: ahora.Add(-antiguedad), TecnicoID: filtroID(in.TecnicoID), CuadrillaID: filtroID(in.CuadrillaID),
-				ZonaID: filtroID(in.ZonaID), AlcanceGlobal: global, Zonas: zonas, Cuadrillas: cuadrillas})
+				ZonaID: filtroID(in.ZonaID), AlcanceGlobal: global, Zonas: zonas, Cuadrillas: cuadrillas,
+				CuadrillaComun: agenda.PuedeTocarLoComun(ctx)})
 			if err != nil {
 				return UltimasPosiciones{}, err
 			}

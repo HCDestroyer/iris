@@ -119,9 +119,13 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   velocidad?, rumbo?, registradaEn }] }` (1–500; rango validado, 422). `enviadoEn` corrige el
   desfase del reloj. Puntos de más de 24 h (`vieja`), más de 2 min adelantados (`futura`) o a menos
   del intervalo mínimo del anterior del lote (`frecuencia`) se descartan y se cuentan en `motivos`.
-  Un punto con la misma hora no se duplica (`duplicadas`). Límite de lotes por minuto por técnico →
-  429 `demasiadas_posiciones` con `Retry-After`. **Sin auditoría por fila** (ni el 429) y sin
-  eventos.
+  El intervalo mínimo se mide también contra lo ya guardado del técnico (candado por técnico): un
+  punto a menos del intervalo de uno guardado es `frecuencia`; con la misma hora, `duplicada`.
+  Límite de lotes por minuto por técnico → 429 `demasiadas_posiciones` con `Retry-After`; el
+  contador se escribe fuera de la transacción de la acción, así que un lote rechazado (422) también
+  gasta cupo. **Sin auditoría por fila** (ni el lote aceptado ni el 429) y sin eventos; los demás
+  rechazos se auditan con la entrada resumida (`{dispositivoId, enviadoEn, puntos: n}`, nunca las
+  coordenadas).
 - Tabla particionada por mes UTC (`campo.posiciones_YYYYMM`, creadas al vuelo y por el job);
   `campo.posiciones_ultimas` (la última por técnico y empresa) y `campo.posiciones_limite`.
 - `GET /api/v1/campo/posiciones/ultimas?tecnicoId=&cuadrillaId=&zonaId=&maxAntiguedadMin=`

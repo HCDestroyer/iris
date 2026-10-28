@@ -76,8 +76,9 @@ func TestPosicionesEnVivo(t *testing.T) {
 	_, err = e.m.RegistrarPosiciones.Ejecutar(enCampo(como(t, desp, "despacho")), campo.EntradaPosiciones{Puntos: []campo.PuntoPosicion{punto(ahora, 14.6)}})
 	problema(t, err, 403, "prohibido")
 
-	// Límite de lotes por minuto (6): ya van 3; el 7.º recibe 429 con Retry-After.
-	for i := range 3 {
+	// Límite de lotes por minuto (6): ya van 4 (los 3 aceptados y el rechazado por rango, que
+	// también cuenta); el 7.º recibe 429 con Retry-After.
+	for i := range 2 {
 		deber(e.m.RegistrarPosiciones.Ejecutar(ct, campo.EntradaPosiciones{Puntos: []campo.PuntoPosicion{punto(ahora.Add(time.Duration(-i)*time.Minute-30*time.Second), 14.6)}}))(t)
 	}
 	_, err = e.m.RegistrarPosiciones.Ejecutar(ct, campo.EntradaPosiciones{Puntos: []campo.PuntoPosicion{punto(ahora, 14.7)}})
