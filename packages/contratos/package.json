@@ -1,0 +1,26 @@
+{
+    "name": "@iris/contratos",
+    "version": "0.0.0",
+    "private": true,
+    "description": "OpenAPI de la API de Iris y cliente TS generado (openapi-typescript + openapi-fetch)",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./openapi.json": "./openapi.json"
+    },
+    "scripts": {
+        "generar": "openapi-typescript openapi.json --output src/esquema.ts",
+        "build": "pnpm generar && tsc --noEmit -p tsconfig.json",
+        "typecheck": "tsc --noEmit -p tsconfig.json"
+    },
+    "dependencies": {
+        "openapi-fetch": "^0.17.0"
+    },
+    "devDependencies": {
+        "openapi-typescript": "^7.13.0",
+        "typescript": "~5.9.3"
+    }
+}
