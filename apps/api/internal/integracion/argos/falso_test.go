@@ -48,6 +48,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
 	mux.HandleFunc("GET /api/v1/servicios", a.conToken(a.serviciosDe))
+	mux.HandleFunc("GET /api/v1/servicios/{id}", a.conToken(a.servicio))
 	mux.HandleFunc("POST /api/v1/integraciones/iris/resolver", a.conToken(a.resolverA8))
 	mux.HandleFunc("GET /api/v1/ip/{ip}", a.conToken(a.resolverIP))
 	mux.HandleFunc("GET /api/v1/zonas", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.zonas) }))
@@ -169,6 +170,18 @@ func (a *argosFalso) serviciosDe(w http.ResponseWriter, r *http.Request) {
 		lista = []map[string]any{}
 	}
 	escribir(w, lista) // arreglo plano, sin { data }
+}
+
+func (a *argosFalso) servicio(w http.ResponseWriter, r *http.Request) {
+	for _, lista := range a.servicios {
+		for _, s := range lista {
+			if id, _ := s["id"].(int64); id == idDe(r) {
+				escribir(w, s)
+				return
+			}
+		}
+	}
+	problema(w, 404, "urn:argos:no_encontrado", "No existe")
 }
 
 func (a *argosFalso) resolverA8(w http.ResponseWriter, r *http.Request) {

@@ -18,16 +18,58 @@ import (
 
 // Webhooks Argos → Iris (§2.3): POST /api/v1/integraciones/argosisp/webhook/{conector_id} con
 // cuerpo { id, evento, ocurrido_en, payload } (empresa_id en el payload) y firma HMAC (firma.go).
-// Se verifica la firma, se guarda en integracion.entrantes (deduplicado por X-Webhook-Id) y se
-// encola el job que lo procesa, todo en la misma transacción. Responder 2xx significa «guardado»;
-// el efecto (refrescar la instantánea) ocurre en el job.
+// Se verifica la firma (antes que la ventana de tiempo, para no revelar qué conectores existen),
+// se guarda en integracion.entrantes y se encola el job que lo procesa, todo en la misma
+// transacción. Responder 2xx significa «guardado»; el efecto (refrescar la instantánea) ocurre
+// en el job.
+//
+// Deduplicación: por el id del CUERPO, que va firmado. X-Webhook-Id no está firmado, así que
+// debe coincidir con él (422 si no): un webhook capturado no se puede reenviar con otro id para
+// que se procese de nuevo.
+//
+// Los 401 (firma inválida o vencida) son de anónimos y no se auditan (cualquiera los provoca
+// sin límite): se cuentan y se registran en el log con muestreo (auditarRechazo).
 
 // CuerpoWebhook es el cuerpo que envía Argos (documenta el OpenAPI).
 type CuerpoWebhook struct {
-	ID         string          `json:"id" maxLength:"200" doc:"Id estable del webhook (igual a X-Webhook-Id)"`
+	ID         string          `json:"id" minLength:"1" maxLength:"200" doc:"Id estable del webhook (texto o número), igual a X-Webhook-Id; es la clave de deduplicación (va firmado)"`
 	Evento     string          `json:"evento" minLength:"1" maxLength:"100" doc:"cliente.actualizado, servicio.creado, servicio.config_cambiada, asignacion.cambiada, servicio.estado_cambiado, …"`
-	OcurridoEn *time.Time      `json:"ocurrido_en,omitempty"`
+	OcurridoEn string          `json:"ocurrido_en,omitempty" doc:"RFC 3339. Si falta o no se entiende, se usa la hora de recepción"`
 	Payload    json.RawMessage `json:"payload" doc:"Datos del evento; lleva empresa_id"`
+}
+
+// cuerpoCrudo lee el cuerpo con tolerancia: id texto o número, ocurrido_en cualquier cosa.
+type cuerpoCrudo struct {
+	ID         json.RawMessage `json:"id"`
+	Evento     string          `json:"evento"`
+	OcurridoEn json.RawMessage `json:"ocurrido_en"`
+	Payload    json.RawMessage `json:"payload"`
+}
+
+// idWebhook devuelve el id como texto ("" si falta o no es texto ni número).
+func (c cuerpoCrudo) idWebhook() string {
+	var s string
+	if json.Unmarshal(c.ID, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var n json.Number
+	d := json.NewDecoder(bytes.NewReader(c.ID))
+	d.UseNumber()
+	if d.Decode(&n) == nil {
+		return n.String()
+	}
+	return ""
+}
+
+// ocurrido devuelve ocurrido_en si es RFC 3339; si no, la hora de recepción.
+func (c cuerpoCrudo) ocurrido(recibido time.Time) time.Time {
+	var s string
+	if json.Unmarshal(c.OcurridoEn, &s) == nil {
+		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(s)); err == nil {
+			return t.UTC()
+		}
+	}
+	return recibido.UTC()
 }
 
 // EntradaWebhook es la entrada de integraciones.webhook (cabeceras y cuerpo crudo).
@@ -52,6 +94,9 @@ func firmaInvalida(detalle string) *nucleo.Problema {
 func nuevoRecibirWebhook(m *Modulo) *auditoria.Caso[EntradaWebhook, WebhookRecibido] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaWebhook, WebhookRecibido]{
 		Accion: "integraciones.webhook", Acceso: auditoria.Publico,
+		// Los reintentos de Argos (duplicados) no dejan otra fila; los 401 anónimos tampoco.
+		AuditarExito: func(r WebhookRecibido) bool { return !r.Duplicado },
+		AuditarError: m.auditarRechazo("integraciones.webhook"),
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaWebhook) (WebhookRecibido, error) {
 			q := argosbd.New(t)
 			t.FijarEmpresa(0)
@@ -71,12 +116,15 @@ func nuevoRecibirWebhook(m *Modulo) *auditoria.Caso[EntradaWebhook, WebhookRecib
 			if err != nil {
 				return WebhookRecibido{}, err
 			}
-			if !marcaEnVentana(in.Marca, time.Now(), m.cfg.VentanaWebhook) {
-				return WebhookRecibido{}, nucleo.NuevoProblema(http.StatusUnauthorized, "firma_vencida", "Firma fuera de ventana",
-					"X-Webhook-Timestamp está fuera de la ventana aceptada")
-			}
+			// Primero la firma: con la ventana antes, un timestamp viejo daría firma_vencida solo
+			// en los conectores que existen (enumeración).
 			if !firmaValida(c.secreto, in.Firma, in.Marca, in.Cuerpo) {
 				return WebhookRecibido{}, firmaInvalida("La firma no corresponde al conector")
+			}
+			recibido := time.Now()
+			if !marcaEnVentana(in.Marca, recibido, m.cfg.VentanaWebhook) {
+				return WebhookRecibido{}, nucleo.NuevoProblema(http.StatusUnauthorized, "firma_vencida", "Firma fuera de ventana",
+					"X-Webhook-Timestamp está fuera de la ventana aceptada")
 			}
 			t.IdentificarActor(actorArgos(f.ID))
 			if f.Estado != "activo" {
@@ -86,13 +134,21 @@ func nuevoRecibirWebhook(m *Modulo) *auditoria.Caso[EntradaWebhook, WebhookRecib
 			if len(in.WebhookID) > 200 {
 				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "X-Webhook-Id", Message: "Máximo 200 caracteres", Rule: "maxLength"})
 			}
-			var cuerpo CuerpoWebhook
+			var cuerpo cuerpoCrudo
 			if err := json.Unmarshal(in.Cuerpo, &cuerpo); err != nil || strings.TrimSpace(cuerpo.Evento) == "" {
 				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "evento", Message: "El cuerpo debe ser { id, evento, ocurrido_en, payload }", Rule: "formato"})
 			}
-			if cuerpo.ID != "" && cuerpo.ID != in.WebhookID {
+			// El id firmado es la clave de deduplicación; la cabecera (sin firmar) debe decir lo mismo.
+			webhookID := cuerpo.idWebhook()
+			switch {
+			case webhookID == "":
+				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "id", Message: "El cuerpo debe traer el id del webhook", Rule: "requerido"})
+			case len(webhookID) > 200:
+				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "id", Message: "Máximo 200 caracteres", Rule: "maxLength"})
+			case webhookID != strings.TrimSpace(in.WebhookID):
 				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "id", Message: "No coincide con X-Webhook-Id", Rule: "igual"})
 			}
+			ocurrido := cuerpo.ocurrido(recibido)
 			payload := cuerpo.Payload
 			if len(bytes.TrimSpace(payload)) == 0 || string(bytes.TrimSpace(payload)) == "null" {
 				payload = json.RawMessage("{}")
@@ -103,11 +159,11 @@ func nuevoRecibirWebhook(m *Modulo) *auditoria.Caso[EntradaWebhook, WebhookRecib
 			}
 			t.Anotar(map[string]any{"evento": cuerpo.Evento})
 			nuevo, err := q.InsertarEntrante(ctx, argosbd.InsertarEntranteParams{
-				ConectorID: f.ID, WebhookID: in.WebhookID, Evento: cuerpo.Evento, EmpresaID: datos.EmpresaID,
-				Payload: payload, OcurridoEn: cuerpo.OcurridoEn, RequestID: requestID(ctx),
+				ConectorID: f.ID, WebhookID: webhookID, Evento: cuerpo.Evento, EmpresaID: datos.EmpresaID,
+				Payload: payload, OcurridoEn: &ocurrido, RequestID: requestID(ctx),
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
-				previo, err := q.EntrantePorWebhook(ctx, argosbd.EntrantePorWebhookParams{ConectorID: f.ID, WebhookID: in.WebhookID})
+				previo, err := q.EntrantePorWebhook(ctx, argosbd.EntrantePorWebhookParams{ConectorID: f.ID, WebhookID: webhookID})
 				if err != nil {
 					return WebhookRecibido{}, err
 				}
@@ -201,7 +257,10 @@ type entradaAplicar struct {
 	ClienteID  *int64 `json:"cliente_id,omitempty"`
 	ficha      *fichaArgos
 	borrar     bool
-	errArgos   error
+	// retiro es el servicio releído de Argos cuando el webhook dice «a = retirado»: el evento
+	// interno solo sale si Argos confirma el estado (el payload no se cree).
+	retiro   *ServicioArgos
+	errArgos error
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -272,11 +331,21 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		}
 		r.Resultado = "aplicado"
 	}
-	if e.Evento == EventoServicioEstadoCambiado {
-		datos := leerPayload(e.Payload)
-		if strings.EqualFold(datos.A, "retirado") {
+	if e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(leerPayload(e.Payload).A, "retirado") {
+		s := in.retiro
+		if s == nil || !strings.EqualFold(strings.TrimSpace(s.Estado), "retirado") {
+			// Argos no lo confirma (no existe o tiene otro estado): no se propone el retiro.
+			t.Anotar(map[string]any{"retiro": "no_confirmado"})
+		} else {
+			if s.EmpresaID != 0 {
+				t.FijarEmpresa(s.EmpresaID)
+			}
+			var clienteID *int64
+			if s.ClienteID != 0 {
+				clienteID = &s.ClienteID
+			}
 			if err := t.Emitir(EventoServicioRetirado, map[string]any{
-				"servicio_id": datos.servicio(), "cliente_id": datos.cliente(), "de": datos.De, "a": datos.A,
+				"servicio_id": s.ID, "cliente_id": clienteID, "de": leerPayload(e.Payload).De, "a": "retirado",
 				"entrante_id": e.ID,
 			}); err != nil {
 				return r, err
@@ -311,7 +380,49 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		in.ClienteID = clienteID
 		in.ficha, in.borrar, in.errArgos = p.leerDeArgos(ctx, q, e.ConectorID, *clienteID)
 	}
+	if datos := leerPayload(e.Payload); in.errArgos == nil && e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(datos.A, "retirado") {
+		in.retiro, in.errArgos = p.confirmarRetiro(ctx, q, e.ConectorID, datos.servicio())
+	}
 	return p.aplicar.Ejecutar(ctx, in)
+}
+
+// confirmarRetiro relee el servicio en Argos (GET /servicios/:id). nil si no hay id o Argos ya
+// no lo tiene; un error (Argos caído) hace que el job se reintente.
+func (p *ProcesarEntrante) confirmarRetiro(ctx context.Context, q *argosbd.Queries, conectorID int64, servicioID *int64) (*ServicioArgos, error) {
+	if servicioID == nil {
+		return nil, nil
+	}
+	cli, err := p.clienteArgos(ctx, q, conectorID)
+	if err != nil {
+		return nil, err
+	}
+	s, err := cli.ObtenerServicio(ctx, *servicioID)
+	if EsNoEncontrado(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if s.ID == 0 {
+		s.ID = *servicioID
+	}
+	return &s, nil
+}
+
+// clienteArgos arma el cliente HTTP del conector del entrante (debe estar activo).
+func (p *ProcesarEntrante) clienteArgos(ctx context.Context, q *argosbd.Queries, conectorID int64) (*Cliente, error) {
+	f, err := q.ConectorPorID(ctx, conectorID)
+	if err != nil {
+		return nil, err
+	}
+	if f.Estado != "activo" {
+		return nil, ConectorApagado()
+	}
+	c, err := p.m.leerConector(f)
+	if err != nil {
+		return nil, err
+	}
+	return p.m.clienteDe(c), nil
 }
 
 // clienteARefrescar decide qué cliente refrescar: el del evento, si ya está en la instantánea.
@@ -349,18 +460,11 @@ func clienteARefrescar(ctx context.Context, q *argosbd.Queries, e argosbd.Integr
 }
 
 func (p *ProcesarEntrante) leerDeArgos(ctx context.Context, q *argosbd.Queries, conectorID, clienteID int64) (*fichaArgos, bool, error) {
-	f, err := q.ConectorPorID(ctx, conectorID)
+	cli, err := p.clienteArgos(ctx, q, conectorID)
 	if err != nil {
 		return nil, false, err
 	}
-	if f.Estado != "activo" {
-		return nil, false, ConectorApagado()
-	}
-	c, err := p.m.leerConector(f)
-	if err != nil {
-		return nil, false, err
-	}
-	ficha, err := leerFichaArgos(ctx, p.m.clienteDe(c), clienteID)
+	ficha, err := leerFichaArgos(ctx, cli, clienteID)
 	if EsNoEncontrado(err) {
 		return nil, true, nil
 	}

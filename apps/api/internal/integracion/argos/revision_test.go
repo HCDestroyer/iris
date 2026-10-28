@@ -2,8 +2,14 @@ package argos_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 	"testing"
+	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // Pruebas de regresión de la revisión de seguridad del conector (rama agente/i1-argos).
@@ -96,4 +102,160 @@ func TestMultiempresaConector(t *testing.T) {
 	e.exec(`DELETE FROM nucleo.usuarios_empresas`)
 	e.exec(`DELETE FROM nucleo.empresas`)
 	nadie.pedir(http.MethodGet, "/api/v1/clientes/61", nil).problema(t, 422, "empresas_no_registradas")
+}
+
+// firmado arma un webhook firmado con el cuerpo crudo dado y la cabecera X-Webhook-Id dada.
+func (e *entorno) firmado(conectorID int64, secreto, webhookID string, cuerpo []byte, marca time.Time) respuesta {
+	e.t.Helper()
+	ts := strconv.FormatInt(marca.Unix(), 10)
+	return e.anonimo().pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/argosisp/webhook/%d", conectorID), cuerpo,
+		"X-Webhook-Id", webhookID, "X-Webhook-Timestamp", ts, "X-Webhook-Signature", argos.FirmarWebhook(secreto, ts, cuerpo))
+}
+
+// Hallazgo 3 (MEDIO): un webhook capturado no se reprocesa cambiando X-Webhook-Id (no firmado):
+// la deduplicación es por el id del cuerpo, que va firmado y debe coincidir con la cabecera.
+func TestWebhookReenvioConOtroID(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(5, "Retiro")
+	e.argos.con(func() { e.argos.servicios[5][0]["estado"] = "retirado" })
+	ahora := time.Now()
+	antes := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE conector_id = $1`, id)
+
+	// Sin id en el cuerpo: 422 (la cabecera sola no basta).
+	sinID := []byte(`{"evento":"servicio.estado_cambiado","payload":{"empresa_id":1,"servicio_id":50,"cliente_id":5,"de":"activo","a":"retirado"}}`)
+	e.firmado(id, secreto, "orig-0", sinID, ahora).problema(t, 422, "validacion")
+
+	wid := "orig-" + pruebas.Unico()
+	cuerpo := []byte(`{"id":"` + wid + `","evento":"servicio.estado_cambiado","payload":{"empresa_id":1,"servicio_id":50,"cliente_id":5,"de":"activo","a":"retirado"}}`)
+	ent := e.entranteDe(e.firmado(id, secreto, wid, cuerpo, ahora))
+	for _, otro := range []string{"replay-2", "replay-3"} {
+		e.firmado(id, secreto, otro, cuerpo, ahora).problema(t, 422, "validacion")
+	}
+	// El mismo id (reintento de Argos) es un duplicado.
+	if d := e.firmado(id, secreto, wid, cuerpo, ahora); d.status != 200 || d.cuerpo["duplicado"] != true {
+		t.Fatalf("reintento: %d %s", d.status, d.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE conector_id = $1`, id) - antes; n != 1 {
+		t.Fatalf("entrantes nuevos: %d (esperaba 1)", n)
+	}
+	ctx := pruebas.ContextoSistema(e.pool)
+	if r, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err != nil || r.Resultado != "aplicado" {
+		t.Fatalf("procesar: %+v %v", r, err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.servicio_retirado' AND (payload->>'entrante_id')::bigint = $1 AND payload->>'servicio_id' = '50' AND empresa_id = 1`, ent); n != 1 {
+		t.Fatalf("argos.servicio_retirado: %d", n)
+	}
+}
+
+// Hallazgo 3 (MEDIO): argos.servicio_retirado solo sale si Argos confirma el estado del
+// servicio; el payload del webhook no se cree.
+func TestRetiroSeConfirmaEnArgos(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(6, "Activo")
+	ctx := pruebas.ContextoSistema(e.pool)
+	retiro := func(servicio int64) int64 {
+		return e.entranteDe(e.enviar(id, secreto, "wh-r-"+pruebas.Unico(), "servicio.estado_cambiado",
+			map[string]any{"empresa_id": 1, "servicio_id": servicio, "cliente_id": 6, "de": "activo", "a": "retirado"}, time.Now()))
+	}
+	contarRetiros := func(ent int64) int {
+		return e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.servicio_retirado' AND (payload->>'entrante_id')::bigint = $1`, ent)
+	}
+
+	// Argos dice que el servicio sigue activo: no hay evento.
+	ent := retiro(60)
+	if r, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err != nil || r.Resultado != "ignorado" || contarRetiros(ent) != 0 {
+		t.Fatalf("servicio activo en Argos: %+v %v (%d eventos)", r, err, contarRetiros(ent))
+	}
+	// No existe en Argos: tampoco.
+	ent = retiro(6666)
+	if r, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err != nil || contarRetiros(ent) != 0 {
+		t.Fatalf("servicio inexistente: %+v %v", r, err)
+	}
+	// Argos caído: error (River reintenta), sin evento ni marca de procesado.
+	ent = retiro(60)
+	e.argos.con(func() { e.argos.caido = true })
+	if _, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err == nil || contarRetiros(ent) != 0 {
+		t.Fatalf("con Argos caído debía fallar sin evento: %v", err)
+	}
+	// Argos vuelve y confirma: un evento.
+	e.argos.con(func() {
+		e.argos.caido = false
+		e.argos.servicios[6][0]["estado"] = "retirado"
+	})
+	if r, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err != nil || r.Resultado != "aplicado" || contarRetiros(ent) != 1 {
+		t.Fatalf("retiro confirmado: %+v %v (%d eventos)", r, err, contarRetiros(ent))
+	}
+}
+
+// Hallazgo 6 (BAJO): la firma se valida antes que la ventana, así un timestamp viejo no
+// distingue un conector que existe de uno que no.
+func TestFirmaAntesQueVentana(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, _ := e.conectado()
+	viejo := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	var tipos []any
+	for _, cid := range []int64{id, 999999} {
+		r := e.anonimo().pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/argosisp/webhook/%d", cid), []byte(`{}`),
+			"X-Webhook-Id", "x", "X-Webhook-Timestamp", viejo, "X-Webhook-Signature", "v1=00")
+		r.problema(t, 401, "firma_invalida")
+		tipos = append(tipos, r.cuerpo["detail"])
+	}
+	if tipos[0] != tipos[1] {
+		t.Fatalf("las respuestas distinguen conectores: %v", tipos)
+	}
+}
+
+// Hallazgo 7 (BAJO): id numérico y ocurrido_en no RFC 3339 se aceptan (hora de recepción).
+func TestWebhookCuerpoTolerante(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	n := time.Now().UnixNano()
+	wid := strconv.FormatInt(n, 10)
+	cuerpo := []byte(`{"id":` + wid + `,"evento":"cliente.actualizado","ocurrido_en":"28/10/2026 10:00","payload":{"empresa_id":1,"cliente_id":5}}`)
+	ent := e.entranteDe(e.firmado(id, secreto, wid, cuerpo, time.Now()))
+	if c := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND webhook_id = $2 AND ocurrido_en > now() - interval '1 minute'`, ent, wid); c != 1 {
+		t.Fatal("ocurrido_en ilegible debía guardarse con la hora de recepción")
+	}
+	// RFC 3339 se respeta.
+	wid2 := "wh-t-" + pruebas.Unico()
+	cuerpo = []byte(`{"id":"` + wid2 + `","evento":"cliente.actualizado","ocurrido_en":"2026-10-01T10:00:00-06:00","payload":{}}`)
+	ent = e.entranteDe(e.firmado(id, secreto, wid2, cuerpo, time.Now()))
+	if c := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND ocurrido_en = '2026-10-01T16:00:00Z'`, ent); c != 1 {
+		t.Fatal("ocurrido_en RFC 3339 mal guardado")
+	}
+}
+
+// Hallazgo 4 (MEDIO): los 401 anónimos del webhook y del canje no escriben en la auditoría (se
+// cuentan); un webhook aceptado sí.
+func TestRechazosAnonimosNoInundanAuditoria(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	acciones := func() int {
+		return e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion IN ('integraciones.webhook', 'integraciones.canjear')`)
+	}
+	antes, rechazos := acciones(), e.mod.RechazosSinAuditar()
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	for i := range 30 {
+		e.anonimo().pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/argosisp/webhook/%d", id), []byte(`{}`),
+			"X-Webhook-Id", fmt.Sprint("x", i), "X-Webhook-Timestamp", ts, "X-Webhook-Signature", "v1=00").problema(t, 401, "firma_invalida")
+		e.anonimo().pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conexion/canjear", map[string]any{
+			"codigo": fmt.Sprint("codigo-inventado-", i, "-0123456789"), "sistema": "argosisp", "url": "https://argos.prueba", "token": "atk_inventado_123",
+		}).problema(t, 401, "codigo_invalido")
+	}
+	// Firma válida pero vencida (webhook capturado y reenviado tarde): tampoco.
+	viejo := time.Now().Add(-time.Hour)
+	e.firmado(id, secreto, "wh-v", []byte(`{"id":"wh-v","evento":"cliente.actualizado","payload":{}}`), viejo).problema(t, 401, "firma_vencida")
+	if d := acciones() - antes; d != 0 {
+		t.Fatalf("los rechazos anónimos dejaron %d filas de auditoría", d)
+	}
+	if d := e.mod.RechazosSinAuditar() - rechazos; d != 61 {
+		t.Fatalf("rechazos contados: %d", d)
+	}
+	// Un webhook aceptado se audita.
+	e.entranteDe(e.enviar(id, secreto, "wh-ok-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"empresa_id": 1}, time.Now()))
+	if d := acciones() - antes; d != 1 {
+		t.Fatalf("el webhook aceptado debía auditarse: %d", d)
+	}
 }

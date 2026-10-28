@@ -80,8 +80,9 @@ func TestWebhookFirmaVentanaYDeduplicacion(t *testing.T) {
 	}
 	// El secreto nunca queda en la auditoría.
 	e.sinSecretos(secreto)
-	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.webhook' AND resultado = 'error'`); n < 6 {
-		t.Fatalf("los rechazos debían auditarse: %d", n)
+	// Los 401 anónimos no se auditan (se cuentan): ver TestRechazosAnonimosNoInundanAuditoria.
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.webhook' AND resultado = 'error' AND entrada->>'webhook_id' LIKE 'wh-x%'`); n != 0 {
+		t.Fatalf("los 401 anónimos no debían auditarse: %d", n)
 	}
 
 	// Conector apagado: 503 con Retry-After, para que Argos reintente.

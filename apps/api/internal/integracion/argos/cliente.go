@@ -290,6 +290,13 @@ func (c *Cliente) ObtenerCliente(ctx context.Context, id int64) (ClienteArgos, e
 	return cl, err
 }
 
+// ObtenerServicio: GET /servicios/:id (supuesto: existe como /clientes/:id).
+func (c *Cliente) ObtenerServicio(ctx context.Context, id int64) (ServicioArgos, error) {
+	var s ServicioArgos
+	err := c.pedir(ctx, http.MethodGet, "/servicios/"+strconv.FormatInt(id, 10), nil, nil, true, &envoltura{destino: &s})
+	return s, err
+}
+
 // ServiciosDeCliente: GET /servicios?cliente_id= (todas las páginas).
 func (c *Cliente) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]ServicioArgos, error) {
 	return todas[ServicioArgos](ctx, c, "/servicios", url.Values{"cliente_id": {strconv.FormatInt(clienteID, 10)}})

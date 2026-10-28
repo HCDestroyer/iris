@@ -261,6 +261,8 @@ type ConexionCanjeada struct {
 func nuevoCanjearConexion(m *Modulo) *auditoria.Caso[EntradaCanjear, ConexionCanjeada] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCanjear, ConexionCanjeada]{
 		Accion: "integraciones.canjear", Acceso: auditoria.Publico,
+		// Un código inválido es un 401 anónimo: no se audita (se cuenta y va al log con muestreo).
+		AuditarError: m.auditarRechazo("integraciones.canjear"),
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCanjear) (ConexionCanjeada, error) {
 			if err := m.exigirConfiguracion(); err != nil {
 				return ConexionCanjeada{}, err

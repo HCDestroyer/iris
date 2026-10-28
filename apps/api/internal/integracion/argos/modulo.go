@@ -17,8 +17,10 @@ package argos
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -68,6 +70,8 @@ type Config struct {
 // Modulo reúne los casos de uso del conector Argos.
 type Modulo struct {
 	cfg Config
+	// rechazos cuenta los 401 anónimos (webhook y canje) que no se auditan.
+	rechazos atomic.Int64
 
 	Conectar             *Conectar
 	GenerarEnlace        *auditoria.Caso[struct{}, EnlaceGenerado]
@@ -137,6 +141,26 @@ func (m *Modulo) clienteDe(c conectorLeido) *Cliente {
 }
 
 func soloLecturas[Out any](Out) bool { return false }
+
+// auditarRechazo es el AuditarError de los endpoints públicos (webhook, canje): un 401 (firma
+// inválida o vencida, código inválido) lo provoca cualquiera sin credenciales, así que no deja
+// fila en auditoria.acciones (se podría inundar la tabla). Se cuenta (RechazosSinAuditar) y se
+// registra en el log con muestreo: el primero y luego uno de cada 100. Lo demás se audita.
+func (m *Modulo) auditarRechazo(accion string) func(error) bool {
+	return func(err error) bool {
+		p, _ := nucleo.AProblema(err)
+		if p.Status != http.StatusUnauthorized {
+			return true
+		}
+		if n := m.rechazos.Add(1); n == 1 || n%100 == 0 {
+			slog.Warn("argos: rechazos anónimos sin auditar", "accion", accion, "codigo", p.Codigo(), "total", n)
+		}
+		return false
+	}
+}
+
+// RechazosSinAuditar devuelve cuántos 401 anónimos se rechazaron sin auditar desde el arranque.
+func (m *Modulo) RechazosSinAuditar() int64 { return m.rechazos.Load() }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
