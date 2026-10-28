@@ -778,6 +778,9 @@ type IntegracionPendiente struct {
 	Conflicto        *string
 	ConflictoPayload []byte
 	ConflictoEn      *time.Time
+	Respuesta        []byte
+	Plantilla        []byte
+	PorResolver      bool
 }
 
 type NucleoAdjunto struct {

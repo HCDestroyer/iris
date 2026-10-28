@@ -25,10 +25,28 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   esperado: `contratos/eventos.md`, «`orden.cerrada`: lo que la cola espera de campo».
 - **Job** `integracion.pendientes_procesar` (River, cola `integracion`, cada minuto y al encolar):
   procesa todo lo vencido cuyas dependencias estén hechas, por el cliente anti-SSRF del conector y
-  con `Idempotency-Key: iris:<operacion>:<id>`. 2xx → `hecho`; 4xx de negocio → `fallido_negocio`
-  (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409, 425, 429 → reintento a 1 min,
+  con `Idempotency-Key: iris:<operacion>:<id>`. 2xx → `hecho` (guarda la respuesta); 4xx de
+  negocio → `fallido_negocio` (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409
+  `idempotencia_en_curso`, 425, 429 → reintento a 1 min,
   5 min, 30 min, 2 h y 12 h; el 6.º fallo → `agotado`. Un `en_curso` de más de 15 min (worker
   caído) se retoma. Reloj inyectable (`Config.Reloj`).
+- **API para otros módulos** (comercial, campo; sin `pendientesbd`): `pendientes.Encolar(ctx, t,
+  Accion{…}, aviso)` en la transacción del caso de uso (idempotente por la clave; `Desde` = el
+  reloj de quien encola) y `pendientes.PorClave` → `Registro` (estado, cuerpo, respuesta).
+- **Respuesta guardada:** el cuerpo del primer 2xx de Argos queda en `respuesta` (máx. 64 KiB; si
+  no es JSON o es más grande, null y log), con las claves sensibles en `***` (contraseñas,
+  tokens, secretos, `clave_ppp`, `password_ppp`…). `CampoDeRespuesta` / `IDDeRespuesta` la leen
+  (dentro de `{ data }` si viene así). La API la muestra en `Pendiente.respuesta`.
+- **Dependientes con datos de su dependencia:** el cuerpo lleva marcadores
+  `{"$iris_ref": {"dependencia": i, "campo": "id"}}` (`pendientes.Ref`; `i` = índice en
+  `DependeDe`), validados al encolar. Nace `por_resolver` (el worker no lo toma) y se resuelve
+  **una sola vez** cuando todas sus dependencias quedan hechas (o al encolar, si ya lo están): el
+  cuerpo final queda en `payload` y no cambia (mismos bytes en cada intento, contrato §3.1); la
+  plantilla queda en su columna. Si la respuesta no trae el campo: `fallido_negocio`,
+  `datos_incompletos`, `respuesta_sin_<campo>` (nunca se adivina) y bloquea a sus dependientes.
+- **409 por type:** `idempotencia_en_curso` (y un 409 sin type) se reintenta; los demás 409
+  (`user_ppp_duplicado`…) y el 422 `idempotency_key_reutilizada` son de negocio
+  (`pendientes.EsNegocio`, que también usa comercial).
 - `GET /api/v1/integraciones/pendientes?entidad=&entidadId=&estado=` (`integraciones.ver_pendientes`)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,
   auditado).

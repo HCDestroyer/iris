@@ -5848,11 +5848,15 @@ export interface components {
             payloadConflicto: {
                 [key: string]: unknown;
             } | null;
+            /** @description El cuerpo espera la respuesta de una dependencia (marcadores sin resolver) */
+            porResolver?: boolean;
             /**
              * Format: date-time
              * @description Solo en pendiente
              */
             proximoIntento: string | null;
+            /** @description Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó) */
+            respuesta?: unknown;
             /** @description Ruta en la API de Argos (bajo /api/v1) */
             ruta: string;
             /** @enum {string} */

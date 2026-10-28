@@ -18,7 +18,7 @@ type eventoBloqueo struct {
 // bloquearDependientes: el pendiente id quedó estado (fallido_negocio, agotado): sus dependientes
 // en espera pasan a bloqueado con motivo depende_de_<id>_fallido, y los de estos (en cadena) con
 // depende_de_<id>_bloqueado. Emite integracion.pendiente_bloqueado por cada uno.
-func (m *Modulo) bloquearDependientes(ctx context.Context, t *auditoria.Tx, id int64, estado string) error {
+func bloquearDependientes(ctx context.Context, t *auditoria.Tx, id int64, estado string) error {
 	q := pendientesbd.New(t)
 	cola := []struct {
 		id    int64

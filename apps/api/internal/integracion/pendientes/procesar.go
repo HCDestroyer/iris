@@ -75,7 +75,9 @@ type resultadoIntento struct {
 	Status  *int32 `json:"status"`
 	Error   string `json:"error,omitempty"`
 
-	ahora time.Time
+	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
+	respuesta []byte
+	ahora     time.Time
 }
 
 // intentar hace la llamada a Argos y clasifica el resultado.
@@ -93,9 +95,13 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		return r
 	}
 	var cuerpo any = json.RawMessage(f.Payload)
-	err = cliente.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, nil)
+	var crudo conector.Crudo
+	err = cliente.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
 	if err == nil {
-		r.Exito = true
+		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)
+		if len(crudo) > 0 && r.respuesta == nil {
+			slog.WarnContext(ctx, "pendientes: respuesta de Argos sin guardar (no es JSON o pasa de 64 KiB)", "pendiente", f.ID, "bytes", len(crudo))
+		}
 		return r
 	}
 	var er *conector.ErrorRemoto
@@ -107,24 +113,43 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		s := int32(er.Status) //nolint:gosec // código HTTP
 		r.Status = &s
 	}
-	r.Negocio = esNegocio(er)
+	r.Negocio = EsNegocio(er)
 	r.Error = describir(er)
 	return r
 }
 
-// esNegocio: un 4xx que reintentar no arregla (datos, estado del servicio, existencias). No lo
-// son 401/403 (credencial o permiso del token: se arregla en Argos y el reintento pasa), 408,
-// 409 (Argos procesando la misma Idempotency-Key), 425 y 429.
-func esNegocio(er *conector.ErrorRemoto) bool {
+// TipoEnCurso: 409 de Argos mientras procesa la misma Idempotency-Key (se reintenta).
+const TipoEnCurso = "idempotencia_en_curso"
+
+// EsNegocio: un 4xx que reintentar no arregla (datos, estado del servicio, existencias,
+// user_ppp_duplicado, 422 idempotency_key_reutilizada). No lo son 401/403 (credencial o permiso
+// del token: se arregla en Argos y el reintento pasa), 408, 425, 429 ni el 409
+// idempotencia_en_curso (Argos procesando la misma Idempotency-Key); los demás 409 de Argos
+// (user_ppp_duplicado y otros conflictos de datos) sí son de negocio. Un 409 sin type se
+// reintenta (no se sabe cuál es).
+func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
 	switch er.Status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusConflict,
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
 		http.StatusTooEarly, http.StatusTooManyRequests:
 		return false
+	case http.StatusConflict:
+		t := TipoDe(er)
+		return t != "" && t != TipoEnCurso
 	}
 	return true
+}
+
+// TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL
+// …/x).
+func TipoDe(er *conector.ErrorRemoto) string {
+	t := er.Tipo
+	if i := strings.LastIndexAny(t, ":/"); i >= 0 {
+		t = t[i+1:]
+	}
+	return t
 }
 
 var credencial = regexp.MustCompile(`(?i)(atk_|iris_pat_|hf_pat_|bearer\s+)[A-Za-z0-9._~+/=-]+`)
@@ -207,7 +232,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			intentos := antes.Intentos + 1
 			switch {
 			case in.Exito:
-				p.Estado, p.HechoEn = EstadoHecho, &in.ahora
+				p.Estado, p.HechoEn, p.Respuesta = EstadoHecho, &in.ahora, in.respuesta
 				evento, payload = EventoHecho, eventoDe(antes)
 			case in.Negocio:
 				p.Estado, p.UltimoError = EstadoFallidoNegocio, &in.Error
@@ -236,11 +261,15 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			switch f.Estado {
 			case EstadoHecho:
+				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.
+				if err := resolverDependientes(ctx, t, f.ID); err != nil {
+					return Pendiente{}, err
+				}
 				if err := m.desbloquearDependientes(ctx, t, f.ID, in.ahora); err != nil {
 					return Pendiente{}, err
 				}
 			case EstadoFallidoNegocio, EstadoAgotado:
-				if err := m.bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
+				if err := bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
 					return Pendiente{}, err
 				}
 			}
