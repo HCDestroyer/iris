@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -148,15 +150,24 @@ func con(base map[string]any, extra map[string]any) map[string]any {
 	return base
 }
 
-func numero(n json.Number) (json.Number, bool) {
+// numero lee un número de la orden: ok = es numérico; positivo = además > 0 (cantidades y
+// montos deben serlo).
+func numero(n json.Number) (valor json.Number, ok, positivo bool) {
 	if n == "" {
-		return "", false
+		return "", false, false
 	}
-	if _, err := strconv.ParseFloat(n.String(), 64); err != nil {
-		return "", false
+	f, err := strconv.ParseFloat(n.String(), 64)
+	if err != nil {
+		return "", false, false
 	}
-	return n, true
+	return n, true, f > 0
 }
+
+// Motivos de datos incompletos por valores no positivos.
+const (
+	MotivoCantidadNoPositiva = "cantidad_no_positiva"
+	MotivoMontoNoPositivo    = "monto_no_positivo"
+)
 
 func idRuta(id *IDArgos) string {
 	if id == nil {
@@ -277,7 +288,7 @@ func planificar(o OrdenCerrada) []plan {
 		lineas := make([]map[string]any, 0, len(o.Materiales))
 		for _, mat := range o.Materiales {
 			b := bodegaDe(mat.BodegaID)
-			cant, ok := numero(mat.Cantidad)
+			cant, ok, positivo := numero(mat.Cantidad)
 			switch {
 			case b == nil:
 				p.incompleto = "material sin bodega_id (ni en la línea ni en la orden)"
@@ -287,6 +298,8 @@ func planificar(o OrdenCerrada) []plan {
 				p.incompleto = "material sin producto_id"
 			case !ok:
 				p.incompleto = "material sin cantidad numérica"
+			case !positivo:
+				p.incompleto = MotivoCantidadNoPositiva
 			}
 			if b != nil && bodega == nil {
 				bodega = b
@@ -305,7 +318,8 @@ func planificar(o OrdenCerrada) []plan {
 		if o.Cargo.ProductoID != nil {
 			p.payload["producto_id"] = o.Cargo.ProductoID
 		}
-		if monto, ok := numero(o.Cargo.Monto); ok {
+		monto, montoOK, montoPositivo := numero(o.Cargo.Monto)
+		if montoOK {
 			p.payload["monto"] = monto
 		}
 		if d := strings.TrimSpace(o.Cargo.Descripcion); d != "" {
@@ -314,6 +328,10 @@ func planificar(o OrdenCerrada) []plan {
 		switch {
 		case o.ClienteID == nil:
 			p.incompleto = "cargo sin cliente_id"
+		case o.Cargo.Monto != "" && !montoOK:
+			p.incompleto = "cargo con monto no numérico"
+		case montoOK && !montoPositivo:
+			p.incompleto = MotivoMontoNoPositivo
 		case o.Cargo.ProductoID == nil && p.payload["monto"] == nil:
 			p.incompleto = "cargo sin producto_id ni monto"
 		}
@@ -357,21 +375,24 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				empresa = *o.EmpresaID
 			}
 			t.FijarEmpresa(empresa)
-			activo := false
+			registrado := false
 			if m.cfg.Argos != nil {
 				var err error
-				if activo, err = m.cfg.Argos.HayConectorActivo(ctx, t); err != nil {
+				if registrado, err = m.cfg.Argos.HayConectorRegistrado(ctx, t); err != nil {
 					return res, err
 				}
 			}
-			if !activo {
-				// Iris funciona sin Argos: la orden queda cerrada y no se encola nada.
+			if !registrado {
+				// Modo sin conector (nunca se conectó Argos): la orden queda cerrada y no se encola
+				// nada. Con un conector apagado sí se encola: el worker reintenta hasta que se active.
 				ops := make([]string, 0, len(planes))
 				for _, p := range planes {
 					ops = append(ops, p.clave)
 				}
+				slog.WarnContext(ctx, "pendientes: orden cerrada sin conector Argos; no se encolan sus acciones",
+					"orden", orden, "operaciones", ops)
 				res.Omitido = true
-				return res, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: orden, Motivo: "conector_apagado", Operaciones: ops})
+				return res, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: orden, Motivo: "sin_conector", Operaciones: ops})
 			}
 			q := pendientesbd.New(t)
 			ids := make([]int64, len(planes))
@@ -381,6 +402,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				evento = pgtype.UUID{Bytes: o.EventoID, Valid: true}
 			}
 			nuevos := 0
+			var fallidos []int64
 			for i, p := range planes {
 				depende := make([]int64, 0, len(p.depende))
 				for _, d := range p.depende {
@@ -405,13 +427,20 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					DatosIncompletos: p.incompleto != "", Estado: estado, UltimoError: ultimo, ProximoIntento: ahora, EventoID: evento,
 				})
 				if errors.Is(err, pgx.ErrNoRows) {
-					// Evento repetido: ya estaba encolado (idempotente por la Idempotency-Key).
+					// Cierre repetido (relay o reapertura): misma Idempotency-Key.
 					previo, err := q.PendientePorClave(ctx, p.clave)
 					if err != nil {
 						return res, err
 					}
 					ids[i] = previo.ID
 					res.Pendientes = append(res.Pendientes, previo.ID)
+					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora)
+					if err != nil {
+						return res, err
+					}
+					if corregido {
+						nuevos++
+					}
 					continue
 				}
 				if err != nil {
@@ -425,6 +454,13 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(f), Detalle: *ultimo}); err != nil {
 						return res, err
 					}
+					fallidos = append(fallidos, f.ID)
+				}
+			}
+			// Lo que dependa de una acción que nació fallida (datos incompletos) queda bloqueado.
+			for _, id := range fallidos {
+				if err := m.bloquearDependientes(ctx, t, id, EstadoFallidoNegocio); err != nil {
+					return res, err
 				}
 			}
 			if nuevos == 0 {
@@ -453,4 +489,71 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 		_, err := m.EncolarCierreOrden.Ejecutar(ctx, o)
 		return err
 	})
+}
+
+// cierreRepetido decide qué hacer cuando la orden se cierra de nuevo y la acción ya existía
+// (misma Idempotency-Key):
+//
+//   - el previo está fallido_negocio con datos_incompletos y el plan nuevo trae los datos → se
+//     corrige: payload y ruta nuevos, vuelve a pendiente (auditado, integracion.pendiente_corregido);
+//   - mismo payload y ruta → evento repetido, nada que hacer;
+//   - otro payload en cualquier otro caso (hecho, en_curso, pendiente, agotado, fallido de
+//     Argos, o incompleto que sigue incompleto con otros datos) → no se pisa (la Idempotency-Key
+//     pudo viajar ya a Argos con los datos anteriores): se marca el conflicto
+//     cierre_repetido_con_otros_datos con el payload nuevo, visible en la lista del panel, para
+//     corregirlo a mano en Argos (integracion.pendiente_conflicto, una vez por payload).
+//
+// Devuelve true si el pendiente volvió a la cola.
+func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pendientesbd.IntegracionPendiente, p plan,
+	cuerpo []byte, depende []int64, ahora time.Time) (bool, error) {
+	q := pendientesbd.New(t)
+	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
+		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID})
+		if err != nil {
+			return false, err
+		}
+		t.RegistrarCambios("pendiente", f.ID,
+			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(previo.Payload), "datos_incompletos": true},
+			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(f.Payload), "datos_incompletos": false})
+		return true, t.Emitir(EventoCorregido, eventoDe(f))
+	}
+	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) {
+		return false, nil
+	}
+	if previo.Conflicto != nil && mismoJSON(previo.ConflictoPayload, cuerpo) {
+		return false, nil // ya avisado con estos datos
+	}
+	motivo := ConflictoCierreRepetido
+	f, err := q.MarcarConflicto(ctx, pendientesbd.MarcarConflictoParams{Conflicto: &motivo, ConflictoPayload: cuerpo, Ahora: ahora, ID: previo.ID})
+	if err != nil {
+		return false, err
+	}
+	t.RegistrarCambios("pendiente", f.ID, map[string]any{"conflicto": previo.Conflicto}, map[string]any{"conflicto": motivo})
+	slog.WarnContext(ctx, "pendientes: la orden se cerró de nuevo con otros datos; corregir a mano en Argos",
+		"pendiente", f.ID, "operacion", f.Operacion, "estado", f.Estado)
+	var nuevo, anterior map[string]any
+	_ = json.Unmarshal(cuerpo, &nuevo)
+	_ = json.Unmarshal(previo.Payload, &anterior)
+	return false, t.Emitir(EventoConflicto, eventoConflicto{eventoPendiente: eventoDe(f), Estado: f.Estado, Motivo: motivo,
+		PayloadAnterior: anterior, PayloadNuevo: nuevo})
+}
+
+// ConflictoCierreRepetido: la orden se volvió a cerrar con otros datos para una acción que no se
+// puede pisar.
+const ConflictoCierreRepetido = "cierre_repetido_con_otros_datos"
+
+type eventoConflicto struct {
+	eventoPendiente
+	Estado          string         `json:"estado"`
+	Motivo          string         `json:"motivo"`
+	PayloadAnterior map[string]any `json:"payload_anterior"`
+	PayloadNuevo    map[string]any `json:"payload_nuevo"`
+}
+
+func mismoJSON(a, b []byte) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }

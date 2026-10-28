@@ -188,6 +188,9 @@ type IntegracionPendiente struct {
 	Version          int32
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	Conflicto        *string
+	ConflictoPayload []byte
+	ConflictoEn      *time.Time
 }
 
 type NucleoAdjunto struct {

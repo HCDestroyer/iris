@@ -2830,6 +2830,20 @@
       "Pendiente": {
         "additionalProperties": false,
         "properties": {
+          "conflicto": {
+            "description": "cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conflictoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -2857,12 +2871,14 @@
             "type": "string"
           },
           "estado": {
+            "description": "bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_\u003cid\u003e_fallido); vuelve a pendiente cuando la dependencia termina hecha",
             "enum": [
               "pendiente",
               "en_curso",
               "hecho",
               "fallido_negocio",
-              "agotado"
+              "agotado",
+              "bloqueado"
             ],
             "type": "string"
           },
@@ -2896,6 +2912,13 @@
             "additionalProperties": {},
             "description": "Cuerpo de la llamada",
             "type": "object"
+          },
+          "payloadConflicto": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "proximoIntento": {
             "description": "Solo en pendiente",
@@ -2954,6 +2977,9 @@
           "ultimoError",
           "ultimoStatus",
           "hechoEn",
+          "conflicto",
+          "payloadConflicto",
+          "conflictoEn",
           "creadoEn",
           "version"
         ],
@@ -7854,7 +7880,7 @@
     },
     "/api/v1/integraciones/pendientes": {
       "get": {
-        "description": "Permiso: `integraciones.ver_pendientes`. De la empresa activa, más recientes primero. Filtros `entidad` + `entidadId` (p. ej. una orden: «cerrada con pendiente en Argos» si alguno no está `hecho`) y `estado`. `fallido_negocio` trae en `ultimoError` el detail de Argos; `agotado` agotó los reintentos (1 min, 5 min, 30 min, 2 h, 12 h).",
+        "description": "Permiso: `integraciones.ver_pendientes`. De la empresa activa, más recientes primero. Filtros `entidad` + `entidadId` (p. ej. una orden: «cerrada con pendiente en Argos» si alguno no está `hecho`) y `estado`. `fallido_negocio` trae en `ultimoError` el detail de Argos; `agotado` agotó los reintentos (1 min, 5 min, 30 min, 2 h, 12 h); `bloqueado` espera a una dependencia fallida. `conflicto=true`: los que la orden volvió a cerrar con otros datos sin pisarlos (`payloadConflicto`; corregir a mano en Argos).",
         "operationId": "listarPendientesIntegracion",
         "parameters": [
           {
@@ -7913,9 +7939,20 @@
                 "hecho",
                 "fallido_negocio",
                 "agotado",
+                "bloqueado",
                 ""
               ],
               "type": "string"
+            }
+          },
+          {
+            "description": "Solo los que tienen un conflicto por cierre repetido",
+            "explode": false,
+            "in": "query",
+            "name": "conflicto",
+            "schema": {
+              "description": "Solo los que tienen un conflicto por cierre repetido",
+              "type": "boolean"
             }
           }
         ],
@@ -7988,7 +8025,7 @@
     },
     "/api/v1/integraciones/pendientes/{id}/reintentar": {
       "post": {
-        "description": "Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho o en curso) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.",
+        "description": "Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho, en curso o bloqueado: reintenta su dependencia) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.",
         "operationId": "reintentarPendienteIntegracion",
         "parameters": [
           {

@@ -43,7 +43,7 @@ del payload: `adjunto_id` (uuid del cliente), `entidad` (`orden`, `ticket`…), 
 | --- | --- | --- |
 | `adjunto.registrado` | base | Alta nueva (`POST /adjuntos`); repetir el alta con el mismo id no lo vuelve a emitir. |
 | `adjunto.completado` | base + `mime`, `tamano`, `sha256` | Llegó el último byte y se verificaron tamaño, SHA-256 y que el contenido es del MIME declarado; ya está en el almacenamiento. Campo (I2) puede reintentar el cierre de la orden que esperaba sus adjuntos. |
-| `adjunto.rechazado` | base + `motivo` (`sha256_distinto` \| `mime_distinto` \| `tamano_excedido`) | La subida no coincidió con lo declarado; el teléfono debe registrar el adjunto de nuevo con otro id. |
+| `adjunto.rechazado` | base + `motivo` (`sha256_distinto` \| `mime_distinto` \| `tamano_excedido` \| `abandonado`) | La subida no coincidió con lo declarado, o quedó sin actividad más de `IRIS_ADJUNTOS_ABANDONO` (48 h; job del worker, borra sus partes); el teléfono debe registrar el adjunto de nuevo con otro id. |
 
 ## Pendientes hacia Argos (núcleo, I1)
 
@@ -58,7 +58,11 @@ Emite `integracion/pendientes` (cola `integracion.pendientes`, contrato `argosis
 | `integracion.pendiente_fallido` | base + `intentos`, `status` (o null), `detalle` | 4xx de negocio de Argos (no se reintenta: la orden queda «cerrada con pendiente en Argos»; aviso al supervisor con el `detail` de Argos, sin credenciales), o la orden no traía un dato obligatorio (`detalle` = `datos incompletos: …`, `status` null, `intentos` 0). |
 | `integracion.pendiente_agotado` | base + `intentos` (6), `status` (o null), `detalle` | Falló el 6.º intento (inicial + reintentos a 1 min, 5 min, 30 min, 2 h y 12 h): alerta al supervisor. |
 | `integracion.pendiente_reintentado` | base sin `idempotency_key` + `de` (estado anterior) | `integraciones.reintentar` (manual). |
-| `integracion.pendiente_omitido` | `orden_id`, `motivo` (`conector_apagado`), `operaciones[]` (las Idempotency-Key que se habrían encolado) | Se cerró una orden con acciones para Argos sin conector Argos activo: no se encola nada (Iris trabaja con datos locales). Puede repetirse si el relay entrega dos veces. |
+| `integracion.pendiente_omitido` | `orden_id`, `motivo` (`sin_conector`), `operaciones[]` (las Idempotency-Key que se habrían encolado) | Se cerró una orden con acciones para Argos y **nunca hubo** conector Argos (modo sin conector): no se encola nada (Iris trabaja con datos locales; además, log warn). Con un conector registrado pero apagado sí se encola y el worker reintenta. Puede repetirse si el relay entrega dos veces. |
+| `integracion.pendiente_corregido` | base | La orden se volvió a cerrar con los datos que le faltaban a un pendiente `fallido_negocio` con `datos_incompletos`: payload y ruta nuevos, vuelve a `pendiente` (auditado). |
+| `integracion.pendiente_conflicto` | base + `estado`, `motivo` (`cierre_repetido_con_otros_datos`), `payload_anterior`, `payload_nuevo` | La orden se volvió a cerrar con otros datos para una acción que no se puede pisar (hecha, en curso, encolada, agotada o rechazada por Argos: la Idempotency-Key pudo viajar ya con los datos anteriores). Queda marcado (`conflicto`, `payloadConflicto` en la lista del panel) para corregir a mano en Argos. Una vez por payload nuevo. |
+| `integracion.pendiente_bloqueado` | base + `depende_de`, `motivo` (`depende_de_<id>_fallido`, o `_bloqueado` en cadena) | Una dependencia quedó `fallido_negocio` o `agotado` (o nació incompleta): el dependiente pasa a `bloqueado`. |
+| `integracion.pendiente_desbloqueado` | base + `depende_de` | La dependencia terminó `hecho` (tras reintentarla) y todas las del dependiente están hechas: vuelve a `pendiente`. |
 
 ### `orden.cerrada`: lo que la cola espera de campo (I2)
 
@@ -77,9 +81,9 @@ acción necesita, esa acción nace `fallido_negocio` con `datos_incompletos` y e
 | `bodega_id` | Bodega del técnico: consumo y devoluciones (una línea o un equipo pueden traer la suya). Un consumo por orden: todas las líneas de una misma bodega. |
 | `tecnico_id` | Informativo. |
 | `retirar_servicio` (bool) | En un `retiro` exitoso, `true` = el cliente pidió retirar el servicio → `POST /servicios/:id/retirar`. Ausente = false. |
-| `materiales[]` | `{ producto_id, cantidad (número o texto), bodega_id? }` → `POST /inventario/consumos`. |
+| `materiales[]` | `{ producto_id, cantidad (número o texto, > 0; si no, `cantidad_no_positiva`), bodega_id? }` → `POST /inventario/consumos`. |
 | `equipos[]` | `{ accion: instalar \| retirar, unidad_id?, serie?, mac?, condicion?, bodega_id? }`. Instalar: `unidad_id` o `serie`. Retirar: `unidad_id` obligatorio; `condicion: "perdido"` → pérdida; otra condición (`bueno`, `danado`…) → devolución con esa condición. En `cambio_equipo`, cada asignación espera a todas las devoluciones/pérdidas de la orden. |
-| `cargo` (o null) | `{ producto_id?, monto?, descripcion? }` (producto o monto) → `POST /facturas/cargo-unico`. |
+| `cargo` (o null) | `{ producto_id?, monto? (> 0; si no, `monto_no_positivo`), descripcion? }` (producto o monto) → `POST /facturas/cargo-unico`. |
 
 ## Horus (núcleo, I1)
 

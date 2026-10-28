@@ -4,7 +4,8 @@
 // (webhooks entrantes → eventos internos horus.*), el cron de SLA de soporte (cada minuto) y el
 // correo de soporte (lectura de buzones IMAP cada minuto, proceso de correos y envío de
 // respuestas por SMTP), los tickets que abre Horus (suscriptor de los eventos horus.*) y la cola
-// de pendientes hacia Argos (suscriptor de orden.cerrada y su job, cada minuto).
+// de pendientes hacia Argos (suscriptor de orden.cerrada y su job, cada minuto) y la purga de
+// subidas de adjuntos abandonadas (cada hora).
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
@@ -100,6 +102,9 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	pend.Suscribir(bus)
+	// Adjuntos: purga de subidas abandonadas (IRIS_ADJUNTOS_ABANDONO) cada hora. No necesita el
+	// almacenamiento: solo marca y borra las partes en la base.
+	adj := adjuntos.Nuevo(adjuntos.Config{Abandono: cfg.AdjuntosAbandono})
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,
@@ -108,9 +113,11 @@ func correr() error {
 			conectorHorus.RegistrarWorkers(w, pool)
 			registrarSoporte(w)
 			pend.RegistrarWorkers(w, pool)
+			adj.RegistrarWorkers(w, pool)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
-			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute)),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute),
+			adjuntos.TrabajoPeriodico(time.Hour)),
 	})
 	if err != nil {
 		return err

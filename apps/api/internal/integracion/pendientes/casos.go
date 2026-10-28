@@ -28,12 +28,15 @@ type Pendiente struct {
 	Payload          map[string]any `json:"payload" doc:"Cuerpo de la llamada"`
 	DependeDe        []int64        `json:"dependeDe" doc:"Pendientes que deben estar hechos antes"`
 	DatosIncompletos bool           `json:"datosIncompletos" doc:"La orden no traía un dato obligatorio: no se puede reintentar"`
-	Estado           string         `json:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado"`
+	Estado           string         `json:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado" doc:"bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha"`
 	Intentos         int32          `json:"intentos"`
 	ProximoIntento   *time.Time     `json:"proximoIntento" nullable:"true" doc:"Solo en pendiente"`
 	UltimoError      *string        `json:"ultimoError" nullable:"true" doc:"Resumen del último error (con el detail de Argos en un 4xx de negocio)"`
 	UltimoStatus     *int32         `json:"ultimoStatus" nullable:"true" doc:"HTTP de Argos del último intento (null si no respondió)"`
 	HechoEn          *time.Time     `json:"hechoEn" nullable:"true"`
+	Conflicto        *string        `json:"conflicto" nullable:"true" doc:"cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos)"`
+	PayloadConflicto map[string]any `json:"payloadConflicto" nullable:"true"`
+	ConflictoEn      *time.Time     `json:"conflictoEn" nullable:"true"`
 	CreadoEn         time.Time      `json:"creadoEn"`
 	Version          int32          `json:"version"`
 
@@ -55,6 +58,10 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 		p.ProximoIntento = &t
 	}
 	_ = json.Unmarshal(f.Payload, &p.Payload)
+	p.Conflicto, p.ConflictoEn = f.Conflicto, f.ConflictoEn
+	if len(f.ConflictoPayload) > 0 {
+		_ = json.Unmarshal(f.ConflictoPayload, &p.PayloadConflicto)
+	}
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}
@@ -89,7 +96,8 @@ type EntradaListar struct {
 	nucleo.ParamsPagina
 	Entidad   string `query:"entidad" pattern:"^[a-z][a-z_]{0,39}$" doc:"orden…"`
 	EntidadID string `query:"entidadId" maxLength:"64"`
-	Estado    string `query:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,"`
+	Estado    string `query:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,"`
+	Conflicto bool   `query:"conflicto" doc:"Solo los que tienen un conflicto por cierre repetido"`
 }
 
 func texto(s string) *string {
@@ -111,7 +119,7 @@ func nuevoListar(*Modulo) *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente
 			limite := in.Limite()
 			filas, err := pendientesbd.New(t).ListarPendientes(ctx, pendientesbd.ListarPendientesParams{
 				DespuesDe: despues, Todas: todas, EmpresaID: empresa, Entidad: texto(in.Entidad),
-				EntidadID: texto(in.EntidadID), Estado: texto(in.Estado), Limite: int32(limite + 1), //nolint:gosec // acotado a 201
+				EntidadID: texto(in.EntidadID), Estado: texto(in.Estado), SoloConflicto: in.Conflicto, Limite: int32(limite + 1), //nolint:gosec // acotado a 201
 			})
 			if err != nil {
 				return nucleo.Pagina[Pendiente]{}, err
@@ -157,7 +165,11 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			switch {
 			case f.DatosIncompletos:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_incompleto",
-					"La orden no traía los datos para esta acción ("+deref(f.UltimoError)+"); corrígela en Argos a mano")
+					"La orden no traía los datos para esta acción ("+deref(f.UltimoError)+"); vuelve a cerrar la orden con los datos "+
+						"(el pendiente se corrige y vuelve a la cola) o hazlo a mano en Argos")
+			case f.Estado == EstadoBloqueado:
+				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable",
+					"Está bloqueado ("+deref(f.UltimoError)+"): reintenta su dependencia; al quedar hecha, este vuelve a la cola")
 			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable", "El pendiente está "+f.Estado)
 			}

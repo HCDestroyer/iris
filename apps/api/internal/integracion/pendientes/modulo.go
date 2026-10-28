@@ -35,6 +35,9 @@ const (
 	EstadoHecho          = "hecho"
 	EstadoFallidoNegocio = "fallido_negocio"
 	EstadoAgotado        = "agotado"
+	// EstadoBloqueado: una dependencia quedó fallido_negocio o agotado; vuelve a pendiente
+	// cuando todas sus dependencias están hechas (p. ej. tras reintentar la dependencia).
+	EstadoBloqueado = "bloqueado"
 )
 
 // Eventos que emite el módulo (contratos/eventos.md, «Pendientes hacia Argos»).
@@ -44,6 +47,10 @@ const (
 	EventoAgotado      = "integracion.pendiente_agotado"
 	EventoOmitido      = "integracion.pendiente_omitido"
 	EventoReintentado  = "integracion.pendiente_reintentado"
+	EventoCorregido    = "integracion.pendiente_corregido"
+	EventoConflicto    = "integracion.pendiente_conflicto"
+	EventoBloqueado    = "integracion.pendiente_bloqueado"
+	EventoDesbloqueado = "integracion.pendiente_desbloqueado"
 	EventoOrdenCerrada = "orden.cerrada"
 )
 

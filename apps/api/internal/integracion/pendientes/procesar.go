@@ -234,6 +234,16 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 					return Pendiente{}, err
 				}
 			}
+			switch f.Estado {
+			case EstadoHecho:
+				if err := m.desbloquearDependientes(ctx, t, f.ID, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+			case EstadoFallidoNegocio, EstadoAgotado:
+				if err := m.bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			if f.Estado == EstadoFallidoNegocio || f.Estado == EstadoAgotado {
 				slog.WarnContext(ctx, "pendientes: acción hacia Argos sin completar", "pendiente", f.ID,
 					"operacion", f.Operacion, "estado", f.Estado, "error", in.Error)

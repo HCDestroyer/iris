@@ -440,17 +440,43 @@ func TestRetiroYCambioDeEquipoConDependencia(t *testing.T) {
 	}
 }
 
-func TestSinConectorNoEncola(t *testing.T) {
+func TestConectorApagadoEncolaYSinConectorOmite(t *testing.T) {
 	e := nuevoEntorno(t)
+	// Conector registrado pero apagado: se encola igual y el worker reintenta.
 	if _, err := e.pool.Exec(context.Background(), "UPDATE integracion.conectores SET estado = 'apagado'"); err != nil {
 		t.Fatal(err)
 	}
 	orden := nuevaOrden()
 	e.cerrar(map[string]any{"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "servicio_id": 20})
-	if len(e.pendientes(orden)) != 0 {
+	if e.procesar() != 1 || len(e.argos.copia()) != 0 {
+		t.Fatal("con el conector apagado no se llama a Argos")
+	}
+	if f := e.pendientes(orden)["iris:instalacion:"+orden]; f.Estado != "pendiente" || f.Intentos != 1 || !strings.Contains(f.Error, "sin conector Argos activo") {
+		t.Fatalf("apagado: %+v", f)
+	}
+	if n := e.eventos("integracion.pendiente_omitido", orden); n != 0 {
+		t.Fatal("con conector registrado no se omite")
+	}
+	// Al activarlo, el siguiente intento pasa.
+	if _, err := e.pool.Exec(context.Background(), "UPDATE integracion.conectores SET estado = 'activo' WHERE id = $1", e.conID); err != nil {
+		t.Fatal(err)
+	}
+	e.reloj = e.reloj.Add(time.Minute)
+	e.procesar()
+	if f := e.pendientes(orden)["iris:instalacion:"+orden]; f.Estado != "hecho" {
+		t.Fatalf("tras activar: %+v", f)
+	}
+
+	// Nunca hubo conector Argos (modo sin conector): se omite.
+	if _, err := e.pool.Exec(context.Background(), "UPDATE integracion.conectores SET estado = 'apagado', sistema = 'horus' WHERE sistema = 'argosisp'"); err != nil {
+		t.Fatal(err)
+	}
+	sin := nuevaOrden()
+	e.cerrar(map[string]any{"orden_id": sin, "tipo": "instalacion", "resultado": "exitosa", "servicio_id": 20})
+	if len(e.pendientes(sin)) != 0 {
 		t.Fatal("sin conector no se encola")
 	}
-	if n := e.eventos("integracion.pendiente_omitido", orden); n != 1 {
+	if n := e.eventos("integracion.pendiente_omitido", sin); n != 1 {
 		t.Fatalf("pendiente_omitido: %d", n)
 	}
 	// Instalación fallida sin materiales: nada que hacer, ni evento.
@@ -458,6 +484,141 @@ func TestSinConectorNoEncola(t *testing.T) {
 	e.cerrar(map[string]any{"orden_id": otra, "tipo": "instalacion", "resultado": "fallida", "servicio_id": 20})
 	if n := e.eventos("integracion.pendiente_omitido", otra); n != 0 {
 		t.Fatal("sin acciones no hay omitido")
+	}
+}
+
+func TestCierreRepetidoCorrigeIncompletosYMarcaConflictos(t *testing.T) {
+	e := nuevoEntorno(t)
+	orden := nuevaOrden()
+	// Primer cierre sin servicio_id: incompleto. Consumo con servicio y bodega del primer cierre…
+	e.cerrar(map[string]any{"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 4, "cantidad": 2}}})
+	ps := e.pendientes(orden)
+	if f := ps["iris:instalacion:"+orden]; f.Estado != "fallido_negocio" || !f.Incompleto {
+		t.Fatalf("incompleto: %+v", f)
+	}
+	// Se reabre y se cierra de nuevo con el servicio: el incompleto se corrige y se ejecuta.
+	segundo := map[string]any{"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "servicio_id": 20, "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 4, "cantidad": 2}}}
+	e.cerrar(segundo)
+	if f := e.pendientes(orden)["iris:instalacion:"+orden]; f.Estado != "pendiente" || f.Incompleto || f.Error != "" {
+		t.Fatalf("corregido: %+v", f)
+	}
+	if n := e.eventos("integracion.pendiente_corregido", orden); n != 2 { // activar y consumo (este también era incompleto)
+		t.Fatalf("pendiente_corregido: %d", n)
+	}
+	e.procesar()
+	var activar llamada
+	for _, l := range e.argos.copia() {
+		if l.Clave == "iris:instalacion:"+orden {
+			activar = l
+		}
+	}
+	if activar.Ruta != "/servicios/20/activar-instalacion" {
+		t.Fatalf("la corrección usa la ruta nueva: %+v", activar)
+	}
+	llamadas := len(e.argos.copia())
+
+	// Tercer cierre con otra cantidad: el consumo ya está hecho; no se pisa, se marca conflicto.
+	tercero := map[string]any{"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "servicio_id": 20, "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 4, "cantidad": 5}}}
+	e.cerrar(tercero)
+	e.cerrar(tercero) // repetido: un solo aviso
+	var conflicto, cantidad string
+	if err := e.pool.QueryRow(context.Background(), `SELECT estado || ':' || coalesce(conflicto, ''), conflicto_payload->'lineas'->0->>'cantidad'
+		FROM integracion.pendientes WHERE idempotency_key = $1`, "iris:consumo:"+orden).Scan(&conflicto, &cantidad); err != nil {
+		t.Fatal(err)
+	}
+	if conflicto != "hecho:cierre_repetido_con_otros_datos" || cantidad != "5" {
+		t.Fatalf("conflicto: %s %s", conflicto, cantidad)
+	}
+	if n := e.eventos("integracion.pendiente_conflicto", orden); n != 1 {
+		t.Fatalf("pendiente_conflicto: %d", n)
+	}
+	e.reloj = e.reloj.Add(time.Hour)
+	if e.procesar() != 0 || len(e.argos.copia()) != llamadas {
+		t.Fatal("un conflicto no vuelve a llamar a Argos")
+	}
+	// Mismo cierre que el segundo para el activar (hecho, mismo payload): sin conflicto.
+	if f := e.pendientes(orden)["iris:instalacion:"+orden]; f.Estado != "hecho" {
+		t.Fatalf("activar: %+v", f)
+	}
+	ident := identidad.Nuevo(identidad.Config{})
+	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesVerPendientes)
+	pag, err := e.m.Listar.Ejecutar(sup, pendientes.EntradaListar{Entidad: "orden", EntidadID: orden, Conflicto: true})
+	if err != nil || len(pag.Data) != 1 || pag.Data[0].Conflicto == nil || pag.Data[0].PayloadConflicto == nil {
+		t.Fatalf("lista de conflictos: %+v %v", pag, err)
+	}
+}
+
+func TestDependenciaFallidaBloqueaYSeDesbloquea(t *testing.T) {
+	e := nuevoEntorno(t)
+	ident := identidad.Nuevo(identidad.Config{})
+	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar)
+	cambio := nuevaOrden()
+	e.argos.responder("/servicios/40/equipos/81/devolver", 422, 201)
+	e.cerrar(map[string]any{"orden_id": cambio, "tipo": "cambio_equipo", "resultado": "exitosa", "servicio_id": 40, "bodega_id": 3,
+		"equipos": []any{
+			map[string]any{"accion": "instalar", "serie": "NUEVO-1"},
+			map[string]any{"accion": "retirar", "unidad_id": 81, "condicion": "danado"},
+		}})
+	e.procesar()
+	ps := e.pendientes(cambio)
+	dev, asig := ps["iris:devolucion:"+cambio+":81"], ps["iris:comodato:"+cambio+":NUEVO-1"]
+	if dev.Estado != "fallido_negocio" || asig.Estado != "bloqueado" || asig.Error != "depende_de_"+strconv.FormatInt(dev.ID, 10)+"_fallido" {
+		t.Fatalf("bloqueo: %+v %+v", dev, asig)
+	}
+	if n := e.eventos("integracion.pendiente_bloqueado", cambio); n != 1 {
+		t.Fatalf("pendiente_bloqueado: %d", n)
+	}
+	_, err = e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: asig.ID, Version: asig.Version})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_no_reintentable" {
+		t.Fatalf("un bloqueado se destraba por su dependencia: %v", err)
+	}
+	// Se corrige en Argos y se reintenta la devolución: hecha → la asignación se desbloquea y corre.
+	if _, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: dev.ID, Version: dev.Version}); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	ps = e.pendientes(cambio)
+	if ps["iris:devolucion:"+cambio+":81"].Estado != "hecho" || ps["iris:comodato:"+cambio+":NUEVO-1"].Estado != "hecho" {
+		t.Fatalf("desbloqueo: %+v", ps)
+	}
+	if n := e.eventos("integracion.pendiente_desbloqueado", cambio); n != 1 {
+		t.Fatalf("pendiente_desbloqueado: %d", n)
+	}
+
+	// Dependencia que nace incompleta (retiro sin unidad_id): la asignación nace bloqueada.
+	otro := nuevaOrden()
+	e.cerrar(map[string]any{"orden_id": otro, "tipo": "cambio_equipo", "resultado": "exitosa", "servicio_id": 40, "bodega_id": 3,
+		"equipos": []any{map[string]any{"accion": "retirar", "serie": "SIN-UNIDAD", "condicion": "bueno"}, map[string]any{"accion": "instalar", "serie": "N2"}}})
+	if f := e.pendientes(otro)["iris:comodato:"+otro+":N2"]; f.Estado != "bloqueado" {
+		t.Fatalf("asignación tras devolución incompleta: %+v", f)
+	}
+}
+
+func TestCantidadYMontoNoPositivos(t *testing.T) {
+	e := nuevoEntorno(t)
+	orden := nuevaOrden()
+	e.cerrar(map[string]any{"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "servicio_id": 20, "cliente_id": 10, "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 4, "cantidad": 0}},
+		"cargo":      map[string]any{"monto": "-5"}})
+	ps := e.pendientes(orden)
+	if f := ps["iris:consumo:"+orden]; f.Estado != "fallido_negocio" || !f.Incompleto || !strings.Contains(f.Error, "cantidad_no_positiva") {
+		t.Fatalf("cantidad: %+v", f)
+	}
+	if f := ps["iris:cargo:"+orden]; f.Estado != "fallido_negocio" || !f.Incompleto || !strings.Contains(f.Error, "monto_no_positivo") {
+		t.Fatalf("monto: %+v", f)
 	}
 }
 

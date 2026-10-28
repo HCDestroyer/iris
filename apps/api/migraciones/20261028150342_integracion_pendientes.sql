@@ -15,8 +15,9 @@ CREATE TABLE integracion.pendientes (
     ruta            text        NOT NULL,                          -- bajo /api/v1 del otro sistema
     payload         jsonb       NOT NULL DEFAULT '{}'::jsonb,      -- cuerpo de la llamada
     depende_de      bigint[]    NOT NULL DEFAULT '{}',             -- espera a que estos estén «hecho»
-    -- La orden no traía un dato obligatorio (servicio_id, unidad_id…): nace fallido_negocio y no
-    -- se puede reintentar (habría que corregir la orden y volver a cerrarla).
+    -- La orden no traía un dato obligatorio (servicio_id, unidad_id…): nace fallido_negocio y no se
+    -- reintenta a mano; si la orden se vuelve a cerrar con los datos, vuelve a «pendiente» con el
+    -- payload nuevo (ver 20261028153738_integracion_pendientes_conflicto).
     datos_incompletos boolean   NOT NULL DEFAULT false,
     estado          text        NOT NULL DEFAULT 'pendiente'
                                 CHECK (estado IN ('pendiente', 'en_curso', 'hecho', 'fallido_negocio', 'agotado')),

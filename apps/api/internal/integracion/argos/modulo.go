@@ -183,3 +183,11 @@ func (m *Modulo) HayConectorActivo(ctx context.Context, q conector.DBTX) (bool, 
 	}
 	return err == nil, err
 }
+
+// HayConectorRegistrado indica si alguna vez se conectó Argos (hay un conector, activo o
+// apagado). Sin ninguno, Iris está en modo «sin conector» y no encola acciones hacia Argos.
+func (m *Modulo) HayConectorRegistrado(ctx context.Context, q conector.DBTX) (bool, error) {
+	var hay bool
+	err := q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1)", Sistema).Scan(&hay)
+	return hay, err
+}

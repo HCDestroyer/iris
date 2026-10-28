@@ -609,7 +609,7 @@ export interface paths {
         };
         /**
          * Cola de acciones pendientes hacia Argos
-         * @description Permiso: `integraciones.ver_pendientes`. De la empresa activa, más recientes primero. Filtros `entidad` + `entidadId` (p. ej. una orden: «cerrada con pendiente en Argos» si alguno no está `hecho`) y `estado`. `fallido_negocio` trae en `ultimoError` el detail de Argos; `agotado` agotó los reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
+         * @description Permiso: `integraciones.ver_pendientes`. De la empresa activa, más recientes primero. Filtros `entidad` + `entidadId` (p. ej. una orden: «cerrada con pendiente en Argos» si alguno no está `hecho`) y `estado`. `fallido_negocio` trae en `ultimoError` el detail de Argos; `agotado` agotó los reintentos (1 min, 5 min, 30 min, 2 h, 12 h); `bloqueado` espera a una dependencia fallida. `conflicto=true`: los que la orden volvió a cerrar con otros datos sin pisarlos (`payloadConflicto`; corregir a mano en Argos).
          */
         get: operations["listarPendientesIntegracion"];
         put?: never;
@@ -631,7 +631,7 @@ export interface paths {
         put?: never;
         /**
          * Reintentar a mano una acción hacia Argos
-         * @description Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho o en curso) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.
+         * @description Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho, en curso o bloqueado: reintenta su dependencia) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.
          */
         post: operations["reintentarPendienteIntegracion"];
         delete?: never;
@@ -2380,6 +2380,10 @@ export interface components {
             nextCursor: string | null;
         };
         Pendiente: {
+            /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
+            conflicto: string | null;
+            /** Format: date-time */
+            conflictoEn: string | null;
             /** Format: date-time */
             creadoEn: string;
             /** @description La orden no traía un dato obligatorio: no se puede reintentar */
@@ -2389,8 +2393,11 @@ export interface components {
             /** @description orden (más adelante prospecto) */
             entidad: string;
             entidadId: string;
-            /** @enum {string} */
-            estado: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado";
+            /**
+             * @description bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha
+             * @enum {string}
+             */
+            estado: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado";
             /** Format: date-time */
             hechoEn: string | null;
             /** Format: int64 */
@@ -2406,6 +2413,9 @@ export interface components {
             payload: {
                 [key: string]: unknown;
             };
+            payloadConflicto: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Format: date-time
              * @description Solo en pendiente
@@ -5318,7 +5328,9 @@ export interface operations {
                 /** @description orden… */
                 entidad?: string;
                 entidadId?: string;
-                estado?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "";
+                estado?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
+                /** @description Solo los que tienen un conflicto por cierre repetido */
+                conflicto?: boolean;
             };
             header?: never;
             path?: never;
