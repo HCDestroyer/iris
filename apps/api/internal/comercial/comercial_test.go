@@ -808,8 +808,9 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatalf("servicio del alta vieja: %v", srv)
 	}
 
-	// Defensa en profundidad: si la respuesta guardada trae otro codigo_externo que el enviado,
-	// el alta queda en error visible y no se crea la orden.
+	// Si Argos responde otro codigo_externo, la cola deja el cliente en fallido_negocio
+	// (respuesta_inconsistente), el servicio queda bloqueado sin salir hacia Argos y el alta en
+	// error visible, sin orden.
 	p6 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Ajeno", Direccion: "Calzada 9", Lat: &cerca, Lon: ptr(-90.5)}))(t)
 	d6 := hastaContrato(t, e.com, ctx, p6.ID, lineas, "")
 	deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p6.ID, Version: d6.Version}))(t)
@@ -817,8 +818,18 @@ func TestEmbudoConArgos(t *testing.T) {
 	e.procesar()
 	e.falso.fijar(func(a *argosFalso) { a.altaAjena = false })
 	d6 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p6.ID}))(t)
-	if d6.Alta.Error == nil || !strings.Contains(*d6.Alta.Error, "codigo_externo") || d6.Alta.OrdenID != nil || d6.Alta.ClienteArgosID != nil {
+	if d6.Alta.Error == nil || !strings.Contains(*d6.Alta.Error, "respuesta_inconsistente") || !strings.Contains(*d6.Alta.Error, "codigo_externo") ||
+		d6.Alta.OrdenID != nil || d6.Alta.ClienteArgosID != nil {
 		t.Fatalf("respuesta con otro codigo_externo: %+v", d6.Alta)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1 AND estado = 'fallido_negocio'", comercial.ClaveCliente(p6.ID)); n != 1 {
+		t.Fatal("el cliente queda fallido_negocio")
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1 AND estado = 'bloqueado'", comercial.ClaveServicio(p6.ID)); n != 1 {
+		t.Fatal("el servicio queda bloqueado")
+	}
+	if env := e.falso.envios(comercial.ClaveServicio(p6.ID)); len(env) != 0 {
+		t.Fatalf("el servicio no sale hacia Argos: %d envíos", len(env))
 	}
 
 	// Factibilidad manual sin router: ganar con conector pide el router (de la empresa).

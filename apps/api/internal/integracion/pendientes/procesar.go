@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,7 +105,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)
 		if len(crudo) > 0 && r.respuesta == nil {
-			slog.WarnContext(ctx, "pendientes: respuesta de Argos sin guardar (no es JSON o pasa de 64 KiB)", "pendiente", f.ID, "bytes", len(crudo))
+			slog.WarnContext(ctx, "pendientes: respuesta de Argos sin guardar (no es JSON, pasa de 64 KiB o no trae campos de la lista blanca)", "pendiente", f.ID, "bytes", len(crudo))
+		}
+		if motivo := inconsistencia(f.Verificar, f.Payload, r.respuesta); motivo != "" {
+			// Argos hizo algo, pero no lo que se le pidió: no es «hecho» (los dependientes no se
+			// resuelven con esta respuesta) y reintentar no lo arregla.
+			r.Exito, r.Negocio, r.Error = false, true, motivo
 		}
 		return r
 	}
@@ -120,6 +126,34 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	r.Negocio = EsNegocio(er)
 	r.Error = describir(er)
 	return r
+}
+
+// MotivoInconsistente: la respuesta del 2xx trae un campo de identidad distinto del enviado.
+const MotivoInconsistente = "respuesta_inconsistente"
+
+// inconsistencia compara los campos de verificar entre el cuerpo enviado y la respuesta
+// guardada. Un campo que la respuesta no trae no se puede comparar (no es inconsistencia).
+func inconsistencia(verificar []string, enviado, respuesta []byte) string {
+	for _, c := range verificar {
+		recibido, ok := CampoDeRespuesta(respuesta, c)
+		if !ok {
+			continue
+		}
+		mandado, _ := CampoDeRespuesta(enviado, c)
+		if escalar(recibido) != escalar(mandado) {
+			return fmt.Sprintf("%s: Argos respondió %s %q y se mandó %q", MotivoInconsistente, c, escalar(recibido), escalar(mandado))
+		}
+	}
+	return ""
+}
+
+// escalar: un valor JSON escalar como texto ("9001" y 9001 son iguales).
+func escalar(v []byte) string {
+	t := string(v)
+	if u, err := strconv.Unquote(t); err == nil {
+		return u
+	}
+	return t
 }
 
 // TipoEnCurso: 409 de Argos mientras procesa la misma Idempotency-Key (se reintenta).
@@ -242,7 +276,8 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				p.Estado, p.HechoEn, p.Respuesta = EstadoHecho, &in.ahora, in.respuesta
 				evento, payload = EventoHecho, eventoDe(antes)
 			case in.Negocio:
-				p.Estado, p.UltimoError = EstadoFallidoNegocio, &in.Error
+				// Con respuesta (inconsistente) se guarda para revisarla; los dependientes no la usan.
+				p.Estado, p.UltimoError, p.Respuesta = EstadoFallidoNegocio, &in.Error, in.respuesta
 				evento, payload = EventoFallido, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
 			case int(intentos) <= len(Esperas):
 				p.Estado, p.UltimoError = EstadoPendiente, &in.Error

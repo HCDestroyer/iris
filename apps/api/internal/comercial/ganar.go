@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -227,6 +228,9 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 				c, err := m.encolar(ctx, t, pendientes.Accion{
 					EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
 					Ruta: "/clientes", Cuerpo: payloadCliente(antes),
+					// Si Argos responde otro codigo_externo, el cliente no queda hecho y el
+					// servicio no sale (queda bloqueado).
+					Verificar: []string{"codigo_externo"},
 				})
 				if err != nil {
 					return Prospecto{}, err
@@ -531,6 +535,11 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 		if err != nil {
 			return err
 		}
+		if pend.Estado == pendientes.EstadoFallidoNegocio && pend.UltimoError != nil &&
+			strings.HasPrefix(*pend.UltimoError, pendientes.MotivoInconsistente) {
+			// La cola detectó que Argos respondió otro recurso: el servicio no salió (bloqueado).
+			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("%s: %s", clave, *pend.UltimoError))
+		}
 		if pend.Estado != pendientes.EstadoHecho {
 			return nil
 		}
@@ -660,10 +669,11 @@ type eventoPendienteHecho struct {
 	EntidadID string `json:"entidad_id"`
 }
 
-// SuscribirAltas: al quedar hecho un pendiente de un prospecto, avanza su alta (cmd/worker).
+// SuscribirAltas: al quedar hecho (o fallido) un pendiente de un prospecto, avanza su alta o la
+// deja en error visible (cmd/worker).
 // Una regla de negocio (4xx) queda en el log; un error temporal lo reintenta el relay.
 func (m *Modulo) SuscribirAltas(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
-	bus.Suscribir("comercial.alta_argos", pendientes.EventoHecho, func(ctx context.Context, e integracion.Evento) error {
+	avanzar := func(ctx context.Context, e integracion.Evento) error {
 		var p eventoPendienteHecho
 		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != EntidadPendientes {
 			return nil
@@ -679,7 +689,9 @@ func (m *Modulo) SuscribirAltas(bus *integracion.Bus, bd nucleo.BD, log *slog.Lo
 			return nil
 		}
 		return err
-	})
+	}
+	bus.Suscribir("comercial.alta_argos", pendientes.EventoHecho, avanzar)
+	bus.Suscribir("comercial.alta_argos_fallida", pendientes.EventoFallido, avanzar)
 }
 
 // ArgsCompletarAltas barre los prospectos ganados con el alta en Argos sin terminar (por si se

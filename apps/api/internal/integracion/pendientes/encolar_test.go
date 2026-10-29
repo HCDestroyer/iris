@@ -348,3 +348,50 @@ func TestEncolarValidaDependencias(t *testing.T) {
 		t.Fatalf("misma empresa: %v", err)
 	}
 }
+
+// Verificar: si la respuesta del 2xx trae otro codigo_externo que el enviado, el pendiente queda
+// fallido_negocio (respuesta_inconsistente), no resuelve a su dependiente (queda bloqueado) y el
+// dependiente nunca sale hacia Argos.
+func TestRespuestaInconsistenteNoResuelveDependientes(t *testing.T) {
+	e := nuevoEntorno(t)
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	e.argos.cuerpos["/clientes"] = `{"data":{"id":555,"codigo_externo":"iris:prospecto:otro"}}`
+	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:" + sufijo, Ruta: "/clientes",
+		Cuerpo: []byte(`{"nombre":"Ana","codigo_externo":"iris:prospecto:1"}`), Verificar: []string{"codigo_externo"}})
+	srv := e.encolar(pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: "iris:servicio:" + sufijo, Ruta: "/servicios",
+		Cuerpo: cuerpo(t, map[string]any{"cliente_id": pendientes.Ref(0, "id")}), DependeDe: []int64{cli.ID}})
+	if n := e.procesar(); n != 1 {
+		t.Fatalf("procesó %d", n)
+	}
+	c := e.registro(cli.IdempotencyKey)
+	if c.Estado != "fallido_negocio" || c.UltimoError == nil || !strings.HasPrefix(*c.UltimoError, pendientes.MotivoInconsistente) {
+		t.Fatalf("cliente inconsistente: %+v", c)
+	}
+	s := e.registro(srv.IdempotencyKey)
+	if s.Estado != "bloqueado" || !s.PorResolver {
+		t.Fatalf("servicio bloqueado sin resolver: %+v", s)
+	}
+	e.reloj = e.reloj.Add(24 * time.Hour)
+	e.procesar()
+	for _, l := range e.argos.copia() {
+		if l.Clave == srv.IdempotencyKey {
+			t.Fatal("el servicio salió hacia Argos")
+		}
+	}
+	// Con el mismo codigo_externo (o sin repetirlo) queda hecho; verificar exige el campo en el
+	// cuerpo y en la lista blanca.
+	e.argos.cuerpos["/clientes"] = `{"data":{"id":556,"codigo_externo":"iris:prospecto:2"}}`
+	ok := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:ok:" + sufijo, Ruta: "/clientes",
+		Cuerpo: []byte(`{"codigo_externo":"iris:prospecto:2"}`), Verificar: []string{"codigo_externo"}})
+	e.procesar()
+	if r := e.registro(ok.IdempotencyKey); r.Estado != "hecho" {
+		t.Fatalf("respuesta consistente: %+v", r)
+	}
+	for _, v := range [][]string{{"nombre"}, {"codigo_externo"}} {
+		_, err := casoEncolar.Ejecutar(e.ctx(), pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:mal:" + v[0] + sufijo,
+			Entidad: "prueba", EntidadID: "1", Ruta: "/clientes", Desde: e.reloj, Cuerpo: []byte(`{"nombre":"x"}`), Verificar: v})
+		if err == nil {
+			t.Fatalf("verificar %v debía fallar al encolar", v)
+		}
+	}
+}

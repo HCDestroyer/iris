@@ -52,6 +52,11 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   corrida del job resuelve los `por_resolver` cuyas dependencias ya están hechas. Si la
   respuesta no trae el campo: `fallido_negocio`, `datos_incompletos`, `respuesta_sin_<campo>`
   (nunca se adivina) y bloquea a sus dependientes.
+- **Verificar identidad (`Accion.Verificar`):** campos del cuerpo (de la lista blanca) que la
+  respuesta del 2xx, si los trae, debe repetir igual — p. ej. `codigo_externo` en `POST /clientes`.
+  Si no coinciden: `fallido_negocio` con `respuesta_inconsistente: …` (se guarda la respuesta para
+  revisarla), **no** resuelve a sus dependientes (quedan bloqueados y nunca salen hacia Argos) y
+  avisa (`integracion.pendiente_fallido`). Un campo que la respuesta no trae no se compara.
 - **Despliegue (migración `20261028233355_integracion_pendientes_respuesta`):** detén o reemplaza
   el worker **antes** de `iris migrar`. Candado por si no: un pendiente por resolver nunca vence
   (`NuncaVence`), así que un worker de antes (cuyo `TomarVencido` no mira `por_resolver`) no lo

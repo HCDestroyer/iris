@@ -32,6 +32,11 @@ type Accion struct {
 	DependeDe []int64
 	// Desde cuándo se puede intentar (el reloj de quien encola); cero = ahora.
 	Desde time.Time
+	// Verificar: campos de identidad del cuerpo que la respuesta del 2xx, si los trae, debe
+	// repetir igual (p. ej. codigo_externo en POST /clientes). Si no coinciden, el pendiente
+	// queda fallido_negocio (respuesta_inconsistente) y no resuelve a sus dependientes. Deben
+	// estar en CamposRespuesta (si no, nunca se guardarían para comparar).
+	Verificar []string
 }
 
 // Registro es lo que quien encola necesita leer de un pendiente (sin usar pendientesbd).
@@ -50,13 +55,15 @@ type Registro struct {
 	Respuesta json.RawMessage
 	HechoEn   *time.Time
 	DependeDe []int64
+	// UltimoError: resumen del último fallo (p. ej. respuesta_inconsistente: …).
+	UltimoError *string
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 	return Registro{
 		ID: f.ID, Estado: f.Estado, Operacion: f.Operacion, IdempotencyKey: f.IdempotencyKey, Metodo: f.Metodo, Ruta: f.Ruta,
 		Payload: json.RawMessage(f.Payload), PorResolver: f.PorResolver, Respuesta: json.RawMessage(f.Respuesta),
-		HechoEn: f.HechoEn, DependeDe: f.DependeDe,
+		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
 	}
 }
 
@@ -96,6 +103,14 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 	if !json.Valid(n.Cuerpo) {
 		return Registro{}, false, errors.New("pendientes.Encolar: el cuerpo no es JSON")
 	}
+	for _, c := range n.Verificar {
+		if !camposPermitidos[c] {
+			return Registro{}, false, fmt.Errorf("pendientes.Encolar: no se puede verificar %q (no está en CamposRespuesta)", c)
+		}
+		if _, ok := CampoDeRespuesta(n.Cuerpo, c); !ok {
+			return Registro{}, false, fmt.Errorf("pendientes.Encolar: el cuerpo no trae %q para verificar", c)
+		}
+	}
 	porResolver := tieneMarcadores(n.Cuerpo)
 	var plantilla []byte
 	proximo := n.Desde.UTC()
@@ -117,7 +132,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 		EmpresaID: n.EmpresaID, Sistema: n.Sistema, Operacion: n.Operacion, IdempotencyKey: n.IdempotencyKey,
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
 		DependeDe: n.DependeDe, Estado: EstadoPendiente, ProximoIntento: proximo,
-		Plantilla: plantilla, PorResolver: porResolver,
+		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)

@@ -839,6 +839,7 @@ type IntegracionPendiente struct {
 	Respuesta        []byte
 	Plantilla        []byte
 	PorResolver      bool
+	Verificar        []string
 }
 
 type NucleoAdjunto struct {

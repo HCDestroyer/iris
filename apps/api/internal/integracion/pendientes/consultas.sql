@@ -4,11 +4,11 @@
 -- Idempotente por la Idempotency-Key del contrato: un evento repetido no duplica la acción.
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
-    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver
+    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
-    sqlc.narg(plantilla), @por_resolver
+    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}')
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
