@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
-import { Proximamente } from "@/componentes/proximamente";
+import { Suspense } from "react";
+import { RequierePermiso } from "@/componentes/requiere-permiso";
+import { Comercial } from "./comercial";
 
 export const metadata: Metadata = { title: "Comercial" };
 
-export default function Pagina() {
-    return <Proximamente href="/comercial" descripcion="El embudo comercial, la factibilidad y las cotizaciones llegan en la fase 4." />;
+export default function PaginaComercial() {
+    return (
+        <RequierePermiso permisos={["prospectos.ver"]}>
+            <Suspense>
+                <Comercial />
+            </Suspense>
+        </RequierePermiso>
+    );
 }
