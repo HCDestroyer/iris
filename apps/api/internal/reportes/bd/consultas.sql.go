@@ -475,6 +475,114 @@ func (q *Queries) ReporteSLA(ctx context.Context, arg ReporteSLAParams) ([]Repor
 	return items, nil
 }
 
+const reporteSatisfaccion = `-- name: ReporteSatisfaccion :many
+SELECT GROUPING(e.entidad)::int AS por_entidad_g, coalesce(e.entidad, '')::text AS entidad,
+       count(*)::bigint AS enviadas,
+       count(*) FILTER (WHERE e.estado = 'respondida')::bigint AS respondidas,
+       count(*) FILTER (WHERE e.estado = 'pendiente' AND e.expira_en > $1)::bigint AS pendientes,
+       count(*) FILTER (WHERE e.estado = 'pendiente' AND e.expira_en <= $1)::bigint AS vencidas,
+       coalesce(avg(e.calificacion), 0)::float8 AS promedio,
+       count(*) FILTER (WHERE e.calificacion = 1)::bigint AS c1,
+       count(*) FILTER (WHERE e.calificacion = 2)::bigint AS c2,
+       count(*) FILTER (WHERE e.calificacion = 3)::bigint AS c3,
+       count(*) FILTER (WHERE e.calificacion = 4)::bigint AS c4,
+       count(*) FILTER (WHERE e.calificacion = 5)::bigint AS c5
+FROM soporte.encuestas e
+WHERE e.created_at >= $2 AND e.created_at < $3
+  AND ($4::boolean
+       OR ($5::bigint IS NULL AND e.empresa_id IS NULL)
+       OR e.empresa_id = $5)
+  AND ($6::boolean OR e.zona_id = ANY($7::bigint[]) OR e.cuadrilla_id = ANY($8::bigint[]))
+  AND ($9::bigint IS NULL OR e.zona_id = $9)
+  AND ($10::bigint IS NULL OR e.cuadrilla_id = $10)
+  AND ($11::bigint IS NULL OR e.usuario_id = $11)
+  AND ($12::bigint IS NULL OR e.categoria_id = $12)
+  AND ($13::text IS NULL OR e.entidad = $13)
+GROUP BY GROUPING SETS ((), (e.entidad))
+ORDER BY 1, 2
+`
+
+type ReporteSatisfaccionParams struct {
+	Ahora         time.Time
+	Inicio        time.Time
+	Fin           time.Time
+	TodasEmpresas bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
+	ZonaID        *int64
+	CuadrillaID   *int64
+	TecnicoID     *int64
+	CategoriaID   *int64
+	Entidad       *string
+}
+
+type ReporteSatisfaccionRow struct {
+	PorEntidadG int32
+	Entidad     string
+	Enviadas    int64
+	Respondidas int64
+	Pendientes  int64
+	Vencidas    int64
+	Promedio    float64
+	C1          int64
+	C2          int64
+	C3          int64
+	C4          int64
+	C5          int64
+}
+
+// Encuestas creadas (enviadas) en [inicio, fin): respondidas, pendientes, vencidas sin
+// responder, promedio y distribución de la calificación. Total y por entidad (ticket, orden).
+// zona, cuadrilla, usuario y categoría son los copiados al crear la encuesta.
+func (q *Queries) ReporteSatisfaccion(ctx context.Context, arg ReporteSatisfaccionParams) ([]ReporteSatisfaccionRow, error) {
+	rows, err := q.db.Query(ctx, reporteSatisfaccion,
+		arg.Ahora,
+		arg.Inicio,
+		arg.Fin,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
+		arg.ZonaID,
+		arg.CuadrillaID,
+		arg.TecnicoID,
+		arg.CategoriaID,
+		arg.Entidad,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReporteSatisfaccionRow
+	for rows.Next() {
+		var i ReporteSatisfaccionRow
+		if err := rows.Scan(
+			&i.PorEntidadG,
+			&i.Entidad,
+			&i.Enviadas,
+			&i.Respondidas,
+			&i.Pendientes,
+			&i.Vencidas,
+			&i.Promedio,
+			&i.C1,
+			&i.C2,
+			&i.C3,
+			&i.C4,
+			&i.C5,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reporteTecnicos = `-- name: ReporteTecnicos :many
 SELECT o.tecnico_id::bigint AS tecnico_id, coalesce(u.nombre, '')::text AS nombre,
        count(*)::bigint AS finalizadas,
