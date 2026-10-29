@@ -23,7 +23,8 @@ import { RESULTADOS, resumirPendientes, textoMotivoFalla, type OrdenDetalle, typ
 import { usePaginado, type Paginado } from "@/lib/paginado";
 import { useSesion } from "@/lib/sesion";
 import { BarraAccionesOrden } from "./acciones";
-import { Checklist, Firma, Fotos, Gps, MaterialesYEquipos, Notas } from "./evidencias";
+import { Firma, Fotos, Gps, MaterialesYEquipos, Notas } from "./evidencias";
+import { Formularios, Pausas } from "./formularios";
 import { PendientesArgos } from "./pendientes-argos";
 
 function Volver() {
@@ -212,7 +213,8 @@ function Detalle({ id }: { id: number }) {
                         </TarjetaContenido>
                     </Tarjeta>
 
-                    <Checklist orden={o} usuarios={listaUsuarios} yo={yoCorto} />
+                    <Pausas orden={o} ahora={ahora} />
+                    <Formularios orden={o} usuarios={listaUsuarios} yo={yoCorto} recargar={recargar} />
                     <Fotos orden={o} adjuntos={adjuntos} />
                     <Firma orden={o} verAdjuntos={verAdjuntos} />
                     <MaterialesYEquipos orden={o} />

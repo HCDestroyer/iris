@@ -24,8 +24,8 @@ import { SelectorTema } from "./selector-tema";
  */
 /** Rutas administrativas: la API no exige empresa activa para ellas (i1.md). */
 const RUTAS_SIN_EMPRESA = ["/usuarios", "/administracion", "/cuenta"];
-/** Excepciones dentro de las administrativas: los buzones son de la empresa activa (como los tickets). */
-const RUTAS_CON_EMPRESA = ["/administracion/buzones"];
+/** Excepciones dentro de las administrativas: buzones y plantillas son de la empresa activa (o comunes). */
+const RUTAS_CON_EMPRESA = ["/administracion/buzones", "/administracion/plantillas"];
 const enRuta = (ruta: string, r: string) => ruta === r || ruta.startsWith(`${r}/`);
 
 export function Panel({ children }: { children: ReactNode }) {

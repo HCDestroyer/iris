@@ -157,3 +157,21 @@ export function entradaProgramarOrden(d: DatosProgramarOrden, version: number): 
 }
 
 export const esquemaMotivoOrden = z.object({ motivo }) satisfies z.ZodType<Omit<Schema<"EntradaMotivo">, "version">>;
+
+// --- Pausa (EntradaPausar) ------------------------------------------------------------------------
+
+export const esquemaPausar = z
+    .object({
+        motivo: z.enum(["esperando_material", "cliente_ausente", "clima", "acceso", "otro"]),
+        nota: z.string().trim().max(2000, "Admite hasta 2000 caracteres"),
+    })
+    .superRefine((d, ctx) => {
+        if (d.motivo === "otro" && d.nota === "") {
+            ctx.addIssue({ code: "custom", path: ["nota"], message: "Con «Otro», explica el motivo" });
+        }
+    });
+export type DatosPausar = z.infer<typeof esquemaPausar>;
+
+export function entradaPausar(d: DatosPausar, version: number): Schema<"EntradaPausar"> {
+    return { version, motivo: d.motivo, ...(d.nota ? { nota: d.nota } : {}) };
+}

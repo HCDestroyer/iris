@@ -11,10 +11,10 @@ import type { Lectura } from "@/lib/lectura";
 import { enlaceMapa, esImagenMostrable, textoCoordenadas, type Adjunto } from "@/lib/ordenes/adjuntos";
 import { puntosGps, type EventoOrden } from "@/lib/ordenes/historial";
 import type { Paginado } from "@/lib/paginado";
-import { CONDICIONES, ESTADOS_FINALES, type OrdenDetalle } from "@/lib/ordenes/presentacion";
+import { CONDICIONES, type OrdenDetalle } from "@/lib/ordenes/presentacion";
 
 type Item = Schema<"ItemChecklist">;
-type Yo = { id: number; nombre: string };
+export type Yo = { id: number; nombre: string };
 
 function valorItem(i: Item): { texto: string; tono: "neutral" | "success" | "error" } | undefined {
     // El contrato lo publica sin tipo (depende de `tipo`): si_no boolean, texto string, número o uuid.
@@ -33,56 +33,40 @@ function valorItem(i: Item): { texto: string; tono: "neutral" | "success" | "err
     }
 }
 
-/** Checklist con la marca vigente de cada ítem (quién y cuándo). */
-export function Checklist({ orden, usuarios, yo }: { orden: OrdenDetalle; usuarios: readonly Usuario[] | null | undefined; yo: Yo }) {
-    const items = [...(orden.checklist ?? [])].sort((a, b) => a.posicion - b.posicion);
-    const final = ESTADOS_FINALES.includes(orden.estado);
+/** Ítems de un formulario con la marca vigente de cada uno (quién y cuándo). */
+export function ItemsChecklist({ items, final, usuarios, yo, etiqueta }: { items: readonly Item[]; final: boolean; usuarios: readonly Usuario[] | null | undefined; yo: Yo; etiqueta: string }) {
+    if (items.length === 0) return <p className="text-sm text-muted-foreground">Sin ítems.</p>;
     return (
-        <Tarjeta>
-            <TarjetaEncabezado>
-                <TarjetaTitulo>Checklist</TarjetaTitulo>
-            </TarjetaEncabezado>
-            <TarjetaContenido>
-                {items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Esta orden no tiene checklist.</p>
-                ) : (
-                    <ol className="grid gap-2" aria-label="Checklist">
-                        {items.map((i) => {
-                            const valor = valorItem(i);
-                            return (
-                                <li key={i.itemId} className="grid gap-1 border-b pb-2 last:border-0 last:pb-0" data-item={i.codigo}>
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <span className="text-sm">
-                                            {i.etiqueta}
-                                            {i.obligatorio ? <span className="text-muted-foreground"> · obligatorio</span> : null}
-                                        </span>
-                                        {valor ? (
-                                            <InsigniaEstado
-                                                tono={valor.tono}
-                                                icono={i.tipo === "foto" ? Camera : i.tipo === "texto" ? MessageSquareText : i.tipo === "si_no" ? (valor.tono === "error" ? CircleX : CircleCheck) : Gauge}
-                                                texto={valor.texto}
-                                                className="max-w-full whitespace-normal"
-                                            />
-                                        ) : (
-                                            <InsigniaEstado
-                                                tono={i.obligatorio && !final ? "warning" : "neutral"}
-                                                icono={CircleDashed}
-                                                texto="Sin marcar"
-                                            />
-                                        )}
-                                    </div>
-                                    {i.ocurridoEn ? (
-                                        <span className="text-xs text-muted-foreground tabular-nums">
-                                            {nombreUsuario(usuarios, i.marcadoPor, yo) ?? "Sistema"} · {formatearFecha(i.ocurridoEn)}
-                                        </span>
-                                    ) : null}
-                                </li>
-                            );
-                        })}
-                    </ol>
-                )}
-            </TarjetaContenido>
-        </Tarjeta>
+        <ol className="grid gap-2" aria-label={etiqueta}>
+            {items.map((i) => {
+                const valor = valorItem(i);
+                return (
+                    <li key={i.itemId} className="grid gap-1 border-b pb-2 last:border-0 last:pb-0" data-item={i.codigo}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-sm">
+                                {i.etiqueta}
+                                {i.obligatorio ? <span className="text-muted-foreground"> · obligatorio</span> : null}
+                            </span>
+                            {valor ? (
+                                <InsigniaEstado
+                                    tono={valor.tono}
+                                    icono={i.tipo === "foto" ? Camera : i.tipo === "texto" || i.tipo === "seleccion" ? MessageSquareText : i.tipo === "si_no" ? (valor.tono === "error" ? CircleX : CircleCheck) : Gauge}
+                                    texto={valor.texto}
+                                    className="max-w-full whitespace-normal"
+                                />
+                            ) : (
+                                <InsigniaEstado tono={i.obligatorio && !final ? "warning" : "neutral"} icono={CircleDashed} texto="Sin marcar" />
+                            )}
+                        </div>
+                        {i.ocurridoEn ? (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                                {nombreUsuario(usuarios, i.marcadoPor, yo) ?? "Sistema"} · {formatearFecha(i.ocurridoEn)}
+                            </span>
+                        ) : null}
+                    </li>
+                );
+            })}
+        </ol>
     );
 }
 

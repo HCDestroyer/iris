@@ -71,12 +71,13 @@ export const PERMISO_MOVER: Record<AccionMover, Permiso> = {
     asignar: "ordenes.asignar",
 };
 
-const CON_HORA: Partial<Record<EstadoOrden, AccionMover>> = { pendiente: "programar", programada: "reprogramar", en_camino: "reprogramar", fallida: "reprogramar" };
+// Pausada: moverla es reprogramarla (cierra la pausa); no se reasigna sin hora (422 orden_pausada).
+const CON_HORA: Partial<Record<EstadoOrden, AccionMover>> = { pendiente: "programar", programada: "reprogramar", en_camino: "reprogramar", pausada: "reprogramar", fallida: "reprogramar" };
 const SIN_HORA: readonly EstadoOrden[] = ["pendiente", "programada", "en_camino"];
 
 /**
- * Qué acción mueve la orden: con hora, programar (pendiente) o reprogramar (programada, en camino
- * o fallida); sin hora, asignar el técnico. `null` si el estado no lo admite (en sitio o final).
+ * Qué acción mueve la orden: con hora, programar (pendiente) o reprogramar (programada, en camino,
+ * pausada o fallida); sin hora, asignar el técnico. `null` si el estado no lo admite (en sitio o final).
  */
 export function accionMover(estado: EstadoOrden, conHora: boolean): AccionMover | null {
     if (conHora) return CON_HORA[estado] ?? null;

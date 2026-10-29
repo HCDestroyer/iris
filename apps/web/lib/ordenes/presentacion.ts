@@ -46,8 +46,8 @@ export const ESTADOS_ORDEN: Record<EstadoOrden, Presentacion> = {
     cancelada: { tono: "neutral", icono: Ban, texto: "Cancelada" },
 };
 
-export const ORDEN_ESTADOS_ORDEN: readonly EstadoOrden[] = ["pendiente", "programada", "en_camino", "en_sitio", "cerrada", "fallida", "cancelada"];
-export const ESTADOS_ACTIVOS_ORDEN: readonly EstadoOrden[] = ["pendiente", "programada", "en_camino", "en_sitio"];
+export const ORDEN_ESTADOS_ORDEN: readonly EstadoOrden[] = ["pendiente", "programada", "en_camino", "en_sitio", "pausada", "cerrada", "fallida", "cancelada"];
+export const ESTADOS_ACTIVOS_ORDEN: readonly EstadoOrden[] = ["pendiente", "programada", "en_camino", "en_sitio", "pausada"];
 export const ESTADOS_FINALES: readonly EstadoOrden[] = ["cerrada", "fallida", "cancelada"];
 
 export const TIPOS_ORDEN: Record<TipoOrden, { icono: LucideIcon; texto: string }> = {
@@ -67,6 +67,7 @@ export const COLUMNAS: readonly Columna[] = [
     { id: "programada", titulo: "Programada", estados: ["programada"] },
     { id: "en_camino", titulo: "En camino", estados: ["en_camino"] },
     { id: "en_sitio", titulo: "En sitio", estados: ["en_sitio"] },
+    { id: "pausada", titulo: "Pausada", estados: ["pausada"] },
     { id: "finalizada", titulo: "Cerrada, fallida o cancelada", estados: ESTADOS_FINALES },
 ];
 
@@ -191,3 +192,72 @@ export const CONDICIONES: Record<"buena" | "danada" | "perdido", Presentacion> =
     danada: { tono: "warning", icono: TriangleAlert, texto: "Dañada" },
     perdido: { tono: "error", icono: CircleX, texto: "Perdido" },
 };
+
+// --- Pausas y formularios (PR #29) --------------------------------------------------------------
+
+export type PausaOrden = Schema<"PausaOrden">;
+export type MotivoPausa = PausaOrden["motivo"];
+export type FormularioOrden = Schema<"FormularioOrden">;
+
+export const MOTIVOS_PAUSA: Record<MotivoPausa, string> = {
+    esperando_material: "Esperando material",
+    cliente_ausente: "Cliente ausente",
+    clima: "Clima",
+    acceso: "Sin acceso",
+    otro: "Otro",
+};
+
+export const CIERRES_PAUSA: Record<NonNullable<PausaOrden["cierre"]>, string> = {
+    reanudada: "Reanudada",
+    cancelada: "Orden cancelada",
+    reprogramada: "Orden reprogramada",
+};
+
+export const ORIGENES_FORMULARIO: Record<FormularioOrden["origen"], string> = {
+    tipo: "Del tipo de orden",
+    despacho: "Agregado por despacho",
+    tecnico: "Agregado por el técnico",
+};
+
+/**
+ * Tiempo pausado de la orden en segundos: las pausas terminadas (`tiempoPausadoSeg`, de la API)
+ * más la que sigue abierta (`ahora − pausadaEn`).
+ */
+export function segundosPausada(o: Pick<Orden, "tiempoPausadoSeg" | "pausadaEn" | "estado">, ahora: number): number {
+    const cerradas = o.tiempoPausadoSeg ?? 0;
+    if (o.estado !== "pausada" || !o.pausadaEn) return cerradas;
+    const abierta = Math.max(0, Math.floor((ahora - Date.parse(o.pausadaEn)) / 1000));
+    return cerradas + (Number.isFinite(abierta) ? abierta : 0);
+}
+
+/** «45 min», «2 h 5 min», «menos de 1 min». */
+export function textoDuracion(segundos: number): string {
+    const min = Math.floor(Math.max(0, segundos) / 60);
+    if (min < 1) return "menos de 1 min";
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (h === 0) return `${m} min`;
+    return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/** ¿Se puede quitar el formulario? Sin respuestas y nunca el del tipo de orden. */
+export function formularioQuitable(f: Pick<FormularioOrden, "conRespuestas" | "origen">): boolean {
+    return !f.conRespuestas && f.origen !== "tipo";
+}
+
+export type GrupoChecklist = { formulario: FormularioOrden | null; items: Schema<"ItemChecklist">[] };
+
+/**
+ * Ítems del checklist agrupados por formulario, en el orden de `formularios[]`; dentro de cada
+ * uno, por posición. Lo que no tiene formulario conocido (datos de antes de la #29) va al final.
+ */
+export function agruparChecklist(o: Pick<OrdenDetalle, "formularios" | "checklist">): GrupoChecklist[] {
+    const items = o.checklist ?? [];
+    const formularios = o.formularios ?? [];
+    const porPosicion = (a: { posicion: number }, b: { posicion: number }) => a.posicion - b.posicion;
+    const grupos: GrupoChecklist[] = formularios.map((f) => ({ formulario: f, items: items.filter((i) => i.formularioId === f.id).sort(porPosicion) }));
+    const ids = new Set(formularios.map((f) => f.id));
+    const sueltos = items.filter((i) => !i.formularioId || !ids.has(i.formularioId)).sort(porPosicion);
+    if (sueltos.length > 0) grupos.push({ formulario: null, items: sueltos });
+    return grupos;
+}

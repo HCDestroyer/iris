@@ -119,7 +119,7 @@ describe("filtros del tablero", () => {
         expect(
             consultaDeFiltrosOrdenes({ estado: "activas", tipo: "retiro", tecnico: 3, fecha: "2026-10-28", zona: " 4 ", q: " OT-1 " }),
         ).toEqual({
-            estado: ["pendiente", "programada", "en_camino", "en_sitio"],
+            estado: ["pendiente", "programada", "en_camino", "en_sitio", "pausada"],
             tipo: ["retiro"],
             tecnicoId: 3,
             desde: "2026-10-28T06:00:00Z",

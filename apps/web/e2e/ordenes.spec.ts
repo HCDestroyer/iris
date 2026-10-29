@@ -49,7 +49,7 @@ test.describe("tablero de órdenes", () => {
         await expect(tarjetas(page)).toHaveCount(1);
         await expect(orden(page, "OT-000003")).toBeVisible();
         const ultima = api.peticiones.filter((p) => p.ruta === "/api/v1/ordenes").at(-1);
-        expect(ultima?.query.getAll("estado")).toEqual(["pendiente,programada,en_camino,en_sitio"]);
+        expect(ultima?.query.getAll("estado")).toEqual(["pendiente,programada,en_camino,en_sitio,pausada"]);
         expect(ultima?.query.get("tipo")).toBe("retiro");
 
         await page.getByLabel("Tipo").selectOption("todos");
