@@ -1879,27 +1879,6 @@
         ],
         "type": "object"
       },
-      "CuerpoResponderEncuesta": {
-        "additionalProperties": false,
-        "properties": {
-          "calificacion": {
-            "description": "1 (muy mal) a 5 (muy bien)",
-            "format": "int64",
-            "maximum": 5,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "comentario": {
-            "description": "Opcional",
-            "maxLength": 1000,
-            "type": "string"
-          }
-        },
-        "required": [
-          "calificacion"
-        ],
-        "type": "object"
-      },
       "CuerpoWebhook": {
         "additionalProperties": false,
         "properties": {
@@ -2118,14 +2097,8 @@
             "format": "date-time",
             "type": "string"
           },
-          "enlace": {
-            "description": "\u003cIRIS_BASE_URL\u003e/encuesta#\u003ctoken\u003e mientras esté pendiente; null si respondida, vencida o sin clave para derivarlo (enlaceDisponible)",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "enlaceDisponible": {
+            "description": "Pendiente, canal enlace y con clave para derivarlo: se puede pedir con POST /encuestas/{id}/enlace",
             "type": "boolean"
           },
           "entidad": {
@@ -2136,10 +2109,12 @@
             "type": "string"
           },
           "estado": {
+            "description": "anulada: el ticket se reabrió o se fusionó",
             "enum": [
               "pendiente",
               "respondida",
-              "vencida"
+              "vencida",
+              "anulada"
             ],
             "type": "string"
           },
@@ -2190,7 +2165,6 @@
           "comentario",
           "respondidaEn",
           "alerta",
-          "enlace",
           "enlaceDisponible",
           "creadaEn"
         ],
@@ -2221,10 +2195,12 @@
             "type": "string"
           },
           "estado": {
+            "description": "anulada: el caso se reabrió; llegará otra encuesta al resolverlo",
             "enum": [
               "pendiente",
               "respondida",
-              "vencida"
+              "vencida",
+              "anulada"
             ],
             "type": "string"
           },
@@ -2248,6 +2224,24 @@
           "fecha",
           "empresa",
           "estado",
+          "expiraEn"
+        ],
+        "type": "object"
+      },
+      "EnlaceEncuesta": {
+        "additionalProperties": false,
+        "properties": {
+          "enlace": {
+            "description": "\u003cIRIS_BASE_URL\u003e/encuesta#\u003ctoken\u003e",
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enlace",
           "expiraEn"
         ],
         "type": "object"
@@ -3892,6 +3886,21 @@
         ],
         "type": "object"
       },
+      "EntradaEncuestaPublica": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
       "EntradaEntrarPortal": {
         "additionalProperties": false,
         "properties": {
@@ -5064,6 +5073,34 @@
         "required": [
           "version",
           "solucion"
+        ],
+        "type": "object"
+      },
+      "EntradaResponderEncuesta": {
+        "additionalProperties": false,
+        "properties": {
+          "calificacion": {
+            "description": "1 (muy mal) a 5 (muy bien)",
+            "format": "int64",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "comentario": {
+            "description": "Opcional",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "token": {
+            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "calificacion"
         ],
         "type": "object"
       },
@@ -9728,6 +9765,7 @@
           "empresas.editar",
           "empresas.todas",
           "empresas.ver",
+          "encuestas.compartir",
           "encuestas.ver",
           "factibilidad.configurar",
           "factibilidad.evaluar",
@@ -18228,7 +18266,7 @@
     },
     "/api/v1/encuestas": {
       "get": {
-        "description": "Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Mientras está pendiente trae `enlace` (`\u003cIRIS_BASE_URL\u003e/encuesta#\u003ctoken\u003e`) para que soporte lo comparta; `enlaceDisponible: false` si no se puede volver a mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).",
+        "description": "Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Nunca trae el enlace: con `enlaceDisponible` se pide aparte (`POST /encuestas/{id}/enlace`, permiso `encuestas.compartir`). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).",
         "operationId": "listarEncuestas",
         "parameters": [
           {
@@ -18317,7 +18355,8 @@
               "enum": [
                 "pendiente",
                 "respondida",
-                "vencida"
+                "vencida",
+                "anulada"
               ],
               "type": "string"
             }
@@ -18414,23 +18453,20 @@
         "x-permiso": "encuestas.ver"
       }
     },
-    "/api/v1/encuestas/publica/{token}": {
-      "get": {
-        "description": "Sin sesión. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida` o `vencida`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`.",
-        "operationId": "verEncuestaPublica",
-        "parameters": [
-          {
-            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
-            "in": "path",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
-              "maxLength": 200,
-              "type": "string"
+    "/api/v1/encuestas/publica/consultar": {
+      "post": {
+        "description": "Sin sesión (la cookie del panel no cuenta aquí). El token va en el cuerpo, nunca en la ruta. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida`, `vencida` o `anulada`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`, sin tocar la base.",
+        "operationId": "consultarEncuestaPublica",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEncuestaPublica"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -18483,25 +18519,21 @@
             "description": "Internal Server Error"
           }
         },
-        "summary": "Encuesta por su enlace (público)",
+        "summary": "Consultar una encuesta por su token (público)",
         "tags": [
           "encuestas"
         ]
       }
     },
-    "/api/v1/encuestas/publica/{token}/responder": {
+    "/api/v1/encuestas/publica/responder": {
       "post": {
-        "description": "Sin sesión. `calificacion` 1–5 y `comentario` opcional (≤ 1000). Un solo uso: repetir la misma respuesta devuelve 200 sin cambios (idempotente); otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`. Token inválido: 404 (no se audita) o 429 como en el GET. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.",
+        "description": "Sin sesión. `{ token, calificacion (1–5), comentario? (≤ 1000) }`. Un solo uso: repetir la misma respuesta devuelve 200 sin cambios; otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`; anulada (el ticket se reabrió): 410 `encuesta_anulada`. Token inválido: 404 (no se audita) o 429 como en consultar. Guarda la IP y el User-Agent. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.",
         "operationId": "responderEncuestaPublica",
         "parameters": [
           {
-            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
-            "in": "path",
-            "name": "token",
-            "required": true,
+            "in": "header",
+            "name": "User-Agent",
             "schema": {
-              "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
-              "maxLength": 200,
               "type": "string"
             }
           }
@@ -18510,7 +18542,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CuerpoResponderEncuesta"
+                "$ref": "#/components/schemas/EntradaResponderEncuesta"
               }
             }
           },
@@ -18588,10 +18620,130 @@
             "description": "Internal Server Error"
           }
         },
-        "summary": "Responder la encuesta (público)",
+        "summary": "Responder una encuesta (público)",
         "tags": [
           "encuestas"
         ]
+      }
+    },
+    "/api/v1/encuestas/{id}/enlace": {
+      "post": {
+        "description": "Permiso: `encuestas.compartir`. Acción auditada (quién lo pidió; el token queda como `***`). Solo una encuesta pendiente de canal `enlace`: si salió por correo, 409 `encuesta_por_correo`; respondida, 409 `encuesta_respondida`; vencida o anulada, 410 `encuesta_vencida` / `encuesta_anulada`; sin clave para derivarlo, 422 `enlace_no_disponible`. Respuesta con `Cache-Control: no-store`.",
+        "operationId": "compartirEncuesta",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlaceEncuesta"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pedir el enlace de una encuesta para compartirlo",
+        "tags": [
+          "encuestas"
+        ],
+        "x-permiso": "encuestas.compartir"
       }
     },
     "/api/v1/integraciones/argosisp/conectar": {

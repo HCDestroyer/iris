@@ -137,6 +137,7 @@ type Modulo struct {
 	VerEncuestaPublica *auditoria.Caso[EntradaEncuestaPublica, EncuestaPublica]
 	ResponderEncuesta  *auditoria.Caso[EntradaResponderEncuesta, EncuestaPublica]
 	ListarEncuestas    *auditoria.Caso[EntradaListarEncuestas, nucleo.Pagina[Encuesta]]
+	CompartirEncuesta  *auditoria.Caso[EntradaCompartirEncuesta, EnlaceEncuesta]
 	topeEncuestas      topeFallidos
 	rechazosEncuesta   atomic.Int64
 }
@@ -193,6 +194,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerEncuestaPublica = m.nuevoVerEncuestaPublica()
 	m.ResponderEncuesta = m.nuevoResponderEncuesta()
 	m.ListarEncuestas = m.nuevoListarEncuestas()
+	m.CompartirEncuesta = m.nuevoCompartirEncuesta()
 	return m
 }
 

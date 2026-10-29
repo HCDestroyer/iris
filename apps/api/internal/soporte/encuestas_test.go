@@ -58,7 +58,7 @@ func anonimo(t *testing.T) context.Context {
 	return nucleo.ConBD(ctx, pruebas.Pool(t))
 }
 
-var conEncuestas = append(append([]nucleo.Permiso{}, permisosTickets...), nucleo.PermEncuestasVer)
+var conEncuestas = append(append([]nucleo.Permiso{}, permisosTickets...), nucleo.PermEncuestasVer, nucleo.PermEncuestasCompartir)
 
 func resolverNuevo(t *testing.T, m *soporte.Modulo, ctx context.Context, entrada soporte.EntradaCrearTicket) soporte.Ticket {
 	t.Helper()
@@ -75,7 +75,13 @@ func resolverNuevo(t *testing.T, m *soporte.Modulo, ctx context.Context, entrada
 
 func encuestaDe(t *testing.T, m *soporte.Modulo, ctx context.Context, ticketID int64) soporte.Encuesta {
 	t.Helper()
-	p, err := m.ListarEncuestas.Ejecutar(ctx, soporte.EntradaListarEncuestas{TicketID: ticketID})
+	return encuestaEn(t, m, ctx, ticketID, "")
+}
+
+// encuestaEn: la única encuesta del ticket con ese estado ("" = cualquiera).
+func encuestaEn(t *testing.T, m *soporte.Modulo, ctx context.Context, ticketID int64, estado string) soporte.Encuesta {
+	t.Helper()
+	p, err := m.ListarEncuestas.Ejecutar(ctx, soporte.EntradaListarEncuestas{TicketID: ticketID, Estado: estado})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,12 +91,17 @@ func encuestaDe(t *testing.T, m *soporte.Modulo, ctx context.Context, ticketID i
 	return p.Data[0]
 }
 
-func tokenDe(t *testing.T, e soporte.Encuesta) string {
+// tokenDe pide el enlace (encuestas.compartir) y devuelve su token.
+func tokenDe(t *testing.T, m *soporte.Modulo, ctx context.Context, e soporte.Encuesta) string {
 	t.Helper()
-	if e.Enlace == nil || !strings.HasPrefix(*e.Enlace, baseEncuestas+"/encuesta#") {
-		t.Fatalf("enlace: %v", e.Enlace)
+	enl, err := m.CompartirEncuesta.Ejecutar(ctx, soporte.EntradaCompartirEncuesta{ID: e.ID})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return strings.TrimPrefix(*e.Enlace, baseEncuestas+"/encuesta#")
+	if !strings.HasPrefix(enl.Enlace, baseEncuestas+"/encuesta#") {
+		t.Fatalf("enlace: %v", enl.Enlace)
+	}
+	return strings.TrimPrefix(enl.Enlace, baseEncuestas+"/encuesta#")
 }
 
 // eventosEncuesta: los eventos del outbox de una encuesta, en orden.
@@ -129,18 +140,46 @@ func TestEncuestaTicket(t *testing.T) {
 		ev[0].Payload["entidad_id"] != float64(tk.ID) || ev[0].Payload["canal"] != "enlace" {
 		t.Fatalf("encuesta.enviada: %+v", ev)
 	}
-	// Reabrir y volver a resolver no crea otra.
+	// La lista no trae el enlace; se pide aparte (auditado, token como ***).
+	if !e.EnlaceDisponible {
+		t.Fatalf("enlace disponible: %+v", e)
+	}
+	anulado := tokenDe(t, m, ctx, e)
+	var entradaCompartir string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT entrada::text FROM auditoria.acciones
+		WHERE accion = 'encuestas.compartir' AND entidad_id = $1::text AND actor_id = $2 AND resultado = 'ok'`,
+		strconv.FormatInt(e.ID, 10), ag).Scan(&entradaCompartir); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(entradaCompartir, anulado) || !strings.Contains(entradaCompartir, `"token": "***"`) {
+		t.Fatalf("auditoría de compartir: %s", entradaCompartir)
+	}
+
+	// Reabrir anula la pendiente (encuesta.anulada); resolver de nuevo genera otra.
 	tk, err := m.ReabrirTicket.Ejecutar(ctx, soporte.EntradaReabrirTicket{ID: tk.ID, Version: tk.Version, Motivo: "Volvió"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if a := encuestaEn(t, m, ctx, tk.ID, "anulada"); a.ID != e.ID || a.EnlaceDisponible {
+		t.Fatalf("anulada: %+v", a)
+	}
+	if ev := eventosEncuesta(t, e.ID); ev[len(ev)-1].Evento != "encuesta.anulada" || ev[len(ev)-1].Payload["motivo"] != "reabierto" {
+		t.Fatalf("encuesta.anulada: %+v", ev)
+	}
+	_, err = m.ResponderEncuesta.Ejecutar(anonimo(t), soporte.EntradaResponderEncuesta{Token: anulado, Calificacion: 5})
+	problema(t, err, 410, "encuesta_anulada")
+	if pub, err := m.VerEncuestaPublica.Ejecutar(anonimo(t), soporte.EntradaEncuestaPublica{Token: anulado}); err != nil || pub.Estado != "anulada" {
+		t.Fatalf("pública anulada: %+v %v", pub, err)
+	}
+	_, err = m.CompartirEncuesta.Ejecutar(ctx, soporte.EntradaCompartirEncuesta{ID: e.ID})
+	problema(t, err, 410, "encuesta_anulada")
 	if _, err := m.ResolverTicket.Ejecutar(ctx, soporte.EntradaResolverTicket{ID: tk.ID, Version: tk.Version, Solucion: "Ahora sí"}); err != nil {
 		t.Fatal(err)
 	}
-	encuestaDe(t, m, ctx, tk.ID)
+	e = encuestaEn(t, m, ctx, tk.ID, "pendiente")
 
 	// Página pública: datos mínimos.
-	token := tokenDe(t, e)
+	token := tokenDe(t, m, ctx, e)
 	pub, err := m.VerEncuestaPublica.Ejecutar(anonimo(t), soporte.EntradaEncuestaPublica{Token: token})
 	if err != nil {
 		t.Fatal(err)
@@ -170,8 +209,8 @@ func TestEncuestaTicket(t *testing.T) {
 		t.Fatalf("encuesta.respondida: %+v", ev)
 	}
 
-	e = encuestaDe(t, m, ctx, tk.ID)
-	if e.Estado != "respondida" || !e.Alerta || e.Enlace != nil || e.Comentario == nil || *e.Comentario != comentario {
+	e = encuestaEn(t, m, ctx, tk.ID, "respondida")
+	if e.Estado != "respondida" || !e.Alerta || e.EnlaceDisponible || e.Comentario == nil || *e.Comentario != comentario {
 		t.Fatalf("en el panel: %+v", e)
 	}
 
@@ -215,7 +254,7 @@ func TestEncuestaVencidaYValidaciones(t *testing.T) {
 	m, r := moduloEncuestas(t, time.Now())
 	ctx := como(t, ag, conEncuestas...)
 	tk := resolverNuevo(t, m, ctx, soporte.EntradaCrearTicket{Asunto: "Lento"})
-	token := tokenDe(t, encuestaDe(t, m, ctx, tk.ID))
+	token := tokenDe(t, m, ctx, encuestaDe(t, m, ctx, tk.ID))
 
 	_, err := m.ResponderEncuesta.Ejecutar(anonimo(t), soporte.EntradaResponderEncuesta{Token: token, Calificacion: 6})
 	problema(t, err, 422, "validacion")
@@ -231,7 +270,7 @@ func TestEncuestaVencidaYValidaciones(t *testing.T) {
 	_, err = m.ResponderEncuesta.Ejecutar(anonimo(t), soporte.EntradaResponderEncuesta{Token: token, Calificacion: 4})
 	problema(t, err, 410, "encuesta_vencida")
 	e := encuestaDe(t, m, ctx, tk.ID)
-	if e.Estado != "vencida" || e.Enlace != nil {
+	if e.Estado != "vencida" || e.EnlaceDisponible {
 		t.Fatalf("vencida en el panel: %+v", e)
 	}
 	p, err := m.ListarEncuestas.Ejecutar(ctx, soporte.EntradaListarEncuestas{Estado: "vencida", TicketID: tk.ID})
@@ -257,6 +296,8 @@ func TestEncuestaTopeYSinClave(t *testing.T) {
 			problema(t, err, 429, "demasiados_intentos")
 		}
 	}
+	// Con la ventana excedida, los handlers responden 429 antes de abrir la transacción.
+	problema(t, m.TopeEncuestasExcedido(), 429, "demasiados_intentos")
 
 	// Sin clave: la encuesta se crea, pero el enlace no se puede volver a mostrar.
 	ag := agente(t)
@@ -264,7 +305,7 @@ func TestEncuestaTopeYSinClave(t *testing.T) {
 	ctx := como(t, ag, conEncuestas...)
 	tk := resolverNuevo(t, sin, ctx, soporte.EntradaCrearTicket{Asunto: "Sin clave"})
 	e := encuestaDe(t, sin, ctx, tk.ID)
-	if e.Enlace != nil || e.EnlaceDisponible || e.Estado != "pendiente" {
+	if e.EnlaceDisponible || e.Estado != "pendiente" {
 		t.Fatalf("sin clave: %+v", e)
 	}
 	// Otra clave (rotada sin la anterior): tampoco.
@@ -315,7 +356,7 @@ func TestEncuestaEmpresaYAlcance(t *testing.T) {
 
 	// La página pública dice el nombre de la empresa; la encuesta queda en la empresa.
 	e := encuestaDe(t, m, ctx71, tk71.ID)
-	pub, err := m.VerEncuestaPublica.Ejecutar(anonimo(t), soporte.EntradaEncuestaPublica{Token: tokenDe(t, e)})
+	pub, err := m.VerEncuestaPublica.Ejecutar(anonimo(t), soporte.EntradaEncuestaPublica{Token: tokenDe(t, m, ctx71, e)})
 	if err != nil || pub.Empresa == nil || *pub.Empresa != "Empresa 71" {
 		t.Fatalf("empresa: %+v %v", pub, err)
 	}
@@ -402,7 +443,14 @@ func TestEncuestaPorCorreo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := tokenDe(t, enc)
+	// Salió por correo: el enlace no se comparte desde el panel.
+	_, err = e.m.CompartirEncuesta.Ejecutar(ctx, soporte.EntradaCompartirEncuesta{ID: enc.ID})
+	problema(t, err, 409, "encuesta_por_correo")
+	if enc.EnlaceDisponible {
+		t.Fatal("con canal correo no hay enlace para compartir")
+	}
+	_, token, _ := strings.Cut(string(cuerpo), baseEncuestas+"/encuesta#")
+	token = token[:43]
 	if !strings.Contains(string(cuerpo), baseEncuestas+"/encuesta#"+token) || !strings.Contains(crudoCorreo, "To: <"+cliente+">") ||
 		!strings.Contains(crudoCorreo, "In-Reply-To: <"+id1+">") {
 		t.Fatalf("correo de la encuesta:\n%s\n%s", crudoCorreo, cuerpo)
@@ -416,8 +464,28 @@ func TestEncuestaPorCorreo(t *testing.T) {
 	}
 }
 
-// Por HTTP: el panel ve el enlace (rol soporte con encuestas.ver) y el cliente responde sin
-// sesión ni CSRF.
+// Fusionar un ticket resuelto anula su encuesta pendiente.
+func TestEncuestaAnuladaAlFusionar(t *testing.T) {
+	ag := agente(t)
+	m, _ := moduloEncuestas(t, time.Now())
+	ctx := como(t, ag, conEncuestas...)
+	dup := resolverNuevo(t, m, ctx, soporte.EntradaCrearTicket{Asunto: "Duplicado"})
+	destino, err := m.CrearTicket.Ejecutar(ctx, soporte.EntradaCrearTicket{Asunto: "Original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.FusionarTickets.Ejecutar(ctx, soporte.EntradaFusionarTickets{ID: dup.ID, Version: dup.Version, DestinoID: destino.ID}); err != nil {
+		t.Fatal(err)
+	}
+	e := encuestaEn(t, m, ctx, dup.ID, "anulada")
+	if ev := eventosEncuesta(t, e.ID); ev[len(ev)-1].Evento != "encuesta.anulada" || ev[len(ev)-1].Payload["motivo"] != "fusionado" ||
+		ev[len(ev)-1].Payload["entidad_id"] != float64(dup.ID) {
+		t.Fatalf("encuesta.anulada: %+v", ev)
+	}
+}
+
+// Por HTTP: la lista no trae el enlace; compartir lo da; el cliente consulta y responde con el
+// token en el cuerpo, sin sesión, y también con la sesión del panel abierta (la cookie no cuenta).
 func TestHTTPEncuesta(t *testing.T) {
 	m, _ := moduloEncuestas(t, time.Now())
 	h, _ := servidor.Nuevo(servidor.Deps{
@@ -427,21 +495,33 @@ func TestHTTPEncuesta(t *testing.T) {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	agenteHTTP := entrar(t, srv.URL, nil, "soporte")
-	r := agenteHTTP.pedir(http.MethodPost, "/api/v1/tickets", map[string]any{"asunto": "Sin señal"})
-	id := int64(r.cuerpo["id"].(float64))
-	r = agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tickets/%d/resolver", id), map[string]any{"version": r.cuerpo["version"], "solucion": "Listo"})
-	if r.status != http.StatusOK {
-		t.Fatalf("resolver: %d %s", r.status, r.crudo)
+	nuevaEncuesta := func() (int64, int64) {
+		t.Helper()
+		r := agenteHTTP.pedir(http.MethodPost, "/api/v1/tickets", map[string]any{"asunto": "Sin señal"})
+		id := int64(r.cuerpo["id"].(float64))
+		r = agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tickets/%d/resolver", id), map[string]any{"version": r.cuerpo["version"], "solucion": "Listo"})
+		if r.status != http.StatusOK {
+			t.Fatalf("resolver: %d %s", r.status, r.crudo)
+		}
+		r = agenteHTTP.pedir(http.MethodGet, fmt.Sprintf("/api/v1/encuestas?ticketId=%d", id), nil)
+		if r.status != http.StatusOK || len(r.cuerpo["data"].([]any)) != 1 {
+			t.Fatalf("lista: %d %s", r.status, r.crudo)
+		}
+		fila := r.cuerpo["data"].([]any)[0].(map[string]any)
+		if _, ok := fila["enlace"]; ok || fila["enlaceDisponible"] != true || strings.Contains(string(r.crudo), "encuesta#") {
+			t.Fatalf("la lista no trae el enlace: %s", r.crudo)
+		}
+		return id, int64(fila["id"].(float64))
 	}
-	r = agenteHTTP.pedir(http.MethodGet, fmt.Sprintf("/api/v1/encuestas?ticketId=%d", id), nil)
-	if r.status != http.StatusOK || len(r.cuerpo["data"].([]any)) != 1 {
-		t.Fatalf("lista: %d %s", r.status, r.crudo)
+	_, encuestaID := nuevaEncuesta()
+	r := agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", encuestaID), nil)
+	if r.status != http.StatusOK || r.h.Get("Cache-Control") != "no-store" {
+		t.Fatalf("compartir: %d %s", r.status, r.crudo)
 	}
-	enlace := r.cuerpo["data"].([]any)[0].(map[string]any)["enlace"].(string)
-	token := strings.TrimPrefix(enlace, baseEncuestas+"/encuesta#")
+	token := strings.TrimPrefix(r.cuerpo["enlace"].(string), baseEncuestas+"/encuesta#")
 
 	cliente := &clienteHTTP{t: t, base: srv.URL, http: &http.Client{}}
-	r = cliente.pedir(http.MethodGet, "/api/v1/encuestas/publica/"+token, nil)
+	r = cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/consultar", map[string]any{"token": token})
 	if r.status != http.StatusOK || r.cuerpo["estado"] != "pendiente" || r.cuerpo["entidad"] != "ticket" {
 		t.Fatalf("pública: %d %s", r.status, r.crudo)
 	}
@@ -451,17 +531,47 @@ func TestHTTPEncuesta(t *testing.T) {
 		}
 	}
 	for range 2 { // la segunda, igual: idempotente
-		r = cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/"+token+"/responder", map[string]any{"calificacion": 4, "comentario": "Bien"})
+		r = cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/responder", map[string]any{"token": token, "calificacion": 4, "comentario": "Bien"},
+			"User-Agent", "Navegador de prueba")
 		if r.status != http.StatusOK || r.cuerpo["estado"] != "respondida" {
 			t.Fatalf("responder: %d %s", r.status, r.crudo)
 		}
 	}
-	cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/"+token+"/responder", map[string]any{"calificacion": 1}).
+	var ip, ua string
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		"SELECT respondida_ip, respondida_user_agent FROM soporte.encuestas WHERE id = $1", encuestaID).Scan(&ip, &ua); err != nil ||
+		ip != "127.0.0.1" || ua != "Navegador de prueba" {
+		t.Fatalf("ip y user agent: %q %q %v", ip, ua, err)
+	}
+	cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/responder", map[string]any{"token": token, "calificacion": 1}).
 		problema(t, http.StatusConflict, "encuesta_respondida")
-	cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/"+token+"/responder", map[string]any{"calificacion": 9}).
+	cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/responder", map[string]any{"token": token, "calificacion": 9}).
 		problema(t, http.StatusUnprocessableEntity, "validacion")
-	cliente.pedir(http.MethodGet, "/api/v1/encuestas/publica/"+strings.Repeat("C", 43), nil).
+	cliente.pedir(http.MethodPost, "/api/v1/encuestas/publica/consultar", map[string]any{"token": strings.Repeat("C", 43)}).
 		problema(t, http.StatusNotFound, "encuesta_no_encontrada")
-	// La lista exige encuestas.ver (lectura no lo tiene).
-	entrar(t, srv.URL, nil, "lectura").pedir(http.MethodGet, "/api/v1/encuestas", nil).problema(t, http.StatusForbidden, "prohibido")
+	// Las rutas viejas con el token en la ruta ya no existen.
+	if r := cliente.pedir(http.MethodGet, "/api/v1/encuestas/publica/"+token, nil); r.status != http.StatusNotFound && r.status != http.StatusMethodNotAllowed {
+		t.Fatalf("ruta vieja: %d", r.status)
+	}
+
+	// Con la sesión del panel abierta y sin X-CSRF-Token: la cookie no cuenta (ni 403
+	// csrf_invalido ni el usuario del panel como actor).
+	_, otra := nuevaEncuesta()
+	r = agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", otra), nil)
+	token2 := strings.TrimPrefix(r.cuerpo["enlace"].(string), baseEncuestas+"/encuesta#")
+	conCookie := &clienteHTTP{t: t, base: srv.URL, http: agenteHTTP.http}
+	r = conCookie.pedir(http.MethodPost, "/api/v1/encuestas/publica/responder", map[string]any{"token": token2, "calificacion": 5})
+	if r.status != http.StatusOK {
+		t.Fatalf("con la sesión del panel: %d %s", r.status, r.crudo)
+	}
+	var actor string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT actor_tipo FROM auditoria.acciones
+		WHERE accion = 'encuestas.responder' AND entidad_id = $1::text`, strconv.FormatInt(otra, 10)).Scan(&actor); err != nil || actor != "anonimo" {
+		t.Fatalf("actor de la respuesta: %q %v", actor, err)
+	}
+
+	// La lista exige encuestas.ver (lectura no lo tiene) y compartir, encuestas.compartir.
+	lectura := entrar(t, srv.URL, nil, "lectura")
+	lectura.pedir(http.MethodGet, "/api/v1/encuestas", nil).problema(t, http.StatusForbidden, "prohibido")
+	lectura.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", otra), nil).problema(t, http.StatusForbidden, "prohibido")
 }
