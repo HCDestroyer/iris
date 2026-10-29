@@ -469,20 +469,22 @@ WHERE ($1::bigint = 0 OR id < $1)
   AND ($4::text IS NULL OR entidad = $4)
   AND ($5::text IS NULL OR entidad_id = $5)
   AND ($6::text IS NULL OR estado = $6)
-  AND (NOT $7::boolean OR conflicto IS NOT NULL)
+  AND ($7::text IS NULL OR estado <> $7)
+  AND (NOT $8::boolean OR conflicto IS NOT NULL)
 ORDER BY id DESC
-LIMIT $8
+LIMIT $9
 `
 
 type ListarPendientesParams struct {
-	DespuesDe     int64
-	Todas         bool
-	EmpresaID     *int64
-	Entidad       *string
-	EntidadID     *string
-	Estado        *string
-	SoloConflicto bool
-	Limite        int32
+	DespuesDe        int64
+	Todas            bool
+	EmpresaID        *int64
+	Entidad          *string
+	EntidadID        *string
+	Estado           *string
+	EstadoDistintoDe *string
+	SoloConflicto    bool
+	Limite           int32
 }
 
 // Más recientes primero. @todas = sin filtro de empresa (actor sistema); si no, empresa_id
@@ -495,6 +497,7 @@ func (q *Queries) ListarPendientes(ctx context.Context, arg ListarPendientesPara
 		arg.Entidad,
 		arg.EntidadID,
 		arg.Estado,
+		arg.EstadoDistintoDe,
 		arg.SoloConflicto,
 		arg.Limite,
 	)

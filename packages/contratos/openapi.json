@@ -1879,6 +1879,27 @@
         ],
         "type": "object"
       },
+      "CuerpoResponderEncuesta": {
+        "additionalProperties": false,
+        "properties": {
+          "calificacion": {
+            "description": "1 (muy mal) a 5 (muy bien)",
+            "format": "int64",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "comentario": {
+            "description": "Opcional",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "calificacion"
+        ],
+        "type": "object"
+      },
       "CuerpoWebhook": {
         "additionalProperties": false,
         "properties": {
@@ -1933,6 +1954,26 @@
           "empresaId",
           "filas",
           "total"
+        ],
+        "type": "object"
+      },
+      "Distribucion": {
+        "additionalProperties": false,
+        "properties": {
+          "calificacion": {
+            "format": "int64",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cantidad": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calificacion",
+          "cantidad"
         ],
         "type": "object"
       },
@@ -2040,6 +2081,174 @@
         "required": [
           "id",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "Encuesta": {
+        "additionalProperties": false,
+        "properties": {
+          "alerta": {
+            "description": "Calificación 1 o 2: resaltar",
+            "type": "boolean"
+          },
+          "calificacion": {
+            "format": "int64",
+            "maximum": 5,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "canal": {
+            "description": "correo: se encoló el correo al contacto; enlace: soporte comparte el enlace",
+            "enum": [
+              "correo",
+              "enlace"
+            ],
+            "type": "string"
+          },
+          "comentario": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enlace": {
+            "description": "\u003cIRIS_BASE_URL\u003e/encuesta#\u003ctoken\u003e mientras esté pendiente; null si respondida, vencida o sin clave para derivarlo (enlaceDisponible)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enlaceDisponible": {
+            "type": "boolean"
+          },
+          "entidad": {
+            "enum": [
+              "ticket",
+              "orden"
+            ],
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "respondida",
+              "vencida"
+            ],
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "numero": {
+            "description": "Número del ticket o de la orden",
+            "type": "string"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "respondidaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticketId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "entidad",
+          "ticketId",
+          "ordenId",
+          "numero",
+          "canal",
+          "estado",
+          "expiraEn",
+          "calificacion",
+          "comentario",
+          "respondidaEn",
+          "alerta",
+          "enlace",
+          "enlaceDisponible",
+          "creadaEn"
+        ],
+        "type": "object"
+      },
+      "EncuestaPublica": {
+        "additionalProperties": false,
+        "properties": {
+          "calificacion": {
+            "description": "Solo si ya se respondió",
+            "format": "int64",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "empresa": {
+            "description": "Nombre de la empresa (null sin conector)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entidad": {
+            "enum": [
+              "ticket",
+              "orden"
+            ],
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "respondida",
+              "vencida"
+            ],
+            "type": "string"
+          },
+          "expiraEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fecha": {
+            "description": "Cuándo se resolvió el ticket o se cerró la orden",
+            "format": "date-time",
+            "type": "string"
+          },
+          "numero": {
+            "description": "Número del ticket o de la orden",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entidad",
+          "numero",
+          "fecha",
+          "empresa",
+          "estado",
+          "expiraEn"
         ],
         "type": "object"
       },
@@ -6004,6 +6213,80 @@
         ],
         "type": "object"
       },
+      "FilaSatisfaccion": {
+        "additionalProperties": false,
+        "properties": {
+          "alertas": {
+            "description": "Respuestas con calificación 1 o 2",
+            "format": "int64",
+            "type": "integer"
+          },
+          "distribucion": {
+            "description": "Siempre las 5 calificaciones, de 1 a 5",
+            "items": {
+              "$ref": "#/components/schemas/Distribucion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "entidad": {
+            "description": "Solo en porEntidad",
+            "enum": [
+              "ticket",
+              "orden"
+            ],
+            "type": "string"
+          },
+          "enviadas": {
+            "description": "Encuestas creadas en el período",
+            "format": "int64",
+            "type": "integer"
+          },
+          "pendientes": {
+            "description": "Sin responder y aún vigentes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "porcentajeRespondidas": {
+            "description": "respondidas / enviadas × 100; null sin base",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "promedio": {
+            "description": "Calificación media (1–5); null sin respuestas",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "respondidas": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "vencidas": {
+            "description": "Sin responder y vencidas",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enviadas",
+          "respondidas",
+          "pendientes",
+          "vencidas",
+          "porcentajeRespondidas",
+          "promedio",
+          "alertas",
+          "distribucion"
+        ],
+        "type": "object"
+      },
       "FilaTecnico": {
         "additionalProperties": false,
         "properties": {
@@ -6535,6 +6818,99 @@
         "required": [
           "secreto",
           "url"
+        ],
+        "type": "object"
+      },
+      "MFAReiniciado": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cambioContrasenaRequerido": {
+            "description": "Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido)",
+            "type": "boolean"
+          },
+          "correo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mfaActivo": {
+            "description": "Tiene TOTP activo",
+            "type": "boolean"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/AsignacionRol"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sesionesCerradas": {
+            "description": "Sesiones del usuario que se cerraron (completas y pendientes de MFA)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "persona",
+              "integracion"
+            ],
+            "type": "string"
+          },
+          "tokensRevocados": {
+            "description": "Tokens iris_pat_ revocados (0 con revocarTokens: false)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sesionesCerradas",
+          "tokensRevocados",
+          "id",
+          "nombre",
+          "correo",
+          "tipo",
+          "activo",
+          "mfaActivo",
+          "roles",
+          "empresas",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
         ],
         "type": "object"
       },
@@ -8155,6 +8531,32 @@
         ],
         "type": "object"
       },
+      "PaginaEncuesta": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Encuesta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaEventoOrden": {
         "additionalProperties": false,
         "properties": {
@@ -9326,6 +9728,7 @@
           "empresas.editar",
           "empresas.todas",
           "empresas.ver",
+          "encuestas.ver",
           "factibilidad.configurar",
           "factibilidad.evaluar",
           "factibilidad.registrar_manual",
@@ -10516,12 +10919,15 @@
             ]
           },
           "horasHastaVolver": {
-            "description": "Horas de reloj entre la resolución y el siguiente ticket",
+            "description": "Horas de reloj entre la resolución y el siguiente ticket; null si está fuera de tu alcance",
             "format": "double",
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "nuevosEnVentana": {
-            "description": "Tickets abiertos en la ventana por el mismo servicio o cliente",
+            "description": "Tickets abiertos en la ventana por el mismo servicio o cliente (todos, también fuera de tu alcance)",
             "format": "int64",
             "type": "integer"
           },
@@ -10550,16 +10956,27 @@
             ]
           },
           "siguienteCreadoEn": {
+            "description": "null si el siguiente está fuera de tu alcance",
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "siguienteId": {
-            "description": "Primer ticket que se abrió después",
+            "description": "Primer ticket que se abrió después; null si está fuera de tu alcance (la reincidencia cuenta igual)",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "siguienteNumero": {
-            "type": "string"
+            "description": "null si el siguiente está fuera de tu alcance",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ticketId": {
             "format": "int64",
@@ -10812,6 +11229,32 @@
           "total",
           "porPrioridad",
           "porCategoria"
+        ],
+        "type": "object"
+      },
+      "ReporteSatisfaccion": {
+        "additionalProperties": false,
+        "properties": {
+          "periodo": {
+            "$ref": "#/components/schemas/Periodo"
+          },
+          "porEntidad": {
+            "items": {
+              "$ref": "#/components/schemas/FilaSatisfaccion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "total": {
+            "$ref": "#/components/schemas/FilaSatisfaccion"
+          }
+        },
+        "required": [
+          "periodo",
+          "total",
+          "porEntidad"
         ],
         "type": "object"
       },
@@ -17783,6 +18226,374 @@
         "x-permiso": "empresas.editar"
       }
     },
+    "/api/v1/encuestas": {
+      "get": {
+        "description": "Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Mientras está pendiente trae `enlace` (`\u003cIRIS_BASE_URL\u003e/encuesta#\u003ctoken\u003e`) para que soporte lo comparta; `enlaceDisponible: false` si no se puede volver a mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).",
+        "operationId": "listarEncuestas",
+        "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Creadas desde este día (YYYY-MM-DD, hora de Guatemala)",
+            "explode": false,
+            "in": "query",
+            "name": "desde",
+            "schema": {
+              "description": "Creadas desde este día (YYYY-MM-DD, hora de Guatemala)",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Creadas hasta este día, incluido",
+            "explode": false,
+            "in": "query",
+            "name": "hasta",
+            "schema": {
+              "description": "Creadas hasta este día, incluido",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Una o varias (calificacion=1,2)",
+            "explode": false,
+            "in": "query",
+            "name": "calificacion",
+            "schema": {
+              "description": "Una o varias (calificacion=1,2)",
+              "items": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "maximum": 5,
+              "minimum": 1,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "entidad",
+            "schema": {
+              "enum": [
+                "ticket",
+                "orden"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "estado",
+            "schema": {
+              "enum": [
+                "pendiente",
+                "respondida",
+                "vencida"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "La del ticket (detalle del ticket)",
+            "explode": false,
+            "in": "query",
+            "name": "ticketId",
+            "schema": {
+              "description": "La del ticket (detalle del ticket)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "La de la orden (detalle de la orden)",
+            "explode": false,
+            "in": "query",
+            "name": "ordenId",
+            "schema": {
+              "description": "La de la orden (detalle de la orden)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaEncuesta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Encuestas de satisfacción",
+        "tags": [
+          "encuestas"
+        ],
+        "x-permiso": "encuestas.ver"
+      }
+    },
+    "/api/v1/encuestas/publica/{token}": {
+      "get": {
+        "description": "Sin sesión. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida` o `vencida`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`.",
+        "operationId": "verEncuestaPublica",
+        "parameters": [
+          {
+            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncuestaPublica"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Encuesta por su enlace (público)",
+        "tags": [
+          "encuestas"
+        ]
+      }
+    },
+    "/api/v1/encuestas/publica/{token}/responder": {
+      "post": {
+        "description": "Sin sesión. `calificacion` 1–5 y `comentario` opcional (≤ 1000). Un solo uso: repetir la misma respuesta devuelve 200 sin cambios (idempotente); otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`. Token inválido: 404 (no se audita) o 429 como en el GET. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.",
+        "operationId": "responderEncuestaPublica",
+        "parameters": [
+          {
+            "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "Lo que sigue a # en /encuesta#\u003ctoken\u003e",
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoResponderEncuesta"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncuestaPublica"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Responder la encuesta (público)",
+        "tags": [
+          "encuestas"
+        ]
+      }
+    },
     "/api/v1/integraciones/argosisp/conectar": {
       "post": {
         "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).",
@@ -19158,6 +19969,25 @@
             "in": "query",
             "name": "estado",
             "schema": {
+              "enum": [
+                "pendiente",
+                "en_curso",
+                "hecho",
+                "fallido_negocio",
+                "agotado",
+                "bloqueado",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
+            "explode": false,
+            "in": "query",
+            "name": "estadoDistintoDe",
+            "schema": {
+              "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
               "enum": [
                 "pendiente",
                 "en_curso",
@@ -26269,7 +27099,7 @@
     },
     "/api/v1/reportes/primera-visita": {
       "get": {
-        "description": "Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reportePrimeraVisita",
         "parameters": [
           {
@@ -26431,6 +27261,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26450,7 +27290,7 @@
     },
     "/api/v1/reportes/reincidencias": {
       "get": {
-        "description": "Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteReincidencias",
         "parameters": [
           {
@@ -26570,6 +27410,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -26671,6 +27512,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26690,7 +27541,7 @@
     },
     "/api/v1/reportes/resolucion": {
       "get": {
-        "description": "Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteResolucion",
         "parameters": [
           {
@@ -26810,6 +27661,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -26872,6 +27724,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26889,9 +27751,212 @@
         "x-permiso": "reportes.ver"
       }
     },
+    "/api/v1/reportes/satisfaccion": {
+      "get": {
+        "description": "Encuestas de satisfacción creadas en el período: enviadas, respondidas, pendientes, vencidas, % respondidas, promedio, alertas (calificación 1 o 2) y distribución de 1 a 5. Total y por entidad (ticket u orden). `tecnicoId` = técnico de la orden o responsable del ticket al crear la encuesta. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
+        "operationId": "reporteSatisfaccion",
+        "parameters": [
+          {
+            "description": "Primer día (YYYY-MM-DD, hora de Guatemala)",
+            "example": "2026-10-01",
+            "explode": false,
+            "in": "query",
+            "name": "desde",
+            "required": true,
+            "schema": {
+              "description": "Primer día (YYYY-MM-DD, hora de Guatemala)",
+              "examples": [
+                "2026-10-01"
+              ],
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)",
+            "example": "2026-10-31",
+            "explode": false,
+            "in": "query",
+            "name": "hasta",
+            "required": true,
+            "schema": {
+              "description": "Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)",
+              "examples": [
+                "2026-10-31"
+              ],
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Zona",
+            "explode": false,
+            "in": "query",
+            "name": "zonaId",
+            "schema": {
+              "description": "Zona",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cuadrilla",
+            "explode": false,
+            "in": "query",
+            "name": "cuadrillaId",
+            "schema": {
+              "description": "Cuadrilla",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado",
+            "explode": false,
+            "in": "query",
+            "name": "tecnicoId",
+            "schema": {
+              "description": "Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "csv: text/csv con encabezados en español (también con Accept: text/csv)",
+            "explode": false,
+            "in": "query",
+            "name": "formato",
+            "schema": {
+              "description": "csv: text/csv con encabezados en español (también con Accept: text/csv)",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Accept",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Categoría del ticket",
+            "explode": false,
+            "in": "query",
+            "name": "categoriaId",
+            "schema": {
+              "description": "Categoría del ticket",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Solo las de tickets o las de órdenes",
+            "explode": false,
+            "in": "query",
+            "name": "entidad",
+            "schema": {
+              "description": "Solo las de tickets o las de órdenes",
+              "enum": [
+                "ticket",
+                "orden"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReporteSatisfaccion"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "El reporte (JSON) o su CSV"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Satisfacción (encuestas)",
+        "tags": [
+          "reportes"
+        ],
+        "x-permiso": "reportes.ver"
+      }
+    },
     "/api/v1/reportes/sla": {
       "get": {
-        "description": "Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteSLA",
         "parameters": [
           {
@@ -27011,6 +28076,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -27073,6 +28139,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -27092,7 +28168,7 @@
     },
     "/api/v1/reportes/tecnicos": {
       "get": {
-        "description": "Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteTecnicos",
         "parameters": [
           {
@@ -27240,6 +28316,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -32676,7 +33762,7 @@
     },
     "/api/v1/usuarios/{id}/reiniciar-mfa": {
       "post": {
-        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
         "operationId": "reiniciarMFAUsuario",
         "parameters": [
           {
@@ -32715,7 +33801,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Usuario"
+                  "$ref": "#/components/schemas/MFAReiniciado"
                 }
               }
             },

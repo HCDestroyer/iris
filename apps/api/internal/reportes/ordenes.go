@@ -34,7 +34,7 @@ type ReporteTecnicos struct {
 }
 
 func (m *Modulo) nuevoTecnicos() *auditoria.Caso[FiltrosOrdenes, ReporteTecnicos] {
-	return caso("reportes.tecnicos", func(ctx context.Context, t *auditoria.Tx, in FiltrosOrdenes) (ReporteTecnicos, error) {
+	return caso(m, "reportes.tecnicos", func(ctx context.Context, t *auditoria.Tx, in FiltrosOrdenes) (ReporteTecnicos, error) {
 		a, err := m.resolver(ctx, in.FiltrosPeriodo)
 		if err != nil {
 			return ReporteTecnicos{}, err
@@ -111,7 +111,7 @@ type ReportePrimeraVisita struct {
 }
 
 func (m *Modulo) nuevoPrimeraVisita() *auditoria.Caso[EntradaPrimeraVisita, ReportePrimeraVisita] {
-	return caso("reportes.primera_visita", func(ctx context.Context, t *auditoria.Tx, in EntradaPrimeraVisita) (ReportePrimeraVisita, error) {
+	return caso(m, "reportes.primera_visita", func(ctx context.Context, t *auditoria.Tx, in EntradaPrimeraVisita) (ReportePrimeraVisita, error) {
 		dias, err := diasEntre("dias", in.Dias, 30, 7, 90)
 		if err != nil {
 			return ReportePrimeraVisita{}, err

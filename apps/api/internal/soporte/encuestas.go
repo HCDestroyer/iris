@@ -669,8 +669,8 @@ func diasGuatemala(desde, hasta string) (*time.Time, *time.Time, error) {
 	var d, h *time.Time
 	for _, x := range []struct {
 		campo, valor string
-		destino    **time.Time
-		dias       int
+		destino      **time.Time
+		dias         int
 	}{{"desde", desde, &d, 0}, {"hasta", hasta, &h, 1}} {
 		if x.valor == "" {
 			continue

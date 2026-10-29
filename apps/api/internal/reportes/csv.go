@@ -156,8 +156,15 @@ func (r ReporteReincidencias) csv(zona *time.Location) tablaCSV {
 		"Resuelto", "Siguiente ticket", "Abierto", "Horas hasta volver", "Tickets en la ventana"}}
 	for _, f := range r.Data {
 		t.fila(f.Numero, celdaTexto(f.Asunto), nombreDe(nombresPrioridad, &f.Prioridad), celdaTextoP(f.Categoria),
-			celdaEnteroP(f.ClienteID), celdaEnteroP(f.ServicioID), celdaFecha(f.ResueltoEn, zona), f.SiguienteNumero,
-			celdaFecha(f.SiguienteCreadoEn, zona), celdaDecimal(f.HorasHastaVolver), celdaEntero(f.NuevosEnVentana))
+			celdaEnteroP(f.ClienteID), celdaEnteroP(f.ServicioID), celdaFecha(f.ResueltoEn, zona), celdaTextoP(f.SiguienteNumero),
+			celdaFechaP(f.SiguienteCreadoEn, zona), celdaDecimalP(f.HorasHastaVolver), celdaEntero(f.NuevosEnVentana))
 	}
 	return t
+}
+
+func celdaFechaP(t *time.Time, zona *time.Location) string {
+	if t == nil {
+		return ""
+	}
+	return celdaFecha(*t, zona)
 }

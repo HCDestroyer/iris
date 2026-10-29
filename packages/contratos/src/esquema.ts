@@ -728,6 +728,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/encuestas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Encuestas de satisfacción
+         * @description Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Mientras está pendiente trae `enlace` (`<IRIS_BASE_URL>/encuesta#<token>`) para que soporte lo comparta; `enlaceDisponible: false` si no se puede volver a mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).
+         */
+        get: operations["listarEncuestas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/publica/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Encuesta por su enlace (público)
+         * @description Sin sesión. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida` o `vencida`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`.
+         */
+        get: operations["verEncuestaPublica"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/publica/{token}/responder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Responder la encuesta (público)
+         * @description Sin sesión. `calificacion` 1–5 y `comentario` opcional (≤ 1000). Un solo uso: repetir la misma respuesta devuelve 200 sin cambios (idempotente); otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`. Token inválido: 404 (no se audita) o 429 como en el GET. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.
+         */
+        post: operations["responderEncuestaPublica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/conectar": {
         parameters: {
             query?: never;
@@ -2106,7 +2166,7 @@ export interface paths {
         };
         /**
          * Primera visita resuelta
-         * @description Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         * @description Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reportePrimeraVisita"];
         put?: never;
@@ -2126,7 +2186,7 @@ export interface paths {
         };
         /**
          * Reincidencias
-         * @description Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         * @description Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reporteReincidencias"];
         put?: never;
@@ -2146,9 +2206,29 @@ export interface paths {
         };
         /**
          * Tiempo medio de resolución
-         * @description Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         * @description Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reporteResolucion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/satisfaccion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Satisfacción (encuestas)
+         * @description Encuestas de satisfacción creadas en el período: enviadas, respondidas, pendientes, vencidas, % respondidas, promedio, alertas (calificación 1 o 2) y distribución de 1 a 5. Total y por entidad (ticket u orden). `tecnicoId` = técnico de la orden o responsable del ticket al crear la encuesta. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
+         */
+        get: operations["reporteSatisfaccion"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2166,7 +2246,7 @@ export interface paths {
         };
         /**
          * SLA cumplido
-         * @description Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         * @description Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reporteSLA"];
         put?: never;
@@ -2186,7 +2266,7 @@ export interface paths {
         };
         /**
          * Órdenes por técnico
-         * @description Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         * @description Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reporteTecnicos"];
         put?: never;
@@ -3082,7 +3162,7 @@ export interface paths {
         put?: never;
         /**
          * Reiniciar el MFA de otro usuario
-         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
         delete?: never;
@@ -3870,6 +3950,15 @@ export interface components {
             /** @description Zonas que atiende; vacío = todas */
             zonaIds: number[] | null;
         };
+        CuerpoResponderEncuesta: {
+            /**
+             * Format: int64
+             * @description 1 (muy mal) a 5 (muy bien)
+             */
+            calificacion: number;
+            /** @description Opcional */
+            comentario?: string;
+        };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
             evento: string;
@@ -3889,6 +3978,12 @@ export interface components {
             };
             /** Format: int64 */
             total: number;
+        };
+        Distribucion: {
+            /** Format: int64 */
+            calificacion: number;
+            /** Format: int64 */
+            cantidad: number;
         };
         DocumentoPDF: {
             adjuntoId: string;
@@ -3927,6 +4022,61 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        Encuesta: {
+            /** @description Calificación 1 o 2: resaltar */
+            alerta: boolean;
+            /** Format: int64 */
+            calificacion: number | null;
+            /**
+             * @description correo: se encoló el correo al contacto; enlace: soporte comparte el enlace
+             * @enum {string}
+             */
+            canal: "correo" | "enlace";
+            comentario: string | null;
+            /** Format: date-time */
+            creadaEn: string;
+            /** @description <IRIS_BASE_URL>/encuesta#<token> mientras esté pendiente; null si respondida, vencida o sin clave para derivarlo (enlaceDisponible) */
+            enlace: string | null;
+            enlaceDisponible: boolean;
+            /** @enum {string} */
+            entidad: "ticket" | "orden";
+            /** @enum {string} */
+            estado: "pendiente" | "respondida" | "vencida";
+            /** Format: date-time */
+            expiraEn: string;
+            /** Format: int64 */
+            id: number;
+            /** @description Número del ticket o de la orden */
+            numero: string;
+            /** Format: int64 */
+            ordenId: number | null;
+            /** Format: date-time */
+            respondidaEn: string | null;
+            /** Format: int64 */
+            ticketId: number | null;
+        };
+        EncuestaPublica: {
+            /**
+             * Format: int64
+             * @description Solo si ya se respondió
+             */
+            calificacion?: number;
+            /** @description Nombre de la empresa (null sin conector) */
+            empresa: string | null;
+            /** @enum {string} */
+            entidad: "ticket" | "orden";
+            /** @enum {string} */
+            estado: "pendiente" | "respondida" | "vencida";
+            /** Format: date-time */
+            expiraEn: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se resolvió el ticket o se cerró la orden
+             */
+            fecha: string;
+            /** @description Número del ticket o de la orden */
+            numero: string;
         };
         EnlaceExterno: {
             /** Format: int64 */
@@ -5513,6 +5663,47 @@ export interface components {
              */
             resueltos: number;
         };
+        FilaSatisfaccion: {
+            /**
+             * Format: int64
+             * @description Respuestas con calificación 1 o 2
+             */
+            alertas: number;
+            /** @description Siempre las 5 calificaciones, de 1 a 5 */
+            distribucion: components["schemas"]["Distribucion"][] | null;
+            /**
+             * @description Solo en porEntidad
+             * @enum {string}
+             */
+            entidad?: "ticket" | "orden";
+            /**
+             * Format: int64
+             * @description Encuestas creadas en el período
+             */
+            enviadas: number;
+            /**
+             * Format: int64
+             * @description Sin responder y aún vigentes
+             */
+            pendientes: number;
+            /**
+             * Format: double
+             * @description respondidas / enviadas × 100; null sin base
+             */
+            porcentajeRespondidas: number | null;
+            /**
+             * Format: double
+             * @description Calificación media (1–5); null sin respuestas
+             */
+            promedio: number | null;
+            /** Format: int64 */
+            respondidas: number;
+            /**
+             * Format: int64
+             * @description Sin responder y vencidas
+             */
+            vencidas: number;
+        };
         FilaTecnico: {
             /**
              * Format: int64
@@ -5706,6 +5897,38 @@ export interface components {
             secreto: string;
             /** @description URL otpauth:// para el código QR */
             url: string;
+        };
+        MFAReiniciado: {
+            activo: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido) */
+            cambioContrasenaRequerido?: boolean;
+            correo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas */
+            empresas: number[] | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Tiene TOTP activo */
+            mfaActivo: boolean;
+            nombre: string;
+            roles: components["schemas"]["AsignacionRol"][] | null;
+            /**
+             * Format: int64
+             * @description Sesiones del usuario que se cerraron (completas y pendientes de MFA)
+             */
+            sesionesCerradas: number;
+            /** @enum {string} */
+            tipo: "persona" | "integracion";
+            /**
+             * Format: int64
+             * @description Tokens iris_pat_ revocados (0 con revocarTokens: false)
+             */
+            tokensRevocados: number;
+            /** Format: int32 */
+            version: number;
         };
         MaterialOrden: {
             /** Format: int64 */
@@ -6250,6 +6473,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaEncuesta: {
+            data: components["schemas"]["Encuesta"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaEventoOrden: {
             data: components["schemas"]["EventoOrden"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -6614,7 +6842,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -7004,12 +7232,12 @@ export interface components {
             clienteId: number | null;
             /**
              * Format: double
-             * @description Horas de reloj entre la resolución y el siguiente ticket
+             * @description Horas de reloj entre la resolución y el siguiente ticket; null si está fuera de tu alcance
              */
-            horasHastaVolver: number;
+            horasHastaVolver: number | null;
             /**
              * Format: int64
-             * @description Tickets abiertos en la ventana por el mismo servicio o cliente
+             * @description Tickets abiertos en la ventana por el mismo servicio o cliente (todos, también fuera de tu alcance)
              */
             nuevosEnVentana: number;
             numero: string;
@@ -7022,14 +7250,18 @@ export interface components {
              * @description Servicio de Argos (null: se comparó por cliente)
              */
             servicioId: number | null;
-            /** Format: date-time */
-            siguienteCreadoEn: string;
+            /**
+             * Format: date-time
+             * @description null si el siguiente está fuera de tu alcance
+             */
+            siguienteCreadoEn: string | null;
             /**
              * Format: int64
-             * @description Primer ticket que se abrió después
+             * @description Primer ticket que se abrió después; null si está fuera de tu alcance (la reincidencia cuenta igual)
              */
-            siguienteId: number;
-            siguienteNumero: string;
+            siguienteId: number | null;
+            /** @description null si el siguiente está fuera de tu alcance */
+            siguienteNumero: string | null;
             /** Format: int64 */
             ticketId: number;
         };
@@ -7101,6 +7333,11 @@ export interface components {
             porCategoria: components["schemas"]["FilaSLA"][] | null;
             porPrioridad: components["schemas"]["FilaSLA"][] | null;
             total: components["schemas"]["FilaSLA"];
+        };
+        ReporteSatisfaccion: {
+            periodo: components["schemas"]["Periodo"];
+            porEntidad: components["schemas"]["FilaSatisfaccion"][] | null;
+            total: components["schemas"]["FilaSatisfaccion"];
         };
         ReporteTecnicos: {
             /** @description Un técnico por fila, más órdenes primero */
@@ -11021,6 +11258,219 @@ export interface operations {
             };
         };
     };
+    listarEncuestas: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Creadas desde este día (YYYY-MM-DD, hora de Guatemala) */
+                desde?: string;
+                /** @description Creadas hasta este día, incluido */
+                hasta?: string;
+                /** @description Una o varias (calificacion=1,2) */
+                calificacion?: number[] | null;
+                entidad?: "ticket" | "orden";
+                estado?: "pendiente" | "respondida" | "vencida";
+                /** @description La del ticket (detalle del ticket) */
+                ticketId?: number;
+                /** @description La de la orden (detalle de la orden) */
+                ordenId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaEncuesta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verEncuestaPublica: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Lo que sigue a # en /encuesta#<token> */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncuestaPublica"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    responderEncuestaPublica: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Lo que sigue a # en /encuesta#<token> */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoResponderEncuesta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncuestaPublica"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     conectarArgos: {
         parameters: {
             query?: never;
@@ -11954,6 +12404,8 @@ export interface operations {
                 entidad?: string;
                 entidadId?: string;
                 estado?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
+                /** @description Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto */
+                estadoDistintoDe?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
                 /** @description Solo los que tienen un conflicto por cierre repetido */
                 conflicto?: boolean;
             };
@@ -16727,6 +17179,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
         };
     };
     reporteReincidencias: {
@@ -16808,6 +17269,15 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16897,6 +17367,106 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteSatisfaccion: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Categoría del ticket */
+                categoriaId?: number;
+                /** @description Solo las de tickets o las de órdenes */
+                entidad?: "ticket" | "orden";
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteSatisfaccion"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
         };
     };
     reporteSLA: {
@@ -16979,6 +17549,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
         };
     };
     reporteTecnicos: {
@@ -17050,6 +17629,15 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20570,7 +21158,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Usuario"];
+                    "application/json": components["schemas"]["MFAReiniciado"];
                 };
             };
             /** @description Unauthorized */

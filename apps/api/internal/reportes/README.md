@@ -10,6 +10,18 @@ fallar), como las demás lecturas. **No emite ni consume eventos.**
 Nunca devuelve totales calculados sobre datos que no se pudieron leer: si una consulta falla, el
 reporte entero falla. Un porcentaje sin base es `null` (nunca 0 % ni 100 % inventados).
 
+Cada reporte corre en una transacción `REPEATABLE READ READ ONLY` (todas sus consultas ven la
+misma foto: el resumen y la lista de reincidencias cuadran) con `statement_timeout` de 15 s
+(`Config.TiempoMaximo`); si vence, 503 `reporte_demasiado_largo` («acorta el rango o agrega
+filtros»).
+
+**Alcance y lo que se cuenta fuera de él:** en reincidencias y primera visita, el ticket u orden
+*siguiente* se busca en toda la empresa, también fuera del alcance del actor: la reincidencia o el
+retorno se **cuentan** igual (es la métrica del servicio, y `nuevosEnVentana` también cuenta todos).
+Pero en la lista de reincidencias `siguienteId`, `siguienteNumero`, `siguienteCreadoEn` y
+`horasHastaVolver` solo se devuelven si ese ticket está dentro del alcance (zona o cuadrilla del
+rol); si no, van en `null` (y vacíos en el CSV).
+
 ## Endpoints (`GET /api/v1/reportes/...`, tag `reportes`)
 
 Filtros comunes: `desde` y `hasta` (obligatorios, `YYYY-MM-DD`; días de **America/Guatemala**: el
@@ -24,7 +36,7 @@ período va de `desde` 00:00 al fin de `hasta`, y se compara en UTC), `zonaId`, 
 | `tecnicos` | Órdenes `cerrada` o `fallida` con `finalizada_en` en el período | Por técnico: exitosas, parciales, fallidas, % éxito, duración media en sitio (llegada → cierre, menos las pausas tomadas en sitio), tiempo pausado (total y medio). |
 | `primera-visita` | Instalaciones y visitas cerradas `exitosa` | `dias` (7–90, 30). `resuelta` si el mismo servicio no tuvo otra orden (no cancelada) ni ticket (no fusionado) en los `dias` siguientes; `enObservacion` si la ventana aún no termina y `sinServicio` si no hay servicio: ninguna de las dos cuenta en el %. Total, por tipo y por técnico. |
 | `satisfaccion` | Encuestas creadas en el período (`soporte.encuestas`) | `categoriaId`, `entidad`. Enviadas, respondidas, pendientes, vencidas, % respondidas, promedio, alertas (1 o 2) y distribución 1–5; total y por entidad. Zona, cuadrilla y técnico son los copiados al crear la encuesta. |
-| `reincidencias` | Tickets resueltos en el período | `dias` (1–90, 30), `categoriaId`, `prioridad`, `cursor`/`limit`. Reincide si el mismo servicio (o, sin servicio, el mismo cliente) abre otro ticket de la misma empresa en los `dias` siguientes. Totales (`resueltos`, `evaluables`, `reincidentes`, `porcentaje`) y la lista paginada (`data`, `nextCursor`; más recientes primero). |
+| `reincidencias` | Tickets resueltos en el período | `dias` (1–90, 30), `categoriaId`, `prioridad` (hasta 4), `cursor`/`limit`. Reincide si el mismo servicio (o, sin servicio, el mismo cliente) abre otro ticket de la misma empresa en los `dias` siguientes. Totales (`resueltos`, `evaluables`, `reincidentes`, `porcentaje`) y la lista paginada (`data`, `nextCursor`; más recientes primero). |
 
 **CSV:** `?formato=csv` o `Accept: text/csv` → `text/csv; charset=utf-8`, UTF-8 con BOM, encabezados
 en español, fechas en hora de Guatemala, `attachment; filename="reporte-<ruta>-<desde>_<hasta>.csv"`.

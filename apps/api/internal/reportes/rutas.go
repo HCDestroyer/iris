@@ -36,7 +36,8 @@ type reporte[In any, Out conCSV] struct {
 const descComun = " Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. " +
 	"`desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); " +
 	"como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con " +
-	"`?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales."
+	"`?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. " +
+	"Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros)."
 
 func registrar[In any, Out conCSV](api huma.API, m *Modulo, r reporte[In, Out]) {
 	esquema := api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[Out](), true, "")
@@ -47,7 +48,7 @@ func registrar[In any, Out conCSV](api huma.API, m *Modulo, r reporte[In, Out]) 
 		Summary:     r.resumen,
 		Description: r.detalle + descComun,
 		Tags:        []string{etiqueta},
-		Errors:      []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity},
+		Errors:      []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 		Security:    seguridad,
 		Extensions:  map[string]any{"x-permiso": string(nucleo.PermReportesVer)},
 		Responses: map[string]*huma.Response{"200": {

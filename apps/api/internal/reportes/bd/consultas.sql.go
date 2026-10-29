@@ -15,12 +15,13 @@ WITH par AS (SELECT make_interval(0, 0, 0, $16::int) AS ventana)
 SELECT t.id, t.numero, t.asunto, t.prioridad, t.categoria_id, coalesce(c.nombre, '')::text AS categoria,
        t.cliente_id, t.servicio_id, t.resuelto_en::timestamptz AS resuelto_en,
        s.id AS siguiente_id, s.numero AS siguiente_numero, s.created_at AS siguiente_creado_en,
-       s.nuevos::bigint AS nuevos
+       s.nuevos::bigint AS nuevos, s.visible::boolean AS siguiente_visible
 FROM soporte.tickets t
 CROSS JOIN par
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
 JOIN LATERAL (
-    SELECT t2.id, t2.numero, t2.created_at, count(*) OVER () AS nuevos
+    SELECT t2.id, t2.numero, t2.created_at, count(*) OVER () AS nuevos,
+           ($1::boolean OR t2.zona_id = ANY($2::bigint[]) OR t2.cuadrilla_id = ANY($3::bigint[])) AS visible
     FROM soporte.tickets t2
     WHERE t2.id <> t.id AND t2.fusionado_en_id IS NULL
       AND t2.empresa_id IS NOT DISTINCT FROM t.empresa_id
@@ -32,12 +33,12 @@ JOIN LATERAL (
     LIMIT 1
 ) s ON true
 WHERE t.resuelto_en IS NOT NULL AND t.fusionado_en_id IS NULL
-  AND t.resuelto_en >= $1 AND t.resuelto_en < $2
-  AND ($3::timestamptz IS NULL OR (t.resuelto_en, t.id) < ($3::timestamptz, $4::bigint))
-  AND ($5::boolean
-       OR ($6::bigint IS NULL AND t.empresa_id IS NULL)
-       OR t.empresa_id = $6)
-  AND ($7::boolean OR t.zona_id = ANY($8::bigint[]) OR t.cuadrilla_id = ANY($9::bigint[]))
+  AND t.resuelto_en >= $4 AND t.resuelto_en < $5
+  AND ($6::timestamptz IS NULL OR (t.resuelto_en, t.id) < ($6::timestamptz, $7::bigint))
+  AND ($8::boolean
+       OR ($9::bigint IS NULL AND t.empresa_id IS NULL)
+       OR t.empresa_id = $9)
+  AND ($1::boolean OR t.zona_id = ANY($2::bigint[]) OR t.cuadrilla_id = ANY($3::bigint[]))
   AND ($10::bigint IS NULL OR t.zona_id = $10)
   AND ($11::bigint IS NULL OR t.cuadrilla_id = $11)
   AND ($12::bigint IS NULL OR t.asignado_a = $12)
@@ -48,15 +49,15 @@ LIMIT $15
 `
 
 type ListarReincidenciasParams struct {
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
 	Inicio        *time.Time
 	Fin           *time.Time
 	AntesEn       *time.Time
 	AntesID       *int64
 	TodasEmpresas bool
 	EmpresaID     *int64
-	AlcanceGlobal bool
-	Zonas         []int64
-	Cuadrillas    []int64
 	ZonaID        *int64
 	CuadrillaID   *int64
 	TecnicoID     *int64
@@ -80,21 +81,24 @@ type ListarReincidenciasRow struct {
 	SiguienteNumero   string
 	SiguienteCreadoEn time.Time
 	Nuevos            int64
+	SiguienteVisible  bool
 }
 
 // Los reincidentes (ver ResumenReincidencias), más recientes primero (cursor: resuelto_en, id),
-// con el primer ticket que volvió a abrir y cuántos abrió en la ventana.
+// con el primer ticket que volvió a abrir y cuántos abrió en la ventana. La reincidencia cuenta
+// aunque el ticket siguiente esté fuera del alcance del actor (es la métrica del servicio), pero
+// siguiente_visible dice si se pueden mostrar sus datos (mismo alcance de zona o cuadrilla).
 func (q *Queries) ListarReincidencias(ctx context.Context, arg ListarReincidenciasParams) ([]ListarReincidenciasRow, error) {
 	rows, err := q.db.Query(ctx, listarReincidencias,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
 		arg.Inicio,
 		arg.Fin,
 		arg.AntesEn,
 		arg.AntesID,
 		arg.TodasEmpresas,
 		arg.EmpresaID,
-		arg.AlcanceGlobal,
-		arg.Zonas,
-		arg.Cuadrillas,
 		arg.ZonaID,
 		arg.CuadrillaID,
 		arg.TecnicoID,
@@ -124,6 +128,7 @@ func (q *Queries) ListarReincidencias(ctx context.Context, arg ListarReincidenci
 			&i.SiguienteNumero,
 			&i.SiguienteCreadoEn,
 			&i.Nuevos,
+			&i.SiguienteVisible,
 		); err != nil {
 			return nil, err
 		}

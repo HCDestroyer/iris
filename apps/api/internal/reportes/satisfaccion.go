@@ -47,7 +47,7 @@ type ReporteSatisfaccion struct {
 }
 
 func (m *Modulo) nuevoSatisfaccion() *auditoria.Caso[EntradaSatisfaccion, ReporteSatisfaccion] {
-	return caso("reportes.satisfaccion", func(ctx context.Context, t *auditoria.Tx, in EntradaSatisfaccion) (ReporteSatisfaccion, error) {
+	return caso(m, "reportes.satisfaccion", func(ctx context.Context, t *auditoria.Tx, in EntradaSatisfaccion) (ReporteSatisfaccion, error) {
 		a, err := m.resolver(ctx, in.FiltrosPeriodo)
 		if err != nil {
 			return ReporteSatisfaccion{}, err
