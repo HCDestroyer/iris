@@ -98,17 +98,25 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 	}
 	porResolver := tieneMarcadores(n.Cuerpo)
 	var plantilla []byte
+	proximo := n.Desde.UTC()
 	if porResolver {
 		if err := validarPlantilla(n.Cuerpo, len(n.DependeDe)); err != nil {
 			return Registro{}, false, err
 		}
-		plantilla = n.Cuerpo
+		// Candado contra un worker de antes de los marcadores: un pendiente por resolver nunca
+		// vence (TomarVencido de cualquier versión lo salta); al resolverse vuelve a «ahora».
+		plantilla, proximo = n.Cuerpo, NuncaVence
 	}
 	q := pendientesbd.New(t)
+	// Dependencias: deben existir y ser de la misma empresa (error de programación si no). El
+	// candado compartido evita perder la resolución si una termina en otra transacción.
+	if err := exigirDependencias(ctx, q, n); err != nil {
+		return Registro{}, false, err
+	}
 	f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
 		EmpresaID: n.EmpresaID, Sistema: n.Sistema, Operacion: n.Operacion, IdempotencyKey: n.IdempotencyKey,
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
-		DependeDe: n.DependeDe, Estado: EstadoPendiente, ProximoIntento: n.Desde.UTC(),
+		DependeDe: n.DependeDe, Estado: EstadoPendiente, ProximoIntento: proximo,
 		Plantilla: plantilla, PorResolver: porResolver,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -120,7 +128,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 	}
 	t.RegistrarCambios("pendiente", f.ID, nil, map[string]any{"operacion": f.Operacion, "estado": f.Estado, "idempotency_key": f.IdempotencyKey})
 	if porResolver {
-		if f, err = resolverSiListo(ctx, t, f); err != nil {
+		if f, err = resolverSiListo(ctx, t, f, n.Desde.UTC()); err != nil {
 			return Registro{}, false, err
 		}
 	}
@@ -134,13 +142,13 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 
 // resolverDependientes: el pendiente id quedó hecho; resuelve el cuerpo de sus dependientes con
 // marcadores cuyas dependencias están todas hechas (en la transacción del resultado).
-func resolverDependientes(ctx context.Context, t *auditoria.Tx, id int64) error {
+func resolverDependientes(ctx context.Context, t *auditoria.Tx, id int64, ahora time.Time) error {
 	filas, err := pendientesbd.New(t).DependientesPorResolver(ctx, id)
 	if err != nil {
 		return err
 	}
 	for _, f := range filas {
-		if _, err := resolverSiListo(ctx, t, f); err != nil {
+		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
 			return err
 		}
 	}
@@ -149,9 +157,9 @@ func resolverDependientes(ctx context.Context, t *auditoria.Tx, id int64) error 
 
 // resolverSiListo resuelve el cuerpo de f si todas sus dependencias están hechas; si no, lo
 // deja como está. Si falta un dato en una respuesta, f queda fallido_negocio (y se avisa).
-func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente) (pendientesbd.IntegracionPendiente, error) {
+func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) (pendientesbd.IntegracionPendiente, error) {
 	q := pendientesbd.New(t)
-	deps, err := q.PendientesPorID(ctx, f.DependeDe)
+	deps, err := q.PendientesPorIDCompartido(ctx, f.DependeDe)
 	if err != nil {
 		return f, err
 	}
@@ -188,10 +196,60 @@ func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integr
 	if err != nil {
 		return f, err
 	}
-	g, err := q.FijarCuerpoResuelto(ctx, pendientesbd.FijarCuerpoResueltoParams{ID: f.ID, Payload: cuerpo})
+	g, err := q.FijarCuerpoResuelto(ctx, pendientesbd.FijarCuerpoResueltoParams{ID: f.ID, Payload: cuerpo, Ahora: ahora})
 	if err != nil {
 		return f, err
 	}
 	t.RegistrarCambios("pendiente", g.ID, map[string]any{"por_resolver": true}, map[string]any{"por_resolver": false})
 	return g, nil
+}
+
+// NuncaVence es el proximo_intento de un pendiente por resolver (ver Encolar).
+var NuncaVence = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
+
+// exigirDependencias: cada id de DependeDe existe (sin repetir) y es de la misma empresa que la
+// acción. Toma un candado compartido sobre ellas (PendientesPorIDCompartido).
+func exigirDependencias(ctx context.Context, q *pendientesbd.Queries, n Accion) error {
+	if len(n.DependeDe) == 0 {
+		return nil
+	}
+	deps, err := q.PendientesPorIDCompartido(ctx, n.DependeDe)
+	if err != nil {
+		return err
+	}
+	vistos := map[int64]bool{}
+	for _, id := range n.DependeDe {
+		if vistos[id] {
+			return fmt.Errorf("pendientes.Encolar: dependencia %d repetida", id)
+		}
+		vistos[id] = true
+	}
+	if len(deps) != len(n.DependeDe) {
+		return fmt.Errorf("pendientes.Encolar: alguna dependencia de %v no existe", n.DependeDe)
+	}
+	for _, d := range deps {
+		if !mismaEmpresa(d.EmpresaID, n.EmpresaID) {
+			return fmt.Errorf("pendientes.Encolar: la dependencia %d es de otra empresa", d.ID)
+		}
+	}
+	return nil
+}
+
+func mismaEmpresa(a, b *int64) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+// resolverAtascados es la red de seguridad del job: resuelve los por resolver cuyas
+// dependencias ya están todas hechas. Devuelve cuántos tocó.
+func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
+	filas, err := pendientesbd.New(t).PorResolverListos(ctx, 200)
+	if err != nil {
+		return 0, err
+	}
+	for _, f := range filas {
+		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
+			return 0, err
+		}
+	}
+	return len(filas), nil
 }

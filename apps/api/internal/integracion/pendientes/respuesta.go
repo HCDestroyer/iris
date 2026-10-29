@@ -3,64 +3,90 @@ package pendientes
 import (
 	"bytes"
 	"encoding/json"
-	"regexp"
 	"strconv"
-
-	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 )
 
 // Respuesta de Argos guardada en el pendiente (la del primer 2xx): la usan los dependientes
 // (cuerpos con marcadores, plantilla.go) y quien encoló (p. ej. comercial toma el id del
-// cliente). Se guarda como mucho MaxRespuesta bytes y con las claves sensibles en "***"
-// (contraseñas, tokens, secretos y la clave PPP, aunque Argos la devuelva como «definida»).
+// cliente). Se guarda solo una LISTA BLANCA de campos escalares (CamposRespuesta), en la raíz o
+// dentro de { data: {...} }; todo lo demás (credenciales PPP, claves WiFi, tokens, datos
+// personales, listas y objetos anidados) se descarta. Si hace falta otro campo, se agrega aquí.
 
-// MaxRespuesta: más grande, no se guarda (queda null; un marcador que la pida falla).
-const MaxRespuesta = 64 << 10
+// CamposRespuesta: los únicos campos que se guardan de una respuesta (y sus formas camelCase).
+var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id"}
 
-// Lo de auditoria.EsCampoSensible más las claves de acceso de Argos (clave_ppp, password_ppp,
-// pass, pwd).
-var claveSensible = regexp.MustCompile(`(?i)(^|_)(clave|pass|pwd)($|_)`)
+var camposPermitidos = func() map[string]bool {
+	m := map[string]bool{}
+	for _, c := range CamposRespuesta {
+		m[c] = true
+		m[camel(c)] = true
+	}
+	return m
+}()
 
-func esClaveSensible(k string) bool {
-	return auditoria.EsCampoSensible(k) || claveSensible.MatchString(auditoria.SnakeCase(k))
+func camel(s string) string {
+	b := []byte{}
+	mayus := false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '_':
+			mayus = true
+		case mayus:
+			b = append(b, s[i]-'a'+'A')
+			mayus = false
+		default:
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
 }
 
-// limpiarRespuesta devuelve el JSON de la respuesta con lo sensible en "***", o nil si no es
-// JSON (o está vacía) o pasa de MaxRespuesta.
+// MaxRespuesta: el cuerpo de más de esto no se lee (queda null; un marcador que lo pida falla).
+const MaxRespuesta = 64 << 10
+
+// limpiarRespuesta devuelve los campos permitidos de la respuesta (en la raíz y en data), o nil
+// si no es un objeto JSON, pasa de MaxRespuesta o no trae ninguno.
 func limpiarRespuesta(crudo []byte) []byte {
 	crudo = bytes.TrimSpace(crudo)
-	if len(crudo) == 0 {
+	if len(crudo) == 0 || len(crudo) > MaxRespuesta {
 		return nil
 	}
-	d := json.NewDecoder(bytes.NewReader(crudo))
-	d.UseNumber()
-	var v any
-	if d.Decode(&v) != nil {
+	var raiz map[string]json.RawMessage
+	if json.Unmarshal(crudo, &raiz) != nil {
 		return nil
 	}
-	b, err := json.Marshal(enmascarar(v))
-	if err != nil || len(b) > MaxRespuesta {
+	salida := escalaresPermitidos(raiz)
+	if d, ok := raiz["data"]; ok {
+		var data map[string]json.RawMessage
+		if json.Unmarshal(d, &data) == nil {
+			if dentro := escalaresPermitidos(data); len(dentro) > 0 {
+				salida["data"] = dentro
+			}
+		}
+	}
+	if len(salida) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(salida)
+	if err != nil {
 		return nil
 	}
 	return b
 }
 
-func enmascarar(v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		for k, h := range x {
-			if esClaveSensible(k) {
-				x[k] = auditoria.Mascara
-			} else {
-				x[k] = enmascarar(h)
-			}
+func escalaresPermitidos(obj map[string]json.RawMessage) map[string]any {
+	salida := map[string]any{}
+	for k, v := range obj {
+		if !camposPermitidos[k] {
+			continue
 		}
-	case []any:
-		for i := range x {
-			x[i] = enmascarar(x[i])
+		v = bytes.TrimSpace(v)
+		if len(v) == 0 || v[0] == '{' || v[0] == '[' {
+			continue
 		}
+		salida[k] = v
 	}
-	return v
+	return salida
 }
 
 // CampoDeRespuesta lee un campo (ruta con puntos, p. ej. "id" o "servicio.id") de una respuesta
@@ -88,7 +114,7 @@ func CampoDeRespuesta(respuesta []byte, campo string) (json.RawMessage, bool) {
 		}
 		if i == len(tramos)-1 {
 			v = bytes.TrimSpace(v)
-			if len(v) == 0 || v[0] == '{' || v[0] == '[' || string(v) == "null" || string(v) == `"`+auditoria.Mascara+`"` {
+			if len(v) == 0 || v[0] == '{' || v[0] == '[' || string(v) == "null" {
 				return nil, false
 			}
 			return v, true

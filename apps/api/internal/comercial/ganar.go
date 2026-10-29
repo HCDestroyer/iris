@@ -551,10 +551,23 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 // alta quedó en error visible o no hay cómo recuperarla todavía.
 func (m *Modulo) idDeAlta(ctx context.Context, prospecto int64, clave string, pend pendientes.Registro) (int64, error) {
 	if len(pend.Respuesta) > 0 {
-		if id, ok := pendientes.IDDeRespuesta(pend.Respuesta); ok {
-			return id, nil
+		id, ok := pendientes.IDDeRespuesta(pend.Respuesta)
+		if !ok {
+			return 0, m.errorDeAlta(ctx, prospecto, fmt.Sprintf("%s: la respuesta de Argos no trae el id del recurso creado: revisar a mano en Argos", clave))
 		}
-		return 0, m.errorDeAlta(ctx, prospecto, fmt.Sprintf("%s: la respuesta de Argos no trae el id del recurso creado: revisar a mano en Argos", clave))
+		// Defensa en profundidad: si la respuesta trae codigo_externo (cliente) o cliente_id
+		// (servicio), debe ser el que se mandó.
+		campo := map[string]string{"/clientes": "codigo_externo", "/servicios": "cliente_id"}[pend.Ruta]
+		if campo != "" {
+			if recibido, ok := pendientes.CampoDeRespuesta(pend.Respuesta, campo); ok {
+				enviado, _ := pendientes.CampoDeRespuesta(pend.Payload, campo)
+				if escalar(recibido) != escalar(enviado) {
+					return 0, m.errorDeAlta(ctx, prospecto, fmt.Errorf("%w: %s %s: Argos respondió %s %s y se mandó %s",
+						ErrAltaInconsistente, pend.Metodo, pend.Ruta, campo, escalar(recibido), escalar(enviado)).Error())
+				}
+			}
+		}
+		return id, nil
 	}
 	if m.cfg.Altas == nil {
 		slog.WarnContext(ctx, "comercial: sin RecuperadorAltas; el alta en Argos no avanza", "prospecto", prospecto)
@@ -575,6 +588,15 @@ func (m *Modulo) idDeAlta(ctx context.Context, prospecto int64, clave string, pe
 		return 0, err
 	}
 	return id, nil
+}
+
+// escalar: un valor JSON escalar como texto ("9001" y 9001 son iguales).
+func escalar(v []byte) string {
+	t := string(v)
+	if u, err := strconv.Unquote(t); err == nil {
+		return u
+	}
+	return t
 }
 
 // RetencionIdempotencia: Argos guarda una Idempotency-Key al menos 30 días.

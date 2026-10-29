@@ -54,6 +54,7 @@ type argosFalso struct {
 	siguiente  int64
 	caido      bool
 	codigoMalo bool // GET /clientes/{id} devuelve otro codigo_externo
+	altaAjena  bool // POST /clientes responde con otro codigo_externo
 	repetidas  int  // respuestas con Idempotent-Replayed
 	porID      map[string]map[string]any
 }
@@ -146,7 +147,11 @@ func nuevoArgos(t *testing.T) *argosFalso {
 			a.porID[fmt.Sprint(a.siguiente)] = c
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
-			_, _ = fmt.Fprintf(w, `{"data":{"id":%d}}`, a.siguiente)
+			if a.altaAjena && c["codigo_externo"] != nil {
+				_, _ = fmt.Fprintf(w, `{"data":{"id":%d,"codigo_externo":"iris:prospecto:otro"}}`, a.siguiente)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"id":%d,"codigo_externo":%q}}`, a.siguiente, fmt.Sprint(c["codigo_externo"]))
 		}
 	}
 	mux.HandleFunc("POST /api/v1/clientes", alta([]string{"nombre"}, []string{"empresa_id", "origen_tipo", "origen_id"}))
@@ -801,6 +806,19 @@ func TestEmbudoConArgos(t *testing.T) {
 	}
 	if srv := e.falso.cuerpo(comercial.ClaveServicio(p5.ID)); srv == nil || srv["cliente_id"] != float64(*d5.Alta.ClienteArgosID) {
 		t.Fatalf("servicio del alta vieja: %v", srv)
+	}
+
+	// Defensa en profundidad: si la respuesta guardada trae otro codigo_externo que el enviado,
+	// el alta queda en error visible y no se crea la orden.
+	p6 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Ajeno", Direccion: "Calzada 9", Lat: &cerca, Lon: ptr(-90.5)}))(t)
+	d6 := hastaContrato(t, e.com, ctx, p6.ID, lineas, "")
+	deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p6.ID, Version: d6.Version}))(t)
+	e.falso.fijar(func(a *argosFalso) { a.altaAjena = true })
+	e.procesar()
+	e.falso.fijar(func(a *argosFalso) { a.altaAjena = false })
+	d6 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p6.ID}))(t)
+	if d6.Alta.Error == nil || !strings.Contains(*d6.Alta.Error, "codigo_externo") || d6.Alta.OrdenID != nil || d6.Alta.ClienteArgosID != nil {
+		t.Fatalf("respuesta con otro codigo_externo: %+v", d6.Alta)
 	}
 
 	// Factibilidad manual sin router: ganar con conector pide el router (de la empresa).

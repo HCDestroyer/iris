@@ -116,13 +116,28 @@ WHERE por_resolver AND @id::bigint = ANY (depende_de) AND estado IN ('pendiente'
 ORDER BY id
 FOR UPDATE;
 
--- name: PendientesPorID :many
-SELECT * FROM integracion.pendientes WHERE id = ANY (@ids::bigint[]);
+-- name: PendientesPorIDCompartido :many
+-- Las dependencias de un pendiente con candado compartido: si otra transacción está dejando una
+-- en «hecho», se espera a que confirme (y se ve su estado y su respuesta); y mientras esta
+-- transacción no confirme, la otra no puede marcarla (y luego ve al dependiente nuevo).
+SELECT * FROM integracion.pendientes WHERE id = ANY (@ids::bigint[]) ORDER BY id FOR SHARE;
+
+-- name: PorResolverListos :many
+-- Red de seguridad del job: dependientes con marcadores cuyas dependencias ya están todas
+-- hechas (no se debería ver ninguno: se resuelven al quedar hecha la última).
+SELECT p.* FROM integracion.pendientes p
+WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+ORDER BY p.id
+LIMIT @limite
+FOR UPDATE OF p SKIP LOCKED;
 
 -- name: FijarCuerpoResuelto :one
 -- Una sola vez: el cuerpo final reemplaza a la plantilla (después no cambia).
 UPDATE integracion.pendientes
-SET payload = @payload, por_resolver = false, version = version + 1, updated_at = now()
+SET payload = @payload, por_resolver = false, proximo_intento = @ahora::timestamptz,
+    version = version + 1, updated_at = now()
 WHERE id = @id AND por_resolver
 RETURNING *;
 

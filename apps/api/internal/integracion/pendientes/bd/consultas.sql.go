@@ -312,19 +312,21 @@ func (q *Queries) FallarResolucion(ctx context.Context, arg FallarResolucionPara
 
 const fijarCuerpoResuelto = `-- name: FijarCuerpoResuelto :one
 UPDATE integracion.pendientes
-SET payload = $1, por_resolver = false, version = version + 1, updated_at = now()
-WHERE id = $2 AND por_resolver
+SET payload = $1, por_resolver = false, proximo_intento = $2::timestamptz,
+    version = version + 1, updated_at = now()
+WHERE id = $3 AND por_resolver
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver
 `
 
 type FijarCuerpoResueltoParams struct {
 	Payload []byte
+	Ahora   time.Time
 	ID      int64
 }
 
 // Una sola vez: el cuerpo final reemplaza a la plantilla (después no cambia).
 func (q *Queries) FijarCuerpoResuelto(ctx context.Context, arg FijarCuerpoResueltoParams) (IntegracionPendiente, error) {
-	row := q.db.QueryRow(ctx, fijarCuerpoResuelto, arg.Payload, arg.ID)
+	row := q.db.QueryRow(ctx, fijarCuerpoResuelto, arg.Payload, arg.Ahora, arg.ID)
 	var i IntegracionPendiente
 	err := row.Scan(
 		&i.ID,
@@ -788,12 +790,77 @@ func (q *Queries) PendientesDeEntidad(ctx context.Context, arg PendientesDeEntid
 	return items, nil
 }
 
-const pendientesPorID = `-- name: PendientesPorID :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver FROM integracion.pendientes WHERE id = ANY ($1::bigint[])
+const pendientesPorIDCompartido = `-- name: PendientesPorIDCompartido :many
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver FROM integracion.pendientes WHERE id = ANY ($1::bigint[]) ORDER BY id FOR SHARE
 `
 
-func (q *Queries) PendientesPorID(ctx context.Context, ids []int64) ([]IntegracionPendiente, error) {
-	rows, err := q.db.Query(ctx, pendientesPorID, ids)
+// Las dependencias de un pendiente con candado compartido: si otra transacción está dejando una
+// en «hecho», se espera a que confirme (y se ve su estado y su respuesta); y mientras esta
+// transacción no confirme, la otra no puede marcarla (y luego ve al dependiente nuevo).
+func (q *Queries) PendientesPorIDCompartido(ctx context.Context, ids []int64) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, pendientesPorIDCompartido, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const porResolverListos = `-- name: PorResolverListos :many
+SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver FROM integracion.pendientes p
+WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+ORDER BY p.id
+LIMIT $1
+FOR UPDATE OF p SKIP LOCKED
+`
+
+// Red de seguridad del job: dependientes con marcadores cuyas dependencias ya están todas
+// hechas (no se debería ver ninguno: se resuelven al quedar hecha la última).
+func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, porResolverListos, limite)
 	if err != nil {
 		return nil, err
 	}

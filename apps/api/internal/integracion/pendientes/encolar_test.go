@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -60,7 +61,9 @@ func TestRespuestaGuardadaYDependienteResuelto(t *testing.T) {
 	e := nuevoEntorno(t)
 	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
 	claveCli, claveSrv := "iris:cliente:"+sufijo, "iris:servicio:"+sufijo
-	e.argos.cuerpos["/clientes"] = `{"data":{"id":9001,"nombre":"Ana","clave_ppp":"definida","token":"atk_secreto_que_no_se_guarda","password_ppp":"x"}}`
+	e.argos.cuerpos["/clientes"] = `{"meta":{"id":1},"estado":"creado","psk":"wifi-secreto","data":{"id":9001,"nombre":"Ana","clave_ppp":"definida",` +
+		`"token":"atk_secreto_que_no_se_guarda","contraseña":"x","wpa_key":"y","x-api-key":"z","pin":"1234","llave":"w","private_key":"k",` +
+		`"community":"public","codigoExterno":"iris:prospecto:1","servicio":{"id":5},"equipos":[{"id":6}]}}`
 	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: claveCli, Ruta: "/clientes", Cuerpo: []byte(`{"nombre":"Ana"}`)})
 	srv := e.encolar(pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: claveSrv, Ruta: "/servicios",
 		Cuerpo: cuerpo(t, map[string]any{"cliente_id": pendientes.Ref(0, "id"), "plan_id": 300}), DependeDe: []int64{cli.ID}})
@@ -73,12 +76,13 @@ func TestRespuestaGuardadaYDependienteResuelto(t *testing.T) {
 	if n := e.procesar(); n != 2 {
 		t.Fatalf("procesó %d", n)
 	}
+	// Solo la lista blanca (en la raíz y en data); credenciales, datos personales, objetos y
+	// listas no se guardan.
 	c := e.registro(claveCli)
-	var resp map[string]any
+	var resp, esperada any
 	_ = json.Unmarshal(c.Respuesta, &resp)
-	data, _ := resp["data"].(map[string]any)
-	if c.Estado != "hecho" || data["id"] != float64(9001) || data["clave_ppp"] != "***" || data["token"] != "***" ||
-		data["password_ppp"] != "***" || data["nombre"] != "Ana" || bytes.Contains(c.Respuesta, []byte("atk_secreto")) {
+	_ = json.Unmarshal([]byte(`{"estado":"creado","data":{"id":9001,"codigoExterno":"iris:prospecto:1"}}`), &esperada)
+	if c.Estado != "hecho" || fmt.Sprint(resp) != fmt.Sprint(esperada) {
 		t.Fatalf("respuesta guardada: %s %s", c.Estado, c.Respuesta)
 	}
 	if id, ok := pendientes.IDDeRespuesta(c.Respuesta); !ok || id != 9001 {
@@ -182,6 +186,7 @@ func TestConflictosPorTipo(t *testing.T) {
 		{"/servicios/otro-409", "router_sin_capacidad", 409, "fallido_negocio"},
 		{"/servicios/reutilizada", "https://argos.example/problemas/idempotency_key_reutilizada", 422, "fallido_negocio"},
 		{"/servicios/sin-tipo", "", 409, "pendiente"},
+		{"/servicios/about-blank", "about:blank", 409, "pendiente"},
 	}
 	for i, c := range casos {
 		e.argos.responder(c.ruta, c.status)
@@ -210,5 +215,136 @@ func TestConflictosPorTipo(t *testing.T) {
 		if estados[c.ruta] != c.estado || intentosDe[c.ruta] != 1 {
 			t.Fatalf("%s %d %s: %s, %d intentos (esperaba %s tras 1)", c.ruta, c.status, c.tipo, estados[c.ruta], intentosDe[c.ruta], c.estado)
 		}
+	}
+}
+
+// Carrera: Encolar el dependiente mientras su dependencia queda hecha en otra transacción. Con el
+// candado compartido, Encolar espera a que esa confirme y lo resuelve; sin él quedaría por
+// resolver para siempre (la otra no ve al dependiente nuevo).
+func TestEncolarConDependenciaTerminandoEnOtraTransaccion(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := context.Background()
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:" + sufijo, Ruta: "/clientes", Cuerpo: []byte(`{}`)})
+
+	// Otra transacción (como el resultado del worker) deja la dependencia hecha sin confirmar.
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM integracion.pendientes WHERE id = $1 FOR UPDATE`, cli.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE integracion.pendientes SET estado = 'hecho', hecho_en = now(), respuesta = '{"data":{"id":777}}' WHERE id = $1`, cli.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	hecho := make(chan pendientes.Registro, 1)
+	go func() {
+		empresa := int64(1)
+		r, err := casoEncolar.Ejecutar(e.ctx(), pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: "iris:servicio:" + sufijo,
+			Entidad: "prueba", EntidadID: "1", Ruta: "/servicios", EmpresaID: &empresa, Desde: e.reloj,
+			Cuerpo: cuerpo(t, map[string]any{"cliente_id": pendientes.Ref(0, "id")}), DependeDe: []int64{cli.ID}})
+		if err != nil {
+			t.Error(err)
+		}
+		hecho <- r
+	}()
+	// Encolar queda esperando el candado de la dependencia.
+	esperando := false
+	for range 100 {
+		var n int
+		_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&n)
+		if n > 0 {
+			esperando = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !esperando {
+		t.Fatal("Encolar no esperó el candado de la dependencia")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-hecho:
+		if r.PorResolver || !bytes.Contains(r.Payload, []byte("777")) {
+			t.Fatalf("el dependiente quedó por resolver: %+v %s", r, r.Payload)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Encolar no terminó")
+	}
+}
+
+// Red de seguridad: un dependiente atascado por resolver con todas sus dependencias hechas lo
+// resuelve el job; y mientras está por resolver nunca vence, así que ni un worker de antes de
+// los marcadores (su TomarVencido no mira por_resolver) lo manda a Argos.
+func TestPorResolverAtascadoYCandadoParaWorkerViejo(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := context.Background()
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:" + sufijo, Ruta: "/clientes", Cuerpo: []byte(`{}`)})
+	srv := e.encolar(pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: "iris:servicio:" + sufijo, Ruta: "/servicios",
+		Cuerpo: cuerpo(t, map[string]any{"cliente_id": pendientes.Ref(0, "id")}), DependeDe: []int64{cli.ID}})
+	// La dependencia queda hecha por fuera (sin resolver al dependiente).
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.pendientes SET estado = 'hecho', hecho_en = now(), respuesta = '{"id":4242}' WHERE id = $1`, cli.ID); err != nil {
+		t.Fatal(err)
+	}
+	var proximo time.Time
+	_ = e.pool.QueryRow(ctx, "SELECT proximo_intento FROM integracion.pendientes WHERE id = $1", srv.ID).Scan(&proximo)
+	if !proximo.Equal(pendientes.NuncaVence) {
+		t.Fatalf("por resolver no vence: %s", proximo)
+	}
+	// TomarVencido de antes de los marcadores (sin «NOT p.por_resolver»): no lo toma.
+	var viejo int
+	_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM integracion.pendientes p
+		WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= $1) OR (p.estado = 'en_curso' AND p.tomado_en <= $1))
+		  AND NOT EXISTS (SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+		  AND p.id = $2`, e.reloj.Add(1000*time.Hour), srv.ID).Scan(&viejo)
+	if viejo != 0 {
+		t.Fatal("un worker viejo tomaría el cuerpo con el marcador crudo")
+	}
+	// El job lo resuelve (red de seguridad) y lo manda en la misma corrida.
+	if n := e.procesar(); n != 1 {
+		t.Fatalf("procesó %d", n)
+	}
+	s := e.registro(srv.IdempotencyKey)
+	if s.Estado != "hecho" || s.PorResolver || !bytes.Contains(s.Payload, []byte("4242")) {
+		t.Fatalf("atascado resuelto y enviado: %+v %s", s, s.Payload)
+	}
+	for _, l := range e.argos.copia() {
+		if bytes.Contains(l.Crudo, []byte("$iris_ref")) {
+			t.Fatalf("a Argos llegó un marcador: %s", l.Crudo)
+		}
+	}
+}
+
+// DependeDe: cada dependencia debe existir y ser de la misma empresa (error de programación).
+func TestEncolarValidaDependencias(t *testing.T) {
+	e := nuevoEntorno(t)
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:" + sufijo, Ruta: "/clientes", Cuerpo: []byte(`{}`)})
+	otra := int64(2)
+	for nombre, a := range map[string]pendientes.Accion{
+		"inexistente":  {DependeDe: []int64{999999999}},
+		"repetida":     {DependeDe: []int64{cli.ID, cli.ID}},
+		"otra empresa": {DependeDe: []int64{cli.ID}, EmpresaID: &otra},
+		"sin empresa":  {DependeDe: []int64{cli.ID}, EmpresaID: nil},
+	} {
+		a.Operacion, a.IdempotencyKey, a.Entidad, a.EntidadID, a.Ruta, a.Desde = "crear_servicio", "iris:dep:"+nombre+sufijo, "prueba", "1", "/servicios", e.reloj
+		if nombre != "otra empresa" && nombre != "sin empresa" {
+			uno := int64(1)
+			a.EmpresaID = &uno
+		}
+		if _, err := casoEncolar.Ejecutar(e.ctx(), a); err == nil {
+			t.Fatalf("%s: debía fallar", nombre)
+		}
+	}
+	uno := int64(1)
+	if _, err := casoEncolar.Ejecutar(e.ctx(), pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: "iris:dep:ok" + sufijo,
+		Entidad: "prueba", EntidadID: "1", Ruta: "/servicios", EmpresaID: &uno, Desde: e.reloj, DependeDe: []int64{cli.ID}}); err != nil {
+		t.Fatalf("misma empresa: %v", err)
 	}
 }

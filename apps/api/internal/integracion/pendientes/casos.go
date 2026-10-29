@@ -55,7 +55,7 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if p.DependeDe == nil {
 		p.DependeDe = []int64{}
 	}
-	if f.Estado == EstadoPendiente {
+	if f.Estado == EstadoPendiente && !f.PorResolver {
 		t := f.ProximoIntento
 		p.ProximoIntento = &t
 	}

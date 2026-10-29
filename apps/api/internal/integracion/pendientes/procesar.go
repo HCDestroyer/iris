@@ -31,6 +31,10 @@ const maxPorCorrida = 500
 // Devuelve cuántos procesó. ctx debe traer el pool (nucleo.ConBD) y el actor sistema.
 func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	ahora := m.ahora()
+	// Red de seguridad: dependientes con marcadores que quedaron sin resolver (no debería haber).
+	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
+		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
+	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -125,8 +129,8 @@ const TipoEnCurso = "idempotencia_en_curso"
 // user_ppp_duplicado, 422 idempotency_key_reutilizada). No lo son 401/403 (credencial o permiso
 // del token: se arregla en Argos y el reintento pasa), 408, 425, 429 ni el 409
 // idempotencia_en_curso (Argos procesando la misma Idempotency-Key); los demás 409 de Argos
-// (user_ppp_duplicado y otros conflictos de datos) sí son de negocio. Un 409 sin type se
-// reintenta (no se sabe cuál es).
+// (user_ppp_duplicado y otros conflictos de datos) sí son de negocio. Un 409 sin type (o con
+// about:blank) se reintenta (no se sabe cuál es).
 func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
@@ -145,7 +149,10 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 // TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL
 // …/x).
 func TipoDe(er *conector.ErrorRemoto) string {
-	t := er.Tipo
+	t := strings.TrimSpace(er.Tipo)
+	if t == "about:blank" {
+		return "" // RFC 9457: sin tipo propio
+	}
 	if i := strings.LastIndexAny(t, ":/"); i >= 0 {
 		t = t[i+1:]
 	}
@@ -262,7 +269,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			switch f.Estado {
 			case EstadoHecho:
 				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.
-				if err := resolverDependientes(ctx, t, f.ID); err != nil {
+				if err := resolverDependientes(ctx, t, f.ID, in.ahora); err != nil {
 					return Pendiente{}, err
 				}
 				if err := m.desbloquearDependientes(ctx, t, f.ID, in.ahora); err != nil {
