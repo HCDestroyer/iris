@@ -86,7 +86,7 @@ func paramsTickets(a ambito, f FiltrosTickets) reportesbd.ReporteSLAParams {
 }
 
 func (m *Modulo) nuevoSLA() *auditoria.Caso[FiltrosTickets, ReporteSLA] {
-	return caso("reportes.sla", func(ctx context.Context, t *auditoria.Tx, in FiltrosTickets) (ReporteSLA, error) {
+	return caso(m, "reportes.sla", func(ctx context.Context, t *auditoria.Tx, in FiltrosTickets) (ReporteSLA, error) {
 		a, err := m.resolver(ctx, in.FiltrosPeriodo)
 		if err != nil {
 			return ReporteSLA{}, err
@@ -119,7 +119,7 @@ func (m *Modulo) nuevoSLA() *auditoria.Caso[FiltrosTickets, ReporteSLA] {
 }
 
 func (m *Modulo) nuevoResolucion() *auditoria.Caso[FiltrosTickets, ReporteResolucion] {
-	return caso("reportes.resolucion", func(ctx context.Context, t *auditoria.Tx, in FiltrosTickets) (ReporteResolucion, error) {
+	return caso(m, "reportes.resolucion", func(ctx context.Context, t *auditoria.Tx, in FiltrosTickets) (ReporteResolucion, error) {
 		a, err := m.resolver(ctx, in.FiltrosPeriodo)
 		if err != nil {
 			return ReporteResolucion{}, err

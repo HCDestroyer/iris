@@ -41,6 +41,10 @@ func modulo() *reportes.Modulo {
 	return reportes.Nuevo(reportes.Config{Reloj: func() time.Time { return ahora }})
 }
 
+func moduloCon(maximo time.Duration) *reportes.Modulo {
+	return reportes.Nuevo(reportes.Config{Reloj: func() time.Time { return ahora }, TiempoMaximo: maximo})
+}
+
 var ident = identidad.Nuevo(identidad.Config{})
 
 func usuario(t *testing.T, nombre string) int64 {
@@ -511,7 +515,7 @@ func TestReincidencias(t *testing.T) {
 	pct(t, "%", r.Porcentaje, 50)
 	igual(t, "página 1", len(r.Data), 1)
 	igual(t, "más reciente primero", r.Data[0].TicketID, b)
-	igual(t, "horas", r.Data[0].HorasHastaVolver, 48)
+	pct(t, "horas", r.Data[0].HorasHastaVolver, 48)
 	if r.NextCursor == nil {
 		t.Fatal("falta el cursor")
 	}
@@ -523,7 +527,7 @@ func TestReincidencias(t *testing.T) {
 	igual(t, "página 2", len(r.Data), 1)
 	igual(t, "ticket", r.Data[0].TicketID, a)
 	igual(t, "nuevos en la ventana", r.Data[0].NuevosEnVentana, 2)
-	igual(t, "horas", r.Data[0].HorasHastaVolver, 72)
+	pct(t, "horas", r.Data[0].HorasHastaVolver, 72)
 	if r.NextCursor != nil {
 		t.Fatal("no debe haber más páginas")
 	}
@@ -537,4 +541,69 @@ func TestReincidencias(t *testing.T) {
 		t.Fatal(err)
 	}
 	igual(t, "con 45 días", r.Reincidentes, 3)
+}
+
+// Una reincidencia cuyo ticket siguiente está fuera del alcance del actor cuenta igual, pero sus
+// datos (siguiente*) no se muestran (JSON ni CSV).
+func TestReincidenciaFueraDeAlcance(t *testing.T) {
+	limpiar(t)
+	m := modulo()
+	res := gt("2026-10-05", "10:00")
+	a := ticket(t, tk{zona: p(int64(1)), servicio: p(int64(301)), creado: res.Add(-time.Hour), resuelto: &res})
+	ticket(t, tk{zona: p(int64(2)), servicio: p(int64(301)), creado: *en(res, 24*time.Hour)})
+	b := ticket(t, tk{zona: p(int64(1)), servicio: p(int64(302)), creado: res.Add(-time.Hour), resuelto: en(res, time.Hour)})
+	ticket(t, tk{zona: p(int64(1)), servicio: p(int64(302)), creado: *en(res, 48*time.Hour)})
+
+	in := reportes.EntradaReincidencias{FiltrosTickets: reportes.FiltrosTickets{FiltrosPeriodo: octubre()}}
+	r, err := m.Reincidencias.Ejecutar(conAlcance(t, contexto.Alcance{ZonaID: 1}), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	igual(t, "reincidentes (zona 1)", r.Reincidentes, 2)
+	igual(t, "filas", len(r.Data), 2)
+	for _, f := range r.Data {
+		switch f.TicketID {
+		case a:
+			if f.SiguienteID != nil || f.SiguienteNumero != nil || f.SiguienteCreadoEn != nil || f.HorasHastaVolver != nil {
+				t.Fatalf("el siguiente de la zona 2 no se muestra: %+v", f)
+			}
+			igual(t, "nuevos en la ventana", f.NuevosEnVentana, 1)
+		case b:
+			if f.SiguienteID == nil || f.SiguienteNumero == nil {
+				t.Fatalf("el siguiente de la zona 1 sí se muestra: %+v", f)
+			}
+		}
+	}
+	// Con alcance global se ven los dos.
+	r, err = m.Reincidencias.Ejecutar(como(t), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range r.Data {
+		if f.SiguienteID == nil {
+			t.Fatalf("global ve el siguiente: %+v", f)
+		}
+	}
+}
+
+// Un reporte que pasa el tiempo máximo responde 503 reporte_demasiado_largo (no un 500 ni un
+// resultado parcial). Para que tarde, otra transacción tiene la tabla bloqueada: la espera del
+// candado cuenta para el statement_timeout.
+func TestTiempoMaximo(t *testing.T) {
+	limpiar(t)
+	ctx := context.Background()
+	tx, err := pruebas.Pool(t).Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "LOCK TABLE soporte.tickets IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	inicio := time.Now()
+	_, err = moduloCon(200*time.Millisecond).SLA.Ejecutar(como(t), reportes.FiltrosTickets{FiltrosPeriodo: octubre()})
+	problema(t, err, 503, "reporte_demasiado_largo")
+	if d := time.Since(inicio); d > 5*time.Second {
+		t.Fatalf("el tiempo máximo no cortó la consulta: %v", d)
+	}
 }

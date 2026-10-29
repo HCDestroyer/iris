@@ -6538,6 +6538,99 @@
         ],
         "type": "object"
       },
+      "MFAReiniciado": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cambioContrasenaRequerido": {
+            "description": "Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido)",
+            "type": "boolean"
+          },
+          "correo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mfaActivo": {
+            "description": "Tiene TOTP activo",
+            "type": "boolean"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/AsignacionRol"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sesionesCerradas": {
+            "description": "Sesiones del usuario que se cerraron (completas y pendientes de MFA)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "persona",
+              "integracion"
+            ],
+            "type": "string"
+          },
+          "tokensRevocados": {
+            "description": "Tokens iris_pat_ revocados (0 con revocarTokens: false)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sesionesCerradas",
+          "tokensRevocados",
+          "id",
+          "nombre",
+          "correo",
+          "tipo",
+          "activo",
+          "mfaActivo",
+          "roles",
+          "empresas",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "MaterialOrden": {
         "additionalProperties": false,
         "properties": {
@@ -10516,12 +10609,15 @@
             ]
           },
           "horasHastaVolver": {
-            "description": "Horas de reloj entre la resolución y el siguiente ticket",
+            "description": "Horas de reloj entre la resolución y el siguiente ticket; null si está fuera de tu alcance",
             "format": "double",
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "nuevosEnVentana": {
-            "description": "Tickets abiertos en la ventana por el mismo servicio o cliente",
+            "description": "Tickets abiertos en la ventana por el mismo servicio o cliente (todos, también fuera de tu alcance)",
             "format": "int64",
             "type": "integer"
           },
@@ -10550,16 +10646,27 @@
             ]
           },
           "siguienteCreadoEn": {
+            "description": "null si el siguiente está fuera de tu alcance",
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "siguienteId": {
-            "description": "Primer ticket que se abrió después",
+            "description": "Primer ticket que se abrió después; null si está fuera de tu alcance (la reincidencia cuenta igual)",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "siguienteNumero": {
-            "type": "string"
+            "description": "null si el siguiente está fuera de tu alcance",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ticketId": {
             "format": "int64",
@@ -19171,6 +19278,25 @@
             }
           },
           {
+            "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
+            "explode": false,
+            "in": "query",
+            "name": "estadoDistintoDe",
+            "schema": {
+              "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
+              "enum": [
+                "pendiente",
+                "en_curso",
+                "hecho",
+                "fallido_negocio",
+                "agotado",
+                "bloqueado",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
             "description": "Solo los que tienen un conflicto por cierre repetido",
             "explode": false,
             "in": "query",
@@ -26269,7 +26395,7 @@
     },
     "/api/v1/reportes/primera-visita": {
       "get": {
-        "description": "Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reportePrimeraVisita",
         "parameters": [
           {
@@ -26431,6 +26557,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26450,7 +26586,7 @@
     },
     "/api/v1/reportes/reincidencias": {
       "get": {
-        "description": "Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteReincidencias",
         "parameters": [
           {
@@ -26570,6 +26706,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -26671,6 +26808,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26690,7 +26837,7 @@
     },
     "/api/v1/reportes/resolucion": {
       "get": {
-        "description": "Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteResolucion",
         "parameters": [
           {
@@ -26810,6 +26957,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -26872,6 +27020,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -26891,7 +27049,7 @@
     },
     "/api/v1/reportes/sla": {
       "get": {
-        "description": "Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteSLA",
         "parameters": [
           {
@@ -27011,6 +27169,7 @@
                 ],
                 "type": "string"
               },
+              "maxItems": 4,
               "type": [
                 "array",
                 "null"
@@ -27073,6 +27232,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -27092,7 +27261,7 @@
     },
     "/api/v1/reportes/tecnicos": {
       "get": {
-        "description": "Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.",
+        "description": "Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).",
         "operationId": "reporteTecnicos",
         "parameters": [
           {
@@ -27240,6 +27409,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -32676,7 +32855,7 @@
     },
     "/api/v1/usuarios/{id}/reiniciar-mfa": {
       "post": {
-        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
         "operationId": "reiniciarMFAUsuario",
         "parameters": [
           {
@@ -32715,7 +32894,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Usuario"
+                  "$ref": "#/components/schemas/MFAReiniciado"
                 }
               }
             },
