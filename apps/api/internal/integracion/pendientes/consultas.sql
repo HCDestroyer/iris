@@ -70,6 +70,7 @@ WHERE (@despues_de::bigint = 0 OR id < @despues_de)
   AND (sqlc.narg(entidad)::text IS NULL OR entidad = sqlc.narg(entidad))
   AND (sqlc.narg(entidad_id)::text IS NULL OR entidad_id = sqlc.narg(entidad_id))
   AND (sqlc.narg(estado)::text IS NULL OR estado = sqlc.narg(estado))
+  AND (sqlc.narg(estado_distinto_de)::text IS NULL OR estado <> sqlc.narg(estado_distinto_de))
   AND (NOT @solo_conflicto::boolean OR conflicto IS NOT NULL)
 ORDER BY id DESC
 LIMIT @limite;

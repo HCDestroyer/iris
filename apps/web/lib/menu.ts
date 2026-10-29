@@ -1,6 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import {
     CalendarDays,
+    ChartColumn,
     ClipboardList,
     Handshake,
     LayoutDashboard,
@@ -50,6 +51,7 @@ export const MENU: readonly EntradaMenu[] = [
     { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
     { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
     { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
+    { href: "/reportes", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {
         href: "/administracion",

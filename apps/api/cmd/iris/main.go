@@ -43,6 +43,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/reportes"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 	"github.com/HCDestroyer/iris/apps/api/migraciones"
 )
@@ -255,6 +256,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
 			com.Registrar,
+			reportes.Nuevo(reportes.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
 	})

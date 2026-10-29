@@ -172,3 +172,10 @@ sql:
           comercial_cotizacione: ComercialCotizacion
           comercial_actividade: ComercialActividad
           comercial_factibilidade: ComercialFactibilidad
+  - <<: *base
+    queries: internal/reportes/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: reportesbd
+        out: internal/reportes/bd

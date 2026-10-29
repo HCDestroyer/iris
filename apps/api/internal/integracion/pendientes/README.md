@@ -64,7 +64,8 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 - **409 por type:** `idempotencia_en_curso` (y un 409 sin type o con `about:blank`) se reintenta; los demás 409
   (`user_ppp_duplicado`…) y el 422 `idempotency_key_reutilizada` son de negocio
   (`pendientes.EsNegocio`, que también usa comercial).
-- `GET /api/v1/integraciones/pendientes?entidad=&entidadId=&estado=` (`integraciones.ver_pendientes`)
+- `GET /api/v1/integraciones/pendientes?entidad=&entidadId=&estado=&estadoDistintoDe=&conflicto=` (`integraciones.ver_pendientes`;
+  `estadoDistintoDe=hecho` trae lo que aún no llegó a Argos en una lectura)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,
   auditado).
 - Para campo y el panel: `pendientes.DeEntidad(ctx, q, "orden", id)` y `ConPendienteEnArgos(ps)`
