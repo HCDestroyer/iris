@@ -40,18 +40,23 @@ func operacion(id, metodo, ruta, resumen string, permiso nucleo.Permiso, status 
 
 // Entradas y salidas HTTP.
 
+// cliente es la IP y el navegador de quien abre una sesión. Va embebido (sin exportar) en las
+// entradas del login, el MFA y el canje del portal. Huma no lee las etiquetas header:"…" de un
+// struct embebido no exportado (el User-Agent llegaba siempre vacío), pero sí llama a su
+// Resolve: los dos se leen ahí. No es un parámetro del OpenAPI: el navegador lo manda solo.
 type cliente struct {
-	UserAgent string `header:"User-Agent"`
+	userAgent string
 	ip        string
 }
 
-// Resolve toma la IP remota (huma.Resolver).
+// Resolve toma la IP remota y el User-Agent (huma.Resolver).
 func (c *cliente) Resolve(ctx huma.Context) []error {
 	host, _, err := net.SplitHostPort(ctx.RemoteAddr())
 	if err != nil {
 		host = ctx.RemoteAddr()
 	}
 	c.ip = host
+	c.userAgent = ctx.Header("User-Agent")
 	return nil
 }
 
@@ -108,7 +113,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	login.Description = "Valida correo y contraseña y abre la sesión: cookie `iris_sesion` (HttpOnly, SameSite=Lax) y `iris_csrf` (para la cabecera `X-CSRF-Token`). Con MFA activo la sesión queda pendiente hasta `POST /api/v1/sesion/mfa`. Tras 10 fallos seguidos con un correo (exista o no) en 15 min, ese correo queda bloqueado 15 min: 429 `demasiados_intentos` con `Retry-After`, aun con la contraseña correcta. Entrar bien reinicia la cuenta."
 	huma.Register(api, login, func(ctx context.Context, in *entradaLogin) (*salidaSesion, error) {
 		e := in.Body
-		e.IP, e.UserAgent = in.ip, in.UserAgent
+		e.IP, e.UserAgent = in.ip, in.userAgent
 		s, err := m.IniciarSesion.Ejecutar(ctx, e)
 		if err != nil {
 			return nil, err
@@ -120,7 +125,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	mfa.Description = "Con la sesión pendiente de MFA (cookie) y `X-CSRF-Token`. Cambia la sesión por una nueva. Al 5.º código inválido (o ya usado) la sesión pendiente se revoca (401 `mfa_bloqueado`) y hay que volver a iniciar sesión."
 	huma.Register(api, mfa, func(ctx context.Context, in *entradaMFA) (*salidaSesion, error) {
 		e := in.Body
-		e.IP, e.UserAgent = in.ip, in.UserAgent
+		e.IP, e.UserAgent = in.ip, in.userAgent
 		s, err := m.VerificarMFA.Ejecutar(ctx, e)
 		if err != nil {
 			return nil, err
