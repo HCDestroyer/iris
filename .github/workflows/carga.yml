@@ -63,7 +63,7 @@ jobs:
         if: failure()
         run: |
           docker compose -p iris-carga -f infra/docker-compose.yml -f infra/carga/compose.yml \
-            --env-file .env.example --profile app logs --no-color --tail 300 api worker postgres \
+            --env-file .env.example --profile app logs --no-color --tail 300 api worker \
             >infra/carga/.salida/compose.log 2>&1 || true
 
       - name: Subir resultados de k6

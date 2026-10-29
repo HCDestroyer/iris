@@ -24,6 +24,11 @@ services:
       - shared_buffers=256MB
       - -c
       - log_min_duration_statement=${IRIS_CARGA_PG_LENTAS_MS:-500}
+      - -c
+      # Las consultas lentas se registran sin sus parámetros (los logs se suben si CI falla).
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
     ports: !override
       - 127.0.0.1:${IRIS_CARGA_PG_PUERTO:-3515}:5432
 
@@ -32,6 +37,10 @@ services:
 
   migrar:
     image: iris/api:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
     build: !reset null
     volumes: !reset []
     environment:
@@ -39,6 +48,10 @@ services:
 
   api:
     image: iris/api:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
     build: !reset null
     volumes: !reset []
     depends_on: !override
@@ -60,6 +73,10 @@ services:
 
   worker:
     image: iris/worker:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
     build: !reset null
     volumes: !reset []
     depends_on: !override
@@ -74,3 +91,11 @@ services:
       IRIS_ADJUNTOS_ALMACEN: local
       IRIS_ADJUNTOS_DIR: /tmp/adjuntos
       IRIS_LOG_NIVEL: warn
+
+# Subred propia: la de dev (IRIS_RED_COMPOSE, 172.28.10.0/24) choca («Pool overlaps») si los dos
+# composes están arriba a la vez.
+networks:
+  default:
+    ipam:
+      config: !override
+        - subnet: ${IRIS_CARGA_RED:-172.28.20.0/24}

@@ -374,5 +374,8 @@ export function handleSummary(data) {
     }
     const texto = lineas.join('\n') + '\n';
     const dir = __ENV.CARGA_RESUMEN_DIR || '../.salida';
-    return { stdout: texto, [`${dir}/resumen.txt`]: texto, [`${dir}/resumen.json`]: JSON.stringify(data, null, 2) };
+    // setup_data lleva las cookies de sesión de todos los usuarios: nunca va al resumen (artefacto).
+    const publico = { ...data };
+    delete publico.setup_data;
+    return { stdout: texto, [`${dir}/resumen.txt`]: texto, [`${dir}/resumen.json`]: JSON.stringify(publico, null, 2) };
 }

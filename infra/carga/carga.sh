@@ -88,9 +88,14 @@ log "worker arriba (relay del outbox y cron de SLA cada minuto)"
 "${compose[@]}" up -d worker
 
 log "k6 ($K6_IMAGEN): ${CARGA_DURACION:-15m}, ${CARGA_TECNICOS:-50} técnicos, ${CARGA_PANEL:-20} del panel"
+# La contraseña va a k6 por un archivo temporal (no por -e: se vería en `ps` y en `docker inspect`).
+K6_ENV="$(mktemp)"
+chmod 600 "$K6_ENV"
+trap 'rm -f "$K6_ENV"' EXIT
+printf 'CARGA_CONTRASENA=%s\n' "$CONTRASENA" >"$K6_ENV"
 set +e
-docker run --rm --network host --user "$(id -u):$(id -g)" -v "$DIR:/carga" -w /carga/escenarios \
-    -e CARGA_API="http://127.0.0.1:$IRIS_CARGA_API_PUERTO" -e CARGA_CONTRASENA="$CONTRASENA" \
+docker run --rm --env-file "$K6_ENV" --network host --user "$(id -u):$(id -g)" -v "$DIR:/carga" -w /carga/escenarios \
+    -e CARGA_API="http://127.0.0.1:$IRIS_CARGA_API_PUERTO" \
     -e CARGA_USUARIOS=/carga/.salida/usuarios.json -e CARGA_RESUMEN_DIR=/carga/.salida \
     -e CARGA_DURACION="${CARGA_DURACION:-15m}" -e CARGA_TECNICOS="${CARGA_TECNICOS:-50}" -e CARGA_PANEL="${CARGA_PANEL:-20}" \
     -e CARGA_INTERVALO_SYNC -e CARGA_INTERVALO_PAQUETE -e CARGA_REENVIO -e K6_NO_USAGE_REPORT=true \
