@@ -90,7 +90,9 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
     const actual = versiones.find((v) => v.numero === p.versionActual);
     const puedeEditar = !vieja && puedeModificar(p, "plantillas.editar", yo, puede);
     const accionEstado = p.activa ? "desactivar" : "activar";
-    const puedeEstado = !vieja && puedeModificar(p, p.activa ? "plantillas.desactivar" : "plantillas.activar", yo, puede);
+    // La por defecto de un tipo no se desactiva (422 plantilla_por_defecto): no se ofrece.
+    const porDefectoActiva = p.activa && p.porDefecto;
+    const puedeEstado = !vieja && !porDefectoActiva && puedeModificar(p, p.activa ? "plantillas.desactivar" : "plantillas.activar", yo, puede);
     const comunBloqueada = p.empresaId === null && !puedeModificar(p, "plantillas.editar", yo, puede) && puede(["plantillas.editar"]);
     const conflicto = (e: unknown) => e instanceof ErrorApi && e.estado === 409 && !e.codigo.startsWith("idempotencia");
 
@@ -163,6 +165,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
                         ) : null}
                     </div>
                 ) : null}
+                {porDefectoActiva && !vieja ? <p className="text-sm text-muted-foreground">Es la plantilla por defecto del tipo: no se puede desactivar.</p> : null}
                 {comunBloqueada ? <p className="text-sm text-muted-foreground">Es común a todas las empresas: solo la modifica quien opera en todas.</p> : null}
                 {errorEstado ? (
                     conflicto(errorEstado) ? (

@@ -139,12 +139,13 @@ test.describe("plantillas de formulario", () => {
         await expect(page.getByTestId("items-plantilla").locator("[data-item]")).toHaveCount(2);
     });
 
-    test("la por defecto no se desactiva (422 con el detail) y un 409 ofrece «Recargar»", async ({ page, context, baseURL }) => {
+    test("la por defecto no ofrece desactivar y un 409 ofrece «Recargar»", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/plantillas/3");
-        await page.getByRole("button", { name: "Desactivar" }).click();
-        await expect(page.getByText("es la plantilla por defecto de un tipo de orden: no se puede desactivar")).toBeVisible();
+        await expect(page.getByText("Es la plantilla por defecto del tipo: no se puede desactivar.")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Editar" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Desactivar" })).toHaveCount(0);
 
         await page.goto("/administracion/plantillas/2");
         await expect(page.getByRole("heading", { name: "Seguridad en altura" })).toBeVisible();

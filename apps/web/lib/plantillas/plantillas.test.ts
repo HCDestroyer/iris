@@ -91,15 +91,17 @@ describe("plantillas (espejo de EntradaCrearPlantilla)", () => {
         expect(opcionesDe(" a \n\n b\n")).toEqual(["a", "b"]);
     });
 
-    it("lo común solo con empresas.todas o sin conector", () => {
-        const sin = () => false;
-        const todas = (p: readonly string[]) => p.includes("empresas.todas") || p.includes("plantillas.editar");
+    it("lo común solo con empresas.todas global (todasLasEmpresas) o sin conector", () => {
         const editar = (p: readonly string[]) => p.includes("plantillas.editar");
-        expect(puedeTocarComun({ modoEmpresa: "sin_conector" }, sin)).toBe(true);
-        expect(puedeTocarComun({ modoEmpresa: "activa" }, sin)).toBe(false);
-        expect(puedeModificar({ empresaId: null }, "plantillas.editar", { modoEmpresa: "activa" }, editar)).toBe(false);
-        expect(puedeModificar({ empresaId: null }, "plantillas.editar", { modoEmpresa: "activa" }, todas)).toBe(true);
-        expect(puedeModificar({ empresaId: 10 }, "plantillas.editar", { modoEmpresa: "activa" }, editar)).toBe(true);
+        // `empresas.todas` con alcance no da `todasLasEmpresas`: no basta.
+        const conAlcance = (p: readonly string[]) => p.includes("empresas.todas") || editar(p);
+        expect(puedeTocarComun({ modoEmpresa: "sin_conector", todasLasEmpresas: false })).toBe(true);
+        expect(puedeTocarComun({ modoEmpresa: "activa", todasLasEmpresas: false })).toBe(false);
+        expect(puedeTocarComun({ modoEmpresa: "activa", todasLasEmpresas: true })).toBe(true);
+        expect(puedeModificar({ empresaId: null }, "plantillas.editar", { modoEmpresa: "activa", todasLasEmpresas: false }, conAlcance)).toBe(false);
+        expect(puedeModificar({ empresaId: null }, "plantillas.editar", { modoEmpresa: "activa", todasLasEmpresas: true }, editar)).toBe(true);
+        expect(puedeModificar({ empresaId: null }, "plantillas.editar", { modoEmpresa: "activa", todasLasEmpresas: true }, () => false)).toBe(false);
+        expect(puedeModificar({ empresaId: 10 }, "plantillas.editar", { modoEmpresa: "activa", todasLasEmpresas: false }, editar)).toBe(true);
     });
 });
 

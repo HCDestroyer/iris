@@ -18,11 +18,11 @@ import { useSesion } from "@/lib/sesion";
 const CAMPOS = ["codigo", "nombre", "descripcion", "tipo"] as const;
 
 export function NuevaPlantilla() {
-    const { yo, puede } = useSesion();
+    const { yo } = useSesion();
     const router = useRouter();
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
-    const comun = puedeTocarComun(yo, puede);
+    const comun = puedeTocarComun(yo);
     return (
         <>
             <Link href="/administracion/plantillas" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
