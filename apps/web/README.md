@@ -55,6 +55,16 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   ganar (qué falta, confirmar obra, router si hace falta) y alta (local u Argos con pendientes,
   «Reintentar» y error visible), actividades con próxima acción e historial. Botones = `acciones`
   de la API ∩ permisos de `GET /yo`; `version` + `Idempotency-Key`; 409 → «Recargar».
+- **Reportes** (`/reportes`, `lib/reportes`, `componentes/reportes`, `reportes.ver`): SLA cumplido,
+  tiempo de resolución, órdenes por técnico, primera visita resuelta y reincidencias (`GET
+  /reportes/*`). Filtros en la URL: período en días de Guatemala (atajos «Este mes», «Mes
+  anterior», «Últimos 90 días»; como mucho 366 días, validado antes de pedir), zona, cuadrilla,
+  técnico (usuario), y en los de tickets categoría y prioridades (`prioridad=alta,critica`);
+  `dias` en primera visita (7–90) y reincidencias (1–90). Indicadores, gráfico de barras en HTML con
+  la paleta categórica de Horus (`bg-grafico-1`/`-2`, valor en texto al final, leyenda con dos
+  series) y tabla de desglose; porcentaje `null` = «Sin datos», nunca 0 %. Reincidencias con
+  «Cargar más». «Descargar CSV» con los mismos filtros (`formato=csv`, con la sesión) y el `detail`
+  de un 422. Si la lectura falla, error con «Reintentar» y ningún total. No emite ni consume eventos.
 - **Plantillas de formulario** (`/administracion/plantillas`, `lib/plantillas`, `componentes/plantillas`,
   `plantillas.ver`): lista por tipo y activas o todas; crear (borrador por omisión), editar (ítems
   `si_no`, `texto`, `numero`, `medicion`, `foto`, `seleccion` con opciones; orden con subir/bajar;
