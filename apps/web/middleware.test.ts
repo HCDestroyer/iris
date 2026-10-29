@@ -23,6 +23,10 @@ describe("middleware", () => {
         expect(coincide("/soporte/3")).toBe(true);
         expect(coincide("/tickets")).toBe(true);
     });
+    it("la encuesta pública no pasa por el middleware; la lista del panel sí", () => {
+        expect(coincide("/encuesta")).toBe(false);
+        expect(coincide("/encuestas")).toBe(true);
+    });
     it("/campo, su manifest y el service worker no pasan por el middleware (abren sin señal)", () => {
         expect(coincide("/campo")).toBe(false);
         expect(coincide("/campo/manifest.webmanifest")).toBe(false);

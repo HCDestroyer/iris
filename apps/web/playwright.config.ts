@@ -1,4 +1,8 @@
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+
+const directorio = path.dirname(fileURLToPath(import.meta.url));
 
 // Pruebas del panel en escritorio (1280 px) y teléfono (390 px), en claro y oscuro. La API se
 // simula con page.route (e2e/api-falsa.ts): no hace falta la API Go. Puerto de I3: 3503.
@@ -32,6 +36,7 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
         // Ninguna petición debe llegar al proxy: si una ruta no está simulada, falla (502).
-        env: { IRIS_API_URL: "http://127.0.0.1:9" },
+        // Con la precarga de producción (IP del socket para X-Forwarded-For), como el Dockerfile.
+        env: { IRIS_API_URL: "http://127.0.0.1:9", NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(directorio, "ip-cliente.mjs")).href}` },
     },
 });

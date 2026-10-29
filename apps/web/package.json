@@ -7,7 +7,7 @@
     "scripts": {
         "dev": "next dev -p ${PORT:-3000}",
         "build": "next build",
-        "start": "next start -p ${PORT:-3000}",
+        "start": "node --import ./ip-cliente.mjs ./node_modules/next/dist/bin/next start -p ${PORT:-3000}",
         "lint": "eslint .",
         "typecheck": "tsc --noEmit -p tsconfig.json",
         "test": "vitest run",

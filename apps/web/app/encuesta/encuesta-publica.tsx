@@ -10,6 +10,7 @@ import { ErrorApi } from "@/lib/api/errores";
 import { consultarEncuesta, responderEncuesta, type EncuestaPublica as Datos } from "@/lib/encuestas/api-publica";
 import { CALIFICACIONES, MAX_COMENTARIO, TEXTO_CALIFICACION, textoCalificacion } from "@/lib/encuestas/presentacion";
 import { cuerpoRespuesta, esquemaRespuestaEncuesta, pasoPorProblema, tokenDesdeFragmento, type DatosRespuestaEncuesta, type PasoEncuesta } from "@/lib/encuestas/publica";
+import { quitarFragmentoDeLaUrl } from "@/lib/fragmento";
 
 const OPCIONES = CALIFICACIONES.map((c) => ({ valor: c, etiqueta: TEXTO_CALIFICACION[c].texto, icono: TEXTO_CALIFICACION[c].icono, detalle: `${c} de 5` }));
 
@@ -83,7 +84,7 @@ export function EncuestaPublica() {
         const limpiarUrl = () => {
             // Fuera de la URL antes de nada: no queda en el historial, ni al recargar ni al compartir.
             if (window.location.hash) {
-                window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+                quitarFragmentoDeLaUrl();
             }
         };
         limpiarUrl();

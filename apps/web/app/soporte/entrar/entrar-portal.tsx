@@ -8,6 +8,7 @@ import { resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
 import { apiPortal } from "@/lib/portal/cliente";
 import { ticketDesdeFragmento } from "@/lib/portal/fragmento";
+import { quitarFragmentoDeLaUrl } from "@/lib/fragmento";
 
 type Motivo = "expirada" | "salio" | undefined;
 
@@ -73,7 +74,7 @@ export function EntrarPortal() {
     useEffect(() => {
         // Fuera de la URL antes de nada: no queda en el historial, ni al recargar ni al compartir.
         if (window.location.hash) {
-            window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+            quitarFragmentoDeLaUrl();
         }
         if (ticket.current && !enviado.current) {
             enviado.current = true;
@@ -82,7 +83,7 @@ export function EntrarPortal() {
         // Otro enlace abierto en esta misma pestaña sin recargar (solo cambia el fragmento).
         function alCambiarFragmento() {
             const siguiente = estadoInicial();
-            window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+            quitarFragmentoDeLaUrl();
             ticket.current = siguiente.ticket;
             setEstado(siguiente.estado);
             if (siguiente.ticket) {

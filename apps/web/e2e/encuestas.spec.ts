@@ -49,6 +49,20 @@ test.describe("página pública", () => {
         expect(publicas.every((p) => !p.query.toString() && (p.cuerpo as { token?: string }).token === TOKENS.pendiente)).toBe(true);
     });
 
+    test("el token no vuelve a la URL: ni al cargar ni tras un router.refresh() de Next", async ({ page }) => {
+        await simularApi(page);
+        await page.goto(`/encuesta#${TOKENS.pendiente}`);
+        await expect(page.getByRole("heading", { name: "¿Cómo te atendimos?" })).toBeVisible();
+        expect(await page.evaluate(() => window.location.hash)).toBe("");
+        await page.evaluate(() => (window as unknown as { next: { router: { refresh(): void } } }).next.router.refresh());
+        await page.waitForLoadState("networkidle");
+        await page.getByRole("radio", { name: /^Bien/ }).check();
+        await page.waitForLoadState("networkidle");
+        expect(await page.evaluate(() => window.location.hash)).toBe("");
+        expect(page.url()).not.toContain(TOKENS.pendiente);
+        await expect(page.getByRole("heading", { name: "¿Cómo te atendimos?" })).toBeVisible();
+    });
+
     test("ya respondida, vencida, enlace inválido, sin enlace y demasiados intentos: con texto", async ({ page }) => {
         const api = await simularApi(page);
         await page.goto(`/encuesta#${TOKENS.respondida}`);
