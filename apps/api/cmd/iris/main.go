@@ -208,7 +208,14 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola)})
+	// Encuestas de satisfacción: el enlace se deriva de IRIS_CLAVE_CIFRADO (sin ella, el enlace no
+	// se puede volver a mostrar ni enviar por correo) y va a IRIS_BASE_URL/encuesta#<token>.
+	clavesEnc, err := soporte.ClavesEncuestas(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
+	if err != nil {
+		return err
+	}
+	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
+		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}})
 	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	almacen, err := almacenAdjuntos(cfg)
 	if err != nil {
@@ -229,6 +236,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+		Encuestas: sop.GenerarEncuestaOrden,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).

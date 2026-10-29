@@ -39,6 +39,7 @@ type Modulo struct {
 	Tecnicos      *auditoria.Caso[FiltrosOrdenes, ReporteTecnicos]
 	PrimeraVisita *auditoria.Caso[EntradaPrimeraVisita, ReportePrimeraVisita]
 	Reincidencias *auditoria.Caso[EntradaReincidencias, ReporteReincidencias]
+	Satisfaccion  *auditoria.Caso[EntradaSatisfaccion, ReporteSatisfaccion]
 }
 
 // Nuevo arma el módulo.
@@ -59,6 +60,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Tecnicos = m.nuevoTecnicos()
 	m.PrimeraVisita = m.nuevoPrimeraVisita()
 	m.Reincidencias = m.nuevoReincidencias()
+	m.Satisfaccion = m.nuevoSatisfaccion()
 	return m
 }
 

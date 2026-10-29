@@ -131,6 +131,9 @@ const (
 	// Reportes (I2): solo lectura, agregados de soporte y campo (con el alcance por zona o
 	// cuadrilla del rol).
 	PermReportesVer Permiso = "reportes.ver"
+	// Encuestas de satisfacción (I2): la lista con calificación, comentario y el enlace para
+	// compartir mientras esté pendiente.
+	PermEncuestasVer Permiso = "encuestas.ver"
 )
 
 // Empresas (multiempresa igual que Argos).
@@ -215,6 +218,7 @@ var Catalogo = []DefPermiso{
 	{PermEmpresasEditar, "Editar el nombre y el NIT de una empresa registrada"},
 	{PermEmpresasTodas, "Operar en todas las empresas sin asignación (rol global); el resto solo en sus empresas asignadas"},
 	{PermEmpresasVer, "Ver las empresas registradas"},
+	{PermEncuestasVer, "Ver las encuestas de satisfacción (calificación, comentario y el enlace para compartir mientras esté pendiente)"},
 	{PermFactibilidadConfigurar, "Configurar los umbrales de distancia de la factibilidad de la empresa"},
 	{PermFactibilidadEvaluar, "Evaluar la factibilidad técnica de un prospecto (distancia al router o planta externa)"},
 	{PermFactibilidadRegistrarManual, "Registrar la factibilidad de una visita técnica (manual; puede anular una automática con motivo)"},
@@ -343,7 +347,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
 			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
-				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer})...)},
+				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -358,7 +362,7 @@ var RolesBase = []DefRol{
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer}, permisosTickets...)},
+			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer}, permisosTickets...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAgendaVer}, permisosComercial...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",

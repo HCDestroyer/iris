@@ -52,6 +52,10 @@ func (m *Modulo) nuevoResolverTicket() *auditoria.Caso[EntradaResolverTicket, Ti
 			if err := cambioDeEstado(ctx, t, q, antes, f, ptr("resuelto")); err != nil {
 				return Ticket{}, err
 			}
+			// Encuesta de satisfacción (una por ticket; no al maestro de un incidente).
+			if err := m.generarEncuestaTicket(ctx, t, q, f); err != nil {
+				return Ticket{}, err
+			}
 			if f.Maestro != nil {
 				// El aviso a los hijos va en un job (tandas), no en esta transacción.
 				if err := m.encolarAviso(ctx, t, f, AvisoResuelto, solucion); err != nil {

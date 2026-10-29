@@ -202,12 +202,42 @@ Lógica común con el panel en funciones internas: `crearTicket` (también la us
 `reactivarPorCliente` (también el correo), `tomar`, `cerrar`. Las claves de idempotencia del
 cliente son `cliente:<empresa>:<cliente>|<clave>`.
 
+## Encuesta de satisfacción (`encuestas.go`, `rutas_encuestas.go`)
+
+- **Cuándo:** al pasar un ticket a `resuelto` (salvo el maestro de un incidente de red, sin
+  cliente) y al cerrar con éxito (`exitosa`) una orden de instalación o visita (campo llama a
+  `GenerarEncuestaOrden` en la transacción del cierre). Una por ticket y una por orden
+  (`soporte.encuestas`, índices únicos): reabrir y volver a resolver no crea otra.
+- **Token:** enlace `<IRIS_BASE_URL>/encuesta#<token>`, de un solo uso, vence a los 7 días. En la
+  base solo queda `token_hash` (SHA-256) y una `semilla` aleatoria; el token es
+  `HMAC-SHA256(clave, semilla)` con una clave derivada de `IRIS_CLAVE_CIFRADO`
+  (`ClavesEncuestas`, también la anterior en una rotación). Así soporte vuelve a ver el enlace y el
+  worker arma el correo sin guardar el token. Sin clave, el token es aleatorio y el enlace no se
+  puede volver a mostrar (`enlaceDisponible: false`).
+- **Envío:** si el ticket (el de la orden, si tiene) tiene correo de contacto, hay un buzón activo
+  con SMTP de su empresa (el del último correo del contacto si cumple, con `In-Reply-To`), clave e
+  `IRIS_BASE_URL`: `canal = correo`, fila en `correos_salientes` con `encuesta_id` y job
+  `soporte.enviar_correo` (el cuerpo con el enlace se arma al enviar; si ya está respondida, vencida
+  o sin enlace, se anota el error y no se reintenta). Si no, `canal = enlace`.
+- **Público** (`Acceso: Publico`, sin sesión, como el canje del portal): `GET
+  /api/v1/encuestas/publica/{token}` (número, fecha, empresa, estado, vence; nada personal) y
+  `POST …/responder` (`calificacion` 1–5, `comentario` ≤ 1000). Repetir la misma respuesta → 200
+  sin cambios; otra → 409 `encuesta_respondida`; vencida → 410 `encuesta_vencida`. Token inválido →
+  404 `encuesta_no_encontrada` sin auditar (contados, log con muestreo); tope global de 1000
+  inválidos por minuto → 429 `demasiados_intentos`. En la auditoría, el token y el comentario
+  quedan como `***`.
+- **Panel:** `GET /api/v1/encuestas` (`encuestas.ver`: admin, supervisor, soporte) con cursor y
+  filtros `desde`, `hasta`, `calificacion`, `entidad`, `estado`, `ticketId`, `ordenId`; respeta la
+  empresa y el alcance por zona o cuadrilla (copiados al crear). El agregado es
+  `GET /api/v1/reportes/satisfaccion` (módulo reportes).
+
 ## Eventos que emite
 
 `ticket.creado`, `ticket.asignado`, `ticket.estado_cambiado`, `ticket.respondido`,
 `ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`,
 `ticket.resolucion_propuesta`, `ticket.mensaje_cliente`, `soporte.horus_descartado`,
-`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`.
+`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`,
+`encuesta.enviada`, `encuesta.respondida`.
 Payloads en `.claude/integration/contratos/eventos.md`.
 
 ## Eventos que consume

@@ -538,3 +538,61 @@ func TestReincidencias(t *testing.T) {
 	}
 	igual(t, "con 45 días", r.Reincidentes, 3)
 }
+
+func encuesta(t *testing.T, ticketID int64, zona *int64, creada time.Time, estado string, calificacion *int, expira time.Time) {
+	t.Helper()
+	var respondida *time.Time
+	if estado == "respondida" {
+		respondida = &creada
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `
+		INSERT INTO soporte.encuestas (entidad, ticket_id, numero, zona_id, token_hash, canal, expira_en, estado,
+			calificacion, respondida_en, created_at)
+		VALUES ('ticket', $1, 'TK', $2, sha256(gen_random_uuid()::text::bytea), 'enlace', $3, $4, $5, $6, $7)`,
+		ticketID, zona, expira, estado, calificacion, respondida, creada); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReporteSatisfaccion(t *testing.T) {
+	limpiar(t)
+	m := modulo()
+	dia := gt("2026-10-10", "08:00")
+	for i, d := range []struct {
+		zona   int64
+		estado string
+		calif  *int
+		expira time.Time
+	}{
+		{1, "respondida", p(5), dia.Add(7 * 24 * time.Hour)},
+		{1, "respondida", p(4), dia.Add(7 * 24 * time.Hour)},
+		{1, "respondida", p(1), dia.Add(7 * 24 * time.Hour)},
+		{2, "pendiente", nil, dia.Add(7 * 24 * time.Hour)}, // vencida (ahora = 29 de octubre)
+		{2, "pendiente", nil, ahora.Add(time.Hour)},        // pendiente
+	} {
+		tk := ticket(t, tk{creado: dia})
+		encuesta(t, tk, &d.zona, dia.Add(time.Duration(i)*time.Minute), d.estado, d.calif, d.expira)
+	}
+	r, err := m.Satisfaccion.Ejecutar(como(t), reportes.EntradaSatisfaccion{FiltrosPeriodo: octubre()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	igual(t, "enviadas", r.Total.Enviadas, 5)
+	igual(t, "respondidas", r.Total.Respondidas, 3)
+	igual(t, "pendientes", r.Total.Pendientes, 1)
+	igual(t, "vencidas", r.Total.Vencidas, 1)
+	pct(t, "% respondidas", r.Total.PorcentajeRespondidas, 60)
+	pct(t, "promedio", r.Total.Promedio, 3.33)
+	igual(t, "alertas", r.Total.Alertas, 1)
+	igual(t, "distribución 5", r.Total.Distribucion[4].Cantidad, 1)
+	igual(t, "por entidad", len(r.PorEntidad), 1)
+
+	r, err = m.Satisfaccion.Ejecutar(conAlcance(t, contexto.Alcance{ZonaID: 2}), reportes.EntradaSatisfaccion{FiltrosPeriodo: octubre()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	igual(t, "zona 2", r.Total.Enviadas, 2)
+	if r.Total.Promedio != nil {
+		t.Fatal("sin respuestas el promedio es null")
+	}
+}

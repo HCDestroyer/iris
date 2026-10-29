@@ -166,6 +166,15 @@ Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin c
 | `ticket.resolucion_propuesta` | `ticket_id`, `accion` (`resolver` \| `cerrar`), `motivo` (texto de la nota), `origen` (`horus`), `entrante_id` | Horus avisó que el problema terminó: `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` con `arriba` sobre un maestro abierto (`resolver`), o `horus.hallazgo_resuelto` (`resolver` si el ticket está abierto, `cerrar` si ya está resuelto). Iris no cambia el estado: un agente confirma. Una vez por propuesta (si ya estaba la misma, no se repite). |
 | `ticket.mensaje_cliente` | `ticket_id`, `mensaje_id`, `canal` (`portal`) | El cliente escribió en su ticket desde el portal (`POST /portal/tickets/{id}/responder`); si reanudó o reabrió, sale además `ticket.estado_cambiado`. |
 
+## Encuestas de satisfacción (I2)
+
+Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket o la orden (null sin conector).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `encuesta.enviada` | `encuesta_id`, `entidad` (`ticket` \| `orden`), `entidad_id`, `canal` (`correo` \| `enlace`) | Al crear la encuesta, en la misma transacción: un ticket pasa a `resuelto` (`tickets.resolver`; no el maestro de un incidente) o se cierra con éxito una orden de instalación o visita (`ordenes.cerrar`). Una por ticket y una por orden. `correo`: se encoló el correo al contacto del ticket; `enlace`: el enlace queda en `GET /encuestas` para que soporte lo comparta. |
+| `encuesta.respondida` | `encuesta_id`, `entidad`, `entidad_id`, `calificacion` (1–5), `alerta` (`true` si la calificación es 1 o 2) | El cliente respondió por el enlace (`POST /encuestas/publica/{token}/responder`). Una sola vez (repetir la misma respuesta no emite otro). |
+
 ## Correo de soporte (I2)
 
 Emite el módulo `soporte` (entrada por IMAP y salida por SMTP), con `empresa_id` = la del buzón

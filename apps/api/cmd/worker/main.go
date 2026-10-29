@@ -92,7 +92,13 @@ func correr() error {
 	}
 	// Encolar se resuelve al llamar: el cliente de River se arma después (lo necesita el módulo).
 	var cliente *river.Client[pgx.Tx]
+	// Encuestas: el worker de correo deriva el enlace con la misma clave que la API.
+	clavesEnc, err := soporte.ClavesEncuestas(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
+	if err != nil {
+		return err
+	}
 	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg,
+		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -121,7 +127,8 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos})
+	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+		Encuestas: sop.GenerarEncuestaOrden})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
