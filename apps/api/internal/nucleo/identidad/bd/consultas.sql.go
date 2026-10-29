@@ -235,6 +235,20 @@ func (q *Queries) CompletarMFASesion(ctx context.Context, id int64) (int64, erro
 	return result.RowsAffected(), nil
 }
 
+const confirmarTokenEntregado = `-- name: ConfirmarTokenEntregado :execrows
+UPDATE nucleo.tokens_api SET expira_en = NULL
+WHERE id = $1 AND revocado_en IS NULL AND (expira_en IS NULL OR expira_en > now())
+`
+
+// El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).
+func (q *Queries) ConfirmarTokenEntregado(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, confirmarTokenEntregado, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const crearAccesoPortal = `-- name: CrearAccesoPortal :one
 
 INSERT INTO nucleo.portal_accesos (ticket_hash, cliente_id, empresa_id, nombre, emitido_por, token_id, expira_en)

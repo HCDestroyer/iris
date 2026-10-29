@@ -96,7 +96,7 @@ func (m *Modulo) ResolverIPInterno(ctx context.Context, ip string, empresaID int
 }
 
 // EmpresaDeRouter devuelve la empresa de un router según la instantánea de Argos (nil si no
-// está). ctx necesita la base.
+// está o si no tiene empresa sugerida: lo usan todas). ctx necesita la base.
 func (m *Modulo) EmpresaDeRouter(ctx context.Context, routerID int64) (*int64, error) {
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
@@ -109,7 +109,7 @@ func (m *Modulo) EmpresaDeRouter(ctx context.Context, routerID int64) (*int64, e
 	if err != nil {
 		return nil, err
 	}
-	return &f.EmpresaID, nil
+	return f.EmpresaID, nil
 }
 
 // ClienteValidado es lo que Argos dice de un cliente (para validar el acceso al portal).
