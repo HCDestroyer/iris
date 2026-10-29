@@ -35,6 +35,7 @@ período va de `desde` 00:00 al fin de `hasta`, y se compara en UTC), `zonaId`, 
 | `resolucion` | Igual | Promedio y mediana en minutos **de reloj** (creación → resolución). |
 | `tecnicos` | Órdenes `cerrada` o `fallida` con `finalizada_en` en el período | Por técnico: exitosas, parciales, fallidas, % éxito, duración media en sitio (llegada → cierre, menos las pausas tomadas en sitio), tiempo pausado (total y medio). |
 | `primera-visita` | Instalaciones y visitas cerradas `exitosa` | `dias` (7–90, 30). `resuelta` si el mismo servicio no tuvo otra orden (no cancelada) ni ticket (no fusionado) en los `dias` siguientes; `enObservacion` si la ventana aún no termina y `sinServicio` si no hay servicio: ninguna de las dos cuenta en el %. Total, por tipo y por técnico. |
+| `satisfaccion` | Encuestas creadas en el período (`soporte.encuestas`) | `categoriaId`, `entidad`. Enviadas, respondidas, pendientes, vencidas, % respondidas, promedio, alertas (1 o 2) y distribución 1–5; total y por entidad. Zona, cuadrilla y técnico son los copiados al crear la encuesta. |
 | `reincidencias` | Tickets resueltos en el período | `dias` (1–90, 30), `categoriaId`, `prioridad` (hasta 4), `cursor`/`limit`. Reincide si el mismo servicio (o, sin servicio, el mismo cliente) abre otro ticket de la misma empresa en los `dias` siguientes. Totales (`resueltos`, `evaluables`, `reincidentes`, `porcentaje`) y la lista paginada (`data`, `nextCursor`; más recientes primero). |
 
 **CSV:** `?formato=csv` o `Accept: text/csv` → `text/csv; charset=utf-8`, UTF-8 con BOM, encabezados

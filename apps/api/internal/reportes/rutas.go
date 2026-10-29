@@ -129,4 +129,11 @@ func (m *Modulo) Registrar(api huma.API) {
 		ejecutar: m.Reincidencias.Ejecutar, filtros: func(in *EntradaReincidencias) *FiltrosPeriodo { return &in.FiltrosPeriodo },
 		preparar: func(in *EntradaReincidencias) { in.todas = true },
 	})
+	registrar(api, m, reporte[EntradaSatisfaccion, ReporteSatisfaccion]{
+		id: "reporteSatisfaccion", ruta: "satisfaccion", archivo: "satisfaccion", resumen: "Satisfacción (encuestas)",
+		detalle: "Encuestas de satisfacción creadas en el período: enviadas, respondidas, pendientes, vencidas, " +
+			"% respondidas, promedio, alertas (calificación 1 o 2) y distribución de 1 a 5. Total y por entidad " +
+			"(ticket u orden). `tecnicoId` = técnico de la orden o responsable del ticket al crear la encuesta.",
+		ejecutar: m.Satisfaccion.Ejecutar, filtros: func(in *EntradaSatisfaccion) *FiltrosPeriodo { return &in.FiltrosPeriodo },
+	})
 }

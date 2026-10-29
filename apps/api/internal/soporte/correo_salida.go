@@ -105,7 +105,7 @@ func (m *Modulo) nuevoEncolarRespuesta() *auditoria.Caso[EntradaEncolarRespuesta
 			}
 			_, dominio, _ := strings.Cut(b.Correo, "@")
 			s, err := q.CrearCorreoSaliente(ctx, soportebd.CrearCorreoSalienteParams{
-				BuzonID: b.ID, EmpresaID: tk.EmpresaID, TicketID: tk.ID, MensajeID: msj.ID,
+				BuzonID: b.ID, EmpresaID: tk.EmpresaID, TicketID: tk.ID, MensajeID: &msj.ID,
 				MessageID:    fmt.Sprintf("iris.%s.%s@%s", strings.ToLower(tk.Numero), uuid.NewString(), dominio),
 				InReplyTo:    &ult.MessageID,
 				Destinatario: contacto, Asunto: correo.Recortar(asunto, 250),
@@ -196,18 +196,36 @@ func (m *Modulo) EnviarCorreo(ctx context.Context, salienteID int64) error {
 	if srv == nil {
 		return fallar(errors.New("el buzón ya no tiene SMTP"))
 	}
-	msj, err := q.MensajePorID(ctx, s.MensajeID)
-	if err != nil {
-		return err
-	}
 	tk, err := q.TicketPorID(ctx, s.TicketID)
 	if err != nil {
 		return err
 	}
+	var texto string
+	if s.EncuestaID != nil {
+		// Encuesta de satisfacción: el enlace se deriva al enviar (el token no está en la base).
+		var motivo string
+		texto, motivo, err = m.textoCorreoEncuesta(ctx, q, *s.EncuestaID, tk.Numero)
+		if err != nil {
+			return err
+		}
+		if motivo != "" {
+			// No se reintenta: sin enlace (clave rotada o ausente), respondida o vencida.
+			_, err := m.RegistrarEnvio.Ejecutar(ctx, EntradaRegistrarEnvio{SalienteID: s.ID, Error: motivo})
+			return err
+		}
+	} else {
+		if s.MensajeID == nil {
+			return fmt.Errorf("correo saliente %d sin mensaje ni encuesta", s.ID)
+		}
+		msj, err := q.MensajePorID(ctx, *s.MensajeID)
+		if err != nil {
+			return err
+		}
+		texto = msj.Cuerpo + "\n\n-- \nPara seguir con este caso responde a este correo conservando " + tk.Numero + " en el asunto."
+	}
 	saliente := correo.Saliente{
 		De: mail.Address{Name: b.Nombre, Address: b.Correo}, Para: mail.Address{Address: s.Destinatario},
-		Asunto: s.Asunto, MessageID: s.MessageID, Fecha: m.ahora(),
-		Texto: msj.Cuerpo + "\n\n-- \nPara seguir con este caso responde a este correo conservando " + tk.Numero + " en el asunto.",
+		Asunto: s.Asunto, MessageID: s.MessageID, Fecha: m.ahora(), Texto: texto,
 	}
 	if s.InReplyTo != nil {
 		saliente.InReplyTo, saliente.Referencias = *s.InReplyTo, []string{*s.InReplyTo}

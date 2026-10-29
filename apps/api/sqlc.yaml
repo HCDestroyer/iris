@@ -81,7 +81,7 @@ sql:
         out: internal/integracion/pendientes/bd
   - <<: *base
     queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql, internal/soporte/consultas_horus.sql,
-      internal/soporte/consultas_portal.sql]
+      internal/soporte/consultas_portal.sql, internal/soporte/consultas_encuestas.sql]
     gen:
       go:
         <<: *gen

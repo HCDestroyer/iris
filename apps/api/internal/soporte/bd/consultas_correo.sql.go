@@ -311,7 +311,7 @@ func (q *Queries) CorreoEntrantePorID(ctx context.Context, id int64) (SoporteCor
 }
 
 const correoSalienteParaActualizar = `-- name: CorreoSalienteParaActualizar :one
-SELECT id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at FROM soporte.correos_salientes WHERE id = $1 FOR UPDATE
+SELECT id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at, encuesta_id FROM soporte.correos_salientes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CorreoSalienteParaActualizar(ctx context.Context, id int64) (SoporteCorreosSaliente, error) {
@@ -333,12 +333,13 @@ func (q *Queries) CorreoSalienteParaActualizar(ctx context.Context, id int64) (S
 		&i.EnviadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EncuestaID,
 	)
 	return i, err
 }
 
 const correoSalientePorID = `-- name: CorreoSalientePorID :one
-SELECT id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at FROM soporte.correos_salientes WHERE id = $1
+SELECT id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at, encuesta_id FROM soporte.correos_salientes WHERE id = $1
 `
 
 func (q *Queries) CorreoSalientePorID(ctx context.Context, id int64) (SoporteCorreosSaliente, error) {
@@ -360,6 +361,7 @@ func (q *Queries) CorreoSalientePorID(ctx context.Context, id int64) (SoporteCor
 		&i.EnviadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EncuestaID,
 	)
 	return i, err
 }
@@ -488,14 +490,14 @@ INSERT INTO soporte.correos_salientes (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
 ON CONFLICT (mensaje_id) DO NOTHING
-RETURNING id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at
+RETURNING id, buzon_id, empresa_id, ticket_id, mensaje_id, message_id, in_reply_to, destinatario, asunto, estado, intentos, ultimo_error, enviado_en, created_at, updated_at, encuesta_id
 `
 
 type CrearCorreoSalienteParams struct {
 	BuzonID      int64
 	EmpresaID    *int64
 	TicketID     int64
-	MensajeID    int64
+	MensajeID    *int64
 	MessageID    string
 	InReplyTo    *string
 	Destinatario string
@@ -531,6 +533,7 @@ func (q *Queries) CrearCorreoSaliente(ctx context.Context, arg CrearCorreoSalien
 		&i.EnviadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EncuestaID,
 	)
 	return i, err
 }
