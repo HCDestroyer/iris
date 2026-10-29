@@ -55,6 +55,17 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   ganar (qué falta, confirmar obra, router si hace falta) y alta (local u Argos con pendientes,
   «Reintentar» y error visible), actividades con próxima acción e historial. Botones = `acciones`
   de la API ∩ permisos de `GET /yo`; `version` + `Idempotency-Key`; 409 → «Recargar».
+- **Plantillas de formulario** (`/administracion/plantillas`, `lib/plantillas`, `componentes/plantillas`,
+  `plantillas.ver`): lista por tipo y activas o todas; crear (borrador por omisión), editar (ítems
+  `si_no`, `texto`, `numero`, `medicion`, `foto`, `seleccion` con opciones; orden con subir/bajar;
+  obligatorio; firma) con zod espejo; editar una usada crea versión nueva (historial con cuántos
+  formularios usa cada una y la anterior en solo lectura); activar y desactivar (422
+  `plantilla_por_defecto` con el `detail`). Las comunes solo con `empresas.todas` (o sin conector).
+- **Formularios y pausa en la orden**: formularios con origen y versión, «Agregar formulario» y
+  «Quitar» (`ordenes.asignar_formulario`; nunca el del tipo ni uno con respuestas); pausar con
+  motivo y nota y reanudar (`ordenes.pausar`/`reanudar`), tiempo pausado e historial de pausas. La
+  pausada se reprograma o cancela (no se reasigna); está en el tablero, el filtro de activas, la
+  agenda y el despacho, y moverla en el calendario es reprogramarla.
 - **Administración** (`/administracion`): índice por permisos y **buzones de correo**
   (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
   cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por

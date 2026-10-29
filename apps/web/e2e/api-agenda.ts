@@ -25,7 +25,7 @@ const diaDe = (ms: number) => {
     const local = new Date(ms - 6 * 3_600_000);
     return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), 6);
 };
-const VIVAS: readonly OrdenDetalle["estado"][] = ["programada", "en_camino", "en_sitio", "cerrada"];
+const VIVAS: readonly OrdenDetalle["estado"][] = ["programada", "en_camino", "en_sitio", "pausada", "cerrada"];
 
 export type ContextoAgenda = {
     route: Route;

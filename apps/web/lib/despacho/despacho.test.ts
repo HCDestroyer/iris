@@ -127,6 +127,9 @@ describe("mover una orden", () => {
         expect(accionMover("programada", true)).toBe("reprogramar");
         expect(accionMover("en_camino", true)).toBe("reprogramar");
         expect(accionMover("fallida", true)).toBe("reprogramar");
+        // Pausada: arrastrarla es reprogramarla; no se reasigna sin hora.
+        expect(accionMover("pausada", true)).toBe("reprogramar");
+        expect(accionMover("pausada", false)).toBeNull();
         expect(accionMover("pendiente", false)).toBe("asignar");
         expect(accionMover("fallida", false)).toBeNull();
         expect(accionMover("en_sitio", true)).toBeNull();

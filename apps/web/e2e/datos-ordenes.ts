@@ -98,8 +98,16 @@ function base(id: number, ahora: number, empresa: number | null, p: Partial<Orde
         equipos: [],
         adjuntos: [],
         requiereFirma: false,
+        formularios: [],
+        pausas: [],
+        tiempoPausadoSeg: 0,
         ...p,
     };
+}
+
+/** Formulario de una orden (fixture tipado). */
+export function formulario(id: string, d: Partial<Schema<"FormularioOrden">> & Pick<Schema<"FormularioOrden">, "plantillaId" | "codigo" | "nombre">): Schema<"FormularioOrden"> {
+    return { id, versionId: d.plantillaId * 100 + 1, numeroVersion: 1, requiereFirma: false, origen: "tipo", agregadoPor: null, agregadoEn: "2026-10-28T13:00:00Z", conRespuestas: false, ...d };
 }
 
 function pendiente(id: number, ordenId: number, p: Partial<Pendiente>): Pendiente {
@@ -168,11 +176,12 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[]): Es
             finalizadaEn: t(9.75),
             version: 9,
             requiereFirma: true,
+            formularios: [formulario("f-1", { plantillaId: 1, codigo: "instalacion_basica", nombre: "Instalación básica", numeroVersion: 2, requiereFirma: true, conRespuestas: true })],
             checklist: [
-                { itemId: 11, codigo: "potencia", etiqueta: "Potencia óptica", tipo: "medicion", obligatorio: true, unidad: "dBm", posicion: 1, valor: -19.4 as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9) },
-                { itemId: 12, codigo: "antena", etiqueta: "Foto de la roseta", tipo: "foto", obligatorio: true, unidad: "", posicion: 2, valor: ADJ.fotoAntena as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9.1) },
-                { itemId: 13, codigo: "navega", etiqueta: "El cliente navega", tipo: "si_no", obligatorio: true, unidad: "", posicion: 3, valor: true as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9.5) },
-                { itemId: 14, codigo: "comentario", etiqueta: "Comentario del cliente", tipo: "texto", obligatorio: false, unidad: "", posicion: 4, valor: null, marcadoPor: null, ocurridoEn: null },
+                { itemId: 11, formularioId: "f-1", codigo: "potencia", etiqueta: "Potencia óptica", tipo: "medicion", obligatorio: true, unidad: "dBm", posicion: 1, valor: -19.4 as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9) },
+                { itemId: 12, formularioId: "f-1", codigo: "antena", etiqueta: "Foto de la roseta", tipo: "foto", obligatorio: true, unidad: "", posicion: 2, valor: ADJ.fotoAntena as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9.1) },
+                { itemId: 13, formularioId: "f-1", codigo: "navega", etiqueta: "El cliente navega", tipo: "si_no", obligatorio: true, unidad: "", posicion: 3, valor: true as never, marcadoPor: TECNICO_ID, ocurridoEn: t(9.5) },
+                { itemId: 14, formularioId: "f-1", codigo: "comentario", etiqueta: "Comentario del cliente", tipo: "texto", obligatorio: false, unidad: "", posicion: 4, valor: null, marcadoPor: null, ocurridoEn: null },
             ],
             notas: [{ id: "n1", texto: "El cliente pidió el router en la sala.", autorId: TECNICO_ID, autorNombre: "Lucía Ramírez", canal: "campo", ocurridoEn: t(9.2) }],
             materiales: [
@@ -185,7 +194,24 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[]): Es
         }),
         base(2, ahora, empresa, { tipo: "visita", ticketId: 2, clienteId: 502, direccion: "Km 18 carretera a El Salvador", contacto: { nombre: "Ferretería El Tornillo", telefono: "5555 0202" }, descripcion: "Intermitencia por las tardes" }),
         base(3, ahora, empresa, { tipo: "retiro", estado: "programada", tecnicoId: TECNICO_ID, programadaInicio: t(10), programadaFin: t(11), asignadaEn: t(7), version: 3 }),
-        base(4, ahora, empresa, { tipo: "cambio_equipo", estado: "en_camino", tecnicoId: TECNICO_ID, programadaInicio: t(11), programadaFin: t(12.5), enCaminoEn: t(10.8), version: 4 }),
+        base(4, ahora, empresa, {
+            tipo: "cambio_equipo",
+            estado: "en_camino",
+            tecnicoId: TECNICO_ID,
+            programadaInicio: t(11),
+            programadaFin: t(12.5),
+            enCaminoEn: t(10.8),
+            version: 4,
+            formularios: [
+                formulario("f-4", { plantillaId: 5, codigo: "cambio_equipo", nombre: "Cambio de equipo" }),
+                formulario("f-4b", { plantillaId: 2, codigo: "seguridad", nombre: "Seguridad en altura", origen: "despacho", agregadoPor: 1 }),
+            ],
+            checklist: [
+                { itemId: 41, formularioId: "f-4", codigo: "serie_retirada", etiqueta: "Serie del equipo retirado", tipo: "texto", obligatorio: true, unidad: "", posicion: 1, valor: null, marcadoPor: null, ocurridoEn: null },
+                { itemId: 42, formularioId: "f-4b", codigo: "arnes", etiqueta: "Usó arnés", tipo: "si_no", obligatorio: true, unidad: "", posicion: 1, valor: null, marcadoPor: null, ocurridoEn: null },
+                { itemId: 43, formularioId: "f-4b", codigo: "escalera", etiqueta: "Tipo de escalera", tipo: "seleccion", obligatorio: false, unidad: "", posicion: 2, opciones: ["Tijera", "Extensión", "Ninguna"], valor: null, marcadoPor: null, ocurridoEn: null },
+            ],
+        }),
         base(5, ahora, empresa, { tipo: "mantenimiento", estado: "en_sitio", tecnicoId: TECNICO_ID, programadaInicio: t(13), programadaFin: t(14.5), enSitioEn: t(13.1), version: 5 }),
         base(6, ahora, empresa, { tipo: "instalacion", estado: "fallida", resultado: "fallida", motivoFalla: "cliente_ausente", motivo: "Nadie abrió; se llamó dos veces.", tecnicoId: TECNICO_ID, programadaInicio: t(7), programadaFin: t(9), finalizadaEn: t(7.5), version: 6 }),
         base(7, ahora, empresa, { tipo: "visita", estado: "cancelada", resultado: "cancelada", motivo: "El cliente resolvió reiniciando el router.", finalizadaEn: t(6), version: 2 }),
