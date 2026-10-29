@@ -45,6 +45,11 @@ func TestEmpresaDelClienteSegunSusServicios(t *testing.T) {
 	if b.status != 200 || len(ids) != 3 || !ids[81] || !ids[83] || !ids[84] || ids[82] {
 		t.Fatalf("búsqueda por las empresas de los servicios: %d %s", b.status, b.crudo)
 	}
+	var pedida string
+	e.argos.con(func() { pedida = e.argos.empresaPedida })
+	if pedida != "1" {
+		t.Fatalf("la empresa activa va a Argos en X-Empresa-Id: %q", pedida)
+	}
 
 	// Ficha: la de la empresa 2 es 404; la sin servicios y la mixta, 200 con sus empresas.
 	f := uno.pedir(http.MethodGet, "/api/v1/clientes/81", nil)

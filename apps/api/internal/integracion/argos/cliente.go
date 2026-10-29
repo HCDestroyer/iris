@@ -46,20 +46,23 @@ type Pagina[T any] = conector.Pagina[T]
 
 // Lecturas de §2.1 ------------------------------------------------------------------------
 
-// BuscarClientes: GET /clientes?q=&limit=&cursor=[&empresas=]. La empresa (≠ 0) acota la
-// búsqueda en Argos; Iris además descarta lo que sabe que es de otra empresa.
+// CabeceraEmpresaArgos es la cabecera de la empresa activa en Argos.
+const CabeceraEmpresaArgos = "X-Empresa-Id"
+
+// BuscarClientes: GET /clientes?q=&limit=&cursor= con X-Empresa-Id (≠ 0), que acota la búsqueda en
+// Argos; Iris además descarta lo que sabe que es de otra empresa.
 func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64) (Pagina[ClienteArgos], error) {
 	v := url.Values{"q": {q}, "limit": {strconv.Itoa(limite)}}
 	if cursor != "" {
 		v.Set("cursor", cursor)
 	}
+	cli := c.Cliente
 	if empresaID != 0 {
-		// Argos 1.3.0 filtra con empresas= (clientes con algún servicio en la empresa o sin
-		// servicios); empresa_id queda por compatibilidad con versiones anteriores del supuesto.
-		v.Set("empresas", strconv.FormatInt(empresaID, 10))
-		v.Set("empresa_id", strconv.FormatInt(empresaID, 10))
+		// La empresa activa en Argos (multiempresa.md): X-Empresa-Id. Argos lista los clientes con
+		// algún servicio en ella o sin servicios. (?empresas= solo acepta «todas».)
+		cli = cli.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(empresaID, 10))
 	}
-	return conector.ListaDe[ClienteArgos](ctx, c.Cliente, "/clientes", v)
+	return conector.ListaDe[ClienteArgos](ctx, cli, "/clientes", v)
 }
 
 // ObtenerCliente: GET /clientes/:id.

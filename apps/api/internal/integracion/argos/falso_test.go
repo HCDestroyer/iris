@@ -32,6 +32,8 @@ type argosFalso struct {
 	sinA8      bool
 	llamadas   map[string]int
 	sinPermiso bool
+	// empresaPedida: X-Empresa-Id de la última búsqueda.
+	empresaPedida string
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -131,6 +133,12 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 
 func (a *argosFalso) buscar(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(r.URL.Query().Get("q"))
+	if v := r.URL.Query().Get("empresas"); v != "" && v != "todas" {
+		// Como Argos 1.3.0: ?empresas= solo acepta «todas»; la empresa va en X-Empresa-Id.
+		problema(w, 422, "urn:argos:validacion", "Los datos enviados no son válidos")
+		return
+	}
+	a.empresaPedida = r.Header.Get("X-Empresa-Id") // conToken ya tiene el candado
 	data := []any{}
 	for _, c := range a.clientes {
 		if strings.Contains(strings.ToLower(c["nombre"].(string)), q) {

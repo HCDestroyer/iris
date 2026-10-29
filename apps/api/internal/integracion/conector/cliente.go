@@ -46,6 +46,20 @@ type Cliente struct {
 	intentos  int
 	espera    time.Duration
 	userAgent string
+	// cabeceras extra de cada petición (p. ej. la empresa activa en Argos).
+	cabeceras map[string]string
+}
+
+// ConCabecera devuelve una copia del cliente que agrega esa cabecera a cada petición (el
+// original no cambia).
+func (c *Cliente) ConCabecera(nombre, valor string) *Cliente {
+	copia := *c
+	copia.cabeceras = make(map[string]string, len(c.cabeceras)+1)
+	for k, v := range c.cabeceras {
+		copia.cabeceras[k] = v
+	}
+	copia.cabeceras[nombre] = valor
+	return &copia
 }
 
 // OpcionesCliente configuran el cliente.
@@ -286,6 +300,9 @@ func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Val
 	}
 	if id := contexto.RequestIDDe(ctx); id != "" {
 		req.Header.Set("X-Request-Id", id)
+	}
+	for k, v := range c.cabeceras {
+		req.Header.Set(k, v)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
