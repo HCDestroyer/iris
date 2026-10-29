@@ -299,6 +299,11 @@ func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Val
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return c.errorDeRespuesta(resp, crudo)
 	}
+	if c, ok := destino.(*Crudo); ok {
+		// Cuerpo tal cual (sin decodificar: un 2xx con un cuerpo raro no es un error).
+		*c = append((*c)[:0], crudo...)
+		return nil
+	}
 	if destino == nil || len(bytes.TrimSpace(crudo)) == 0 {
 		return nil
 	}
@@ -413,6 +418,10 @@ func normalizar(v any) any {
 	}
 	return v
 }
+
+// Crudo como destino de Pedir o Escribir recibe el cuerpo del 2xx tal cual, sin decodificar
+// (la cola de pendientes lo guarda; ver pendientes.limpiarRespuesta).
+type Crudo []byte
 
 // Recurso lee un recurso que puede venir solo o como { data: {...} }:
 // c.Pedir(…, &conector.Recurso{Destino: &v}).

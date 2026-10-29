@@ -37,6 +37,8 @@ type Pendiente struct {
 	Conflicto        *string        `json:"conflicto" nullable:"true" doc:"cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos)"`
 	PayloadConflicto map[string]any `json:"payloadConflicto" nullable:"true"`
 	ConflictoEn      *time.Time     `json:"conflictoEn" nullable:"true"`
+	Respuesta        any            `json:"respuesta,omitempty" doc:"Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó)"`
+	PorResolver      bool           `json:"porResolver,omitempty" doc:"El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)"`
 	CreadoEn         time.Time      `json:"creadoEn"`
 	Version          int32          `json:"version"`
 
@@ -53,7 +55,7 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if p.DependeDe == nil {
 		p.DependeDe = []int64{}
 	}
-	if f.Estado == EstadoPendiente {
+	if f.Estado == EstadoPendiente && !f.PorResolver {
 		t := f.ProximoIntento
 		p.ProximoIntento = &t
 	}
@@ -62,6 +64,10 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if len(f.ConflictoPayload) > 0 {
 		_ = json.Unmarshal(f.ConflictoPayload, &p.PayloadConflicto)
 	}
+	if len(f.Respuesta) > 0 {
+		_ = json.Unmarshal(f.Respuesta, &p.Respuesta)
+	}
+	p.PorResolver = f.PorResolver
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}

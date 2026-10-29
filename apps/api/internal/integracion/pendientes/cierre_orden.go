@@ -459,7 +459,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			}
 			// Lo que dependa de una acción que nació fallida (datos incompletos) queda bloqueado.
 			for _, id := range fallidos {
-				if err := m.bloquearDependientes(ctx, t, id, EstadoFallidoNegocio); err != nil {
+				if err := bloquearDependientes(ctx, t, id, EstadoFallidoNegocio); err != nil {
 					return res, err
 				}
 			}

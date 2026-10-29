@@ -6,7 +6,7 @@
 //   - con la Idempotency-Key del contrato (iris:<operacion>:<id>), por el cliente del conector
 //     (protección contra SSRF);
 //   - 2xx → hecho; 4xx de negocio → fallido_negocio sin reintento (guarda el detail de Argos,
-//     sin credenciales) y avisa (integracion.pendiente_fallido); red, timeout, 401/403, 408, 409,
+//     sin credenciales) y avisa (integracion.pendiente_fallido); red, timeout, 401/403, 408, 409 idempotencia_en_curso,
 //     425, 429 o 5xx → reintento a 1 min, 5 min, 30 min, 2 h y 12 h (Esperas); después agotado y
 //     alerta (integracion.pendiente_agotado);
 //   - dependencias: un pendiente espera a que sus depende_de estén hechos (cambio de equipo:
@@ -84,6 +84,7 @@ type Modulo struct {
 	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
+	resolverListos     *auditoria.Caso[time.Time, int]
 }
 
 // Nuevo arma el módulo.
@@ -99,6 +100,13 @@ func Nuevo(cfg Config) *Modulo {
 	m.Reintentar = nuevoReintentar(m)
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.resolver = nuevoResolver(m)
+	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
+		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,
+		AuditarExito: func(n int) bool { return n > 0 },
+		Logica: func(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
+			return resolverAtascados(ctx, t, ahora)
+		},
+	})
 	return m
 }
 

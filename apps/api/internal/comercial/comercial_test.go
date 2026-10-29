@@ -54,6 +54,7 @@ type argosFalso struct {
 	siguiente  int64
 	caido      bool
 	codigoMalo bool // GET /clientes/{id} devuelve otro codigo_externo
+	altaAjena  bool // POST /clientes responde con otro codigo_externo
 	repetidas  int  // respuestas con Idempotent-Replayed
 	porID      map[string]map[string]any
 }
@@ -146,7 +147,11 @@ func nuevoArgos(t *testing.T) *argosFalso {
 			a.porID[fmt.Sprint(a.siguiente)] = c
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
-			_, _ = fmt.Fprintf(w, `{"data":{"id":%d}}`, a.siguiente)
+			if a.altaAjena && c["codigo_externo"] != nil {
+				_, _ = fmt.Fprintf(w, `{"data":{"id":%d,"codigo_externo":"iris:prospecto:otro"}}`, a.siguiente)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"data":{"id":%d,"codigo_externo":%q}}`, a.siguiente, fmt.Sprint(c["codigo_externo"]))
 		}
 	}
 	mux.HandleFunc("POST /api/v1/clientes", alta([]string{"nombre"}, []string{"empresa_id", "origen_tipo", "origen_id"}))
@@ -305,9 +310,33 @@ func (e *entorno) procesar() {
 	if _, err := e.pend.Procesar(sistema(e.t)); err != nil {
 		e.t.Fatal(err)
 	}
+	e.relay()
+}
+
+// relay publica los eventos del outbox a los suscriptores (comercial avanza el alta).
+func (e *entorno) relay() {
+	e.t.Helper()
 	r := &integracion.Relay{BD: pruebas.Pool(e.t), Bus: e.bus, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := r.Ejecutar(context.Background()); err != nil {
 		e.t.Fatal(err)
+	}
+}
+
+// comoPendienteViejo deja el alta de un prospecto recién ganado como la de antes de que la cola
+// guardara respuestas: sin el servicio encolado al ganar, el cliente hecho en Argos y su
+// pendiente sin respuesta.
+func comoPendienteViejo(t *testing.T, e *entorno, prospecto int64) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pruebas.Pool(t).Exec(ctx, "DELETE FROM integracion.pendientes WHERE idempotency_key = $1", comercial.ClaveServicio(prospecto)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pend.Procesar(sistema(t)); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := pruebas.Pool(t).Exec(ctx, "UPDATE integracion.pendientes SET respuesta = NULL WHERE idempotency_key = $1 AND estado = 'hecho'",
+		comercial.ClaveCliente(prospecto)); err != nil || n.RowsAffected() != 1 {
+		t.Fatalf("pendiente viejo: %v %v", n, err)
 	}
 }
 
@@ -640,14 +669,20 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatalf("cotización con Argos: %+v", d.Cotizacion)
 	}
 
-	// Ganar: encola POST /clientes (iris:cliente:<id>); todavía sin orden.
+	// Ganar: encola juntos POST /clientes (iris:cliente:<id>) y POST /servicios, que depende del
+	// primero y espera su respuesta (cuerpo con marcador); todavía sin orden.
 	g := deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p.ID, Version: d.Version}))(t)
 	if g.Alta == nil || g.Alta.Modo != comercial.AltaArgos || g.Alta.Estado != comercial.AltaEsperandoCliente || g.Alta.OrdenID != nil {
 		t.Fatalf("ganado con Argos: %+v", g.Alta)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	if len(d.Pendientes) != 1 || d.Pendientes[0].IdempotencyKey != comercial.ClaveCliente(p.ID) || d.Pendientes[0].Estado != "pendiente" {
+	if len(d.Pendientes) != 2 || d.Pendientes[0].IdempotencyKey != comercial.ClaveCliente(p.ID) || d.Pendientes[0].Estado != "pendiente" ||
+		d.Pendientes[1].IdempotencyKey != comercial.ClaveServicio(p.ID) {
 		t.Fatalf("pendientes al ganar: %+v", d.Pendientes)
+	}
+	if n := contar(t, `SELECT count(*) FROM integracion.pendientes s JOIN integracion.pendientes c ON c.id = ANY (s.depende_de)
+		WHERE s.idempotency_key = $1 AND c.idempotency_key = $2 AND s.por_resolver`, comercial.ClaveServicio(p.ID), comercial.ClaveCliente(p.ID)); n != 1 {
+		t.Fatal("el servicio depende del cliente y espera su respuesta")
 	}
 
 	// Argos caído: el pendiente se reintenta (sigue pendiente) y nada avanza.
@@ -665,7 +700,8 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// POST /clientes hecho → comercial encola POST /servicios (pendiente_instalacion), que depende del primero.
+	// POST /clientes hecho (respuesta guardada) → el cuerpo del servicio se resuelve con su id y
+	// sale en la misma corrida → orden de instalación con el cliente y el servicio de Argos.
 	e.procesar()
 	cli := e.falso.cuerpo(comercial.ClaveCliente(p.ID))
 	esperado := map[string]any{"nombre": "Comercial Las Flores", "codigo_externo": comercial.CodigoExterno(p.ID), "nit_cui": "1234567-8",
@@ -673,38 +709,28 @@ func TestEmbudoConArgos(t *testing.T) {
 	if fmt.Sprint(cli) != fmt.Sprint(esperado) {
 		t.Fatalf("POST /clientes: %v\nesperaba %v", cli, esperado)
 	}
-	// La repetición (para saber el id) manda exactamente los mismos bytes que el primer envío.
-	if env := e.falso.envios(comercial.ClaveCliente(p.ID)); len(env) != 2 || !bytes.Equal(env[0], env[1]) {
+	// Sin repetir la llamada para saber el id: un solo envío por alta.
+	if env := e.falso.envios(comercial.ClaveCliente(p.ID)); len(env) != 1 {
 		t.Fatalf("envíos de POST /clientes: %q", env)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	if d.Alta.Estado != comercial.AltaEsperandoServicio || d.Alta.ClienteArgosID == nil || len(d.Pendientes) != 2 {
-		t.Fatalf("tras el cliente: %+v %+v", d.Alta, d.Pendientes)
+	if d.Alta.Estado != comercial.AltaCompleta || d.Alta.ClienteArgosID == nil || d.Alta.ServicioArgosID == nil ||
+		d.Alta.OrdenID == nil || d.Alta.OrdenNumero == nil || len(d.Pendientes) != 2 {
+		t.Fatalf("alta completa: %+v %+v", d.Alta, d.Pendientes)
 	}
-	if n := contar(t, `SELECT count(*) FROM integracion.pendientes s JOIN integracion.pendientes c ON c.id = ANY (s.depende_de)
-		WHERE s.idempotency_key = $1 AND c.idempotency_key = $2`, comercial.ClaveServicio(p.ID), comercial.ClaveCliente(p.ID)); n != 1 {
-		t.Fatal("el servicio depende del cliente")
-	}
-
-	// POST /servicios hecho → orden de instalación con el cliente y el servicio de Argos.
-	e.procesar()
 	srv := e.falso.cuerpo(comercial.ClaveServicio(p.ID))
 	esperadoSrv := map[string]any{"cliente_id": float64(*d.Alta.ClienteArgosID), "router_id": float64(51), "plan_id": float64(300),
 		"empresa_id": float64(1), "estado_inicial": "pendiente_instalacion", "direccion": "Calzada 5-10", "coordenadas": fmt.Sprintf("%v,-90.5", cerca)}
 	if fmt.Sprint(srv) != fmt.Sprint(esperadoSrv) {
 		t.Fatalf("POST /servicios: %v\nesperaba %v", srv, esperadoSrv)
 	}
-	if env := e.falso.envios(comercial.ClaveServicio(p.ID)); len(env) != 2 || !bytes.Equal(env[0], env[1]) {
+	if env := e.falso.envios(comercial.ClaveServicio(p.ID)); len(env) != 1 {
 		t.Fatalf("envíos de POST /servicios: %q", env)
 	}
 	var crudo []byte
 	if err := pruebas.Pool(t).QueryRow(context.Background(), "SELECT payload::text FROM integracion.pendientes WHERE idempotency_key = $1",
 		comercial.ClaveServicio(p.ID)).Scan(&crudo); err != nil || !bytes.Equal(compacto(crudo), e.falso.envios(comercial.ClaveServicio(p.ID))[0]) {
 		t.Fatalf("el cuerpo enviado es el guardado en el pendiente: %s %v", crudo, err)
-	}
-	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	if d.Alta.Estado != comercial.AltaCompleta || d.Alta.ServicioArgosID == nil || d.Alta.OrdenID == nil || d.Alta.OrdenNumero == nil {
-		t.Fatalf("alta completa: %+v", d.Alta)
 	}
 	o := deber(e.cmp.VerOrden.Ejecutar(sistema(t), campo.EntradaVerOrden{ID: *d.Alta.OrdenID}))(t)
 	if o.Origen != "sistema" || o.ClienteID == nil || *o.ClienteID != *d.Alta.ClienteArgosID || o.ServicioID == nil ||
@@ -744,10 +770,13 @@ func TestEmbudoConArgos(t *testing.T) {
 	if !g2.ObraConfirmada {
 		t.Fatal("obra confirmada")
 	}
-	// El id recuperado no es del prospecto (codigo_externo distinto): el alta queda en error
-	// visible, no encola el servicio y el barrido no la repite.
+	// Pendiente de antes de que la cola guardara la respuesta (y sin el servicio encolado al
+	// ganar): comercial repite la llamada con la misma clave y verifica codigo_externo. Si el id
+	// recuperado no es del prospecto, el alta queda en error visible, no encola el servicio y el
+	// barrido no la repite.
+	comoPendienteViejo(t, e, p2.ID)
 	e.falso.fijar(func(a *argosFalso) { a.codigoMalo = true })
-	e.procesar()
+	e.relay()
 	if _, err := e.com.BarrerAltas(sistema(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -755,10 +784,53 @@ func TestEmbudoConArgos(t *testing.T) {
 	if d2.Alta.Error == nil || !strings.Contains(*d2.Alta.Error, "codigo_externo") || d2.Alta.Estado != comercial.AltaEsperandoCliente || len(d2.Pendientes) != 1 {
 		t.Fatalf("alta con un cliente ajeno: %+v %+v", d2.Alta, d2.Pendientes)
 	}
-	if env := e.falso.envios(comercial.ClaveCliente(p2.ID)); len(env) != 2 {
-		t.Fatalf("una sola repetición: %d", len(env))
+	if env := e.falso.envios(comercial.ClaveCliente(p2.ID)); len(env) != 2 || !bytes.Equal(env[0], env[1]) {
+		t.Fatalf("una sola repetición, con los mismos bytes: %q", env)
 	}
 	e.falso.fijar(func(a *argosFalso) { a.codigoMalo = false })
+
+	// Otro pendiente viejo, con el codigo_externo correcto: el respaldo recupera el id y el alta
+	// sigue (encola el servicio con el id ya conocido) hasta la orden.
+	p5 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Viejo", Direccion: "Calzada 7", Lat: &cerca, Lon: ptr(-90.5)}))(t)
+	d5 := hastaContrato(t, e.com, ctx, p5.ID, lineas, "")
+	deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p5.ID, Version: d5.Version}))(t)
+	comoPendienteViejo(t, e, p5.ID)
+	e.relay()
+	e.procesar()
+	d5 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p5.ID}))(t)
+	if d5.Alta.Estado != comercial.AltaCompleta || d5.Alta.Error != nil || d5.Alta.OrdenID == nil {
+		t.Fatalf("alta vieja por el respaldo: %+v", d5.Alta)
+	}
+	if env := e.falso.envios(comercial.ClaveCliente(p5.ID)); len(env) != 2 {
+		t.Fatalf("el respaldo repite una vez: %d", len(env))
+	}
+	if srv := e.falso.cuerpo(comercial.ClaveServicio(p5.ID)); srv == nil || srv["cliente_id"] != float64(*d5.Alta.ClienteArgosID) {
+		t.Fatalf("servicio del alta vieja: %v", srv)
+	}
+
+	// Si Argos responde otro codigo_externo, la cola deja el cliente en fallido_negocio
+	// (respuesta_inconsistente), el servicio queda bloqueado sin salir hacia Argos y el alta en
+	// error visible, sin orden.
+	p6 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Ajeno", Direccion: "Calzada 9", Lat: &cerca, Lon: ptr(-90.5)}))(t)
+	d6 := hastaContrato(t, e.com, ctx, p6.ID, lineas, "")
+	deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p6.ID, Version: d6.Version}))(t)
+	e.falso.fijar(func(a *argosFalso) { a.altaAjena = true })
+	e.procesar()
+	e.falso.fijar(func(a *argosFalso) { a.altaAjena = false })
+	d6 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p6.ID}))(t)
+	if d6.Alta.Error == nil || !strings.Contains(*d6.Alta.Error, "respuesta_inconsistente") || !strings.Contains(*d6.Alta.Error, "codigo_externo") ||
+		d6.Alta.OrdenID != nil || d6.Alta.ClienteArgosID != nil {
+		t.Fatalf("respuesta con otro codigo_externo: %+v", d6.Alta)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1 AND estado = 'fallido_negocio'", comercial.ClaveCliente(p6.ID)); n != 1 {
+		t.Fatal("el cliente queda fallido_negocio")
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1 AND estado = 'bloqueado'", comercial.ClaveServicio(p6.ID)); n != 1 {
+		t.Fatal("el servicio queda bloqueado")
+	}
+	if env := e.falso.envios(comercial.ClaveServicio(p6.ID)); len(env) != 0 {
+		t.Fatalf("el servicio no sale hacia Argos: %d envíos", len(env))
+	}
 
 	// Factibilidad manual sin router: ganar con conector pide el router (de la empresa).
 	p4 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Sin coordenadas", Direccion: "Aldea"}))(t)
