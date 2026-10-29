@@ -3082,7 +3082,7 @@ export interface paths {
         put?: never;
         /**
          * Reiniciar el MFA de otro usuario
-         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
         delete?: never;
@@ -5706,6 +5706,38 @@ export interface components {
             secreto: string;
             /** @description URL otpauth:// para el código QR */
             url: string;
+        };
+        MFAReiniciado: {
+            activo: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido) */
+            cambioContrasenaRequerido?: boolean;
+            correo: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas */
+            empresas: number[] | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Tiene TOTP activo */
+            mfaActivo: boolean;
+            nombre: string;
+            roles: components["schemas"]["AsignacionRol"][] | null;
+            /**
+             * Format: int64
+             * @description Sesiones del usuario que se cerraron (completas y pendientes de MFA)
+             */
+            sesionesCerradas: number;
+            /** @enum {string} */
+            tipo: "persona" | "integracion";
+            /**
+             * Format: int64
+             * @description Tokens iris_pat_ revocados (0 con revocarTokens: false)
+             */
+            tokensRevocados: number;
+            /** Format: int32 */
+            version: number;
         };
         MaterialOrden: {
             /** Format: int64 */
@@ -11958,6 +11990,8 @@ export interface operations {
                 entidad?: string;
                 entidadId?: string;
                 estado?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
+                /** @description Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto */
+                estadoDistintoDe?: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado" | "";
                 /** @description Solo los que tienen un conflicto por cierre repetido */
                 conflicto?: boolean;
             };
@@ -20619,7 +20653,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Usuario"];
+                    "application/json": components["schemas"]["MFAReiniciado"];
                 };
             };
             /** @description Unauthorized */

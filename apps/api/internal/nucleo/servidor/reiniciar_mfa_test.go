@@ -111,6 +111,10 @@ func TestReiniciarMFA(t *testing.T) {
 	if r.status != 200 || r.cuerpo["mfaActivo"] != false || r.cuerpo["cambioContrasenaRequerido"] != true || int(r.cuerpo["version"].(float64)) != version+1 {
 		t.Fatalf("reiniciar: %d %s", r.status, r.crudo)
 	}
+	// Los mismos contadores que el evento: la sesión completa y la pendiente, y su token.
+	if r.cuerpo["sesionesCerradas"] != float64(2) || r.cuerpo["tokensRevocados"] != float64(1) || r.cuerpo["id"] != float64(idU) {
+		t.Fatalf("contadores: %s", r.crudo)
+	}
 	// Sus sesiones (completa y pendiente) y sus tokens quedaron cerrados.
 	sesionU.pedir(http.MethodGet, "/api/v1/yo", nil).problema(t, 401, "no_autenticado")
 	pendiente.pedir(http.MethodPost, "/api/v1/sesion/mfa", map[string]any{"codigo": "123456"}).problema(t, 401, "no_autenticado")
@@ -204,7 +208,9 @@ func TestReiniciarMFA(t *testing.T) {
 	bot2, _ := tokenPara(t, e, idU)
 	var v int
 	_ = pool.QueryRow(ctx, `SELECT version FROM nucleo.usuarios WHERE id = $1`, idU).Scan(&v)
-	if r := reiniciarMFA(admin, idU, v, "revocarTokens", false, "contrasenaTemporal", "otra-temporal-larga-99"); r.status != 200 {
+	// La sesión con la contraseña nueva se cierra; el token sigue (0 revocados).
+	if r := reiniciarMFA(admin, idU, v, "revocarTokens", false, "contrasenaTemporal", "otra-temporal-larga-99"); r.status != 200 ||
+		r.cuerpo["sesionesCerradas"] != float64(1) || r.cuerpo["tokensRevocados"] != float64(0) {
 		t.Fatalf("reiniciar a medio configurar: %d %s", r.status, r.crudo)
 	}
 	if r := bot2.pedir(http.MethodGet, "/api/v1/yo", nil); r.status != 200 {

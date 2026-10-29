@@ -64,7 +64,7 @@ type Modulo struct {
 	CrearUsuario      *auditoria.Caso[EntradaCrearUsuario, Usuario]
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
 	DesactivarUsuario *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
-	ReiniciarMFA      *auditoria.Caso[EntradaReiniciarMFA, Usuario]
+	ReiniciarMFA      *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado]
 	ListarUsuarios    *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[Usuario]]
 	VerUsuario        *auditoria.Caso[EntradaVerUsuario, Usuario]
 
@@ -109,10 +109,10 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.LoginMaxFallos = 10
 	}
 	if cfg.LoginVentana <= 0 {
-		cfg.LoginVentana = 15 * time.Minute
+		cfg.LoginVentana = LoginVentanaPorDefecto
 	}
 	if cfg.LoginBloqueo <= 0 {
-		cfg.LoginBloqueo = 15 * time.Minute
+		cfg.LoginBloqueo = LoginBloqueoPorDefecto
 	}
 	if cfg.MFAMaxFallos <= 0 {
 		cfg.MFAMaxFallos = 5

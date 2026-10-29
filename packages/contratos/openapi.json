@@ -6538,6 +6538,99 @@
         ],
         "type": "object"
       },
+      "MFAReiniciado": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cambioContrasenaRequerido": {
+            "description": "Solo presente (true) si tiene una contraseña temporal: hasta cambiarla (POST /api/v1/yo/contrasena) su sesión solo puede cambiarla, ver /yo o cerrar sesión (403 cambio_contrasena_requerido)",
+            "type": "boolean"
+          },
+          "correo": {
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas de Argos asignadas al usuario (ids). Con el permiso empresas.todas opera además en todas",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mfaActivo": {
+            "description": "Tiene TOTP activo",
+            "type": "boolean"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/AsignacionRol"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sesionesCerradas": {
+            "description": "Sesiones del usuario que se cerraron (completas y pendientes de MFA)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tipo": {
+            "enum": [
+              "persona",
+              "integracion"
+            ],
+            "type": "string"
+          },
+          "tokensRevocados": {
+            "description": "Tokens iris_pat_ revocados (0 con revocarTokens: false)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sesionesCerradas",
+          "tokensRevocados",
+          "id",
+          "nombre",
+          "correo",
+          "tipo",
+          "activo",
+          "mfaActivo",
+          "roles",
+          "empresas",
+          "version",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "MaterialOrden": {
         "additionalProperties": false,
         "properties": {
@@ -19172,6 +19265,25 @@
             "in": "query",
             "name": "estado",
             "schema": {
+              "enum": [
+                "pendiente",
+                "en_curso",
+                "hecho",
+                "fallido_negocio",
+                "agotado",
+                "bloqueado",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
+            "explode": false,
+            "in": "query",
+            "name": "estadoDistintoDe",
+            "schema": {
+              "description": "Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto",
               "enum": [
                 "pendiente",
                 "en_curso",
@@ -32743,7 +32855,7 @@
     },
     "/api/v1/usuarios/{id}/reiniciar-mfa": {
       "post": {
-        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
+        "description": "Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).",
         "operationId": "reiniciarMFAUsuario",
         "parameters": [
           {
@@ -32782,7 +32894,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Usuario"
+                  "$ref": "#/components/schemas/MFAReiniciado"
                 }
               }
             },
