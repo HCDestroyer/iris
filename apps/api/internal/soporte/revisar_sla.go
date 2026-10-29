@@ -14,25 +14,55 @@ import (
 type EntradaRevisarSLA struct {
 	// Ahora: hasta cuándo revisar (cero = la hora del módulo).
 	Ahora time.Time `json:"ahora"`
-	// Lote: alertas por consulta (500 por defecto). Se repite hasta agotar lo pendiente.
+	// Lote: alertas por transacción (200 por defecto). Se repite hasta agotar lo pendiente.
 	Lote int `json:"lote"`
 }
+
+// LoteSLAPorDefecto: alertas por transacción del cron.
+const LoteSLAPorDefecto = 200
 
 // ResultadoRevisarSLA cuenta las alertas emitidas en la corrida.
 type ResultadoRevisarSLA struct {
 	EnRiesgo int `json:"en_riesgo"`
 	Vencidos int `json:"vencidos"`
+	// mas: el lote salió lleno (puede quedar algo pendiente).
+	mas bool
 }
 
 // Emitidas es el total de alertas de la corrida.
 func (r ResultadoRevisarSLA) Emitidas() int { return r.EnRiesgo + r.Vencidos }
 
-// nuevoRevisarSLA arma el cron: procesa todo lo pendiente hasta ahora y emite
-// ticket.sla_en_riesgo (80 %) y ticket.sla_vencido una sola vez por ticket, reloj, umbral y
-// vencimiento (soporte.ticket_sla_alertas; un plazo nuevo vuelve a alertar). Una corrida concurrente o repetida no duplica: la alerta se
-// reclama con INSERT … ON CONFLICT DO NOTHING en la misma transacción que el evento.
-func (m *Modulo) nuevoRevisarSLA() *auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA] {
-	return auditoria.Nuevo(auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]{
+// RevisorSLA es el cron de SLA: procesa todo lo pendiente hasta ahora en lotes, cada uno en su
+// propia transacción (caso de uso soporte.revisar_sla), y emite ticket.sla_en_riesgo (80 %) y
+// ticket.sla_vencido una sola vez por ticket, reloj, umbral y vencimiento
+// (soporte.ticket_sla_alertas; un plazo nuevo vuelve a alertar). Una corrida concurrente o
+// repetida no duplica: la alerta se reclama con INSERT … ON CONFLICT DO NOTHING en la misma
+// transacción que el evento. Si un lote falla, los anteriores ya quedaron confirmados y la
+// siguiente corrida sigue desde ahí.
+type RevisorSLA struct {
+	lote *auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]
+	m    *Modulo
+}
+
+// Ejecutar corre lotes hasta que uno sale incompleto. Ahora se fija al empezar, así todos los
+// lotes revisan hasta el mismo instante.
+func (r *RevisorSLA) Ejecutar(ctx context.Context, in EntradaRevisarSLA) (ResultadoRevisarSLA, error) {
+	if in.Ahora.IsZero() {
+		in.Ahora = r.m.ahora()
+	}
+	var total ResultadoRevisarSLA
+	for {
+		res, err := r.lote.Ejecutar(ctx, in)
+		total.EnRiesgo += res.EnRiesgo
+		total.Vencidos += res.Vencidos
+		if err != nil || !res.mas {
+			return total, err
+		}
+	}
+}
+
+func (m *Modulo) nuevoRevisarSLA() *RevisorSLA {
+	lote := auditoria.Nuevo(auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]{
 		Accion: "soporte.revisar_sla",
 		Acceso: auditoria.Autenticado, // lo corre el actor sistema (cron)
 		// Solo deja fila de auditoría cuando emitió algo.
@@ -42,46 +72,38 @@ func (m *Modulo) nuevoRevisarSLA() *auditoria.Caso[EntradaRevisarSLA, ResultadoR
 				return ResultadoRevisarSLA{}, nucleo.Prohibido("Solo el sistema revisa el SLA")
 			}
 			q := soportebd.New(t)
-			ahora := in.Ahora
-			if ahora.IsZero() {
-				ahora = m.ahora()
-			}
 			lote := in.Lote
 			if lote <= 0 {
-				lote = 500
+				lote = LoteSLAPorDefecto
 			}
-			var res ResultadoRevisarSLA
-			for {
-				filas, err := q.AlertasSLAPendientes(ctx, soportebd.AlertasSLAPendientesParams{
-					Ahora: ahora, Limite: int32(lote), //nolint:gosec // lote acotado por quien llama
-				})
+			filas, err := q.AlertasSLAPendientes(ctx, soportebd.AlertasSLAPendientesParams{
+				Ahora: in.Ahora, Limite: int32(lote), //nolint:gosec // lote acotado por quien llama
+			})
+			if err != nil {
+				return ResultadoRevisarSLA{}, err
+			}
+			res := ResultadoRevisarSLA{mas: len(filas) == lote}
+			for _, a := range filas {
+				emitida, err := emitirAlerta(ctx, t, q, a)
 				if err != nil {
-					return res, err
+					return ResultadoRevisarSLA{}, err
 				}
-				for _, a := range filas {
-					emitida, err := emitirAlerta(ctx, t, q, a)
-					if err != nil {
-						return res, err
-					}
-					switch {
-					case !emitida:
-					case a.Umbral == "vencido":
-						res.Vencidos++
-					default:
-						res.EnRiesgo++
-					}
-				}
-				if len(filas) < lote {
-					break
+				switch {
+				case !emitida:
+				case a.Umbral == "vencido":
+					res.Vencidos++
+				default:
+					res.EnRiesgo++
 				}
 			}
 			t.FijarEmpresa(0)
 			if res.Emitidas() > 0 {
-				t.Anotar(map[string]any{"en_riesgo": res.EnRiesgo, "vencidos": res.Vencidos, "hasta": ahora})
+				t.Anotar(map[string]any{"en_riesgo": res.EnRiesgo, "vencidos": res.Vencidos, "hasta": in.Ahora, "lote": lote})
 			}
 			return res, nil
 		},
 	})
+	return &RevisorSLA{lote: lote, m: m}
 }
 
 // emitirAlerta reclama la alerta y, si nadie la había emitido, deja el historial y el evento.
