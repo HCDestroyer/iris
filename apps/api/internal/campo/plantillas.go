@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -111,8 +112,9 @@ type EntradaVersionPlantilla struct {
 	Version int32 `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 }
 
-// EntradaListarPlantillas filtra el catálogo.
+// EntradaListarPlantillas filtra el catálogo (por nombre, paginado por cursor).
 type EntradaListarPlantillas struct {
+	nucleo.ParamsPagina
 	Tipo  string `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Las de ese tipo y las de cualquier tipo"`
 	Q     string `query:"q" maxLength:"120" doc:"Busca en nombre y código"`
 	Todas bool   `query:"todas" doc:"Incluye las inactivas"`
@@ -333,19 +335,31 @@ func (m *Modulo) nuevoListarPlantillas() *auditoria.Caso[EntradaListarPlantillas
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarPlantillas) (nucleo.Pagina[PlantillaFormulario], error) {
 			q := campobd.New(t)
 			todas, empresa := filtroEmpresa(ctx)
-			p := campobd.PlantillasVisiblesParams{TodasEmpresas: todas, EmpresaID: empresa, SoloActivas: !in.Todas}
+			p := campobd.PaginaPlantillasParams{TodasEmpresas: todas, EmpresaID: empresa, SoloActivas: !in.Todas,
+				Limite: int32(in.Limite() + 1)} //nolint:gosec // ≤ 201
+			var nombre string
+			var id int64
+			hay, err := nucleo.DecodificarCursor(in.Cursor, &nombre, &id)
+			if err != nil {
+				return nucleo.Pagina[PlantillaFormulario]{}, err
+			}
+			if hay {
+				p.DespuesNombre, p.DespuesID = &nombre, &id
+			}
 			if in.Tipo != "" {
 				p.Tipo = &in.Tipo
 			}
 			if qq := strings.TrimSpace(in.Q); qq != "" {
 				p.Q = &qq
 			}
-			filas, err := q.PlantillasVisibles(ctx, p)
+			filas, err := q.PaginaPlantillas(ctx, p)
 			if err != nil {
 				return nucleo.Pagina[PlantillaFormulario]{}, err
 			}
-			salida, err := conItems(ctx, q, filas)
-			return nucleo.PaginaDe(salida), err
+			pagina := nucleo.Paginar(filas, in.Limite(), func(f campobd.CampoPlantillasChecklist) campobd.CampoPlantillasChecklist { return f },
+				func(f campobd.CampoPlantillasChecklist) []any { return []any{f.Nombre, f.ID} })
+			salida, err := conItems(ctx, q, pagina.Data)
+			return nucleo.Pagina[PlantillaFormulario]{Data: salida, NextCursor: pagina.NextCursor}, err
 		},
 	})
 }
@@ -432,6 +446,9 @@ func (m *Modulo) nuevoCrearPlantilla() *auditoria.Caso[EntradaCrearPlantilla, Pl
 				todas, id := filtroEmpresa(ctx)
 				switch {
 				case todas:
+					// Sin empresa activa (modo «todas»), común solo si se pide: nunca por omisión.
+					return PlantillaFormulario{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "empresa_requerida", "Falta la empresa",
+						"Elige una empresa activa (X-Iris-Empresa) para la plantilla o márcala como común (comun: true)")
 				case id != nil && *id == 0:
 					return PlantillaFormulario{}, nucleo.EmpresaRequerida()
 				default:
