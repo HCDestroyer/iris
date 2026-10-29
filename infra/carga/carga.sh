@@ -116,7 +116,7 @@ log "consultas más caras (pg_stat_statements) en $SALIDA/pg_top.txt"
 head -n 12 "$SALIDA/pg_top.txt" | cut -c1-200
 
 if [[ "${CARGA_MANTENER:-0}" != "1" ]]; then
-    "${compose[@]}" stop >/dev/null
+    "${compose[@]}" stop >/dev/null 2>&1
 fi
 
 if [[ $k6_salida -ne 0 || $verif_salida -ne 0 ]]; then
