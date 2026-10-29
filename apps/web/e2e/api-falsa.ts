@@ -2,6 +2,7 @@ import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiComercial, type ApiComercial } from "./api-comercial";
+import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
@@ -140,6 +141,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "empresas.adoptar",
     "empresas.todas",
     "permisos.ver",
+    "reportes.ver",
     "roles.ver",
     ...PERMISOS_TICKETS,
     "tokens.crear",
@@ -159,7 +161,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
-    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
+    [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
@@ -240,6 +242,8 @@ export type ApiFalsa = {
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
     cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
+    /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
+    reportes: Pick<ApiReportes, "exportacionExcedida">;
 };
 
 const OPERATIVAS = [
@@ -259,6 +263,7 @@ const OPERATIVAS = [
     "/api/v1/comercial",
     "/api/v1/cotizaciones",
     "/api/v1/contratos",
+    "/api/v1/reportes",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -305,6 +310,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     enlace.agenda = agenda;
     const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     const comercial = apiComercial({ conector: opciones.comercialConector === true });
+    const reportes = apiReportes();
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
 
@@ -618,6 +624,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await comercial.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], actual, puede })) {
             return;
         }
+        if (await reportes.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
+            return;
+        }
         if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
             return;
         }
@@ -761,6 +770,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         rutas: rutas.rutas,
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
+        reportes: { exportacionExcedida: reportes.exportacionExcedida },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
