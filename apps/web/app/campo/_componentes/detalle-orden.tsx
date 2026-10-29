@@ -7,7 +7,7 @@ import { useState } from "react";
 import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
-import { TIPOS_ORDEN } from "@/lib/campo/textos";
+import { AVISOS_SERVIDOR, OPERACIONES, TIPOS_ORDEN } from "@/lib/campo/textos";
 import { Checklist } from "./checklist";
 import { CerrarOrden, FallarOrden } from "./cierre";
 import { useCampo, useOrden } from "./contexto";
@@ -17,6 +17,7 @@ import { FotosOrden } from "./fotos";
 import { InsigniaOrden } from "./insignias";
 import { Materiales } from "./materiales";
 import { Notas } from "./notas";
+import { PausaOrden } from "./pausa";
 import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
 
 export function DetalleOrden({ id }: { id: number }) {
@@ -62,13 +63,16 @@ export function DetalleOrden({ id }: { id: number }) {
             <AvisosOrden orden={orden} />
             <Cliente orden={orden} nombre={nombre} />
             {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
+            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
                 </Aviso>
             ) : null}
 
-            {acciones.trabajo || (orden.checklist ?? []).some((i) => i.valor !== null) ? <Checklist orden={orden} editable={acciones.trabajo} /> : null}
+            {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
+                <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
+            ) : null}
             {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
             <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
             {acciones.trabajo || orden.firma ? <Firma orden={orden} editable={acciones.trabajo} /> : null}
@@ -129,6 +133,22 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
                     Quedan {orden.subidasPendientes} {orden.subidasPendientes === 1 ? "archivo" : "archivos"} por subir.
                 </Aviso>
             ) : null}
+            {estado.avisos
+                .filter((a) => a.ordenId === orden.id)
+                .map((a) => (
+                    <Aviso
+                        key={a.id}
+                        tono="info"
+                        titulo={`${OPERACIONES[a.tipo]}: el servidor lo guardó con un ajuste`}
+                        accion={
+                            <Boton variante="secundario" onClick={() => void motor.descartarAviso(a.id)}>
+                                Entendido
+                            </Boton>
+                        }
+                    >
+                        {AVISOS_SERVIDOR[a.aviso] ?? a.aviso}
+                    </Aviso>
+                ))}
             {orden.esperandoAdjuntos ? (
                 <Aviso tono="info" titulo="El cierre espera a que suban las fotos o la firma">
                     Se envía solo cuando terminen de subir.

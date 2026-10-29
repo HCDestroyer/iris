@@ -47,8 +47,17 @@ se inyectan.
   (`TurnoDelDia`), en `meta` (sobrevive sin señal). Sin `turno` en el paquete queda `null` (ese día
   no trabaja). Si `GET /campo/cambios` llega a traer `turno` (`CambiosConTurno`), lo reemplaza con
   la fecha del paquete; hoy no lo trae. Quien lo usa decide el día (la PWA lo ignora si no es hoy).
+- **Formularios y pausa (I2, #29):** `estado.plantillas` = catálogo del paquete (lo reemplaza el
+  de cambios). `orden.agregar_formulario` guarda en la operación una copia local de la plantilla
+  (`plantilla`, no viaja) y la aplica sin señal: formulario con el id de la operación y sus ítems con
+  `formularioId`; si vuelve a la cola con id nuevo, `quitar_formulario` y las marcas que lo citan se
+  reescriben. `orden.pausar` / `orden.reanudar` cambian estado, pausa y `tiempoPausadoSeg`
+  (`segundosPausada`). El motor rechaza antes de encolar lo que la API rechazaría (`orden_pausada`,
+  `orden_no_pausada`, `nota_requerida`, `formulario_*`, `plantilla_desconocida`). Los avisos de
+  operaciones aplicadas (`version_anterior`, `pausa_ajustada`) quedan en `estado.avisos` hasta
+  `descartarAviso`.
 - **Caducidad:** 7 días sin contacto con la API borran lo que vino del servidor (paquete,
-  existencias, ruta, turno, cursor) y `estado.caducado` pide bajar el paquete. La cola y los adjuntos
+  existencias, ruta, turno, plantillas, cursor) y `estado.caducado` pide bajar el paquete. La cola y los adjuntos
   sin subir **nunca** se borran.
 - **Adjuntos (I1):** `agregarAdjunto` guarda los bytes y encola `adjunto.registrar` en una sola
   escritura. Alta `POST /adjuntos` (`entidad: "orden"`, `claveChecklist` = código del ítem foto,

@@ -3,10 +3,20 @@
 // `Reloj`, todos inyectados. Pensado para React (`useSyncExternalStore(motor.suscribir,
 // motor.obtenerEstado)`) sin depender de React.
 import type { Almacen, LoteEscritura } from "./almacen";
-import { aplicarOperacion, bodegaDeOrden, descontarExistencias, ESTADOS_TERMINALES, TIPOS_EVIDENCIA } from "./aplicar";
+import {
+    aplicarOperacion,
+    bodegaDeOrden,
+    descontarExistencias,
+    ESTADOS_PAUSABLES,
+    ESTADOS_TERMINALES,
+    formularioConRespuestas,
+    TIPOS_BLOQUEADOS_EN_PAUSA,
+    TIPOS_EVIDENCIA,
+} from "./aplicar";
 import type {
     CambiosConTurno,
     DatosPorTipo,
+    PlantillaFormulario,
     Existencias,
     OperacionCable,
     OrdenCampo,
@@ -17,7 +27,7 @@ import type {
     TipoOperacion,
 } from "./contrato";
 import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
-import type { AdjuntoLocal, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
+import type { AdjuntoLocal, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 import { crearGeneradorUuid7 } from "./uuid7";
@@ -118,6 +128,10 @@ export interface EstadoSync {
     ruta: RutaCampo | null;
     /** Turno de la agenda del día del paquete (`null` si no hay o ese día no trabaja). */
     turno: TurnoDelDia | null;
+    /** Catálogo de plantillas activas para agregar formularios (vacío sin paquete). */
+    plantillas: readonly PlantillaFormulario[];
+    /** Operaciones aplicadas con aviso (`version_anterior`, `pausa_ajustada`): el técnico las ve y las descarta. */
+    avisos: readonly AvisoServidor[];
     fecha: string | null;
     ultimaSincronizacion: number | null;
     /** Pasaron 7 días sin sincronizar: se borró lo del servidor y hay que bajar el paquete. */
@@ -182,6 +196,22 @@ function cambiarAdjunto(op: OperacionLocal, de: string, a: string): OperacionLoc
         default:
             return op;
     }
+}
+
+/** La operación con el id de formulario cambiado (si cita uno de `renombres`). */
+function renombrarFormulario(op: OperacionLocal, renombres: ReadonlyMap<string, string>): OperacionLocal {
+    if (renombres.size === 0) {
+        return op;
+    }
+    if (op.tipo === "orden.quitar_formulario") {
+        const nuevo = renombres.get(op.datos.formularioId);
+        return nuevo ? { ...op, datos: { ...op.datos, formularioId: nuevo } } : op;
+    }
+    if (op.tipo === "checklist.marcar" && op.datos.formularioId !== undefined) {
+        const nuevo = renombres.get(op.datos.formularioId);
+        return nuevo ? { ...op, datos: { ...op.datos, formularioId: nuevo } } : op;
+    }
+    return op;
 }
 
 function aCable(op: OperacionLocal): OperacionCable {
@@ -268,6 +298,9 @@ export class MotorSync {
     private bucle: AbortController | null = null;
     private sueno: AbortController | null = null;
     private enEspera = false;
+    /** `reintentarAhora` / `despertar` llegaron sin espera que cortar: la próxima no se duerme. */
+    private reintentoPedido = false;
+    private despertarPedido = false;
 
     private constructor(opciones: OpcionesMotor, meta: MetaSync) {
         this.almacen = opciones.almacen;
@@ -338,8 +371,17 @@ export class MotorSync {
      * luego la aplica a la vista y despierta el envío.
      */
     async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
-        const vista = this.validarAccion(tipo, ordenId);
+        const vista = this.validarAccion(tipo, ordenId, datos);
         const avisos: Aviso[] = [];
+        let plantilla: PlantillaFormulario | undefined;
+        if (tipo === "orden.agregar_formulario") {
+            // La versión que vio el técnico (la de su catálogo) y una copia para aplicarla sin señal.
+            const entrada = datos as DatosPorTipo["orden.agregar_formulario"];
+            plantilla = this.plantillaDelCatalogo(entrada.plantillaId);
+            if (entrada.versionId === undefined) {
+                entrada.versionId = plantilla.versionId;
+            }
+        }
         if (tipo === "material.usar") {
             const { productoId, cantidad } = datos as DatosPorTipo["material.usar"];
             const bodega = bodegaDeOrden(this.instantanea.existencias, vista.bodegaId);
@@ -360,6 +402,7 @@ export class MotorSync {
             estado: "pendiente",
             error: null,
             intentos: 0,
+            ...(plantilla ? { plantilla: structuredClone(plantilla) } : {}),
         } as OperacionLocal;
         await this.guardar({ operaciones: { poner: [operacion] }, meta: { secuencia } });
         this.emitir();
@@ -423,6 +466,12 @@ export class MotorSync {
         return { adjunto, operacion };
     }
 
+    /** El técnico ya vio el aviso de una operación aplicada. */
+    async descartarAviso(id: string): Promise<void> {
+        await this.serializar(() => this.guardar({ meta: { avisos: this.meta.avisos.filter((a) => a.id !== id) } }));
+        this.emitir();
+    }
+
     /** El técnico descarta una operación rechazada (o en espera de adjuntos). */
     async descartar(id: string): Promise<void> {
         const op = this.opDecidible(id);
@@ -465,7 +514,9 @@ export class MotorSync {
             error: null,
             intentos: 0,
         } as OperacionLocal;
-        await this.guardar({ operaciones: { borrar: [op.id], poner: [nueva] } });
+        const renombres = new Map(op.tipo === "orden.agregar_formulario" ? [[op.id, nueva.id]] : []);
+        const reescritas = this.reescribirFormularios(renombres, new Set([op.id]));
+        await this.guardar({ operaciones: { borrar: [op.id], poner: [nueva, ...reescritas] } });
         this.emitir();
         this.despertar();
         return nueva;
@@ -547,7 +598,7 @@ export class MotorSync {
             this.guardar({
                 ordenes: { borrar: [...this.ordenes.keys()] },
                 adjuntos: { borrar: [...this.adjuntos.values()].filter((a) => a.estado === "subido").map((a) => a.id) },
-                meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null },
+                meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null },
             }),
         );
         this.emitir();
@@ -573,6 +624,7 @@ export class MotorSync {
                     ruta: paquete.ruta ?? null,
                     // Sin `turno` = ese día no trabaja según la agenda (o no tiene ficha).
                     turno: paquete.turno ? { ...paquete.turno, fecha: paquete.fecha } : null,
+                    plantillas: paquete.plantillas ?? [],
                 },
             });
         });
@@ -606,6 +658,9 @@ export class MotorSync {
         }
         const control = new AbortController();
         this.bucle = control;
+        // La primera pasada corre ya: lo pedido antes de arrancar no suma otra.
+        this.reintentoPedido = false;
+        this.despertarPedido = false;
         void this.correrBucle(control.signal);
     }
 
@@ -630,7 +685,13 @@ export class MotorSync {
     /** «Reintentar» del técnico (o volver a entrar tras perder la sesión): corta la espera. */
     reintentarAhora(): void {
         this.enEspera = false;
-        this.sueno?.abort();
+        if (this.sueno) {
+            this.sueno.abort();
+        } else if (this.bucle) {
+            // Llegó mientras corría una pasada (p. ej. vuelve la señal con un envío fallando):
+            // al terminarla no se espera. Sin bucle no hay nada que pedir (`iniciar` ya sincroniza).
+            this.reintentoPedido = true;
+        }
     }
 
     // --- Internos: bucle ----------------------------------------------------------------------
@@ -638,7 +699,11 @@ export class MotorSync {
     /** Una acción nueva despierta al bucle, salvo que esté esperando por una falla. */
     private despertar(): void {
         if (!this.enEspera) {
-            this.sueno?.abort();
+            if (this.sueno) {
+                this.sueno.abort();
+            } else if (this.bucle) {
+                this.despertarPedido = true;
+            }
         }
     }
 
@@ -676,6 +741,13 @@ export class MotorSync {
             this.emitir();
             if (senal.aborted) {
                 break;
+            }
+            const reintentar = this.reintentoPedido || (this.despertarPedido && !this.enEspera);
+            this.reintentoPedido = false;
+            this.despertarPedido = false;
+            if (reintentar) {
+                this.enEspera = false;
+                continue;
             }
             const sueno = new AbortController();
             this.sueno = sueno;
@@ -754,7 +826,7 @@ export class MotorSync {
         const conOps = this.ordenesConOps();
         await this.guardar({
             ordenes: { borrar: [...this.ordenes.keys()].filter((id) => !conOps.has(id)) },
-            meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null },
+            meta: { cursor: null, fecha: null, existencias: null, ruta: null, turno: null, plantillas: null },
         });
     }
 
@@ -1056,6 +1128,33 @@ export class MotorSync {
         await this.guardar({ operaciones: { poner } }).catch(() => undefined);
     }
 
+    /** `orden.agregar_formulario` del lote que vuelven a la cola con otro id: id viejo → nuevo. */
+    private renombresDeFormulario(lote: readonly OperacionLocal[], poner: readonly OperacionLocal[]): Map<string, string> {
+        const renombres = new Map<string, string>();
+        for (const op of lote) {
+            if (op.tipo !== "orden.agregar_formulario") {
+                continue;
+            }
+            const nueva = poner.find((p) => p.tipo === "orden.agregar_formulario" && p.secuencia === op.secuencia && p.id !== op.id);
+            if (nueva) {
+                renombres.set(op.id, nueva.id);
+            }
+        }
+        return renombres;
+    }
+
+    /** Las operaciones de la cola (fuera de `excluir` y del lote en vuelo) que citan un formulario renombrado. */
+    private reescribirFormularios(renombres: ReadonlyMap<string, string>, excluir: ReadonlySet<string>): OperacionLocal[] {
+        if (renombres.size === 0) {
+            return [];
+        }
+        return [...this.ops.values()]
+            .filter((op) => !excluir.has(op.id) && !this.enVuelo.has(op.id))
+            .map((op) => [op, renombrarFormulario(op, renombres)] as const)
+            .filter(([antes, despues]) => antes !== despues)
+            .map(([, despues]) => despues);
+    }
+
     private conIdNuevo(op: OperacionLocal): OperacionLocal {
         return { ...op, id: this.generarId(), estado: "pendiente", error: null, intentos: 0 };
     }
@@ -1073,6 +1172,7 @@ export class MotorSync {
         let existencias = this.meta.existencias;
         /** Primer rechazo (no terminal) de cada orden en este lote. */
         const causas = new Set<number>();
+        const avisos: AvisoServidor[] = [];
         let avance = false;
 
         for (const op of lote) {
@@ -1085,6 +1185,9 @@ export class MotorSync {
             const orden = leerOrden(op.ordenId);
             if (r.estado === "aplicada" || r.estado === "duplicada") {
                 borrar.push(op.id);
+                if (r.aviso === "version_anterior" || r.aviso === "pausa_ajustada") {
+                    avisos.push({ id: op.id, ordenId: op.ordenId, tipo: op.tipo, aviso: r.aviso });
+                }
                 if (orden) {
                     let base = aplicarOperacion(orden.base, op);
                     if (r.orden) {
@@ -1127,11 +1230,22 @@ export class MotorSync {
             poner.push({ ...op, estado: espera ? "esperando_adjuntos" : "rechazada", error });
         }
 
-        const borrarFinal = borrar.filter((id) => !poner.some((p) => p.id === id));
+        // Un formulario agregado que vuelve a la cola con id nuevo cambia de id: lo que lo cita también.
+        const renombres = this.renombresDeFormulario(lote, poner);
+        const reescritas = this.reescribirFormularios(renombres, new Set(lote.map((o) => o.id)));
+        const ponerFinal = [...poner.map((o) => renombrarFormulario(o, renombres)), ...reescritas];
+        const borrarFinal = borrar.filter((id) => !ponerFinal.some((p) => p.id === id));
+        const meta: Partial<MetaSync> = {};
+        if (existencias !== this.meta.existencias) {
+            meta.existencias = existencias;
+        }
+        if (avisos.length > 0) {
+            meta.avisos = [...this.meta.avisos, ...avisos];
+        }
         await this.guardar({
-            operaciones: { poner, borrar: borrarFinal },
+            operaciones: { poner: ponerFinal, borrar: borrarFinal },
             ordenes: { poner: [...ordenes.values()] },
-            ...(existencias !== this.meta.existencias ? { meta: { existencias } } : {}),
+            ...(Object.keys(meta).length > 0 ? { meta } : {}),
         });
         this.emitir();
         return avance;
@@ -1173,7 +1287,12 @@ export class MotorSync {
             const fecha = this.meta.fecha;
             await this.guardar({
                 ordenes: { poner: [...poner.values()], borrar: [...borrar] },
-                meta: { cursor: datos.cursor, ...(turno && fecha !== null ? { turno: { ...turno, fecha } } : {}) },
+                meta: {
+                    cursor: datos.cursor,
+                    ...(turno && fecha !== null ? { turno: { ...turno, fecha } } : {}),
+                    // El catálogo de cambios reemplaza al guardado (una desactivada ya no se ofrece).
+                    ...(datos.plantillas !== undefined ? { plantillas: datos.plantillas ?? [] } : {}),
+                },
             });
             this.emitir();
             if (!datos.hayMas || datos.cursor === actual) {
@@ -1194,7 +1313,69 @@ export class MotorSync {
         return new Date(this.reloj.ahora()).toISOString();
     }
 
-    private validarAccion(tipo: TipoOperacion, ordenId: number): OrdenVista {
+    private plantillaDelCatalogo(plantillaId: number): PlantillaFormulario {
+        const plantilla = (this.meta.plantillas ?? []).find((p) => p.id === plantillaId && p.activa);
+        if (!plantilla) {
+            throw new ErrorSync("plantilla_desconocida", "Ese formulario ya no está en el catálogo del teléfono");
+        }
+        return plantilla;
+    }
+
+    /** Reglas de pausa y formularios (las mismas que la API) antes de encolar. */
+    private validarFormularioYPausa(tipo: TipoOperacion, vista: OrdenVista, datos: unknown): void {
+        if (vista.estado === "pausada" && TIPOS_BLOQUEADOS_EN_PAUSA.has(tipo)) {
+            throw new ErrorSync("orden_pausada", "La orden está pausada: primero reanúdala");
+        }
+        switch (tipo) {
+            case "orden.pausar": {
+                if (vista.estado === "pausada") {
+                    throw new ErrorSync("orden_pausada", "La orden ya está pausada");
+                }
+                if (!ESTADOS_PAUSABLES.has(vista.estado)) {
+                    throw new ErrorSync("transicion_invalida", "Solo se pausa una orden en camino o en sitio");
+                }
+                const { motivo, nota } = datos as DatosPorTipo["orden.pausar"];
+                if (motivo === "otro" && !nota?.trim()) {
+                    throw new ErrorSync("nota_requerida", "Con «Otro motivo» la nota es obligatoria");
+                }
+                return;
+            }
+            case "orden.reanudar":
+                if (vista.estado !== "pausada") {
+                    throw new ErrorSync("orden_no_pausada", "La orden no está pausada");
+                }
+                return;
+            case "orden.agregar_formulario": {
+                const { plantillaId } = datos as DatosPorTipo["orden.agregar_formulario"];
+                this.plantillaDelCatalogo(plantillaId);
+                if ((vista.formularios ?? []).some((f) => f.plantillaId === plantillaId)) {
+                    throw new ErrorSync("formulario_duplicado", "La orden ya tiene ese formulario");
+                }
+                return;
+            }
+            case "orden.quitar_formulario": {
+                const { formularioId } = datos as DatosPorTipo["orden.quitar_formulario"];
+                const formulario = (vista.formularios ?? []).find((f) => f.id === formularioId);
+                if (!formulario) {
+                    throw new ErrorSync("formulario_desconocido", "Ese formulario ya no está en la orden");
+                }
+                if (formulario.origen === "tipo") {
+                    throw new ErrorSync("formulario_del_tipo", "El formulario del tipo de orden no se puede quitar");
+                }
+                if (formulario.origen !== "tecnico") {
+                    throw new ErrorSync("formulario_ajeno", "Solo puedes quitar los formularios que agregaste tú");
+                }
+                if (formularioConRespuestas(vista, formularioId)) {
+                    throw new ErrorSync("formulario_con_respuestas", "El formulario ya tiene respuestas");
+                }
+                return;
+            }
+            default:
+                return;
+        }
+    }
+
+    private validarAccion(tipo: TipoOperacion, ordenId: number, datos?: unknown): OrdenVista {
         const vista = this.obtenerOrden(ordenId);
         if (!vista) {
             throw new ErrorSync("orden_desconocida", "La orden no está en el teléfono");
@@ -1208,6 +1389,7 @@ export class MotorSync {
         if (ESTADOS_TERMINALES.has(vista.estado) && vista.estado !== "cancelada" && !TIPOS_EVIDENCIA.has(tipo)) {
             throw new ErrorSync("orden_terminada", "La orden ya está cerrada");
         }
+        this.validarFormularioYPausa(tipo, vista, datos);
         return vista;
     }
 
@@ -1302,6 +1484,8 @@ export class MotorSync {
             existencias: descontarExistencias(this.meta.existencias, pendientes, bodegaDe),
             ruta: this.meta.ruta,
             turno: this.meta.turno,
+            plantillas: this.meta.plantillas ?? [],
+            avisos: this.meta.avisos,
             fecha: this.meta.fecha,
             ultimaSincronizacion: this.meta.ultimaSincronizacion,
             caducado: this.meta.fecha === null && this.meta.ultimaSincronizacion !== null,

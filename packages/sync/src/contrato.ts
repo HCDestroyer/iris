@@ -33,6 +33,14 @@ export type TramoCampo = Schema<"TramoCampo">;
  */
 export type CambiosConTurno = Cambios & { turno?: TurnoCampo };
 export type CitaOrden = Schema<"CitaOrden">;
+/** Formularios y pausa (I2, PR #29). */
+export type PlantillaFormulario = Schema<"PlantillaFormulario">;
+export type ItemPlantilla = Schema<"ItemPlantilla">;
+export type FormularioOrden = Schema<"FormularioOrden">;
+export type PausaOrden = Schema<"PausaOrden">;
+export type MotivoPausa = Schema<"EntradaPausar">["motivo"];
+/** Aviso de una operación aplicada (`version_anterior`, `pausa_ajustada`…). */
+export type AvisoResultado = NonNullable<Schema<"ResultadoOperacion">["aviso"]>;
 
 /** Ubicación en vivo del técnico (`POST /campo/posiciones`, I2). */
 export type EntradaPosiciones = Schema<"EntradaPosiciones">;
@@ -86,6 +94,8 @@ export const TIPOS_OPERACION = [
     "orden.agregar_formulario",
     "orden.quitar_formulario",
 ] as const satisfies readonly TipoOperacion[];
+
+export const MOTIVOS_PAUSA = ["esperando_material", "cliente_ausente", "clima", "acceso", "otro"] as const satisfies readonly MotivoPausa[];
 
 export const MOTIVOS_FALLA = [
     "cliente_ausente",
