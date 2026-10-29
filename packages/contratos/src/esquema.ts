@@ -2097,6 +2097,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reportes/primera-visita": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Primera visita resuelta
+         * @description Órdenes de instalación o visita cerradas con éxito en el período: % sin otra orden (no cancelada) ni ticket del mismo servicio en los `dias` siguientes al cierre (30 por defecto, 7–90). Las que aún no cumplen la ventana van en `enObservacion` y las que no tienen servicio en `sinServicio`; ninguna de las dos cuenta en el porcentaje. Total, por tipo y por técnico. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         */
+        get: operations["reportePrimeraVisita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/reincidencias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reincidencias
+         * @description Tickets resueltos en el período cuyo mismo servicio (o, sin servicio, el mismo cliente) abrió otro ticket dentro de `dias` (30 por defecto, 1–90). Totales sobre todos y la lista de reincidentes paginada por cursor (más recientes primero). El CSV trae todas las filas (sin cursor), hasta 10 000 (si no, 422 `exportacion_excedida`). Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         */
+        get: operations["reporteReincidencias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/resolucion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tiempo medio de resolución
+         * @description Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         */
+        get: operations["reporteResolucion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/sla": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SLA cumplido
+         * @description Tickets resueltos en el período (sin los fusionados): % con la primera respuesta y % con la resolución dentro del vencimiento (los relojes sin SLA no cuentan en su porcentaje). Total, por prioridad y por categoría. `tecnicoId` filtra por el responsable asignado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         */
+        get: operations["reporteSLA"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/tecnicos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Órdenes por técnico
+         * @description Órdenes finalizadas en el período (cerradas o fallidas) por técnico: resultado, duración media en sitio (de la llegada al cierre, sin las pausas en sitio) y tiempo pausado. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales.
+         */
+        get: operations["reporteTecnicos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/roles": {
         parameters: {
             query?: never;
@@ -5292,6 +5392,182 @@ export interface components {
             /** @description true: Argos no respondió y se muestra la última instantánea */
             stale: boolean;
         };
+        FilaPrimeraVisita: {
+            /**
+             * Format: int64
+             * @description Cerradas con éxito en el período
+             */
+            cerradas: number;
+            /** Format: int64 */
+            conRetorno: number;
+            /**
+             * Format: int64
+             * @description Su ventana todavía no termina (no cuentan en el porcentaje)
+             */
+            enObservacion: number;
+            /**
+             * Format: int64
+             * @description Con servicio y con la ventana ya cumplida: resueltas + conRetorno
+             */
+            evaluadas: number;
+            /**
+             * Format: double
+             * @description resueltas / evaluadas × 100; null sin base
+             */
+            porcentaje: number | null;
+            /**
+             * Format: int64
+             * @description Sin otra orden (no cancelada) ni ticket del mismo servicio en la ventana
+             */
+            resueltas: number;
+            /**
+             * Format: int64
+             * @description Sin servicio de Argos: no se pueden evaluar
+             */
+            sinServicio: number;
+            /** @description Nombre del técnico (solo en porTecnico) */
+            tecnico?: string;
+            /**
+             * Format: int64
+             * @description Solo en porTecnico
+             */
+            tecnicoId?: number;
+            /**
+             * @description Solo en porTipo
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita";
+        };
+        FilaResolucion: {
+            /** @description Nombre de la categoría (solo en porCategoria) */
+            categoria?: string;
+            /**
+             * Format: int64
+             * @description Solo en porCategoria; ausente = sin categoría
+             */
+            categoriaId?: number;
+            /**
+             * Format: double
+             * @description Mediana en minutos; null sin tickets
+             */
+            medianaMin: number | null;
+            /**
+             * @description Solo en porPrioridad
+             * @enum {string}
+             */
+            prioridad?: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: double
+             * @description Promedio en minutos; null sin tickets
+             */
+            promedioMin: number | null;
+            /** Format: int64 */
+            resueltos: number;
+        };
+        FilaSLA: {
+            /** @description Nombre de la categoría (solo en porCategoria) */
+            categoria?: string;
+            /**
+             * Format: int64
+             * @description Solo en porCategoria; ausente = sin categoría
+             */
+            categoriaId?: number;
+            /**
+             * Format: int64
+             * @description Con objetivo de resolución
+             */
+            conSlaResolucion: number;
+            /**
+             * Format: int64
+             * @description Con objetivo de primera respuesta (los demás no cuentan en el porcentaje)
+             */
+            conSlaRespuesta: number;
+            /**
+             * Format: double
+             * @description resolucionEnTiempo / conSlaResolucion × 100; null sin base
+             */
+            porcentajeResolucion: number | null;
+            /**
+             * Format: double
+             * @description respuestaEnTiempo / conSlaRespuesta × 100; null sin base
+             */
+            porcentajeRespuesta: number | null;
+            /**
+             * @description Solo en porPrioridad
+             * @enum {string}
+             */
+            prioridad?: "baja" | "media" | "alta" | "critica";
+            /**
+             * Format: int64
+             * @description Resueltos hasta el vencimiento (con las pausas descontadas)
+             */
+            resolucionEnTiempo: number;
+            /**
+             * Format: int64
+             * @description Primera respuesta hasta el vencimiento
+             */
+            respuestaEnTiempo: number;
+            /**
+             * Format: int64
+             * @description Tickets resueltos en el período
+             */
+            resueltos: number;
+        };
+        FilaTecnico: {
+            /**
+             * Format: int64
+             * @description Órdenes que se pausaron al menos una vez
+             */
+            conPausa: number;
+            /**
+             * Format: int64
+             * @description Órdenes con llegada registrada (base de la duración media)
+             */
+            conTiempoEnSitio: number;
+            /**
+             * Format: double
+             * @description Minutos desde la llegada hasta el cierre, sin las pausas tomadas en sitio; null sin base
+             */
+            duracionMediaSitioMin: number | null;
+            /**
+             * Format: int64
+             * @description Cerradas con resultado exitosa
+             */
+            exitosas: number;
+            /** Format: int64 */
+            fallidas: number;
+            /**
+             * Format: int64
+             * @description Cerradas + fallidas
+             */
+            finalizadas: number;
+            nombre: string;
+            /**
+             * Format: int64
+             * @description Cerradas con resultado parcial
+             */
+            parciales: number;
+            /**
+             * Format: double
+             * @description exitosas / finalizadas × 100
+             */
+            porcentajeExito: number | null;
+            /**
+             * Format: int64
+             * @description Usuario del técnico (0 en el total)
+             */
+            tecnicoId: number;
+            /**
+             * Format: double
+             * @description Minutos pausados por orden finalizada; null sin órdenes
+             */
+            tiempoPausadoMedioMin: number | null;
+            /**
+             * Format: double
+             * @description Minutos pausados en total (todas las pausas de esas órdenes)
+             */
+            tiempoPausadoMin: number;
+        };
         FirmaOrden: {
             /** @description PNG de la firma (adjunto) */
             adjuntoId: string | null;
@@ -6309,12 +6585,36 @@ export interface components {
              */
             version: number;
         };
+        Periodo: {
+            /**
+             * Format: date
+             * @description Primer día (hora de Guatemala)
+             */
+            desde: string;
+            /**
+             * Format: date-time
+             * @description Fin en UTC, exclusivo: el día siguiente a hasta a las 00:00 de Guatemala
+             */
+            fin: string;
+            /**
+             * Format: date
+             * @description Último día, incluido (hora de Guatemala)
+             */
+            hasta: string;
+            /**
+             * Format: date-time
+             * @description Inicio en UTC: desde a las 00:00 de Guatemala
+             */
+            inicio: string;
+            /** @example America/Guatemala */
+            zonaHoraria: string;
+        };
         /**
          * Permiso
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -6692,6 +6992,47 @@ export interface components {
             /** Format: date-time */
             ultimaEn: string | null;
         };
+        Reincidencia: {
+            asunto: string;
+            categoria: string | null;
+            /** Format: int64 */
+            categoriaId: number | null;
+            /**
+             * Format: int64
+             * @description Cliente de Argos
+             */
+            clienteId: number | null;
+            /**
+             * Format: double
+             * @description Horas de reloj entre la resolución y el siguiente ticket
+             */
+            horasHastaVolver: number;
+            /**
+             * Format: int64
+             * @description Tickets abiertos en la ventana por el mismo servicio o cliente
+             */
+            nuevosEnVentana: number;
+            numero: string;
+            /** @enum {string} */
+            prioridad: "baja" | "media" | "alta" | "critica";
+            /** Format: date-time */
+            resueltoEn: string;
+            /**
+             * Format: int64
+             * @description Servicio de Argos (null: se comparó por cliente)
+             */
+            servicioId: number | null;
+            /** Format: date-time */
+            siguienteCreadoEn: string;
+            /**
+             * Format: int64
+             * @description Primer ticket que se abrió después
+             */
+            siguienteId: number;
+            siguienteNumero: string;
+            /** Format: int64 */
+            ticketId: number;
+        };
         RelojSLA: {
             /**
              * Format: date-time
@@ -6715,6 +7056,57 @@ export interface components {
              * @description Vencimiento; null = sin SLA o en pausa
              */
             venceEn: string | null;
+        };
+        ReportePrimeraVisita: {
+            /** Format: int64 */
+            dias: number;
+            periodo: components["schemas"]["Periodo"];
+            porTecnico: components["schemas"]["FilaPrimeraVisita"][] | null;
+            porTipo: components["schemas"]["FilaPrimeraVisita"][] | null;
+            total: components["schemas"]["FilaPrimeraVisita"];
+        };
+        ReporteReincidencias: {
+            data: components["schemas"]["Reincidencia"][] | null;
+            /** Format: int64 */
+            dias: number;
+            /**
+             * Format: int64
+             * @description Con servicio o cliente (los demás no se pueden comparar)
+             */
+            evaluables: number;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+            periodo: components["schemas"]["Periodo"];
+            /**
+             * Format: double
+             * @description reincidentes / evaluables × 100; null sin base
+             */
+            porcentaje: number | null;
+            /** Format: int64 */
+            reincidentes: number;
+            /**
+             * Format: int64
+             * @description Tickets resueltos en el período
+             */
+            resueltos: number;
+        };
+        ReporteResolucion: {
+            periodo: components["schemas"]["Periodo"];
+            porCategoria: components["schemas"]["FilaResolucion"][] | null;
+            porPrioridad: components["schemas"]["FilaResolucion"][] | null;
+            total: components["schemas"]["FilaResolucion"];
+        };
+        ReporteSLA: {
+            periodo: components["schemas"]["Periodo"];
+            porCategoria: components["schemas"]["FilaSLA"][] | null;
+            porPrioridad: components["schemas"]["FilaSLA"][] | null;
+            total: components["schemas"]["FilaSLA"];
+        };
+        ReporteTecnicos: {
+            /** @description Un técnico por fila, más órdenes primero */
+            data: components["schemas"]["FilaTecnico"][] | null;
+            periodo: components["schemas"]["Periodo"];
+            total: components["schemas"]["FilaTecnico"];
         };
         RespuestaAsignables: {
             data: components["schemas"]["Asignable"][] | null;
@@ -16230,6 +16622,416 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reportePrimeraVisita: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Ventana tras el cierre en que otra orden o ticket del mismo servicio cuenta como retorno (7–90) */
+                dias?: number;
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportePrimeraVisita"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteReincidencias: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Categoría del ticket */
+                categoriaId?: number;
+                /** @description Una o varias prioridades (prioridad=alta,critica) */
+                prioridad?: ("baja" | "media" | "alta" | "critica")[] | null;
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Ventana tras la resolución (1–90, 30 por defecto) */
+                dias?: number;
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteReincidencias"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteResolucion: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Categoría del ticket */
+                categoriaId?: number;
+                /** @description Una o varias prioridades (prioridad=alta,critica) */
+                prioridad?: ("baja" | "media" | "alta" | "critica")[] | null;
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteResolucion"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteSLA: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Categoría del ticket */
+                categoriaId?: number;
+                /** @description Una o varias prioridades (prioridad=alta,critica) */
+                prioridad?: ("baja" | "media" | "alta" | "critica")[] | null;
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteSLA"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteTecnicos: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteTecnicos"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
