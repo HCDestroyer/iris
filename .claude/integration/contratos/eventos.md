@@ -172,8 +172,9 @@ Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket o la orden 
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `encuesta.enviada` | `encuesta_id`, `entidad` (`ticket` \| `orden`), `entidad_id`, `canal` (`correo` \| `enlace`) | Al crear la encuesta, en la misma transacción: un ticket pasa a `resuelto` (`tickets.resolver`; no el maestro de un incidente) o se cierra con éxito una orden de instalación o visita (`ordenes.cerrar`). Una por ticket y una por orden. `correo`: se encoló el correo al contacto del ticket; `enlace`: el enlace queda en `GET /encuestas` para que soporte lo comparta. |
-| `encuesta.respondida` | `encuesta_id`, `entidad`, `entidad_id`, `calificacion` (1–5), `alerta` (`true` si la calificación es 1 o 2) | El cliente respondió por el enlace (`POST /encuestas/publica/{token}/responder`). Una sola vez (repetir la misma respuesta no emite otro). |
+| `encuesta.enviada` | `encuesta_id`, `entidad` (`ticket` \| `orden`), `entidad_id`, `canal` (`correo` \| `enlace`) | Al crear la encuesta, en la misma transacción: un ticket pasa a `resuelto` (`tickets.resolver`; no el maestro de un incidente) o se cierra con éxito una orden de instalación o visita (`ordenes.cerrar`). Una viva por ticket y una por orden (las anuladas no cuentan). `correo`: se encoló el correo al contacto del ticket; `enlace`: soporte lo pide con `POST /encuestas/{id}/enlace` para compartirlo. |
+| `encuesta.respondida` | `encuesta_id`, `entidad`, `entidad_id`, `calificacion` (1–5), `alerta` (`true` si la calificación es 1 o 2) | El cliente respondió por el enlace (`POST /encuestas/publica/responder`). Una sola vez (repetir la misma respuesta no emite otro). |
+| `encuesta.anulada` | `encuesta_id`, `entidad` (`ticket`), `entidad_id`, `motivo` (`reabierto` \| `fusionado`) | El ticket de una encuesta pendiente se reabrió (`tickets.reabrir`, o el cliente respondió por portal o correo a un resuelto) o se fusionó en otro, en la misma transacción. La siguiente resolución genera otra encuesta. |
 
 ## Correo de soporte (I2)
 

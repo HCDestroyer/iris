@@ -16,6 +16,17 @@ RETURNING *;
 -- name: EncuestaPorID :one
 SELECT * FROM soporte.encuestas WHERE id = @id;
 
+-- name: EncuestaPorIDParaActualizar :one
+SELECT * FROM soporte.encuestas WHERE id = @id FOR UPDATE;
+
+-- name: AnularEncuestasDeTicket :many
+-- La encuesta pendiente de un ticket que se reabre o se fusiona: la siguiente resolución genera
+-- otra (el índice único excluye las anuladas).
+UPDATE soporte.encuestas SET estado = 'anulada', anulada_en = @ahora, motivo_anulacion = @motivo,
+    version = version + 1, updated_at = now()
+WHERE ticket_id = @ticket_id AND estado = 'pendiente'
+RETURNING *;
+
 -- name: EncuestaPublica :one
 -- Lo que ve el cliente por el enlace: la encuesta y el nombre de su empresa.
 SELECT sqlc.embed(e), emp.nombre AS empresa_nombre
@@ -28,7 +39,8 @@ SELECT * FROM soporte.encuestas WHERE token_hash = @token_hash FOR UPDATE;
 
 -- name: ResponderEncuesta :one
 UPDATE soporte.encuestas SET estado = 'respondida', calificacion = @calificacion, comentario = sqlc.narg(comentario),
-    respondida_en = @ahora, version = version + 1, updated_at = now()
+    respondida_en = @ahora, respondida_ip = @ip, respondida_user_agent = @user_agent,
+    version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'pendiente'
 RETURNING *;
 
@@ -49,6 +61,7 @@ WHERE (sqlc.narg(antes_de)::bigint IS NULL OR id < sqlc.narg(antes_de))
   AND (cardinality(@calificaciones::int[]) = 0 OR calificacion = ANY(@calificaciones::int[]))
   AND (sqlc.narg(estado)::text IS NULL
        OR (sqlc.narg(estado) = 'respondida' AND estado = 'respondida')
+       OR (sqlc.narg(estado) = 'anulada' AND estado = 'anulada')
        OR (sqlc.narg(estado) = 'pendiente' AND estado = 'pendiente' AND expira_en > @ahora)
        OR (sqlc.narg(estado) = 'vencida' AND estado = 'pendiente' AND expira_en <= @ahora))
 ORDER BY id DESC

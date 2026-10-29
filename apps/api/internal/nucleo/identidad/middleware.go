@@ -86,6 +86,13 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Encuesta pública (soporte, I2): sin sesión. La cookie del panel no cuenta aquí (sin
+			// CSRF ni actor usuario), como la del panel en el portal.
+			if strings.HasPrefix(r.URL.Path, PrefijoRutasEncuestaPublica) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			if strings.HasPrefix(r.URL.Path, PrefijoRutasPortal) {
 				if c, err := r.Cookie(CookiePortal); err == nil && c.Value != "" {
 					nctx, prob := autenticarPortal(ctx, q, r, c.Value)

@@ -10,6 +10,67 @@ import (
 	"time"
 )
 
+const anularEncuestasDeTicket = `-- name: AnularEncuestasDeTicket :many
+UPDATE soporte.encuestas SET estado = 'anulada', anulada_en = $1, motivo_anulacion = $2,
+    version = version + 1, updated_at = now()
+WHERE ticket_id = $3 AND estado = 'pendiente'
+RETURNING id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent
+`
+
+type AnularEncuestasDeTicketParams struct {
+	Ahora    *time.Time
+	Motivo   *string
+	TicketID *int64
+}
+
+// La encuesta pendiente de un ticket que se reabre o se fusiona: la siguiente resolución genera
+// otra (el índice único excluye las anuladas).
+func (q *Queries) AnularEncuestasDeTicket(ctx context.Context, arg AnularEncuestasDeTicketParams) ([]SoporteEncuesta, error) {
+	rows, err := q.db.Query(ctx, anularEncuestasDeTicket, arg.Ahora, arg.Motivo, arg.TicketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SoporteEncuesta
+	for rows.Next() {
+		var i SoporteEncuesta
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Entidad,
+			&i.TicketID,
+			&i.OrdenID,
+			&i.Numero,
+			&i.ZonaID,
+			&i.CuadrillaID,
+			&i.UsuarioID,
+			&i.CategoriaID,
+			&i.TokenHash,
+			&i.Semilla,
+			&i.Canal,
+			&i.ExpiraEn,
+			&i.Estado,
+			&i.Calificacion,
+			&i.Comentario,
+			&i.RespondidaEn,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AnuladaEn,
+			&i.MotivoAnulacion,
+			&i.RespondidaIp,
+			&i.RespondidaUserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const buzonParaEncuesta = `-- name: BuzonParaEncuesta :one
 SELECT id, empresa_id, nombre, correo, imap_host, imap_puerto, imap_tls, imap_usuario, imap_contrasena, imap_carpeta, imap_carpeta_procesados, smtp_host, smtp_puerto, smtp_tls, smtp_usuario, smtp_contrasena, categoria_id, prioridad, activo, uid_validity, ultimo_uid, ultima_lectura_en, ultimo_error, version, created_at, updated_at, authserv_id FROM soporte.buzones
 WHERE activo AND smtp_host IS NOT NULL AND empresa_id IS NOT DISTINCT FROM $1
@@ -125,7 +186,7 @@ INSERT INTO soporte.encuestas (
     $12, $13
 )
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent
 `
 
 type CrearEncuestaParams struct {
@@ -185,12 +246,16 @@ func (q *Queries) CrearEncuesta(ctx context.Context, arg CrearEncuestaParams) (S
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AnuladaEn,
+		&i.MotivoAnulacion,
+		&i.RespondidaIp,
+		&i.RespondidaUserAgent,
 	)
 	return i, err
 }
 
 const encuestaParaResponder = `-- name: EncuestaParaResponder :one
-SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at FROM soporte.encuestas WHERE token_hash = $1 FOR UPDATE
+SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent FROM soporte.encuestas WHERE token_hash = $1 FOR UPDATE
 `
 
 func (q *Queries) EncuestaParaResponder(ctx context.Context, tokenHash []byte) (SoporteEncuesta, error) {
@@ -218,12 +283,16 @@ func (q *Queries) EncuestaParaResponder(ctx context.Context, tokenHash []byte) (
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AnuladaEn,
+		&i.MotivoAnulacion,
+		&i.RespondidaIp,
+		&i.RespondidaUserAgent,
 	)
 	return i, err
 }
 
 const encuestaPorID = `-- name: EncuestaPorID :one
-SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at FROM soporte.encuestas WHERE id = $1
+SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent FROM soporte.encuestas WHERE id = $1
 `
 
 func (q *Queries) EncuestaPorID(ctx context.Context, id int64) (SoporteEncuesta, error) {
@@ -251,12 +320,53 @@ func (q *Queries) EncuestaPorID(ctx context.Context, id int64) (SoporteEncuesta,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AnuladaEn,
+		&i.MotivoAnulacion,
+		&i.RespondidaIp,
+		&i.RespondidaUserAgent,
+	)
+	return i, err
+}
+
+const encuestaPorIDParaActualizar = `-- name: EncuestaPorIDParaActualizar :one
+SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent FROM soporte.encuestas WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) EncuestaPorIDParaActualizar(ctx context.Context, id int64) (SoporteEncuesta, error) {
+	row := q.db.QueryRow(ctx, encuestaPorIDParaActualizar, id)
+	var i SoporteEncuesta
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Entidad,
+		&i.TicketID,
+		&i.OrdenID,
+		&i.Numero,
+		&i.ZonaID,
+		&i.CuadrillaID,
+		&i.UsuarioID,
+		&i.CategoriaID,
+		&i.TokenHash,
+		&i.Semilla,
+		&i.Canal,
+		&i.ExpiraEn,
+		&i.Estado,
+		&i.Calificacion,
+		&i.Comentario,
+		&i.RespondidaEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AnuladaEn,
+		&i.MotivoAnulacion,
+		&i.RespondidaIp,
+		&i.RespondidaUserAgent,
 	)
 	return i, err
 }
 
 const encuestaPublica = `-- name: EncuestaPublica :one
-SELECT e.id, e.empresa_id, e.entidad, e.ticket_id, e.orden_id, e.numero, e.zona_id, e.cuadrilla_id, e.usuario_id, e.categoria_id, e.token_hash, e.semilla, e.canal, e.expira_en, e.estado, e.calificacion, e.comentario, e.respondida_en, e.version, e.created_at, e.updated_at, emp.nombre AS empresa_nombre
+SELECT e.id, e.empresa_id, e.entidad, e.ticket_id, e.orden_id, e.numero, e.zona_id, e.cuadrilla_id, e.usuario_id, e.categoria_id, e.token_hash, e.semilla, e.canal, e.expira_en, e.estado, e.calificacion, e.comentario, e.respondida_en, e.version, e.created_at, e.updated_at, e.anulada_en, e.motivo_anulacion, e.respondida_ip, e.respondida_user_agent, emp.nombre AS empresa_nombre
 FROM soporte.encuestas e
 LEFT JOIN nucleo.empresas emp ON emp.id = e.empresa_id
 WHERE e.token_hash = $1
@@ -293,13 +403,17 @@ func (q *Queries) EncuestaPublica(ctx context.Context, tokenHash []byte) (Encues
 		&i.SoporteEncuesta.Version,
 		&i.SoporteEncuesta.CreatedAt,
 		&i.SoporteEncuesta.UpdatedAt,
+		&i.SoporteEncuesta.AnuladaEn,
+		&i.SoporteEncuesta.MotivoAnulacion,
+		&i.SoporteEncuesta.RespondidaIp,
+		&i.SoporteEncuesta.RespondidaUserAgent,
 		&i.EmpresaNombre,
 	)
 	return i, err
 }
 
 const listarEncuestas = `-- name: ListarEncuestas :many
-SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at FROM soporte.encuestas
+SELECT id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent FROM soporte.encuestas
 WHERE ($1::bigint IS NULL OR id < $1)
   AND ($2::boolean
        OR ($3::bigint IS NULL AND empresa_id IS NULL)
@@ -313,6 +427,7 @@ WHERE ($1::bigint IS NULL OR id < $1)
   AND (cardinality($12::int[]) = 0 OR calificacion = ANY($12::int[]))
   AND ($13::text IS NULL
        OR ($13 = 'respondida' AND estado = 'respondida')
+       OR ($13 = 'anulada' AND estado = 'anulada')
        OR ($13 = 'pendiente' AND estado = 'pendiente' AND expira_en > $14)
        OR ($13 = 'vencida' AND estado = 'pendiente' AND expira_en <= $14))
 ORDER BY id DESC
@@ -386,6 +501,10 @@ func (q *Queries) ListarEncuestas(ctx context.Context, arg ListarEncuestasParams
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AnuladaEn,
+			&i.MotivoAnulacion,
+			&i.RespondidaIp,
+			&i.RespondidaUserAgent,
 		); err != nil {
 			return nil, err
 		}
@@ -399,15 +518,18 @@ func (q *Queries) ListarEncuestas(ctx context.Context, arg ListarEncuestasParams
 
 const responderEncuesta = `-- name: ResponderEncuesta :one
 UPDATE soporte.encuestas SET estado = 'respondida', calificacion = $1, comentario = $2,
-    respondida_en = $3, version = version + 1, updated_at = now()
-WHERE id = $4 AND estado = 'pendiente'
-RETURNING id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at
+    respondida_en = $3, respondida_ip = $4, respondida_user_agent = $5,
+    version = version + 1, updated_at = now()
+WHERE id = $6 AND estado = 'pendiente'
+RETURNING id, empresa_id, entidad, ticket_id, orden_id, numero, zona_id, cuadrilla_id, usuario_id, categoria_id, token_hash, semilla, canal, expira_en, estado, calificacion, comentario, respondida_en, version, created_at, updated_at, anulada_en, motivo_anulacion, respondida_ip, respondida_user_agent
 `
 
 type ResponderEncuestaParams struct {
 	Calificacion *int16
 	Comentario   *string
 	Ahora        *time.Time
+	Ip           *string
+	UserAgent    *string
 	ID           int64
 }
 
@@ -416,6 +538,8 @@ func (q *Queries) ResponderEncuesta(ctx context.Context, arg ResponderEncuestaPa
 		arg.Calificacion,
 		arg.Comentario,
 		arg.Ahora,
+		arg.Ip,
+		arg.UserAgent,
 		arg.ID,
 	)
 	var i SoporteEncuesta
@@ -441,6 +565,10 @@ func (q *Queries) ResponderEncuesta(ctx context.Context, arg ResponderEncuestaPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AnuladaEn,
+		&i.MotivoAnulacion,
+		&i.RespondidaIp,
+		&i.RespondidaUserAgent,
 	)
 	return i, err
 }

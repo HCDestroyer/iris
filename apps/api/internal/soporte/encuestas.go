@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,9 +33,14 @@ import (
 //
 // Acceso por enlace <IRIS_BASE_URL>/encuesta#<token>, de un solo uso y que vence a los 7 días.
 // En la base solo queda el SHA-256 del token y una semilla aleatoria: el token es
-// HMAC-SHA256(clave, semilla) con una clave derivada de IRIS_CLAVE_CIFRADO, así soporte vuelve
-// a ver el enlace (GET /encuestas) y el worker arma el correo sin que el token esté en la base.
-// Sin clave el token es aleatorio y no se puede volver a mostrar (canal enlace, enlace null).
+// HMAC-SHA256(clave, semilla) con una clave derivada de IRIS_CLAVE_CIFRADO, así soporte puede
+// pedir el enlace para compartirlo (POST /encuestas/{id}/enlace, acción auditada y solo con canal
+// enlace) y el worker arma el correo sin que el token esté en la base. La lista nunca trae el
+// enlace (el personal no debe responder la encuesta que lo califica). Sin clave el token es
+// aleatorio y no se puede volver a mostrar (enlaceDisponible false).
+//
+// Si el ticket se reabre o se fusiona, su encuesta pendiente se anula (encuesta.anulada) y la
+// siguiente resolución genera otra.
 //
 // Envío: si el ticket (el de la orden, si tiene) tiene correo de contacto, hay un buzón activo
 // con SMTP de su empresa, clave e IRIS_BASE_URL, se encola el correo con el enlace (worker de
@@ -338,9 +344,9 @@ func zonaGuatemala() *time.Location { return zonaGT() }
 
 var patronToken = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
-// EntradaEncuestaPublica: el token del enlace.
+// EntradaEncuestaPublica: el token del enlace (en el cuerpo: nunca en la ruta ni en los logs).
 type EntradaEncuestaPublica struct {
-	Token string `path:"token" json:"token" maxLength:"200" doc:"Lo que sigue a # en /encuesta#<token>"`
+	Token string `json:"token" minLength:"1" maxLength:"200" doc:"Lo que sigue a # en /encuesta#<token>"`
 }
 
 // EncuestaPublica es lo que ve el cliente: nada personal.
@@ -349,22 +355,18 @@ type EncuestaPublica struct {
 	Numero       string    `json:"numero" doc:"Número del ticket o de la orden"`
 	Fecha        time.Time `json:"fecha" doc:"Cuándo se resolvió el ticket o se cerró la orden"`
 	Empresa      *string   `json:"empresa" nullable:"true" doc:"Nombre de la empresa (null sin conector)"`
-	Estado       string    `json:"estado" enum:"pendiente,respondida,vencida"`
+	Estado       string    `json:"estado" enum:"pendiente,respondida,vencida,anulada" doc:"anulada: el caso se reabrió; llegará otra encuesta al resolverlo"`
 	ExpiraEn     time.Time `json:"expiraEn"`
 	Calificacion *int      `json:"calificacion,omitempty" minimum:"1" maximum:"5" doc:"Solo si ya se respondió"`
 }
 
-// EntradaResponderEncuesta es la entrada de encuestas.responder.
+// EntradaResponderEncuesta es la entrada (y el cuerpo) de encuestas.responder.
 type EntradaResponderEncuesta struct {
-	Token        string  `json:"token"`
-	Calificacion int     `json:"calificacion"`
-	Comentario   *string `json:"comentario" auditoria:"sensible"`
-}
-
-// CuerpoResponderEncuesta es el cuerpo de POST /encuestas/publica/{token}/responder.
-type CuerpoResponderEncuesta struct {
+	Token        string  `json:"token" minLength:"1" maxLength:"200" doc:"Lo que sigue a # en /encuesta#<token>"`
 	Calificacion int     `json:"calificacion" minimum:"1" maximum:"5" doc:"1 (muy mal) a 5 (muy bien)"`
-	Comentario   *string `json:"comentario,omitempty" maxLength:"1000" doc:"Opcional"`
+	Comentario   *string `json:"comentario,omitempty" maxLength:"1000" auditoria:"sensible" doc:"Opcional"`
+	IP           string  `json:"-"`
+	UserAgent    string  `json:"-"`
 }
 
 func encuestaNoEncontrada() *nucleo.Problema {
@@ -375,6 +377,11 @@ func encuestaNoEncontrada() *nucleo.Problema {
 func encuestaVencida() *nucleo.Problema {
 	return nucleo.NuevoProblema(http.StatusGone, "encuesta_vencida", "Encuesta vencida",
 		"El enlace de la encuesta venció; ya no se puede responder")
+}
+
+func encuestaAnulada() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusGone, "encuesta_anulada", "Encuesta anulada",
+		"El caso se reabrió; cuando se resuelva de nuevo llegará otra encuesta")
 }
 
 func encuestaRespondida() *nucleo.Problema {
@@ -408,8 +415,17 @@ func (v *topeFallidos) fallo(ahora time.Time, ventana time.Duration, tope int64)
 	return time.Time{}, false
 }
 
-// rechazoToken: 404 o, pasado el tope global, 429.
-func (m *Modulo) rechazoToken() error {
+// excedido: la ventana en curso ya pasó el tope (sin contar otro intento).
+func (v *topeFallidos) excedido(ahora time.Time, tope int64) (time.Time, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if ahora.Before(v.fin) && v.cuenta > tope {
+		return v.fin, true
+	}
+	return time.Time{}, false
+}
+
+func (m *Modulo) tope() (int64, time.Duration) {
 	tope, ventana := m.cfg.Encuestas.TopeFallidos, m.cfg.Encuestas.VentanaTope
 	if tope <= 0 {
 		tope = TopeFallidosEncuesta
@@ -417,9 +433,29 @@ func (m *Modulo) rechazoToken() error {
 	if ventana <= 0 {
 		ventana = VentanaTopeEncuesta
 	}
+	return tope, ventana
+}
+
+func demasiadosIntentos(hasta time.Time) *nucleo.Problema {
+	return nucleo.DemasiadosIntentos("demasiados_intentos",
+		"Demasiados enlaces de encuesta inválidos; vuelve a intentar en un momento", time.Until(hasta))
+}
+
+// TopeEncuestasExcedido: con la ventana de inválidos excedida, los accesos públicos responden
+// 429 antes de abrir la transacción (los handlers lo miran primero).
+func (m *Modulo) TopeEncuestasExcedido() error {
+	tope, _ := m.tope()
+	if hasta, ok := m.topeEncuestas.excedido(time.Now(), tope); ok {
+		return demasiadosIntentos(hasta)
+	}
+	return nil
+}
+
+// rechazoToken: 404 o, pasado el tope global, 429.
+func (m *Modulo) rechazoToken() error {
+	tope, ventana := m.tope()
 	if hasta, excedido := m.topeEncuestas.fallo(time.Now(), ventana, tope); excedido {
-		return nucleo.DemasiadosIntentos("demasiados_intentos",
-			"Demasiados enlaces de encuesta inválidos; vuelve a intentar en un momento", time.Until(hasta))
+		return demasiadosIntentos(hasta)
 	}
 	return encuestaNoEncontrada()
 }
@@ -496,10 +532,15 @@ func (m *Modulo) nuevoResponderEncuesta() *auditoria.Caso[EntradaResponderEncues
 				return EncuestaPublica{}, err
 			}
 			t.FijarEntidad("encuesta", e.ID)
-			t.FijarEmpresa(deref(e.EmpresaID))
+			if e.EmpresaID != nil {
+				t.FijarEmpresa(*e.EmpresaID)
+			}
 			empresa, err := nombreEmpresa(ctx, t, e.EmpresaID)
 			if err != nil {
 				return EncuestaPublica{}, err
+			}
+			if e.Estado == "anulada" {
+				return EncuestaPublica{}, encuestaAnulada()
 			}
 			if e.Estado == "respondida" {
 				// Un solo uso: la misma respuesta otra vez es idempotente; otra distinta, 409.
@@ -515,6 +556,7 @@ func (m *Modulo) nuevoResponderEncuesta() *auditoria.Caso[EntradaResponderEncues
 			}
 			despues, err := q.ResponderEncuesta(ctx, soportebd.ResponderEncuestaParams{
 				ID: e.ID, Calificacion: ptr(int16(in.Calificacion)), Comentario: comentario, Ahora: &ahora, //nolint:gosec // 1–5
+				Ip: textoONulo(recortarTexto(in.IP, 64)), UserAgent: textoONulo(recortarTexto(in.UserAgent, 255)),
 			})
 			if err != nil {
 				return EncuestaPublica{}, err
@@ -576,7 +618,7 @@ type EntradaListarEncuestas struct {
 	Hasta        string  `query:"hasta" format:"date" doc:"Creadas hasta este día, incluido"`
 	Calificacion []int32 `query:"calificacion" minimum:"1" maximum:"5" doc:"Una o varias (calificacion=1,2)"`
 	Entidad      string  `query:"entidad" enum:"ticket,orden"`
-	Estado       string  `query:"estado" enum:"pendiente,respondida,vencida"`
+	Estado       string  `query:"estado" enum:"pendiente,respondida,vencida,anulada"`
 	TicketID     int64   `query:"ticketId" minimum:"0" doc:"La del ticket (detalle del ticket)"`
 	OrdenID      int64   `query:"ordenId" minimum:"0" doc:"La de la orden (detalle de la orden)"`
 }
@@ -589,16 +631,15 @@ type Encuesta struct {
 	OrdenID      *int64     `json:"ordenId" nullable:"true"`
 	Numero       string     `json:"numero" doc:"Número del ticket o de la orden"`
 	Canal        string     `json:"canal" enum:"correo,enlace" doc:"correo: se encoló el correo al contacto; enlace: soporte comparte el enlace"`
-	Estado       string     `json:"estado" enum:"pendiente,respondida,vencida"`
+	Estado       string     `json:"estado" enum:"pendiente,respondida,vencida,anulada" doc:"anulada: el ticket se reabrió o se fusionó"`
 	ExpiraEn     time.Time  `json:"expiraEn"`
 	Calificacion *int       `json:"calificacion" nullable:"true" minimum:"1" maximum:"5"`
 	Comentario   *string    `json:"comentario" nullable:"true"`
 	RespondidaEn *time.Time `json:"respondidaEn" nullable:"true"`
 	Alerta       bool       `json:"alerta" doc:"Calificación 1 o 2: resaltar"`
-	Enlace       *string    `json:"enlace" nullable:"true" doc:"<IRIS_BASE_URL>/encuesta#<token> mientras esté pendiente; null si respondida, vencida o sin clave para derivarlo (enlaceDisponible)"`
-	// EnlaceDisponible: false si la encuesta está pendiente pero el enlace no se puede volver a
-	// mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada).
-	EnlaceDisponible bool      `json:"enlaceDisponible"`
+	// EnlaceDisponible: se puede pedir el enlace para compartirlo (POST /encuestas/{id}/enlace):
+	// pendiente, canal enlace y derivable (con IRIS_CLAVE_CIFRADO y sin la clave rotada).
+	EnlaceDisponible bool      `json:"enlaceDisponible" doc:"Pendiente, canal enlace y con clave para derivarlo: se puede pedir con POST /encuestas/{id}/enlace"`
 	CreadaEn         time.Time `json:"creadaEn"`
 }
 
@@ -612,10 +653,8 @@ func (m *Modulo) aEncuesta(e soportebd.SoporteEncuesta, ahora time.Time) Encuest
 		r.Calificacion = ptr(int(*e.Calificacion))
 		r.Alerta = *e.Calificacion <= 2
 	}
-	if r.Estado == "pendiente" {
-		if token, ok := m.tokenGuardado(e); ok {
-			r.Enlace, r.EnlaceDisponible = ptr(m.urlEncuesta(token)), true
-		}
+	if r.Estado == "pendiente" && e.Canal == "enlace" {
+		_, r.EnlaceDisponible = m.tokenGuardado(e)
 	}
 	return r
 }
@@ -686,4 +725,98 @@ func diasGuatemala(desde, hasta string) (*time.Time, *time.Time, error) {
 		return nil, nil, nucleo.Validacion(nucleo.ErrorCampo{Field: "hasta", Message: "Debe ser igual o posterior a desde", Rule: "rango"})
 	}
 	return d, h, nil
+}
+
+func recortarTexto(s string, maximo int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) > maximo {
+		r = r[:maximo]
+	}
+	return string(r)
+}
+
+// Anular --------------------------------------------------------------------------------------
+
+// anularEncuestaTicket anula la encuesta pendiente de un ticket que se reabre o se fusiona, en
+// la transacción de esa acción (encuesta.anulada). La siguiente resolución genera otra.
+func (m *Modulo) anularEncuestaTicket(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, ticketID int64, motivo string) error {
+	ahora := m.ahora()
+	filas, err := q.AnularEncuestasDeTicket(ctx, soportebd.AnularEncuestasDeTicketParams{Ahora: &ahora, Motivo: &motivo, TicketID: &ticketID})
+	if err != nil {
+		return err
+	}
+	for _, e := range filas {
+		t.RegistrarCambios("encuesta", e.ID, map[string]any{"estado": "pendiente"}, map[string]any{"estado": e.Estado, "motivo_anulacion": motivo})
+		if err := t.Emitir("encuesta.anulada", map[string]any{
+			"encuesta_id": e.ID, "entidad": e.Entidad, "entidad_id": ticketID, "motivo": motivo,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Compartir el enlace ---------------------------------------------------------------------------
+
+// EntradaCompartirEncuesta: la encuesta cuyo enlace se pide.
+type EntradaCompartirEncuesta struct {
+	ID int64 `path:"id" json:"id" minimum:"1"`
+}
+
+// EnlaceEncuesta es el enlace para compartir con el cliente. Es un secreto: no se guarda.
+type EnlaceEncuesta struct {
+	Enlace   string    `json:"enlace" doc:"<IRIS_BASE_URL>/encuesta#<token>"`
+	ExpiraEn time.Time `json:"expiraEn"`
+}
+
+func (m *Modulo) nuevoCompartirEncuesta() *auditoria.Caso[EntradaCompartirEncuesta, EnlaceEncuesta] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaCompartirEncuesta, EnlaceEncuesta]{
+		Accion:  "encuestas.compartir",
+		Permiso: nucleo.PermEncuestasCompartir,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCompartirEncuesta) (EnlaceEncuesta, error) {
+			q := soportebd.New(t)
+			e, err := q.EncuestaPorIDParaActualizar(ctx, in.ID)
+			noExiste := nucleo.NoEncontrado("La encuesta no existe")
+			if errors.Is(err, pgx.ErrNoRows) {
+				return EnlaceEncuesta{}, noExiste
+			}
+			if err != nil {
+				return EnlaceEncuesta{}, err
+			}
+			// Empresa activa y alcance de encuestas.compartir (zona o cuadrilla copiadas al crear).
+			todas, empresa := filtroEmpresa(ctx)
+			global, zonas, cuadrillas := contexto.PermisosDe(ctx).Alcances(string(nucleo.PermEncuestasCompartir))
+			enAlcance := global || (e.ZonaID != nil && slices.Contains(zonas, *e.ZonaID)) ||
+				(e.CuadrillaID != nil && slices.Contains(cuadrillas, *e.CuadrillaID))
+			if (!todas && !mismoID(e.EmpresaID, empresa)) || !enAlcance {
+				return EnlaceEncuesta{}, noExiste
+			}
+			t.FijarEntidad("encuesta", e.ID)
+			switch estadoEncuesta(e, m.ahora()) {
+			case "respondida":
+				return EnlaceEncuesta{}, nucleo.Conflicto("encuesta_respondida", "La encuesta ya se respondió")
+			case "vencida":
+				return EnlaceEncuesta{}, encuestaVencida()
+			case "anulada":
+				return EnlaceEncuesta{}, encuestaAnulada()
+			}
+			if e.Canal != "enlace" {
+				return EnlaceEncuesta{}, nucleo.Conflicto("encuesta_por_correo", "La encuesta ya se envió por correo al cliente; su enlace no se comparte")
+			}
+			token, ok := m.tokenGuardado(e)
+			if !ok {
+				return EnlaceEncuesta{}, nucleo.ReglaNegocio("enlace_no_disponible",
+					"El enlace no se puede volver a mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada)")
+			}
+			t.Anotar(map[string]any{"token": token}) // queda como *** (quién lo pidió va en el actor)
+			return EnlaceEncuesta{Enlace: m.urlEncuesta(token), ExpiraEn: e.ExpiraEn}, nil
+		},
+	})
+}
+
+func textoONulo(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

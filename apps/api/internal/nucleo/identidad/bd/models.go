@@ -1155,27 +1155,31 @@ type SoporteCorreosSaliente struct {
 }
 
 type SoporteEncuesta struct {
-	ID           int64
-	EmpresaID    *int64
-	Entidad      string
-	TicketID     *int64
-	OrdenID      *int64
-	Numero       string
-	ZonaID       *int64
-	CuadrillaID  *int64
-	UsuarioID    *int64
-	CategoriaID  *int64
-	TokenHash    []byte
-	Semilla      []byte
-	Canal        string
-	ExpiraEn     time.Time
-	Estado       string
-	Calificacion *int16
-	Comentario   *string
-	RespondidaEn *time.Time
-	Version      int32
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  int64
+	EmpresaID           *int64
+	Entidad             string
+	TicketID            *int64
+	OrdenID             *int64
+	Numero              string
+	ZonaID              *int64
+	CuadrillaID         *int64
+	UsuarioID           *int64
+	CategoriaID         *int64
+	TokenHash           []byte
+	Semilla             []byte
+	Canal               string
+	ExpiraEn            time.Time
+	Estado              string
+	Calificacion        *int16
+	Comentario          *string
+	RespondidaEn        *time.Time
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	AnuladaEn           *time.Time
+	MotivoAnulacion     *string
+	RespondidaIp        *string
+	RespondidaUserAgent *string
 }
 
 type SoporteFeriado struct {

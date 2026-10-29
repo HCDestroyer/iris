@@ -737,7 +737,7 @@ export interface paths {
         };
         /**
          * Encuestas de satisfacción
-         * @description Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Mientras está pendiente trae `enlace` (`<IRIS_BASE_URL>/encuesta#<token>`) para que soporte lo comparta; `enlaceDisponible: false` si no se puede volver a mostrar (sin IRIS_CLAVE_CIFRADO o con la clave rotada). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).
+         * @description Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Nunca trae el enlace: con `enlaceDisponible` se pide aparte (`POST /encuestas/{id}/enlace`, permiso `encuestas.compartir`). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).
          */
         get: operations["listarEncuestas"];
         put?: never;
@@ -748,27 +748,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/encuestas/publica/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Encuesta por su enlace (público)
-         * @description Sin sesión. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida` o `vencida`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`.
-         */
-        get: operations["verEncuestaPublica"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/encuestas/publica/{token}/responder": {
+    "/api/v1/encuestas/publica/consultar": {
         parameters: {
             query?: never;
             header?: never;
@@ -778,10 +758,50 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Responder la encuesta (público)
-         * @description Sin sesión. `calificacion` 1–5 y `comentario` opcional (≤ 1000). Un solo uso: repetir la misma respuesta devuelve 200 sin cambios (idempotente); otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`. Token inválido: 404 (no se audita) o 429 como en el GET. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.
+         * Consultar una encuesta por su token (público)
+         * @description Sin sesión (la cookie del panel no cuenta aquí). El token va en el cuerpo, nunca en la ruta. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida`, `vencida` o `anulada`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`, sin tocar la base.
+         */
+        post: operations["consultarEncuestaPublica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/publica/responder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Responder una encuesta (público)
+         * @description Sin sesión. `{ token, calificacion (1–5), comentario? (≤ 1000) }`. Un solo uso: repetir la misma respuesta devuelve 200 sin cambios; otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`; anulada (el ticket se reabrió): 410 `encuesta_anulada`. Token inválido: 404 (no se audita) o 429 como en consultar. Guarda la IP y el User-Agent. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.
          */
         post: operations["responderEncuestaPublica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/{id}/enlace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir el enlace de una encuesta para compartirlo
+         * @description Permiso: `encuestas.compartir`. Acción auditada (quién lo pidió; el token queda como `***`). Solo una encuesta pendiente de canal `enlace`: si salió por correo, 409 `encuesta_por_correo`; respondida, 409 `encuesta_respondida`; vencida o anulada, 410 `encuesta_vencida` / `encuesta_anulada`; sin clave para derivarlo, 422 `enlace_no_disponible`. Respuesta con `Cache-Control: no-store`.
+         */
+        post: operations["compartirEncuesta"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3950,15 +3970,6 @@ export interface components {
             /** @description Zonas que atiende; vacío = todas */
             zonaIds: number[] | null;
         };
-        CuerpoResponderEncuesta: {
-            /**
-             * Format: int64
-             * @description 1 (muy mal) a 5 (muy bien)
-             */
-            calificacion: number;
-            /** @description Opcional */
-            comentario?: string;
-        };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
             evento: string;
@@ -4036,13 +4047,15 @@ export interface components {
             comentario: string | null;
             /** Format: date-time */
             creadaEn: string;
-            /** @description <IRIS_BASE_URL>/encuesta#<token> mientras esté pendiente; null si respondida, vencida o sin clave para derivarlo (enlaceDisponible) */
-            enlace: string | null;
+            /** @description Pendiente, canal enlace y con clave para derivarlo: se puede pedir con POST /encuestas/{id}/enlace */
             enlaceDisponible: boolean;
             /** @enum {string} */
             entidad: "ticket" | "orden";
-            /** @enum {string} */
-            estado: "pendiente" | "respondida" | "vencida";
+            /**
+             * @description anulada: el ticket se reabrió o se fusionó
+             * @enum {string}
+             */
+            estado: "pendiente" | "respondida" | "vencida" | "anulada";
             /** Format: date-time */
             expiraEn: string;
             /** Format: int64 */
@@ -4066,8 +4079,11 @@ export interface components {
             empresa: string | null;
             /** @enum {string} */
             entidad: "ticket" | "orden";
-            /** @enum {string} */
-            estado: "pendiente" | "respondida" | "vencida";
+            /**
+             * @description anulada: el caso se reabrió; llegará otra encuesta al resolverlo
+             * @enum {string}
+             */
+            estado: "pendiente" | "respondida" | "vencida" | "anulada";
             /** Format: date-time */
             expiraEn: string;
             /**
@@ -4077,6 +4093,12 @@ export interface components {
             fecha: string;
             /** @description Número del ticket o de la orden */
             numero: string;
+        };
+        EnlaceEncuesta: {
+            /** @description <IRIS_BASE_URL>/encuesta#<token> */
+            enlace: string;
+            /** Format: date-time */
+            expiraEn: string;
         };
         EnlaceExterno: {
             /** Format: int64 */
@@ -4749,6 +4771,10 @@ export interface components {
              */
             empresaId: number;
         };
+        EntradaEncuestaPublica: {
+            /** @description Lo que sigue a # en /encuesta#<token> */
+            token: string;
+        };
         EntradaEntrarPortal: {
             /** @description Lo que sigue a # en /soporte/entrar#<ticket> */
             ticket: string;
@@ -5221,6 +5247,17 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaResponderEncuesta: {
+            /**
+             * Format: int64
+             * @description 1 (muy mal) a 5 (muy bien)
+             */
+            calificacion: number;
+            /** @description Opcional */
+            comentario?: string;
+            /** @description Lo que sigue a # en /encuesta#<token> */
+            token: string;
         };
         EntradaResponderTicket: {
             cuerpo: string;
@@ -6842,7 +6879,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -11272,7 +11309,7 @@ export interface operations {
                 /** @description Una o varias (calificacion=1,2) */
                 calificacion?: number[] | null;
                 entidad?: "ticket" | "orden";
-                estado?: "pendiente" | "respondida" | "vencida";
+                estado?: "pendiente" | "respondida" | "vencida" | "anulada";
                 /** @description La del ticket (detalle del ticket) */
                 ticketId?: number;
                 /** @description La de la orden (detalle de la orden) */
@@ -11331,17 +11368,18 @@ export interface operations {
             };
         };
     };
-    verEncuestaPublica: {
+    consultarEncuestaPublica: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                /** @description Lo que sigue a # en /encuesta#<token> */
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEncuestaPublica"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -11393,16 +11431,15 @@ export interface operations {
     responderEncuestaPublica: {
         parameters: {
             query?: never;
-            header?: never;
-            path: {
-                /** @description Lo que sigue a # en /encuesta#<token> */
-                token: string;
+            header?: {
+                "User-Agent"?: string;
             };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CuerpoResponderEncuesta"];
+                "application/json": components["schemas"]["EntradaResponderEncuesta"];
             };
         };
         responses: {
@@ -11453,6 +11490,92 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    compartirEncuesta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceEncuesta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
