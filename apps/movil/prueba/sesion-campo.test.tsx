@@ -49,7 +49,8 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
         m.transporte.fallar(20, new ErrorTransporte("http", "No autenticado", 401, { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }));
     }
     m.transporte.sinRed = sinRed;
-    const posiciones = await ColaPosiciones.abrir({ almacen: m.almacen, transporte: new TransportePosicionesFalso(m.reloj), reloj: m.reloj });
+    const transportePosiciones = new TransportePosicionesFalso(m.reloj);
+    const posiciones = await ColaPosiciones.abrir({ almacen: m.almacen, transporte: transportePosiciones, reloj: m.reloj });
     const gps = new GpsFalso();
     const claves = clavesMemoria();
     claves.escribir(claveExplicacion(5), "1");
@@ -80,6 +81,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
         alVolverAlFrente: () => () => undefined,
         cerrarSesionApi: async () => undefined,
         vaciarCacheFotos: jest.fn(),
+        olvidarSesionGuardada: jest.fn(),
     };
 
     function Arnes() {
@@ -107,7 +109,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
         );
     }
     await render(<Arnes />);
-    return { m, gps, claves, salidas, ajena: () => sesionAjena?.() };
+    return { m, gps, claves, salidas, deps, posiciones, transportePosiciones, ajena: () => sesionAjena?.() };
 }
 
 async function esperarEncendido(gps: GpsFalso) {
@@ -183,6 +185,35 @@ describe("GPS y salidas de la sesión de campo", () => {
         m.transporte.sinRed = false;
         await act(() => m.motor.sincronizar());
         await esperarEncendido(gps);
+    });
+});
+
+describe("401 después de un GET /yo correcto", () => {
+    const error401 = () => new ErrorTransporte("http", "No autenticado", 401, { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 });
+
+    it("401 del motor (lote o cambios): olvida la sesión guardada y apaga el GPS con la app abierta", async () => {
+        const { m, gps, claves, deps, salidas } = await preparar();
+        await esperarEncendido(gps);
+        m.transporte.fallar(5, error401());
+        await act(() => m.motor.sincronizar().catch(() => undefined));
+        await waitFor(() => expect(deps.olvidarSesionGuardada).toHaveBeenCalled());
+        await waitFor(() => expect(gps.corriendo).toBe(false));
+        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
+        expect(salidas).toEqual([]);
+    });
+
+    it("401 de la cola de posiciones: olvida la sesión guardada, apaga el GPS y borra la marca", async () => {
+        const { gps, claves, deps, posiciones, transportePosiciones } = await preparar();
+        await esperarEncendido(gps);
+        transportePosiciones.fallar(1, error401());
+        await act(async () => {
+            await posiciones.agregar({ lat: 14.6, lon: -90.5, registradaEn: new Date().toISOString() });
+            await posiciones.enviar().catch(() => undefined);
+        });
+        await waitFor(() => expect(posiciones.obtenerEstado().detenida).toBe(true));
+        await waitFor(() => expect(deps.olvidarSesionGuardada).toHaveBeenCalled());
+        await waitFor(() => expect(gps.corriendo).toBe(false));
+        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
     });
 });
 

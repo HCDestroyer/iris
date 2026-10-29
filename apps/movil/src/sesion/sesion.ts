@@ -83,6 +83,14 @@ export function sesionGuardada(ahora = Date.now()): SesionCampo | null {
     return s;
 }
 
+/**
+ * La API dijo que la sesión ya no vale (401, o 403 de sesión en el motor o en la cola de posiciones):
+ * la guardada deja de servir para abrir sin señal y para la tarea del GPS.
+ */
+export function olvidarSesionGuardada(): void {
+    entorno().claves.borrar(CLAVE_SESION);
+}
+
 export function guardarSesion(s: SesionCampo): void {
     entorno().claves.escribir(CLAVE_SESION, JSON.stringify(s));
 }
@@ -125,15 +133,11 @@ export function empresaDeTrabajo(s: SesionCampo, elegida: number | null): number
 
 /** `POST /sesion`: guarda el CSRF; con MFA activo la sesión queda pendiente del código. */
 export async function iniciarSesion(datos: Schema<"EntradaIniciarSesion">): Promise<SesionIniciada> {
-    // Si quedó una sesión por cerrar en la API, primero se cierra: con la nueva, la cookie vieja se
-    // perdería y la sesión quedaría abierta en el servidor. Un error que no es de red no se descarta.
+    // Si quedó una sesión por cerrar en la API, se intenta una vez. Entrar con la contraseña siempre se
+    // permite: si el DELETE no se puede por algo que no es la red (CSRF perdido, 403, 5xx), se descarta
+    // el pendiente y la sesión vieja del servidor caduca sola. Sin red el login tampoco va.
     if ((await intentarCierrePendiente()) === "fallo") {
-        throw new ErrorApi({
-            estado: 409,
-            codigo: "cierre_pendiente",
-            titulo: "No se pudo cerrar tu sesión anterior",
-            detalle: "El servidor no aceptó cerrarla. Inténtalo de nuevo en unos minutos.",
-        });
+        await olvidarCierrePendiente();
     }
     const r = await resolver(cliente().POST("/api/v1/sesion", { body: datos }));
     await guardarCsrf(r.csrfToken);
@@ -159,7 +163,7 @@ export async function leerYo(empresa: number | null): Promise<Schema<"Yo">> {
             if (r.response.status === 401) {
                 // Sesión cerrada o revocada en la API (p. ej. logout remoto): la guardada deja de valer
                 // para abrir sin señal y para la tarea del GPS en segundo plano.
-                entorno().claves.borrar(CLAVE_SESION);
+                olvidarSesionGuardada();
             }
             throw errorDesdeRespuesta(r.response, r.error);
         }
@@ -228,14 +232,14 @@ async function olvidarCierrePendiente(): Promise<void> {
     await entorno().secreto.borrar(CLAVE_CSRF_CIERRE);
 }
 
-/** Desde cuándo hay un cierre pendiente (ms), o `null`. El formato viejo («1») cuenta como de ahora. */
-function cierrePendienteDesde(ahora: number): number | null {
+/** Desde cuándo hay un cierre pendiente (ms), o `null`. Lo ilegible o el formato viejo («1») cuentan como vencidos (0). */
+function cierrePendienteDesde(): number | null {
     const texto = entorno().claves.leer(CLAVE_CIERRE_PENDIENTE);
     if (texto === null) {
         return null;
     }
     const desde = Number(texto);
-    return Number.isFinite(desde) && desde > 1 ? desde : ahora;
+    return Number.isFinite(desde) && desde > 1 ? desde : 0;
 }
 
 /** ¿Quedó un cierre de sesión sin llegar a la API? */
@@ -246,12 +250,13 @@ export function hayCierrePendiente(): boolean {
 export type ResultadoCierre = "listo" | "sin_red" | "fallo";
 
 /**
- * Reintenta el `DELETE /sesion` de un cierre que no llegó a la API. Solo un 2xx o un 401 (la sesión
+ * Reintenta el `DELETE /sesion` de un cierre que no llegó a la API. Mientras siga pendiente, la app
+ * no entra sola con la cookie vieja (entrar con la contraseña sí: ver `iniciarSesion`). Solo un 2xx o un 401 (la sesión
  * ya no existe) lo dan por cerrado; sin señal (`sin_red`) o con otro error (`fallo`: 403, 5xx…) sigue
  * pendiente. A los 7 días (la vida de la sesión) se olvida con su CSRF.
  */
 export async function intentarCierrePendiente(ahora = Date.now()): Promise<ResultadoCierre> {
-    const desde = cierrePendienteDesde(ahora);
+    const desde = cierrePendienteDesde();
     if (desde === null) {
         return "listo";
     }

@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { entorno } from "../src/entorno";
 import { Entrar } from "../src/pantallas/Entrar";
-import { cerrarSesion, CLAVE_CSRF, guardarSesion, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, sesionGuardada, verificarDueno } from "../src/sesion/sesion";
+import { cargarCsrf, cerrarSesion, CLAVE_CSRF, guardarSesion, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, sesionGuardada, verificarDueno } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 import { ApiFalsa, problema, usuario, yo } from "./api-falsa";
 
@@ -152,21 +152,49 @@ describe("cerrar sesión sin señal (cierre pendiente)", () => {
 });
 
 describe("cierre pendiente con error del servidor", () => {
-    it("un 403 o 5xx no lo descarta: iniciar sesión se niega hasta cerrarla (2xx o 401)", async () => {
+    const sesionCon = (csrf: string) => ({ status: 200, cuerpo: sesion(csrf, false) });
+
+    it("503 o 403: sin contraseña no entra sola; con contraseña se intenta una vez, se descarta y entra", async () => {
         let respuesta: () => { status: number; cuerpo?: unknown; cabeceras?: Record<string, string> } = () => problema(503, "no_disponible");
         const api = new ApiFalsa()
             .en("DELETE", "/api/v1/sesion", () => respuesta())
-            .en("POST", "/api/v1/sesion", () => ({ status: 200, cuerpo: sesion("c3", false) }))
+            .en("POST", "/api/v1/sesion", () => sesionCon("c3"))
             .instalar();
         await cerrarSesion(5);
         expect(hayCierrePendiente()).toBe(true);
-        await expect(iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" })).rejects.toMatchObject({ codigo: "cierre_pendiente" });
+        // Entrada automática (al abrir la app): bloqueada mientras no se cierre.
+        expect(await reintentarCierrePendiente()).toBe(false);
         respuesta = () => problema(403, "csrf_invalido");
         expect(await reintentarCierrePendiente()).toBe(false);
-        expect(api.peticiones.some((p) => p.metodo === "POST")).toBe(false);
-        respuesta = () => ({ status: 204 });
-        await iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" });
+        expect(hayCierrePendiente()).toBe(true);
+        // Con la contraseña: un DELETE más y, como falla, se descarta y entra.
+        api.peticiones.length = 0;
+        await expect(iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" })).resolves.toMatchObject({ csrfToken: "c3" });
+        expect(api.peticiones.map((p) => p.metodo)).toEqual(["DELETE", "POST"]);
         expect(hayCierrePendiente()).toBe(false);
+    });
+
+    it("CSRF del cierre perdido (null): con contraseña se puede entrar", async () => {
+        await guardarCsrfDePrueba(null);
+        const api = new ApiFalsa()
+            .en("DELETE", "/api/v1/sesion", (p) => (p.cabeceras.get("X-CSRF-Token") ? { status: 204 } : problema(403, "csrf_invalido")))
+            .en("POST", "/api/v1/sesion", () => sesionCon("c4"))
+            .instalar();
+        api.sinRed = true;
+        await cerrarSesion(5);
+        api.sinRed = false;
+        expect(await entorno().secreto.leer("iris-campo-csrf-cierre")).toBeNull();
+        expect(await reintentarCierrePendiente()).toBe(false);
+        await expect(iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" })).resolves.toMatchObject({ csrfToken: "c4" });
+        expect(hayCierrePendiente()).toBe(false);
+    });
+
+    it("la marca con formato viejo («1») se trata como vencida y se olvida sin llamar a la API", async () => {
+        const api = new ApiFalsa().instalar();
+        entorno().claves.escribir("iris-campo-cierre-pendiente", "1");
+        expect(await reintentarCierrePendiente()).toBe(true);
+        expect(hayCierrePendiente()).toBe(false);
+        expect(api.peticiones).toHaveLength(0);
     });
 
     it("a los 7 días se olvida el cierre pendiente y su CSRF", async () => {
@@ -179,6 +207,14 @@ describe("cierre pendiente con error del servidor", () => {
         expect(api.peticiones).toHaveLength(1);
     });
 });
+
+/** Deja la sesión del teléfono sin CSRF (como tras perder el llavero). */
+async function guardarCsrfDePrueba(valor: string | null) {
+    if (valor === null) {
+        await entorno().secreto.borrar(CLAVE_CSRF);
+    }
+    await cargarCsrf();
+}
 
 describe("401 en GET /yo (logout remoto)", () => {
     it("borra la sesión guardada: ni abrir sin señal ni la tarea del GPS la aceptan después", async () => {

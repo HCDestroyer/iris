@@ -27,6 +27,7 @@ import {
     empresaElegida,
     guardarSesion,
     leerYo,
+    olvidarSesionGuardada,
     sesionDesdeYo,
     sesionGuardada,
     usableSinSenal,
@@ -77,6 +78,7 @@ function dependenciasNativas(): DependenciasCampo {
         },
         cerrarSesionApi,
         vaciarCacheFotos,
+        olvidarSesionGuardada,
     };
     return depsNativas;
 }
@@ -142,7 +144,13 @@ function Raiz() {
         abrir();
     }, [verificar]);
 
-    const salir = useCallback((motivo: "expirada" | "salida") => setPaso({ tipo: "entrar", motivo }), []);
+    const salir = useCallback((motivo: "expirada" | "salida") => {
+        if (motivo === "expirada") {
+            // Sesión vencida o de otra persona: no se vuelve a abrir sin señal con la guardada.
+            olvidarSesionGuardada();
+        }
+        setPaso({ tipo: "entrar", motivo });
+    }, []);
 
     let contenido;
     switch (paso.tipo) {

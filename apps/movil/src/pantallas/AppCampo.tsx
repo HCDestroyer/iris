@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
 import { Aviso } from "../componentes";
-import { ProveedorCampo, useEstadoMotor, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
+import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
 import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo, type GpsFondo } from "../campo/ubicacion";
 import type { AlmacenClaves } from "../entorno";
 import type { SesionCampo } from "../sesion/sesion";
@@ -43,6 +43,8 @@ export interface DependenciasCampo {
     cerrarSesionApi: (usuarioId: number) => Promise<void>;
     /** Borra fotos temporales de la cámara y del compresor. */
     vaciarCacheFotos: () => void;
+    /** La API dijo que la sesión ya no vale: olvida la sesión guardada (abrir sin señal, tarea del GPS). */
+    olvidarSesionGuardada: () => void;
 }
 
 export type MotivoSalida = "expirada" | "salida";
@@ -193,7 +195,15 @@ function CampoAbierto({
     }, [motor, posiciones, deps]);
 
     // GPS en segundo plano: solo con órdenes en curso (pausada no cuenta) y con la sesión vigente.
-    const enCurso = vigente(estado.conexion) ? ordenesEnCurso(estado.ordenes) : 0;
+    // La cola de posiciones `detenida` = 401/403 de sesión al enviar puntos: igual que el motor.
+    const colaPosiciones = useEstadoPosiciones(posiciones);
+    const sinSesion = !vigente(estado.conexion) || colaPosiciones?.detenida === true;
+    const enCurso = sinSesion ? 0 : ordenesEnCurso(estado.ordenes);
+    useEffect(() => {
+        if (estado.conexion === "sin_sesion" || colaPosiciones?.detenida === true) {
+            deps.olvidarSesionGuardada();
+        }
+    }, [estado.conexion, colaPosiciones?.detenida, deps]);
     useEffect(() => {
         void rastreo.actualizar(enCurso);
     }, [rastreo, enCurso]);
