@@ -6,14 +6,17 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { PieLista } from "@/componentes/pie-lista";
 import { InsigniasPlantilla, textoTipoPlantilla } from "@/componentes/plantillas/insignias";
 import { api, resolver } from "@/lib/api/cliente";
-import { useLectura } from "@/lib/lectura";
+import { usePaginado } from "@/lib/paginado";
 import { TIPOS_ORDEN } from "@/lib/ordenes/presentacion";
 import type { Plantilla, TipoOrdenPlantilla } from "@/lib/plantillas/esquemas";
 import { useSesion } from "@/lib/sesion";
 
-/** Plantillas de formulario: filtro por tipo de orden y activas o todas. */
+const TAMANO_PAGINA = 25;
+
+/** Plantillas de formulario: filtro por tipo de orden y activas o todas, con cursor. */
 export function ListaPlantillas() {
     const { puede } = useSesion();
     const id = useId();
@@ -59,9 +62,16 @@ export function ListaPlantillas() {
 }
 
 function Resultados({ tipo, todas }: { tipo: TipoOrdenPlantilla | ""; todas: boolean }) {
-    const lectura = useLectura<Plantilla[]>(
-        async (signal) => (await resolver(api().GET("/api/v1/plantillas", { params: { query: { ...(tipo ? { tipo } : {}), ...(todas ? { todas: true } : {}) } }, signal }))).data ?? [],
+    // Paginada por nombre (`nextCursor`): «Cargar más» como el resto de las listas.
+    const paginado = usePaginado<Plantilla>((cursor, signal) =>
+        resolver(
+            api().GET("/api/v1/plantillas", {
+                params: { query: { limit: TAMANO_PAGINA, ...(tipo ? { tipo } : {}), ...(todas ? { todas: true } : {}), ...(cursor ? { cursor } : {}) } },
+                ...(signal ? { signal } : {}),
+            }),
+        ),
     );
+    const lectura = paginado.primera;
     if (lectura.estado === "cargando") {
         return (
             <Tarjeta className="grid gap-3 p-4" aria-busy="true">
@@ -75,7 +85,7 @@ function Resultados({ tipo, todas }: { tipo: TipoOrdenPlantilla | ""; todas: boo
         );
     }
     if (lectura.estado === "error") return <ErrorLectura error={lectura.error} que="las plantillas" reintentar={lectura.reintentar} />;
-    const lista = lectura.datos;
+    const lista = paginado.items;
     if (lista.length === 0) {
         return (
             <Tarjeta>
@@ -127,6 +137,9 @@ function Resultados({ tipo, todas }: { tipo: TipoOrdenPlantilla | ""; todas: boo
                     </TablaCuerpo>
                 </Tabla>
             </Tarjeta>
+            <div className="mt-4 grid justify-items-center">
+                <PieLista paginado={paginado} que="plantillas" />
+            </div>
         </>
     );
 }

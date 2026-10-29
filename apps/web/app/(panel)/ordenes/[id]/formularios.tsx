@@ -8,13 +8,14 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { PieLista } from "@/componentes/pie-lista";
 import type { Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { formatearFecha } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
-import { useLectura } from "@/lib/lectura";
+import { usePaginado } from "@/lib/paginado";
 import {
     agruparChecklist,
     CIERRES_PAUSA,
@@ -174,15 +175,21 @@ function useEnvioOrden(recargar: () => Promise<void>) {
     return { enviar, error, setError, conflicto, aviso };
 }
 
+const LIMITE_PLANTILLAS = 50;
+
 const esquemaAgregar = z.object({ plantillaId: z.string().regex(/^[1-9]\d*$/, "Elige el formulario") });
 
 function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; recargar: () => Promise<void>; alHecho: () => Promise<void> }) {
     // Las del tipo de la orden y las de cualquier tipo, activas.
-    const plantillas = useLectura<Schema<"PlantillaFormulario">[]>(async (signal) => (await resolver(api().GET("/api/v1/plantillas", { params: { query: { tipo: orden.tipo } }, signal }))).data ?? []);
+    // Paginadas por nombre: «Cargar más» trae las siguientes al selector.
+    const paginado = usePaginado<Schema<"PlantillaFormulario">>((cursor, signal) =>
+        resolver(api().GET("/api/v1/plantillas", { params: { query: { tipo: orden.tipo, limit: LIMITE_PLANTILLAS, ...(cursor ? { cursor } : {}) } }, ...(signal ? { signal } : {}) })),
+    );
+    const plantillas = paginado.primera;
     const envio = useEnvioOrden(recargar);
     const formulario = useForm<z.infer<typeof esquemaAgregar>>({ resolver: zodResolver(esquemaAgregar), defaultValues: { plantillaId: "" } });
     const presentes = new Set((orden.formularios ?? []).map((f) => f.plantillaId));
-    const disponibles = plantillas.estado === "listo" ? plantillas.datos.filter((p) => p.activa && !presentes.has(p.id)) : [];
+    const disponibles = paginado.items.filter((p) => p.activa && !presentes.has(p.id));
     async function enviar(d: z.infer<typeof esquemaAgregar>) {
         const error = await envio.enviar((clave) =>
             resolver(api().POST("/api/v1/ordenes/{id}/formularios", { params: { path: { id: orden.id }, header: { "Idempotency-Key": clave } }, body: { version: orden.version, plantillaId: Number(d.plantillaId) } })),
@@ -196,7 +203,7 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
                 <Esqueleto className="h-20" />
             ) : plantillas.estado === "error" ? (
                 <ErrorLectura error={plantillas.error} que="los formularios disponibles" reintentar={plantillas.reintentar} />
-            ) : disponibles.length === 0 ? (
+            ) : disponibles.length === 0 && !paginado.siguiente ? (
                 <p className="text-sm text-muted-foreground">No hay más formularios activos para este tipo de orden.</p>
             ) : (
                 <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-4" aria-label="Agregar formulario">
@@ -209,6 +216,7 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
                             </option>
                         ))}
                     </CampoSelector>
+                    <PieLista paginado={paginado} que="formularios" />
                     {envio.aviso("agregar el formulario")}
                     <DialogoPie>
                         <DialogoCerrar asChild>

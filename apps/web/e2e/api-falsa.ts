@@ -235,7 +235,7 @@ export type ApiFalsa = {
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
     /** Plantillas de formulario (se pueden cambiar en la prueba). */
-    plantillas: Pick<ApiPlantillas, "plantillas" | "cambiarVersion">;
+    plantillas: Pick<ApiPlantillas, "plantillas" | "cambiarVersion" | "agregarRelleno">;
     /** Prospectos, cotizaciones y contratos del escenario comercial. */
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
@@ -759,7 +759,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
         rutas: rutas.rutas,
-        plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion },
+        plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
