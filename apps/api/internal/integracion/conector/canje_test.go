@@ -71,7 +71,7 @@ func entornoCanje(t *testing.T, tokens *tokensDePrueba, cola *encolados) (*Conex
 	n := Nuevo(Config{Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Encolar: cola.encolar})
 	c := n.Agregar(Sistema{
 		Nombre: "pruebacanje", Remoto: Remoto{Codigo: "prueba", Nombre: "Prueba", VariableOrigenes: "IRIS_PRUEBA_ORIGENES"},
-		PrefijoToken: "atk_", RutaCanje: "/canjear",
+		PrefijoToken: "atk_", RutaCanje: "/canjear", Origenes: []string{srv.URL},
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 		TrabajoEntrante: func(int64) river.JobArgs { return nil },
 	})

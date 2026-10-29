@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,13 +84,21 @@ func TestCanjeSoloAOrigenesPermitidos(t *testing.T) {
 		t.Fatalf("previsualizar: %+v %v", p, err)
 	}
 
-	// Sin lista y fuera de desarrollo (https, sin PermitirHTTP) → 422 origenes_no_configurados.
-	produccion := e.cfg
-	produccion.PermitirHTTP = false
-	mp := argos.Nuevo(produccion)
-	mp.Nucleo().FijarTokens(e.ident)
-	if _, err := mp.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: "https://argos-falso.example/conectar#codigo-de-argos-0123456789"}); !esProblema(err, "origenes_no_configurados") {
-		t.Fatalf("sin IRIS_ARGOS_ORIGENES: %v", err)
+	// Sin lista → 422 origenes_no_configurados, también en desarrollo: PermitirHTTP solo permite
+	// http, no cualquier origen.
+	for _, permitirHTTP := range []bool{false, true} {
+		sinLista := e.cfg
+		sinLista.Origenes, sinLista.PermitirHTTP = nil, permitirHTTP
+		mp := argos.Nuevo(sinLista)
+		mp.Nucleo().FijarTokens(e.ident)
+		for _, enlace := range []string{"https://argos-falso.example/conectar#codigo-de-argos-0123456789", e.argos.enlace()} {
+			if !permitirHTTP && strings.HasPrefix(enlace, "http://") {
+				continue
+			}
+			if _, err := mp.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: enlace}); !esProblema(err, "origenes_no_configurados") {
+				t.Fatalf("sin IRIS_ARGOS_ORIGENES (PermitirHTTP %v) %s: %v", permitirHTTP, enlace, err)
+			}
+		}
 	}
 	if e.tokensIntegracion() != antes || e.canjes() != canjes {
 		t.Fatalf("un origen no permitido no emite token ni llama afuera: tokens %d→%d, canjes %d→%d", antes, e.tokensIntegracion(), canjes, e.canjes())
@@ -105,13 +114,26 @@ func TestCanjeSoloAOrigenesPermitidos(t *testing.T) {
 	if e.canjes() != canjes {
 		t.Fatal("previsualizar no llama a Argos")
 	}
-	// Con un conector de ese origen, el mismo origen sirve aunque no esté en la lista.
-	if _, err := m2.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: e.argos.enlace()}); err != nil {
+	// Un conector de ese origen que no está activo (un intento sin activar, o creado cuando el
+	// origen estaba en la lista y ya no) no lo vuelve de confianza.
+	c, err := m2.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: e.argos.enlace()})
+	if err != nil {
 		t.Fatalf("conectar desde la lista: %v", err)
 	}
 	e.codigoNuevo()
+	if _, err := m.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: e.argos.enlace()}); !esProblema(err, "origen_no_permitido") {
+		t.Fatalf("mismo origen que un conector sin activar: %v", err)
+	}
+	// El del conector activo sí cuenta aunque ya no esté en la lista (reconectar el mismo Argos).
+	e.usuario("admin").pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", c.ID), map[string]any{"version": c.Version})
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND estado = 'activo'`, c.ID) != 1 {
+		t.Fatal("activar")
+	}
+	if p, err := m.Previsualizar.Ejecutar(ctx, argos.EntradaConectar{Enlace: e.argos.enlace()}); err != nil || !p.Permitido || !p.ConectorExistente {
+		t.Fatalf("previsualizar con el conector activo: %+v %v", p, err)
+	}
 	if _, err := m.Conectar.Ejecutar(ctx, argos.EntradaConectar{Enlace: e.argos.enlace()}); err != nil {
-		t.Fatalf("mismo origen que un conector existente: %v", err)
+		t.Fatalf("mismo origen que el conector activo: %v", err)
 	}
 }
 
@@ -152,16 +174,34 @@ func TestTokenDelCanjeVenceSinActivar(t *testing.T) {
 func TestReconectarYDesactivarRevocan(t *testing.T) {
 	e := nuevoEntorno(t)
 	admin := e.usuario("admin")
-	e.conectarComoAdmin(admin)
+	activo := e.conectarComoAdmin(admin)
+	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", activo), map[string]any{"version": 1}); a.status != 200 {
+		t.Fatalf("activar el primero: %d %s", a.status, a.crudo)
+	}
 	primero := e.tokenDelUltimoCanje()
+	// Un intento sin activar: su token se revoca al canjear el siguiente.
+	e.codigoNuevo()
+	e.conectarComoAdmin(admin)
+	intento := e.tokenDelUltimoCanje()
 	e.codigoNuevo()
 	id := e.conectarComoAdmin(admin)
 	segundo := e.tokenDelUltimoCanje()
-	if !e.estadoToken(primero).revocado || e.estadoToken(segundo).revocado {
-		t.Fatalf("reconectar: el anterior se revoca (%+v) y el nuevo no (%+v)", e.estadoToken(primero), e.estadoToken(segundo))
+	// Reconectar no corta la integración: el token del conector activo sigue vivo hasta activar
+	// el nuevo; el del intento nuevo vence en 15 min si no se activa.
+	if e.estadoToken(primero).revocado || !e.estadoToken(intento).revocado || e.estadoToken(segundo).revocado || e.estadoToken(segundo).expira == nil {
+		t.Fatalf("reconectar: activo %+v, intento %+v, nuevo %+v", e.estadoToken(primero), e.estadoToken(intento), e.estadoToken(segundo))
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND estado = 'activo'`, activo) != 1 {
+		t.Fatal("el conector activo sigue activo hasta activar el nuevo")
 	}
 	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", id), map[string]any{"version": 1}); a.status != 200 {
 		t.Fatalf("activar: %d %s", a.status, a.crudo)
+	}
+	// Activar el nuevo reemplaza al anterior en la misma transacción: apagado y su token revocado.
+	if !e.estadoToken(primero).revocado || e.estadoToken(segundo).revocado || e.estadoToken(segundo).expira != nil ||
+		e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND estado = 'apagado'`, activo) != 1 ||
+		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.desactivado' AND (payload->>'conector_id')::bigint = $1`, activo) != 1 {
+		t.Fatalf("activar reemplaza: anterior %+v, nuevo %+v", e.estadoToken(primero), e.estadoToken(segundo))
 	}
 	if d := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/desactivar", id), map[string]any{"version": 2, "motivo": "prueba"}); d.status != 200 {
 		t.Fatalf("desactivar: %d %s", d.status, d.crudo)

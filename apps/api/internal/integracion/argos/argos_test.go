@@ -79,7 +79,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 		t.Fatal(err)
 	}
 	cfg := argos.Config{
-		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true,
+		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Origenes: []string{fa.srv.URL},
 		// El Argos falso escucha en loopback: en producción esa red está bloqueada (red.go).
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 		Espera:          5 * time.Millisecond, Encolar: integracion.Encolar(cola), Timeout: 2 * time.Second,
@@ -308,7 +308,7 @@ func TestConectarConEnlaceDeArgos(t *testing.T) {
 	}
 	lectura.pedir(http.MethodGet, "/api/v1/integraciones/conectores", nil).problema(t, 403, "prohibido")
 
-	// Activar exige la versión y el permiso; luego no se activa otro del mismo sistema.
+	// Activar exige la versión y el permiso.
 	ruta := fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", id)
 	lectura.pedir(http.MethodPost, ruta, map[string]any{"version": 1}).problema(t, 403, "prohibido")
 	admin.pedir(http.MethodPost, ruta, map[string]any{"version": 9}).problema(t, 409, "conflicto_version")
