@@ -95,7 +95,7 @@ type Modulo struct {
 	ListarCategorias *auditoria.Caso[EntradaListarCategorias, nucleo.Pagina[Categoria]]
 	ListarSLAs       *auditoria.Caso[struct{}, nucleo.Pagina[SLA]]
 
-	RevisarSLA *auditoria.Caso[EntradaRevisarSLA, ResultadoRevisarSLA]
+	RevisarSLA *RevisorSLA
 
 	CrearBuzon      *auditoria.Caso[EntradaCrearBuzon, Buzon]
 	EditarBuzon     *auditoria.Caso[EntradaEditarBuzon, Buzon]

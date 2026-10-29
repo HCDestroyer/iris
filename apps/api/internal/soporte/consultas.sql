@@ -172,8 +172,22 @@ LIMIT @limite;
 -- Relojes que cruzaron el 80 % o su vencimiento y todavía no se alertaron con ese vencimiento
 -- (si se corrió, el nuevo plazo vuelve a alertar). Un reloj que ya venció no emite «en riesgo»
 -- (si el cron estuvo detenido, solo sale el vencido).
+-- Rendimiento (prueba de carga de I5; internal/soporte/carga): «vivos» repite exactamente los
+-- predicados de los índices parciales tickets_sla_respuesta_idx y tickets_sla_resolucion_idx
+-- (BitmapOr; MATERIALIZED para que el ORDER BY … LIMIT no lo cambie por un recorrido de
+-- tickets_pkey), así se leen solo los tickets vivos con un reloj en riesgo y no toda la historia.
+-- Las alertas ya emitidas se miran por ticket con la llave primaria de ticket_sla_alertas (LATERAL
+-- con LIMIT 1: nunca un anti join que lea todas las alertas, que crecen sin purga).
+WITH vivos AS MATERIALIZED (
+    SELECT t.id, t.empresa_id, t.estado, t.primera_respuesta_en, t.riesgo_respuesta, t.vence_respuesta,
+           t.riesgo_resolucion, t.vence_resolucion
+    FROM soporte.tickets t
+    WHERE (t.primera_respuesta_en IS NULL AND t.estado IN ('nuevo', 'abierto', 'en_espera')
+           AND t.riesgo_respuesta <= @ahora::timestamptz)
+       OR (t.estado IN ('nuevo', 'abierto') AND t.riesgo_resolucion <= @ahora::timestamptz)
+)
 SELECT t.id AS ticket_id, t.empresa_id, r.sla::text AS sla, r.umbral::text AS umbral, r.vence_en::timestamptz AS vence_en
-FROM soporte.tickets t
+FROM vivos t
 CROSS JOIN LATERAL (VALUES
     ('respuesta', 'en_riesgo', t.vence_respuesta,
      t.primera_respuesta_en IS NULL AND t.estado IN ('nuevo', 'abierto', 'en_espera')
@@ -186,13 +200,12 @@ CROSS JOIN LATERAL (VALUES
     ('resolucion', 'vencido', t.vence_resolucion,
      t.estado IN ('nuevo', 'abierto') AND t.vence_resolucion <= @ahora::timestamptz)
 ) AS r (sla, umbral, vence_en, aplica)
-WHERE (t.estado IN ('nuevo', 'abierto', 'en_espera'))
-  AND (t.riesgo_respuesta <= @ahora::timestamptz OR t.riesgo_resolucion <= @ahora::timestamptz)
-  AND r.aplica
-  AND NOT EXISTS (
-      SELECT 1 FROM soporte.ticket_sla_alertas a
-      WHERE a.ticket_id = t.id AND a.sla = r.sla AND a.umbral = r.umbral AND a.vence_en = r.vence_en
-  )
+LEFT JOIN LATERAL (
+    SELECT 1 AS hay FROM soporte.ticket_sla_alertas a
+    WHERE a.ticket_id = t.id AND a.sla = r.sla AND a.umbral = r.umbral AND a.vence_en = r.vence_en
+    LIMIT 1
+) ya ON true
+WHERE r.aplica AND ya.hay IS NULL
 ORDER BY t.id, r.sla, r.umbral
 LIMIT @limite;
 

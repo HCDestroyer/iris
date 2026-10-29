@@ -202,6 +202,19 @@ Lógica común con el panel en funciones internas: `crearTicket` (también la us
 `reactivarPorCliente` (también el correo), `tomar`, `cerrar`. Las claves de idempotencia del
 cliente son `cliente:<empresa>:<cliente>|<clave>`.
 
+## Rendimiento (prueba de carga de I5)
+
+- **Cron de SLA:** `AlertasSLAPendientes` lee solo los tickets vivos con un reloj en riesgo (los
+  índices parciales `tickets_sla_respuesta_idx` / `tickets_sla_resolucion_idx`, BitmapOr) y mira
+  las alertas ya emitidas por ticket con la llave primaria de `ticket_sla_alertas`: su costo no
+  crece con la historia. Las alertas se emiten en lotes de 200 (`LoteSLAPorDefecto`), cada uno en
+  su transacción con su fila de auditoría (`RevisorSLA`); la idempotencia sigue siendo el `INSERT …
+  ON CONFLICT DO NOTHING` en la transacción del evento.
+- **Búsqueda `q` de la bandeja:** índices GIN de trigramas (`pg_trgm`, `fastupdate = off`) sobre
+  `numero`, `asunto` y `contacto_nombre`; la consulta no cambió (`ILIKE '%…%'`).
+- `internal/soporte/carga` siembra 60 000 tickets de un año, compara la consulta anterior del cron
+  con la nueva (mismo resultado), verifica los planes con `EXPLAIN` y mide.
+
 ## Eventos que emite
 
 `ticket.creado`, `ticket.asignado`, `ticket.estado_cambiado`, `ticket.respondido`,
