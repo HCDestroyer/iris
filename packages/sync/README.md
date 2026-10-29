@@ -97,8 +97,8 @@ se inyectan.
 import { MotorSync, crearSubidorApi, crearTransporteApi } from "@iris/sync";
 import { AlmacenDexie } from "@iris/sync/dexie";
 
-// Cliente openapi-fetch de @iris/contratos con cookies + X-CSRF-Token y X-Iris-Empresa (PWA)
-// o Bearer (Expo); el transporte agrega X-Iris-Canal: campo.
+// Cliente openapi-fetch de @iris/contratos con la cookie de sesión + X-CSRF-Token y
+// X-Iris-Empresa (PWA y Expo); el transporte agrega X-Iris-Canal: campo.
 const cliente = crearClienteIris({ leerEmpresa: () => empresaId });
 const motor = await MotorSync.abrir({
     almacen: new AlmacenDexie({ nombre: `iris-campo-${usuarioId}-${empresaId ?? 0}` }),
@@ -108,6 +108,9 @@ const motor = await MotorSync.abrir({
 motor.iniciar();
 window.addEventListener("online", () => motor.establecerConexion(true));
 window.addEventListener("offline", () => motor.establecerConexion(false));
+
+// En Expo (apps/movil): SQLite en vez de IndexedDB, y SHA-256 y azar de expo-crypto (Hermes no
+// trae crypto.subtle): AlmacenSqlite(await openDatabaseAsync(nombre)), sha256 y generarId.
 
 // En un componente:
 const estado = useSyncExternalStore(motor.suscribir, motor.obtenerEstado);
@@ -124,6 +127,8 @@ await motor.registrar("orden.llegar", orden.id, { lat, lon, precision });
 | `aplicar.ts` | Aplicación optimista pura y regla del checklist |
 | `contrato.ts` | Alias de `@iris/contratos` (`Schema<"OrdenCampo">`…) y `DatosPorTipo` derivado de las entradas de cada acción |
 | `almacen.ts`, `almacen-memoria.ts`, `almacen-dexie.ts` | Persistencia: interfaz, memoria (pruebas) e IndexedDB (`@iris/sync/dexie`) |
+| `almacen-sqlite.ts` | `@iris/sync/sqlite`: `AlmacenSqlite` (cola, órdenes, adjuntos en BLOB, meta y posiciones) sobre una conexión con la forma de `expo-sqlite` (`execAsync`, `runAsync`, `getAllAsync`, `closeAsync`), sin importarlo; una operación a la vez y cada escritura en `BEGIN IMMEDIATE … COMMIT`/`ROLLBACK` |
+| `campo/` | `@iris/sync/campo`: reglas y textos que comparten la PWA y la app nativa (acciones por estado, faltantes del cierre, esquemas zod, fechas en Guatemala, lector de serie/MAC, textos de estados y rechazos) |
 | `transporte.ts`, `http.ts` | Interfaces `Transporte` y `Subidor` y su implementación con el cliente `openapi-fetch` (lote, paquete, cambios, alta y tus 1.0) |
 | `reloj.ts`, `uuid7.ts` | Reloj inyectable, espera exponencial con jitter y UUID v7 monótono |
 | `pruebas/` | `@iris/sync/pruebas`: reloj manual, transporte y subidor falsos, `TransportePosicionesFalso` (6 lotes/min, 429, duplicadas), fábricas |
@@ -142,6 +147,8 @@ No emite ni consume eventos del catálogo: habla con la API por HTTP. Hacia la i
   según el brief de I4.
 - `fake-indexeddb` (desarrollo): IndexedDB completo en Node para probar el adaptador de Dexie.
 - `@iris/contratos` (del monorepo): tipos y cliente del OpenAPI.
+- `zod` (solo `@iris/sync/campo`, ya en el monorepo): los esquemas de los formularios de campo,
+  movidos desde `apps/web/lib/campo` para que la app de Expo valide igual.
 
 ## Pruebas
 
@@ -154,4 +161,6 @@ caducidad, subida con corte y reanudación, cerrar esperando adjuntos, Dexie sob
 `offset_distinto`, adjunto rechazado), `posiciones.test.ts` (persistir antes de enviar, sin
 señal y reinicio, 6 lotes por minuto sin llegar al 429, 429 con `Retry-After`, tope, 24 h, 422,
 bucle con espera y sesión, aislamiento por usuario y empresa en IndexedDB y migración a v3) y
-`http.test.ts` (transporte real con respuestas tipadas del OpenAPI).
+`http.test.ts` (transporte real con respuestas tipadas del OpenAPI) y `almacen-sqlite.test.ts`
+(adaptador SQLite sobre `node:sqlite`: reabrir el archivo, orden de la cola, `ROLLBACK`,
+escrituras concurrentes sin intercalarse y motor + posiciones de punta a punta).

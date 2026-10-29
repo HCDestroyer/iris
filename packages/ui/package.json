@@ -12,6 +12,10 @@
             "types": "./src/index.ts",
             "default": "./src/index.ts"
         },
+        "./firma": {
+            "types": "./src/componentes/firma.ts",
+            "default": "./src/componentes/firma.ts"
+        },
         "./estilos.css": "./src/estilos/estilos.css",
         "./logo-mark.svg": "./src/marca/logo-mark.svg"
     },

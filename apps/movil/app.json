@@ -1,0 +1,61 @@
+{
+    "expo": {
+        "name": "Iris Campo",
+        "slug": "iris-campo",
+        "scheme": "iris-campo",
+        "version": "0.1.0",
+        "orientation": "portrait",
+        "userInterfaceStyle": "automatic",
+        "newArchEnabled": true,
+        "ios": {
+            "bundleIdentifier": "gt.horus.iris.campo",
+            "supportsTablet": false,
+            "infoPlist": {
+                "UIBackgroundModes": [
+                    "location"
+                ]
+            }
+        },
+        "android": {
+            "package": "gt.horus.iris.campo",
+            "allowBackup": false,
+            "permissions": [
+                "ACCESS_COARSE_LOCATION",
+                "ACCESS_FINE_LOCATION",
+                "ACCESS_BACKGROUND_LOCATION",
+                "FOREGROUND_SERVICE",
+                "FOREGROUND_SERVICE_LOCATION",
+                "CAMERA"
+            ]
+        },
+        "plugins": [
+            "expo-sqlite",
+            "expo-secure-store",
+            [
+                "expo-location",
+                {
+                    "locationAlwaysAndWhenInUsePermission": "Iris usa tu ubicación solo mientras tienes una orden en curso (en camino o en sitio), también con la app en segundo plano, para que despacho vea dónde vas. Con la orden pausada o cerrada se apaga.",
+                    "locationWhenInUsePermission": "Iris registra dónde marcas «En camino», «Llegué» y el cierre de una orden.",
+                    "isAndroidBackgroundLocationEnabled": true,
+                    "isAndroidForegroundServiceEnabled": true,
+                    "isIosBackgroundLocationEnabled": true
+                }
+            ],
+            [
+                "expo-camera",
+                {
+                    "cameraPermission": "Iris usa la cámara para escanear la serie y la MAC de los equipos.",
+                    "recordAudioAndroid": false
+                }
+            ],
+            [
+                "expo-image-picker",
+                {
+                    "cameraPermission": "Iris usa la cámara para las fotos de evidencia de la orden.",
+                    "photosPermission": false,
+                    "microphonePermission": false
+                }
+            ]
+        ]
+    }
+}

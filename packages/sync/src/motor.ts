@@ -64,6 +64,7 @@ export interface OpcionesMotor {
     caducidadMs?: number;
     /** Cada cuánto el bucle pide cambios con la app abierta (60 s). */
     intervaloMs?: number;
+    /** SHA-256 en hexadecimal (por defecto `crypto.subtle`; en Expo, `expo-crypto`: Hermes no trae `subtle`). */
     sha256?: (datos: Uint8Array) => Promise<string>;
     /**
      * Comprueba, antes de cada llamada que envía o baja datos (lote, alta y tus de adjuntos,
