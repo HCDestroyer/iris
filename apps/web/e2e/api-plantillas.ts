@@ -145,6 +145,8 @@ export type ApiPlantillas = {
     buscar: (id: number) => PlantillaFalsa | undefined;
     /** Otra persona cambió la plantilla: sube su versión. */
     cambiarVersion: (id: number) => void;
+    /** Agrega `n` plantillas activas comunes de cualquier tipo («Relleno 01»…), para paginar. */
+    agregarRelleno: (n: number) => void;
     manejar: (c: ContextoPlantillas) => Promise<boolean>;
 };
 
@@ -181,6 +183,22 @@ export function apiPlantillas(): ApiPlantillas {
             const f = plantillas.find((x) => x.p.id === id);
             if (f) f.p.version++;
         },
+        agregarRelleno: (n) => {
+            for (let i = 1; i <= n; i++) {
+                const id = 900 + i;
+                plantillas.push(
+                    plantilla({
+                        id,
+                        codigo: `relleno_${String(i).padStart(2, "0")}`,
+                        nombre: `Relleno ${String(i).padStart(2, "0")}`,
+                        tipo: null,
+                        empresaId: null,
+                        activa: true,
+                        items: [{ codigo: "ok", etiqueta: "Todo en orden", tipo: "si_no", obligatorio: false, unidad: "", opciones: null }],
+                    }),
+                );
+            }
+        },
         manejar: async ({ route, metodo, ruta, query, cuerpo, idempotencia, puede, hayEmpresas, empresaId }) => {
             if (!ruta.startsWith("/api/v1/plantillas")) return false;
             const negar = async () => {
@@ -197,8 +215,15 @@ export function apiPlantillas(): ApiPlantillas {
                 if (!puede("plantillas.ver")) return negar();
                 const tipo = query.get("tipo");
                 const todas = query.get("todas") === "true";
-                const data = visibles.filter((f) => (todas || f.p.activa) && (!tipo || f.p.tipo === null || f.p.tipo === tipo)).map((f) => f.p);
-                await json(route, { data, nextCursor: null } satisfies Schema<"PaginaPlantillaFormulario">);
+                // Como la #35: por nombre, con cursor y `limit` (50 por defecto).
+                const lista = visibles
+                    .filter((f) => (todas || f.p.activa) && (!tipo || f.p.tipo === null || f.p.tipo === tipo))
+                    .map((f) => f.p)
+                    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es") || a.id - b.id);
+                const desde = Number(query.get("cursor")?.replace("c:", "") ?? 0);
+                const limite = Number(query.get("limit") ?? 50);
+                const corte = lista.slice(desde, desde + limite + 1);
+                await json(route, { data: corte.slice(0, limite), nextCursor: corte.length > limite ? `c:${desde + limite}` : null } satisfies Schema<"PaginaPlantillaFormulario">);
                 return true;
             }
             if (metodo === "POST" && ruta === "/api/v1/plantillas") {

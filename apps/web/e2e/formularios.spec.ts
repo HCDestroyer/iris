@@ -45,6 +45,28 @@ test.describe("plantillas de formulario", () => {
         await captura(page, info, "01-lista");
     });
 
+    test("la lista pagina por nombre con «Cargar más»", async ({ page, context, baseURL }, info) => {
+        const api = await simularApi(page);
+        api.plantillas.agregarRelleno(30);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/administracion/plantillas");
+        const filas = page.locator("[data-plantilla]").filter({ visible: true });
+        await expect(filas).toHaveCount(25);
+        await expect(filas.first()).toHaveAttribute("data-plantilla", "visita_diagnostico");
+        await expect(plantilla(page, "seguridad")).toHaveCount(0);
+        await page.getByRole("button", { name: "Cargar más" }).click();
+        await expect(filas).toHaveCount(33);
+        await expect(plantilla(page, "seguridad")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Cargar más" })).toHaveCount(0);
+        const lecturas = api.peticiones.filter((p) => p.ruta === "/api/v1/plantillas");
+        expect(lecturas.map((p) => [p.query.get("limit"), p.query.get("cursor")])).toEqual([
+            ["25", null],
+            ["25", "c:25"],
+        ]);
+        await sinDesborde(page);
+        await captura(page, info, "06-lista-paginada");
+    });
+
     test("sin plantillas.ver no aparece en Administración", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
@@ -195,6 +217,29 @@ test.describe("formularios de la orden", () => {
         expect(posts(api, "/ordenes/4/formularios")[0]?.cuerpo).toEqual({ version: 5, plantillaId: 2 });
         expect(api.mutaciones.filter((m) => m.ruta.startsWith("/api/v1/ordenes/4/")).every((m) => m.csrf === CSRF)).toBe(true);
         await sinDesborde(page);
+    });
+
+    test("«Agregar formulario» trae más plantillas con «Cargar más»", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        api.plantillas.agregarRelleno(60);
+        await conSesion(context, baseURL ?? "", DESPACHO.correo);
+        await page.goto("/ordenes/4");
+        await page.getByTestId("formularios").getByRole("button", { name: "Agregar formulario" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
+        const opciones = dialogo.getByLabel("Formulario", { exact: true }).locator("option");
+        await expect(opciones).toHaveCount(51);
+        await expect(dialogo.getByLabel("Formulario", { exact: true }).locator("option", { hasText: "Relleno 51" })).toHaveCount(0);
+        await dialogo.getByRole("button", { name: "Cargar más" }).click();
+        await expect(opciones).toHaveCount(61);
+        await expect(dialogo.getByRole("button", { name: "Cargar más" })).toHaveCount(0);
+        await dialogo.getByLabel("Formulario", { exact: true }).selectOption({ label: "Relleno 55 · v1 · común" });
+        await dialogo.getByRole("button", { name: "Agregar" }).click();
+        await expect(page.getByTestId("formularios").locator('[data-formulario="relleno_55"]')).toContainText("Agregado por despacho");
+        const lecturas = api.peticiones.filter((p) => p.ruta === "/api/v1/plantillas");
+        expect(lecturas.map((p) => [p.query.get("tipo"), p.query.get("limit"), p.query.get("cursor")])).toEqual([
+            ["cambio_equipo", "50", null],
+            ["cambio_equipo", "50", "c:50"],
+        ]);
     });
 
     test("una orden cerrada no ofrece agregar ni quitar", async ({ page, context, baseURL }) => {
