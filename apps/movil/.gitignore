@@ -5,3 +5,9 @@ android/
 ios/
 expo-env.d.ts
 *.tsbuildinfo
+
+# Firma y compilados de Android (el keystore nunca se commitea)
+*.jks
+*.keystore
+*.apk
+*.aab
