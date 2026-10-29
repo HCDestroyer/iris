@@ -49,6 +49,7 @@ export function presentacionEstado(estado: string): Presentacion {
 }
 
 export const ENTIDADES: Record<EntidadEncuesta, string> = { ticket: "Ticket", orden: "Orden" };
+export const ENTIDADES_PLURAL: Record<EntidadEncuesta, string> = { ticket: "Tickets", orden: "Órdenes" };
 
 /** Promedio 1–5 con un decimal; `null` = sin respuestas → «Sin datos». */
 export function textoPromedio(v: number | null | undefined): string {

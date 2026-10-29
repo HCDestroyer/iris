@@ -15,7 +15,7 @@ export type FiltrosEncuestas = {
     estado: EstadoEncuesta | "";
 };
 
-export const ESTADOS_FILTRO: readonly EstadoEncuesta[] = ["pendiente", "respondida", "vencida"];
+export const ESTADOS_FILTRO: readonly EstadoEncuesta[] = ["pendiente", "respondida", "vencida", "anulada"];
 
 export const FILTROS_ENCUESTAS_VACIOS: FiltrosEncuestas = { desde: "", hasta: "", calificaciones: [], entidad: "", estado: "" };
 

@@ -56,7 +56,7 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   «Reintentar» y error visible), actividades con próxima acción e historial. Botones = `acciones`
   de la API ∩ permisos de `GET /yo`; `version` + `Idempotency-Key`; 409 → «Recargar».
 - **Reportes** (`/reportes`, `lib/reportes`, `componentes/reportes`, `reportes.ver`): SLA cumplido,
-  tiempo de resolución, órdenes por técnico, primera visita resuelta y reincidencias (`GET
+  tiempo de resolución, órdenes por técnico, primera visita resuelta, reincidencias y satisfacción (`GET
   /reportes/*`). Filtros en la URL: período en días de Guatemala (atajos «Este mes», «Mes
   anterior», «Últimos 90 días»; como mucho 366 días, validado antes de pedir), zona, cuadrilla,
   técnico (usuario), y en los de tickets categoría y prioridades (`prioridad=alta,critica`);
@@ -68,6 +68,20 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   se muestra «Fuera de tu zona», sin enlace. 503 `reporte_demasiado_largo` → mensaje, sugerencia de
   acotar y «Reintentar». Si la lectura falla, error con «Reintentar» y ningún total. No emite ni
   consume eventos.
+- **Encuestas de satisfacción** (`lib/encuestas`, `componentes/encuestas`):
+  - Página pública `/encuesta#<token>` (fuera de la sesión: `middleware.ts` no la redirige): el
+    token se lee del fragmento, se borra de la URL y solo va en el cuerpo de
+    `POST /encuestas/publica/consultar` y `/responder`, con un cliente sin cookies
+    (`credentials: "omit"`), sin `X-CSRF-Token` ni `X-Iris-Empresa`. Calificación 1–5 con texto
+    (`GrupoOpciones`, radios nativos) y comentario ≤ 1000 (react-hook-form + zod). Pantallas:
+    gracias, ya respondida (409), vencida y anulada (410), enlace inválido (404), demasiados
+    intentos (429), error con «Reintentar».
+  - Tarjeta «Encuesta» en el detalle del ticket y de la orden (`encuestas.ver`): estado,
+    calificación, alerta (≤ 2) y comentario. «Copiar enlace» (`encuestas.compartir`, solo pendiente
+    por enlace) pide `POST /encuestas/{id}/enlace`, lo copia y lo muestra solo en el diálogo; por
+    correo, «Enviada por correo».
+  - Lista `/encuestas` (`encuestas.ver`, en el menú) con cursor y filtros en la URL (fechas,
+    calificación, tipo, estado), y el reporte «Satisfacción» en `/reportes`.
 - **Plantillas de formulario** (`/administracion/plantillas`, `lib/plantillas`, `componentes/plantillas`,
   `plantillas.ver`): lista por tipo y activas o todas; crear (borrador por omisión), editar (ítems
   `si_no`, `texto`, `numero`, `medicion`, `foto`, `seleccion` con opciones; orden con subir/bajar;

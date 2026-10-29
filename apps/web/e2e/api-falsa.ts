@@ -141,6 +141,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "clientes.ver",
     "empresas.adoptar",
     "empresas.todas",
+    "encuestas.compartir",
     "encuestas.ver",
     "permisos.ver",
     "reportes.ver",
@@ -162,7 +163,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [TEMPORAL.correo]: ["tickets.ver", "usuarios.ver"],
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
-    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
+    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
@@ -247,7 +248,7 @@ export type ApiFalsa = {
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
-    encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas">;
+    encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
 };
 
 const OPERATIVAS = [
@@ -784,7 +785,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         reportes: { exportacionExcedida: reportes.exportacionExcedida },
-        encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas },
+        encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);

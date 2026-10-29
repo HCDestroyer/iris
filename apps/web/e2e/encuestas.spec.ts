@@ -43,7 +43,10 @@ test.describe("página pública", () => {
         await expect(page.getByText("Calificaste la atención con 4 · Bien.")).toBeVisible();
         expect(api.encuestas.respuestas).toEqual([{ calificacion: 4, comentario: "Resolvieron rápido." }]);
         expect(api.encuestas.publicasConSesion).toEqual([]);
-        expect(api.peticiones.filter((p) => p.ruta.startsWith("/api/v1/encuestas/publica")).every((p) => !p.query.toString())).toBe(true);
+        // El token va en el cuerpo, nunca en la ruta ni en la query.
+        const publicas = api.peticiones.filter((p) => p.ruta.startsWith("/api/v1/encuestas/publica"));
+        expect(publicas.map((p) => `${p.metodo} ${p.ruta}`)).toEqual(["POST /api/v1/encuestas/publica/consultar", "POST /api/v1/encuestas/publica/responder"]);
+        expect(publicas.every((p) => !p.query.toString() && (p.cuerpo as { token?: string }).token === TOKENS.pendiente)).toBe(true);
     });
 
     test("ya respondida, vencida, enlace inválido, sin enlace y demasiados intentos: con texto", async ({ page }) => {
@@ -54,6 +57,9 @@ test.describe("página pública", () => {
 
         await page.goto(`/encuesta#${TOKENS.vencida}`);
         await expect(page.getByRole("heading", { name: "El enlace de la encuesta venció" })).toBeVisible();
+
+        await page.goto(`/encuesta#${TOKENS.anulada}`);
+        await expect(page.getByRole("heading", { name: "Esta encuesta ya no está disponible" })).toBeVisible();
 
         await page.goto(`/encuesta#${"N".repeat(43)}`);
         await expect(page.getByRole("heading", { name: "El enlace no es válido" })).toBeVisible();
@@ -72,7 +78,7 @@ test.describe("página pública", () => {
 
     test("si falla la lectura: error con «Reintentar»; al enviar, 409 y 410 llevan a su pantalla", async ({ page }) => {
         const api = await simularApi(page);
-        api.responderProblema("/api/v1/encuestas/publica/", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
+        api.responderProblema("/api/v1/encuestas/publica/consultar", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
         await page.goto(`/encuesta#${TOKENS.pendiente}`);
         await expect(avisoError(page)).toContainText("No se pudo abrir la encuesta");
         await avisoError(page).getByRole("button", { name: "Reintentar" }).click();
@@ -80,18 +86,18 @@ test.describe("página pública", () => {
 
         // Un 500 al enviar: la respuesta sigue en pantalla y el botón dice «Reintentar».
         await page.getByRole("radio", { name: /^Muy mal/ }).check();
-        api.responderProblema(`/api/v1/encuestas/publica/${TOKENS.pendiente}/responder`, { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
+        api.responderProblema("/api/v1/encuestas/publica/responder", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
         await page.getByRole("button", { name: "Enviar respuesta" }).click();
         await expect(avisoError(page)).toContainText("No se pudo enviar tu respuesta");
         await expect(page.getByRole("radio", { name: /^Muy mal/ })).toBeChecked();
 
-        api.responderProblema(`/api/v1/encuestas/publica/${TOKENS.pendiente}/responder`, { type: "urn:iris:problema:encuesta_vencida", title: "Encuesta vencida", status: 410 }, 1);
+        api.responderProblema("/api/v1/encuestas/publica/responder", { type: "urn:iris:problema:encuesta_vencida", title: "Encuesta vencida", status: 410 }, 1);
         await page.getByRole("button", { name: "Reintentar" }).click();
         await expect(page.getByRole("heading", { name: "El enlace de la encuesta venció" })).toBeVisible();
 
         await page.goto(`/encuesta#${TOKENS.pendiente}`);
         await page.getByRole("radio", { name: /^Regular/ }).check();
-        api.responderProblema(`/api/v1/encuestas/publica/${TOKENS.pendiente}/responder`, { type: "urn:iris:problema:encuesta_respondida", title: "Encuesta ya respondida", status: 409 }, 1);
+        api.responderProblema("/api/v1/encuestas/publica/responder", { type: "urn:iris:problema:encuesta_respondida", title: "Encuesta ya respondida", status: 409 }, 1);
         await page.getByRole("button", { name: "Enviar respuesta" }).click();
         await expect(page.getByRole("heading", { name: "Esta encuesta ya fue respondida" })).toBeVisible();
     });
@@ -114,16 +120,28 @@ test.describe("página pública", () => {
 });
 
 test.describe("panel", () => {
-    test("tarjeta «Encuesta» en el ticket: pendiente con «Copiar enlace»", async ({ page, context, baseURL, browserName }) => {
-        await simularApi(page);
+    test("tarjeta «Encuesta» en el ticket: «Copiar enlace» lo pide, lo copia y lo muestra solo en el diálogo", async ({ page, context, baseURL, browserName }) => {
+        const api = await simularApi(page);
         if (browserName === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"]);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
         const tarjeta = page.getByTestId("tarjeta-encuesta");
         await expect(tarjeta).toContainText("Pendiente");
+        await expect(page.getByText(TOKENS.pendiente)).toHaveCount(0);
+        expect(api.encuestas.enlacesPedidos).toEqual([]);
         await tarjeta.getByRole("button", { name: "Copiar enlace" }).click();
-        await expect(tarjeta.getByRole("button", { name: "Enlace copiado" })).toBeVisible();
-        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`http://localhost/encuesta#${TOKENS.pendiente}`);
+        const dialogo = page.getByRole("dialog", { name: "Enlace de la encuesta · TK-000101" });
+        await expect(dialogo.getByText("Enlace copiado al portapapeles.")).toBeVisible();
+        const enlace = `http://localhost/encuesta#${TOKENS.pendiente}`;
+        await expect(dialogo.getByRole("textbox", { name: "Enlace de la encuesta" })).toHaveValue(enlace);
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(enlace);
+        expect(api.encuestas.enlacesPedidos).toEqual([1]);
+        const pedido = api.mutaciones.find((m) => m.ruta === "/api/v1/encuestas/1/enlace");
+        expect(pedido?.csrf).toBeTruthy();
+        await dialogo.getByRole("button", { name: "Cerrar" }).first().click();
+        await expect(dialogo).toHaveCount(0);
+        await expect(page.locator(`input[value*="${TOKENS.pendiente}"]`)).toHaveCount(0);
+        expect(page.url()).not.toContain(TOKENS.pendiente);
     });
 
     test("tarjeta en la orden: respondida con alerta y comentario; por correo o sin enlace, sin botón", async ({ page, context, baseURL }) => {
@@ -138,12 +156,33 @@ test.describe("panel", () => {
         await expect(tarjeta.getByRole("button", { name: "Copiar enlace" })).toHaveCount(0);
 
         await page.goto("/tickets/2");
-        await expect(page.getByTestId("tarjeta-encuesta")).toContainText("Enviada por correo al cliente.");
+        await expect(page.getByTestId("tarjeta-encuesta").getByTestId("enviada-por-correo")).toHaveText("Enviada por correo");
         await expect(page.getByTestId("tarjeta-encuesta").getByRole("button", { name: "Copiar enlace" })).toHaveCount(0);
         await page.goto("/tickets/4");
         await expect(page.getByTestId("tarjeta-encuesta")).toContainText("El enlace no se puede volver a mostrar.");
+        await page.goto("/tickets/6");
+        await expect(page.getByTestId("tarjeta-encuesta")).toContainText("Anulada");
         await page.goto("/tickets/3");
         await expect(page.getByTestId("tarjeta-encuesta")).toContainText("Sin encuesta.");
+    });
+
+    test("si la encuesta cambió al pedir el enlace (409 respondida), lo dice y relee la tarjeta", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/1");
+        const tarjeta = page.getByTestId("tarjeta-encuesta");
+        await expect(tarjeta).toContainText("Pendiente");
+        const e = api.encuestas.encuestas.find((x) => x.id === 1);
+        if (e) {
+            e.estado = "respondida";
+            e.calificacion = 5;
+        }
+        await tarjeta.getByRole("button", { name: "Copiar enlace" }).click();
+        const dialogo = page.getByRole("dialog");
+        await expect(dialogo).toContainText("El cliente ya respondió la encuesta.");
+        await dialogo.getByRole("button", { name: "Cerrar" }).first().click();
+        await expect(tarjeta).toContainText("5 · Muy bien");
+        await expect(tarjeta.getByRole("button", { name: "Copiar enlace" })).toHaveCount(0);
     });
 
     test("sin encuestas.ver no hay tarjeta, ni entrada en el menú, ni lista", async ({ page, context, baseURL }) => {
@@ -170,7 +209,7 @@ test.describe("panel", () => {
         await expect(filas).toHaveCount(25);
         await expect(filas.first()).toContainText("TK-000101");
         await page.getByRole("button", { name: "Cargar más" }).click();
-        await expect(filas).toHaveCount(36);
+        await expect(filas).toHaveCount(37);
         await expect(page.locator('[data-encuesta="2"]')).toContainText("Alerta");
 
         await page.getByRole("checkbox", { name: "1 · Muy mal" }).click();

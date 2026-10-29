@@ -1,3 +1,4 @@
+import type { Schema } from "@iris/contratos";
 import { api, resolver } from "../api/cliente";
 import type { Encuesta } from "./presentacion";
 
@@ -7,8 +8,11 @@ export async function encuestaDe(filtro: { ticketId: number } | { ordenId: numbe
     return pagina.data?.[0] ?? null;
 }
 
-/** Enlace para compartir una encuesta pendiente. */
-export async function enlaceDe(encuesta: Encuesta): Promise<string> {
-    if (!encuesta.enlace) throw new Error("El enlace no se puede volver a mostrar");
-    return encuesta.enlace;
+/**
+ * Enlace para compartir una encuesta pendiente de canal `enlace` (`encuestas.compartir`, acción
+ * auditada). No se guarda: se copia y se muestra solo en el diálogo.
+ */
+export function pedirEnlace(id: number): Promise<Schema<"EnlaceEncuesta">> {
+    return resolver(api().POST("/api/v1/encuestas/{id}/enlace", { params: { path: { id } } }));
 }
+

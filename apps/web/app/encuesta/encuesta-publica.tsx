@@ -80,15 +80,36 @@ export function EncuestaPublica() {
     }, [fallo]);
 
     useEffect(() => {
-        // Fuera de la URL antes de nada: no queda en el historial, ni al recargar ni al compartir.
-        if (window.location.hash) {
-            window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
-        }
+        const limpiarUrl = () => {
+            // Fuera de la URL antes de nada: no queda en el historial, ni al recargar ni al compartir.
+            if (window.location.hash) {
+                window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+            }
+        };
+        limpiarUrl();
         if (token.current && !consultado.current) {
             consultado.current = true;
             void consultar();
         }
-    }, [consultar]);
+        // Otro enlace abierto en la misma pestaña (solo cambia el fragmento): se empieza de nuevo.
+        const alCambiarFragmento = () => {
+            const leido = tokenDesdeFragmento(window.location.hash);
+            limpiarUrl();
+            if (leido === null) return;
+            setDatos(null);
+            setErrorEnvio(null);
+            form.reset({ calificacion: undefined, comentario: "" });
+            if ("invalido" in leido) {
+                token.current = null;
+                setPaso("invalido");
+                return;
+            }
+            token.current = leido.token;
+            void consultar();
+        };
+        window.addEventListener("hashchange", alCambiarFragmento);
+        return () => window.removeEventListener("hashchange", alCambiarFragmento);
+    }, [consultar, form]);
 
     async function enviar(d: DatosRespuestaEncuesta) {
         const t = token.current;

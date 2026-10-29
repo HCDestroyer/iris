@@ -5,7 +5,7 @@ import { Inbox, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { Barras, FilaIndicadores, Indicador } from "@/componentes/reportes/graficos";
 import { MarcoReporte, Seccion } from "@/componentes/reportes/marco";
-import { CALIFICACIONES, ENTIDADES, TEXTO_CALIFICACION, textoPromedio, UMBRAL_ALERTA } from "@/lib/encuestas/presentacion";
+import { CALIFICACIONES, ENTIDADES_PLURAL, TEXTO_CALIFICACION, textoPromedio, UMBRAL_ALERTA } from "@/lib/encuestas/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { leerSatisfaccion, type FilaSatisfaccion } from "@/lib/reportes/api";
 import type { QueryReporte } from "@/lib/reportes/filtros";
@@ -117,7 +117,7 @@ export function ReporteSatisfaccion({ query }: { query: QueryReporte }) {
                                     <TablaCuerpo>
                                         {(r.porEntidad ?? []).map((f, i) => (
                                             <TablaFila key={f.entidad ?? i}>
-                                                <TablaCelda className="font-medium">{f.entidad ? `${ENTIDADES[f.entidad]}s` : "Sin tipo"}</TablaCelda>
+                                                <TablaCelda className="font-medium">{f.entidad ? ENTIDADES_PLURAL[f.entidad] : "Sin tipo"}</TablaCelda>
                                                 <TablaCelda className="text-right">{textoEntero(f.enviadas)}</TablaCelda>
                                                 <TablaCelda className="text-right">{textoEntero(f.respondidas)}</TablaCelda>
                                                 <TablaCelda className="text-right font-medium">{textoPorcentaje(f.porcentajeRespondidas)}</TablaCelda>

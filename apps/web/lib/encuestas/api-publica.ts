@@ -4,7 +4,7 @@ import { resolver } from "../api/cliente";
 /*
  * Cliente de la página pública `/encuesta`: otro actor que el panel. No manda cookies
  * (`credentials: "omit"`), ni `X-CSRF-Token` ni `X-Iris-Empresa`: una sesión del panel abierta en el
- * mismo navegador no cuenta (ni estorba) aquí. El token va en el cuerpo, nunca en la URL.
+ * mismo navegador no cuenta (ni estorba) aquí. El token va en el cuerpo del POST, nunca en la URL.
  */
 
 export type EncuestaPublica = Schema<"EncuestaPublica">;
@@ -20,9 +20,9 @@ export function apiEncuestaPublica(): ClienteIris {
 }
 
 export function consultarEncuesta(token: string, signal?: AbortSignal): Promise<EncuestaPublica> {
-    return resolver(apiEncuestaPublica().GET("/api/v1/encuestas/publica/{token}", { params: { path: { token } }, signal }));
+    return resolver(apiEncuestaPublica().POST("/api/v1/encuestas/publica/consultar", { body: { token }, signal }));
 }
 
 export function responderEncuesta(token: string, cuerpo: { calificacion: number; comentario?: string }): Promise<EncuestaPublica> {
-    return resolver(apiEncuestaPublica().POST("/api/v1/encuestas/publica/{token}/responder", { params: { path: { token } }, body: cuerpo }));
+    return resolver(apiEncuestaPublica().POST("/api/v1/encuestas/publica/responder", { body: { token, ...cuerpo } }));
 }

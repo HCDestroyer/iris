@@ -4,8 +4,9 @@ import type { Route } from "@playwright/test";
 /*
  * Encuestas de satisfacción en la API falsa (e2e/api-falsa.ts), tipadas con packages/contratos y
  * fieles a internal/soporte/encuestas.go: lista con cursor y filtros (`encuestas.ver`), y la
- * página pública por token (404 inválido, 409 ya respondida con otra respuesta, 410 vencida,
- * 422 validación, 429 con `Retry-After`). Las rutas públicas ignoran la sesión del panel; se anota
+ * página pública con el token en el cuerpo (404 inválido, 409 ya respondida con otra respuesta,
+ * 410 vencida o anulada, 422 validación, 429 con `Retry-After`) y el enlace aparte
+ * (`POST /encuestas/{id}/enlace`, `encuestas.compartir`; 409 por correo, 410, 422 sin clave). Las rutas públicas ignoran la sesión del panel; se anota
  * si llegaron cookies o `X-CSRF-Token` para comprobar que la página no los manda.
  */
 
@@ -24,6 +25,7 @@ export const TOKENS = {
     pendiente: tok("PendienteTK000001"),
     respondida: tok("RespondidaTK000002"),
     vencida: tok("VencidaOT000003"),
+    anulada: tok("AnuladaTK000006"),
     limite: tok("LimiteGlobal"),
     falla: tok("FallaServidor"),
 } as const;
@@ -40,7 +42,6 @@ function encuesta(d: Partial<Encuesta> & Pick<Encuesta, "id" | "entidad" | "nume
         comentario: null,
         respondidaEn: null,
         alerta: false,
-        enlace: null,
         enlaceDisponible: true,
         creadaEn: "2026-10-28T18:00:00Z",
         ...d,
@@ -49,7 +50,7 @@ function encuesta(d: Partial<Encuesta> & Pick<Encuesta, "id" | "entidad" | "nume
 
 function escenario(): Encuesta[] {
     const fijas: Encuesta[] = [
-        encuesta({ id: 1, entidad: "ticket", ticketId: 1, numero: "TK-000101", estado: "pendiente", canal: "enlace", enlace: `${base}${TOKENS.pendiente}`, creadaEn: "2026-10-28T20:00:00Z" }),
+        encuesta({ id: 1, entidad: "ticket", ticketId: 1, numero: "TK-000101", estado: "pendiente", canal: "enlace", creadaEn: "2026-10-28T20:00:00Z" }),
         encuesta({
             id: 2,
             entidad: "orden",
@@ -66,6 +67,7 @@ function escenario(): Encuesta[] {
         encuesta({ id: 3, entidad: "ticket", ticketId: 2, numero: "TK-000102", estado: "pendiente", canal: "correo", creadaEn: "2026-10-28T18:30:00Z" }),
         encuesta({ id: 4, entidad: "ticket", ticketId: 4, numero: "TK-000104", estado: "pendiente", canal: "enlace", enlaceDisponible: false, creadaEn: "2026-10-28T18:10:00Z" }),
         encuesta({ id: 5, entidad: "ticket", ticketId: 5, numero: "TK-000105", estado: "respondida", calificacion: 5, comentario: "Muy amables, gracias.", respondidaEn: "2026-10-27T15:00:00Z", creadaEn: "2026-10-27T14:00:00Z" }),
+        encuesta({ id: 7, entidad: "ticket", ticketId: 6, numero: "TK-000106", estado: "anulada", creadaEn: "2026-10-16T14:00:00Z" }),
         encuesta({ id: 6, entidad: "orden", ordenId: 2, numero: "OT-000002", estado: "vencida", creadaEn: "2026-10-15T14:00:00Z", expiraEn: "2026-10-22T14:00:00Z" }),
     ];
     // Relleno para «Cargar más»: respondidas de días anteriores.
@@ -89,18 +91,22 @@ export type ApiEncuestas = {
     encuestas: Encuesta[];
     /** Peticiones a las rutas públicas que llegaron con cookie o `X-CSRF-Token` (deben ser 0). */
     publicasConSesion: string[];
+    /** Encuestas cuyo enlace se pidió (`POST /encuestas/{id}/enlace`). */
+    enlacesPedidos: number[];
     /** Respuestas recibidas en la página pública. */
     respuestas: { calificacion: number; comentario?: string }[];
     manejarPublica: (c: { route: Route; metodo: string; ruta: string; cabeceras: Record<string, string>; cuerpo: unknown }) => Promise<boolean>;
     manejar: (c: { route: Route; metodo: string; ruta: string; query: URLSearchParams; puede: (p: Permiso) => boolean }) => Promise<boolean>;
 };
 
-const PUBLICA = /^\/api\/v1\/encuestas\/publica\/([^/]+)(\/responder)?$/;
+const PUBLICA = /^\/api\/v1\/encuestas\/publica\/(consultar|responder)$/;
+const ENLACE = /^\/api\/v1\/encuestas\/(\d+)\/enlace$/;
 
 export function apiEncuestas(): ApiEncuestas {
     const encuestas = escenario();
     const publicasConSesion: string[] = [];
     const respuestas: ApiEncuestas["respuestas"] = [];
+    const enlacesPedidos: number[] = [];
     // Estado público por token.
     const publicas = new Map<string, Publica>([
         [TOKENS.pendiente, { entidad: "ticket", numero: "TK-000101", fecha: "2026-10-28T20:00:00Z", empresa: "Fibra Express", estado: "pendiente", expiraEn: "2026-11-04T20:00:00Z" }],
@@ -112,11 +118,13 @@ export function apiEncuestas(): ApiEncuestas {
         encuestas,
         publicasConSesion,
         respuestas,
+        enlacesPedidos,
         async manejarPublica({ route, metodo, ruta, cabeceras, cuerpo }) {
             const m = PUBLICA.exec(ruta);
             if (!m) return false;
             if (cabeceras.cookie || cabeceras["x-csrf-token"] || cabeceras["x-iris-empresa"]) publicasConSesion.push(`${metodo} ${ruta}`);
-            const token = decodeURIComponent(m[1] ?? "");
+            if (metodo !== "POST") return false;
+            const token = typeof (cuerpo as { token?: unknown } | undefined)?.token === "string" ? (cuerpo as { token: string }).token : "";
             if (token === TOKENS.limite) {
                 await problema(route, { type: "urn:iris:problema:demasiados_intentos", title: "Demasiados intentos", status: 429 }, { "Retry-After": "120" });
                 return true;
@@ -125,17 +133,19 @@ export function apiEncuestas(): ApiEncuestas {
                 await problema(route, { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 });
                 return true;
             }
+            if (token === TOKENS.anulada) {
+                await problema(route, { type: "urn:iris:problema:encuesta_anulada", title: "Encuesta anulada", status: 410 });
+                return true;
+            }
             const p = publicas.get(token);
             if (!p) {
                 await problema(route, { type: "urn:iris:problema:encuesta_no_encontrada", title: "Encuesta no encontrada", status: 404 });
                 return true;
             }
-            if (!m[2]) {
-                if (metodo !== "GET") return false;
+            if (m[1] === "consultar") {
                 await json(route, p);
                 return true;
             }
-            if (metodo !== "POST") return false;
             const c = (cuerpo ?? {}) as { calificacion?: unknown; comentario?: unknown };
             const calificacion = typeof c.calificacion === "number" ? c.calificacion : NaN;
             const comentario = typeof c.comentario === "string" ? c.comentario : undefined;
@@ -170,12 +180,31 @@ export function apiEncuestas(): ApiEncuestas {
                 e.comentario = comentario ?? null;
                 e.alerta = calificacion <= 2;
                 e.respondidaEn = new Date().toISOString();
-                e.enlace = null;
             }
             await json(route, p);
             return true;
         },
         async manejar({ route, metodo, ruta, query, puede }) {
+            const enlace = ENLACE.exec(ruta);
+            if (enlace && metodo === "POST") {
+                if (!puede("encuestas.compartir")) {
+                    await problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
+                    return true;
+                }
+                const e = encuestas.find((x) => x.id === Number(enlace[1]));
+                const p = e ? [...publicas.entries()].find(([, v]) => v.numero === e.numero) : undefined;
+                if (!e) await problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 });
+                else if (e.canal === "correo") await problema(route, { type: "urn:iris:problema:encuesta_por_correo", title: "Enviada por correo", status: 409 });
+                else if (e.estado === "respondida") await problema(route, { type: "urn:iris:problema:encuesta_respondida", title: "Encuesta ya respondida", status: 409 });
+                else if (e.estado === "vencida") await problema(route, { type: "urn:iris:problema:encuesta_vencida", title: "Encuesta vencida", status: 410 });
+                else if (e.estado === "anulada") await problema(route, { type: "urn:iris:problema:encuesta_anulada", title: "Encuesta anulada", status: 410 });
+                else if (!e.enlaceDisponible || !p) await problema(route, { type: "urn:iris:problema:enlace_no_disponible", title: "Enlace no disponible", status: 422 });
+                else {
+                    enlacesPedidos.push(e.id);
+                    await route.fulfill({ status: 200, contentType: "application/json", headers: { "Cache-Control": "no-store" }, body: JSON.stringify({ enlace: `${base}${p[0]}`, expiraEn: e.expiraEn } satisfies Schema<"EnlaceEncuesta">) });
+                }
+                return true;
+            }
             if (ruta !== "/api/v1/encuestas" || metodo !== "GET") return false;
             if (!puede("encuestas.ver")) {
                 await problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
