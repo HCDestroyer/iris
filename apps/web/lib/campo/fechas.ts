@@ -27,3 +27,14 @@ export function ventanaCita(cita: { ventanaInicio: string | null; ventanaFin: st
     const fin = horaCorta(cita?.ventanaFin);
     return inicio && fin ? `${inicio}–${fin}` : inicio ? `desde ${inicio}` : fin ? `hasta ${fin}` : undefined;
 }
+
+/** «1 h 05 min», «15 min» o «menos de 1 min» (tiempo pausado). */
+export function duracionCorta(segundos: number): string {
+    const min = Math.floor(Math.max(0, segundos) / 60);
+    if (min < 1) {
+        return "menos de 1 min";
+    }
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
+}

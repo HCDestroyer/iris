@@ -27,6 +27,8 @@ export interface OpcionesCampo {
     fotosExigidas?: string[];
     /** Ruta publicada del técnico en el paquete (`RutaCampo`; hoy la API no la manda). */
     ruta?: Schema<"RutaCampo">;
+    /** Catálogo de plantillas activas (paquete y cambios). */
+    plantillas?: Schema<"PlantillaFormulario">[];
     /** Turno de la agenda para el día pedido (`undefined` = ese día no trabaja). */
     turno?: (fecha: string) => Schema<"TurnoCampo"> | undefined;
 }
@@ -61,6 +63,8 @@ export interface ApiCampo {
     fallarPaquete: Problema | null;
     /** El técnico tiene una contraseña temporal (`usuario.cambioContrasenaRequerido` en GET /yo). */
     contrasenaTemporal: boolean;
+    /** Catálogo de plantillas del servidor (despacho puede desactivar una: se quita de aquí). */
+    plantillas: Schema<"PlantillaFormulario">[];
 }
 
 /** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
@@ -84,11 +88,13 @@ const DESDE: Partial<Record<OperacionLote["tipo"], OrdenCampo["estado"][]>> = {
     "orden.llegar": ["programada", "en_camino"],
     "orden.cerrar": ["en_sitio"],
     "orden.fallar": ["programada", "en_camino", "en_sitio"],
-    "checklist.marcar": ["en_camino", "en_sitio"],
-    "material.usar": ["en_camino", "en_sitio"],
-    "equipo.instalar": ["en_sitio"],
-    "equipo.retirar": ["en_sitio"],
-    "firma.capturar": ["en_sitio"],
+    "orden.pausar": ["en_camino", "en_sitio"],
+    // Con la orden pausada se admite la evidencia (contratos/sync.md §3).
+    "checklist.marcar": ["en_camino", "en_sitio", "pausada"],
+    "material.usar": ["en_camino", "en_sitio", "pausada"],
+    "equipo.instalar": ["en_sitio", "pausada"],
+    "equipo.retirar": ["en_sitio", "pausada"],
+    "firma.capturar": ["en_sitio", "pausada"],
 };
 
 export const problema = (codigo: string, status: number, title: string, errors?: Problema["errors"]): Problema => ({
@@ -135,6 +141,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         fechasPaquete: [],
         fallarPaquete: null,
         contrasenaTemporal: false,
+        plantillas: structuredClone(opciones.plantillas ?? []),
         limitarPosiciones: (veces, retryAfter = 20) => {
             limite429.veces = veces;
             limite429.retryAfter = retryAfter;
@@ -165,6 +172,18 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             rechazadas.add(op.ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: r?.problema ?? problema("validacion", 422, "Inválido") });
         }
+        if (o.estado === "pausada" && ["orden.cerrar", "orden.fallar", "orden.llegar", "orden.iniciar_camino"].includes(op.tipo)) {
+            rechazadas.add(op.ordenId);
+            return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_pausada", 422, "La orden está pausada") });
+        }
+        if (op.tipo === "orden.pausar" && o.estado === "pausada") {
+            rechazadas.add(op.ordenId);
+            return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_ya_pausada", 409, "Ya pausada") });
+        }
+        if (op.tipo === "orden.reanudar" && o.estado !== "pausada") {
+            rechazadas.add(op.ordenId);
+            return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_no_pausada", 409, "No pausada") });
+        }
         const desde = DESDE[op.tipo];
         if (desde && !desde.includes(o.estado)) {
             rechazadas.add(op.ordenId);
@@ -176,7 +195,12 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const faltan: { field: string; message: string }[] = [];
             for (const it of o.checklist ?? []) {
                 if (it.obligatorio && it.valor === null) {
-                    faltan.push({ field: `checklist.${it.codigo}`, message: "Falta" });
+                    const f = (o.formularios ?? []).find((x) => x.id === it.formularioId);
+                    faltan.push(
+                        f
+                            ? { field: `formularios.${f.id}.checklist.${it.codigo}`, message: `Falta: ${it.etiqueta} (${f.nombre})` }
+                            : { field: `checklist.${it.codigo}`, message: "Falta" },
+                    );
                 }
             }
             if (o.requiereFirma && !o.firma) {
@@ -234,6 +258,98 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                     },
                 ];
                 break;
+            case "orden.pausar": {
+                const desdeEstado = o.estado === "en_camino" ? "en_camino" : "en_sitio";
+                o.pausadaDesde = desdeEstado;
+                o.pausadaEn = cuando;
+                o.pausas = [
+                    ...(o.pausas ?? []),
+                    {
+                        id: (o.pausas ?? []).length + 1,
+                        motivo: d.motivo as Schema<"PausaOrden">["motivo"],
+                        nota: (d.nota as string | undefined) ?? null,
+                        desdeEstado,
+                        inicio: cuando,
+                        fin: null,
+                        duracionSeg: null,
+                        cierre: null,
+                        pausadaPor: TECNICO.id,
+                        cerradaPor: null,
+                    },
+                ];
+                o.estado = "pausada";
+                break;
+            }
+            case "orden.reanudar": {
+                const seg = Math.max(0, Math.floor((Date.parse(cuando) - Date.parse(o.pausadaEn ?? cuando)) / 1000));
+                o.tiempoPausadoSeg = (o.tiempoPausadoSeg ?? 0) + seg;
+                o.pausas = (o.pausas ?? []).map((p) => (p.fin === null ? { ...p, fin: cuando, duracionSeg: seg, cierre: "reanudada", cerradaPor: TECNICO.id } : p));
+                o.estado = o.pausadaDesde ?? "en_sitio";
+                delete o.pausadaDesde;
+                delete o.pausadaEn;
+                break;
+            }
+            case "orden.agregar_formulario": {
+                const p = api.plantillas.find((x) => x.id === d.plantillaId && x.activa);
+                if (!p) {
+                    rechazadas.add(op.ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("plantilla_inactiva", 422, "Plantilla inactiva") });
+                }
+                const existente = (o.formularios ?? []).find((f) => f.plantillaId === p.id);
+                if (existente) {
+                    rechazadas.add(op.ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: { ...problema("formulario_duplicado", 409, "Duplicado"), detail: existente.id } });
+                }
+                o.formularios = [
+                    ...(o.formularios ?? []),
+                    {
+                        id: op.id,
+                        plantillaId: p.id,
+                        codigo: p.codigo,
+                        nombre: p.nombre,
+                        versionId: Number(d.versionId ?? p.versionId),
+                        numeroVersion: p.numeroVersion,
+                        requiereFirma: p.requiereFirma,
+                        origen: "tecnico",
+                        agregadoPor: TECNICO.id,
+                        agregadoEn: cuando,
+                        conRespuestas: false,
+                    },
+                ];
+                o.checklist = [
+                    ...(o.checklist ?? []),
+                    ...(p.items ?? []).map((i) => ({
+                        itemId: i.id,
+                        codigo: i.codigo,
+                        etiqueta: i.etiqueta,
+                        tipo: i.tipo,
+                        obligatorio: i.obligatorio,
+                        unidad: i.unidad,
+                        posicion: i.posicion,
+                        ...(i.opciones ? { opciones: i.opciones } : {}),
+                        formularioId: op.id,
+                        valor: null,
+                        marcadoPor: null,
+                        ocurridoEn: null,
+                    })),
+                ];
+                o.requiereFirma = o.requiereFirma || p.requiereFirma;
+                break;
+            }
+            case "orden.quitar_formulario": {
+                const f = (o.formularios ?? []).find((x) => x.id === d.formularioId);
+                if (!f) {
+                    rechazadas.add(op.ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("formulario_ya_quitado", 409, "Ya quitado") });
+                }
+                if (f.origen === "tipo") {
+                    rechazadas.add(op.ordenId);
+                    return conOrden({ id: op.id, estado: "rechazada", error: problema("formulario_del_tipo", 422, "Del tipo") });
+                }
+                o.formularios = (o.formularios ?? []).filter((x) => x.id !== f.id);
+                o.checklist = (o.checklist ?? []).filter((i) => i.formularioId !== f.id);
+                break;
+            }
             case "firma.capturar":
                 o.firma = { nombre: String(d.nombre), documento: String(d.documento ?? ""), adjuntoId: (d.adjuntoId as string | undefined) ?? null, ocurridoEn: cuando };
                 break;
@@ -315,6 +431,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 existencias: existenciasDelTecnico(),
                 ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
                 ...(turno ? { turno } : {}),
+                plantillas: structuredClone(api.plantillas),
             };
             return json(route, paquete);
         }
@@ -323,7 +440,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             if (cambios.length > 0) {
                 cursor += 1;
             }
-            const r: Schema<"Cambios"> = { cambios, cursor: String(cursor), hayMas: false };
+            const r: Schema<"Cambios"> = { cambios, cursor: String(cursor), hayMas: false, plantillas: structuredClone(api.plantillas) };
             return json(route, r);
         }
         if (ruta === "/api/v1/sync/lote" && metodo === "POST") {

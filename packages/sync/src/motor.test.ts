@@ -449,6 +449,52 @@ describe("reloj", () => {
         motor.detener();
     });
 
+    it("si la señal vuelve mientras un envío está fallando, no espera la espera exponencial", async () => {
+        const { motor, transporte, reloj } = await montar({ espera: { baseMs: 10_000, maximoMs: 60_000, azar: () => 0 } });
+        let soltar: (() => void) | null = null;
+        let primera = true;
+        transporte.lote = async (p) => {
+            if (primera) {
+                primera = false;
+                await new Promise<void>((r) => {
+                    soltar = r;
+                });
+                throw new ErrorTransporte("red", "Sin señal");
+            }
+            return { resultados: (p.operaciones ?? []).map((op) => transporte.aplicar(op)) };
+        };
+        await motor.registrar("nota.agregar", 1, { texto: "x" });
+        motor.iniciar();
+        await vaciarPromesas();
+        // Vuelve la señal con el envío todavía en vuelo; luego ese envío falla.
+        motor.establecerConexion(true);
+        (soltar as (() => void) | null)?.();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().pendientes).toBe(0);
+        expect(reloj.ahora()).toBe(Date.parse("2026-10-28T15:00:00Z"));
+        motor.detener();
+    });
+
+    it("lo pedido con el bucle detenido no suma pasadas al iniciar", async () => {
+        const { motor, transporte, reloj } = await montar({ intervaloMs: 60_000 });
+        // Antes de arrancar (al abrir la app): volver la señal y registrar algo.
+        motor.establecerConexion(true);
+        motor.reintentarAhora();
+        await motor.registrar("nota.agregar", 1, { texto: "x" });
+        motor.iniciar();
+        await vaciarPromesas();
+        const pasadas = () => transporte.llamadas.filter((l) => l.tipo === "cambios").length;
+        expect(pasadas()).toBe(1);
+        expect(transporte.lotes).toHaveLength(1);
+        // Sin otra pasada hasta el intervalo.
+        await vaciarPromesas();
+        expect(pasadas()).toBe(1);
+        await reloj.avanzar(60_000);
+        await vaciarPromesas();
+        expect(pasadas()).toBe(2);
+        motor.detener();
+    });
+
     it("al volver la señal reintenta enseguida", async () => {
         const { motor, transporte, reloj } = await montar({ espera: { baseMs: 10_000, maximoMs: 60_000, azar: () => 0 } });
         transporte.fallar(1);

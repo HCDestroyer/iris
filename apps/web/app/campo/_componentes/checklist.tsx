@@ -1,42 +1,207 @@
 "use client";
 
-import { valorDe, type ItemChecklist, type OrdenVista } from "@iris/sync";
-import { Boton, Camara, Entrada, Etiqueta, GrupoSegmentado, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Check, CircleDashed, X } from "lucide-react";
+import { formularioConRespuestas, valorDe, type FormularioOrden, type ItemChecklist, type OrdenVista, type PlantillaFormulario } from "@iris/sync";
+import {
+    Boton,
+    Camara,
+    Dialogo,
+    DialogoContenido,
+    DialogoPie,
+    Entrada,
+    Etiqueta,
+    GrupoSegmentado,
+    InsigniaEstado,
+    Selector,
+    Tarjeta,
+    TarjetaContenido,
+    TarjetaDescripcion,
+    TarjetaEncabezado,
+    TarjetaTitulo,
+} from "@iris/ui";
+import { Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react";
 import { useId, useState } from "react";
 import { esquemaNumeroItem } from "@/lib/campo/esquemas";
+import { faltantesPorFormulario, ORIGENES_FORMULARIO } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
 import { EstadoAdjunto, Miniatura, useTomarFoto } from "./fotos";
 
-/** Checklist de la plantilla: sí/no, texto, número, medición y foto. */
-export function Checklist({ orden, editable }: { orden: OrdenVista; editable: boolean }) {
+/** Clave de un ítem que falta para cerrar (`<formularioId>:<código>`). */
+const claveFaltante = (formularioId: string | undefined, codigo: string) => `${formularioId ?? ""}:${codigo}`;
+
+/**
+ * Formularios de la orden: cada uno con sus ítems (el checklist viene plano con `formularioId`),
+ * su versión y su origen. «Agregar formulario» suma uno del catálogo (también sin señal) y
+ * «Quitar» solo el que agregó el técnico sin respuestas.
+ */
+export function Checklist({ orden, editable, agregar }: { orden: OrdenVista; editable: boolean; agregar: boolean }) {
+    const { estado } = useCampo();
     const items = [...(orden.checklist ?? [])].sort((a, b) => a.posicion - b.posicion);
-    if (items.length === 0) {
+    const formularios = orden.formularios ?? [];
+    const conFormulario = new Set(formularios.map((f) => f.id));
+    const sueltos = items.filter((i) => !i.formularioId || !conFormulario.has(i.formularioId));
+    // Lo que el servidor dijo que falta para cerrar (`cierre_incompleto`), por formulario.
+    const rechazoCierre = estado.rechazos.find((op) => op.ordenId === orden.id && op.tipo === "orden.cerrar");
+    const faltan = new Map(faltantesPorFormulario(rechazoCierre?.error).map((f) => [claveFaltante(f.formularioId, f.codigo), f.mensaje]));
+    const disponibles = estado.plantillas.filter((p) => p.activa && !formularios.some((f) => f.plantillaId === p.id));
+
+    if (items.length === 0 && !agregar) {
         return null;
     }
-    const hechos = items.filter((i) => valorDe(i) !== null && valorDe(i) !== "").length;
     return (
-        <Tarjeta>
+        <section aria-label="Formularios" className="grid gap-4">
+            {formularios.map((f) => (
+                <TarjetaFormulario
+                    key={f.id}
+                    orden={orden}
+                    formulario={f}
+                    items={items.filter((i) => i.formularioId === f.id)}
+                    editable={editable}
+                    faltan={faltan}
+                />
+            ))}
+            {sueltos.length > 0 ? (
+                <Tarjeta>
+                    <TarjetaEncabezado>
+                        <TarjetaTitulo>Checklist</TarjetaTitulo>
+                        <TarjetaDescripcion>{resumen(sueltos)}</TarjetaDescripcion>
+                    </TarjetaEncabezado>
+                    <TarjetaContenido>
+                        <ListaItems orden={orden} items={sueltos} editable={editable} faltan={faltan} />
+                    </TarjetaContenido>
+                </Tarjeta>
+            ) : null}
+            {agregar ? <AgregarFormulario orden={orden} disponibles={disponibles} /> : null}
+        </section>
+    );
+}
+
+function resumen(items: readonly ItemChecklist[]): string {
+    const hechos = items.filter((i) => valorDe(i) !== null && valorDe(i) !== "").length;
+    return `${hechos} de ${items.length} completos`;
+}
+
+function TarjetaFormulario({
+    orden,
+    formulario,
+    items,
+    editable,
+    faltan,
+}: {
+    orden: OrdenVista;
+    formulario: FormularioOrden;
+    items: ItemChecklist[];
+    editable: boolean;
+    faltan: ReadonlyMap<string, string>;
+}) {
+    const { motor, ejecutar } = useCampo();
+    const quitable = editable && formulario.origen === "tecnico" && !formularioConRespuestas(orden, formulario.id);
+    const pendientes = items.filter((i) => faltan.has(claveFaltante(formulario.id, i.codigo))).length;
+    // El servidor dijo qué falta en este formulario al rechazar el cierre (`cierre_incompleto`).
+    return (
+        <Tarjeta data-testid={`formulario-${formulario.codigo}`}>
             <TarjetaEncabezado>
-                <TarjetaTitulo>Checklist</TarjetaTitulo>
-                <TarjetaDescripcion>
-                    {hechos} de {items.length} completos
-                </TarjetaDescripcion>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="grid gap-1">
+                        <TarjetaTitulo>{formulario.nombre}</TarjetaTitulo>
+                        <TarjetaDescripcion>
+                            Versión {formulario.numeroVersion} · {ORIGENES_FORMULARIO[formulario.origen]} · {items.length > 0 ? resumen(items) : "sin ítems"}
+                        </TarjetaDescripcion>
+                    </div>
+                    {quitable ? (
+                        <Boton
+                            variante="fantasma"
+                            tamano="sm"
+                            onClick={() =>
+                                void ejecutar(() => motor.registrar("orden.quitar_formulario", orden.id, { formularioId: formulario.id }), `«${formulario.nombre}» quitado`)
+                            }
+                        >
+                            <Trash2 aria-hidden />
+                            Quitar
+                        </Boton>
+                    ) : null}
+                </div>
+                {pendientes > 0 ? (
+                    <InsigniaEstado tono="error" icono={CircleAlert} texto={`Faltan ${pendientes} para cerrar`} className="w-fit" />
+                ) : null}
             </TarjetaEncabezado>
-            <TarjetaContenido>
-                <ul className="grid divide-y divide-border">
-                    {items.map((item) => (
-                        <li key={item.itemId} className="grid gap-2 py-3 first:pt-0 last:pb-0">
-                            <ItemFila orden={orden} item={item} editable={editable} />
-                        </li>
-                    ))}
-                </ul>
-            </TarjetaContenido>
+            {items.length > 0 ? (
+                <TarjetaContenido>
+                    <ListaItems orden={orden} items={items} editable={editable} faltan={faltan} />
+                </TarjetaContenido>
+            ) : null}
         </Tarjeta>
     );
 }
 
-function Encabezado({ item }: { item: ItemChecklist }) {
+function ListaItems({
+    orden,
+    items,
+    editable,
+    faltan,
+}: {
+    orden: OrdenVista;
+    items: readonly ItemChecklist[];
+    editable: boolean;
+    faltan: ReadonlyMap<string, string>;
+}) {
+    return (
+        <ul className="grid divide-y divide-border">
+            {items.map((item) => (
+                <li key={`${item.formularioId ?? ""}-${item.itemId}`} className="grid gap-2 py-3 first:pt-0 last:pb-0">
+                    <ItemFila orden={orden} item={item} editable={editable} falta={faltan.get(claveFaltante(item.formularioId, item.codigo))} />
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+/** Sumar un formulario del catálogo del teléfono (versión que se ve = la que se guarda). */
+function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponibles: readonly PlantillaFormulario[] }) {
+    const { motor, ejecutar } = useCampo();
+    const [abierto, setAbierto] = useState(false);
+    const agregar = async (p: PlantillaFormulario) => {
+        const ok = await ejecutar(() => motor.registrar("orden.agregar_formulario", orden.id, { plantillaId: p.id, versionId: p.versionId }), `«${p.nombre}» agregado`);
+        if (ok) {
+            setAbierto(false);
+        }
+    };
+    return (
+        <Dialogo open={abierto} onOpenChange={setAbierto}>
+            <Boton variante="secundario" tamano="lg" onClick={() => setAbierto(true)}>
+                <FilePlus2 aria-hidden />
+                Agregar formulario
+            </Boton>
+            <DialogoContenido titulo="Agregar formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
+                {disponibles.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay más formularios en el catálogo del teléfono.</p>
+                ) : (
+                    <ul className="grid gap-2" aria-label="Formularios disponibles">
+                        {disponibles.map((p) => (
+                            <li key={p.id}>
+                                <Boton variante="secundario" className="h-auto w-full justify-start py-2 text-left whitespace-normal" onClick={() => void agregar(p)}>
+                                    <span className="grid gap-0.5">
+                                        <span className="font-semibold">{p.nombre}</span>
+                                        <span className="text-xs font-normal text-muted-foreground">
+                                            Versión {p.numeroVersion} · {(p.items ?? []).length} {(p.items ?? []).length === 1 ? "ítem" : "ítems"}
+                                            {p.requiereFirma ? " · pide firma" : ""}
+                                        </span>
+                                    </span>
+                                </Boton>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <DialogoPie>
+                    <Boton variante="fantasma" onClick={() => setAbierto(false)}>
+                        Volver
+                    </Boton>
+                </DialogoPie>
+            </DialogoContenido>
+        </Dialogo>
+    );
+}
+
+function Encabezado({ item, falta }: { item: ItemChecklist; falta?: string }) {
     const v = valorDe(item);
     const marcado = v !== null && v !== "";
     return (
@@ -45,12 +210,16 @@ function Encabezado({ item }: { item: ItemChecklist }) {
                 {item.etiqueta}
                 {item.obligatorio ? <span className="ml-1 text-xs font-normal text-muted-foreground">(obligatorio)</span> : null}
             </p>
-            {marcado ? null : <InsigniaEstado tono="neutral" icono={CircleDashed} texto="Sin marcar" />}
+            {falta ? (
+                <InsigniaEstado tono="error" icono={CircleAlert} texto="Falta para cerrar" title={falta} />
+            ) : marcado ? null : (
+                <InsigniaEstado tono="neutral" icono={CircleDashed} texto="Sin marcar" />
+            )}
         </div>
     );
 }
 
-function ItemFila({ orden, item, editable }: { orden: OrdenVista; item: ItemChecklist; editable: boolean }) {
+function ItemFila({ orden, item, editable, falta }: { orden: OrdenVista; item: ItemChecklist; editable: boolean; falta?: string }) {
     const { motor, ejecutar, estado } = useCampo();
     const v = valorDe(item);
     const marcar = (valor: boolean | number | string) =>
@@ -60,7 +229,7 @@ function ItemFila({ orden, item, editable }: { orden: OrdenVista; item: ItemChec
         case "si_no":
             return (
                 <>
-                    <Encabezado item={item} />
+                    <Encabezado item={item} falta={falta} />
                     <GrupoSegmentado
                         etiqueta={item.etiqueta}
                         className={editable ? "w-full" : "pointer-events-none w-full opacity-70"}
@@ -75,10 +244,12 @@ function ItemFila({ orden, item, editable }: { orden: OrdenVista; item: ItemChec
             );
         case "foto": {
             const id = typeof v === "string" ? v : null;
-            return <ItemFoto orden={orden} item={item} id={id} editable={editable} adjunto={estado.adjuntos.find((a) => a.id === id)} />;
+            return <ItemFoto orden={orden} item={item} id={id} editable={editable} falta={falta} adjunto={estado.adjuntos.find((a) => a.id === id)} />;
         }
+        case "seleccion":
+            return <ItemSeleccion item={item} editable={editable} falta={falta} alGuardar={marcar} />;
         default:
-            return <ItemValor item={item} editable={editable} alGuardar={marcar} />;
+            return <ItemValor item={item} editable={editable} falta={falta} alGuardar={marcar} />;
     }
 }
 
@@ -87,19 +258,21 @@ function ItemFoto({
     item,
     id,
     editable,
+    falta,
     adjunto,
 }: {
     orden: OrdenVista;
     item: ItemChecklist;
     id: string | null;
     editable: boolean;
+    falta?: string;
     adjunto: Parameters<typeof EstadoAdjunto>[0]["adjunto"];
 }) {
     const { motor, ejecutar } = useCampo();
     const { tomar, procesando } = useTomarFoto();
     return (
         <>
-            <Encabezado item={item} />
+            <Encabezado item={item} falta={falta} />
             <div className="flex items-center gap-3">
                 {id ? <Miniatura id={id} alt={item.etiqueta} /> : null}
                 {id ? <EstadoAdjunto adjunto={adjunto} /> : null}
@@ -124,7 +297,63 @@ function ItemFoto({
     );
 }
 
-function ItemValor({ item, editable, alGuardar }: { item: ItemChecklist; editable: boolean; alGuardar: (v: string | number) => Promise<boolean> }) {
+/** `seleccion`: una de las opciones de la plantilla (pocas: botones; muchas: lista). */
+function ItemSeleccion({
+    item,
+    editable,
+    falta,
+    alGuardar,
+}: {
+    item: ItemChecklist;
+    editable: boolean;
+    falta?: string;
+    alGuardar: (v: string) => Promise<boolean>;
+}) {
+    const idCampo = useId();
+    const v = valorDe(item);
+    const opciones = item.opciones ?? [];
+    const actual = typeof v === "string" ? v : "";
+    return (
+        <>
+            <Encabezado item={item} falta={falta} />
+            {opciones.length <= 3 ? (
+                <GrupoSegmentado
+                    etiqueta={item.etiqueta}
+                    className={editable ? "w-full" : "pointer-events-none w-full opacity-70"}
+                    opciones={opciones.map((o) => ({ valor: o, etiqueta: o }))}
+                    valor={actual || undefined}
+                    alCambiar={(x) => void alGuardar(x)}
+                />
+            ) : (
+                <>
+                    <Etiqueta htmlFor={idCampo} className="sr-only">
+                        {item.etiqueta}
+                    </Etiqueta>
+                    <Selector id={idCampo} value={actual} disabled={!editable} onChange={(e) => e.target.value && void alGuardar(e.target.value)}>
+                        <option value="">Elige una opción</option>
+                        {opciones.map((o) => (
+                            <option key={o} value={o}>
+                                {o}
+                            </option>
+                        ))}
+                    </Selector>
+                </>
+            )}
+        </>
+    );
+}
+
+function ItemValor({
+    item,
+    editable,
+    falta,
+    alGuardar,
+}: {
+    item: ItemChecklist;
+    editable: boolean;
+    falta?: string;
+    alGuardar: (v: string | number) => Promise<boolean>;
+}) {
     const idCampo = useId();
     const v = valorDe(item);
     const [texto, setTexto] = useState(v === null ? "" : String(v));
@@ -151,7 +380,7 @@ function ItemValor({ item, editable, alGuardar }: { item: ItemChecklist; editabl
     };
     return (
         <>
-            <Encabezado item={item} />
+            <Encabezado item={item} falta={falta} />
             <div className="grid gap-1.5">
                 <Etiqueta htmlFor={idCampo} className="sr-only">
                     {item.etiqueta}

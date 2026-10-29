@@ -1,6 +1,17 @@
 // Aplicación optimista de una operación sobre una orden (función pura). La usa el motor para la
 // vista del teléfono (base del servidor + cola) y para avanzar la base cuando el lote confirma.
-import type { EstadoOrden, Existencias, ExistenciasBodega, ItemChecklist, OrdenCampo, TipoOperacion, ValorChecklist } from "./contrato";
+import type {
+    EstadoOrden,
+    Existencias,
+    ExistenciasBodega,
+    FormularioOrden,
+    ItemChecklist,
+    OrdenCampo,
+    PausaOrden,
+    PlantillaFormulario,
+    TipoOperacion,
+    ValorChecklist,
+} from "./contrato";
 import type { OperacionLocal } from "./modelo";
 
 /** Tipos que la API acepta como evidencia aunque la orden esté cancelada (§3). */
@@ -15,6 +26,103 @@ const TRANSICIONES: Partial<Record<TipoOperacion, EstadoOrden>> = {
 };
 
 export const ESTADOS_TERMINALES: ReadonlySet<EstadoOrden> = new Set<EstadoOrden>(["cerrada", "fallida", "cancelada"]);
+
+/** Estados desde los que se puede pausar (y a los que vuelve al reanudar). */
+export const ESTADOS_PAUSABLES: ReadonlySet<EstadoOrden> = new Set<EstadoOrden>(["en_camino", "en_sitio"]);
+
+/** Con la orden pausada, la API responde 422 `orden_pausada` a estas (primero `orden.reanudar`). */
+export const TIPOS_BLOQUEADOS_EN_PAUSA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>([
+    "orden.iniciar_camino",
+    "orden.llegar",
+    "orden.cerrar",
+    "orden.fallar",
+]);
+
+/** Segundos que la orden lleva pausada en total: las pausas terminadas más la que sigue en curso. */
+export function segundosPausada(orden: Pick<OrdenCampo, "estado" | "tiempoPausadoSeg" | "pausadaEn">, ahora: number): number {
+    const previo = orden.tiempoPausadoSeg ?? 0;
+    if (orden.estado !== "pausada" || !orden.pausadaEn) {
+        return previo;
+    }
+    const desde = Date.parse(orden.pausadaEn);
+    return Number.isNaN(desde) ? previo : previo + Math.max(0, Math.floor((ahora - desde) / 1000));
+}
+
+/** Ítems de un formulario de la orden (el checklist viene plano con `formularioId`). */
+export function itemsDeFormulario(orden: Pick<OrdenCampo, "checklist">, formularioId: string): ItemChecklist[] {
+    return (orden.checklist ?? []).filter((i) => i.formularioId === formularioId);
+}
+
+/**
+ * ¿El formulario tiene respuestas? Las del servidor (`conRespuestas`) o, en el teléfono, alguna
+ * marca o un adjunto de uno de sus ítems (lo que la API cuenta para no dejarlo quitar).
+ */
+export function formularioConRespuestas(orden: Pick<OrdenCampo, "checklist" | "formularios" | "adjuntos">, formularioId: string): boolean {
+    const formulario = orden.formularios?.find((f) => f.id === formularioId);
+    if (formulario?.conRespuestas) {
+        return true;
+    }
+    const items = itemsDeFormulario(orden, formularioId);
+    const ids = new Set(items.map((i) => i.itemId));
+    return items.some((i) => i.valor !== null) || (orden.adjuntos ?? []).some((a) => a.itemId !== null && ids.has(a.itemId));
+}
+
+/** Formulario nuevo (y sus ítems) a partir de la plantilla del catálogo que vio el técnico. */
+function agregarFormulario(orden: OrdenCampo, id: string, plantilla: PlantillaFormulario, ocurridoEn: string): OrdenCampo {
+    const formularios = orden.formularios ?? [];
+    if (formularios.some((f) => f.id === id || f.plantillaId === plantilla.id)) {
+        // Ya está (confirmado, o despacho agregó la misma plantilla: la API lo rechazará con
+        // `formulario_duplicado` y el técnico lo verá).
+        return orden;
+    }
+    const formulario: FormularioOrden = {
+        id,
+        plantillaId: plantilla.id,
+        codigo: plantilla.codigo,
+        nombre: plantilla.nombre,
+        versionId: plantilla.versionId,
+        numeroVersion: plantilla.numeroVersion,
+        requiereFirma: plantilla.requiereFirma,
+        origen: "tecnico",
+        agregadoPor: null,
+        agregadoEn: ocurridoEn,
+        conRespuestas: false,
+    };
+    const items: ItemChecklist[] = (plantilla.items ?? []).map((i) => ({
+        itemId: i.id,
+        codigo: i.codigo,
+        etiqueta: i.etiqueta,
+        tipo: i.tipo,
+        obligatorio: i.obligatorio,
+        unidad: i.unidad,
+        posicion: i.posicion,
+        ...(i.opciones ? { opciones: i.opciones } : {}),
+        formularioId: id,
+        valor: null,
+        ocurridoEn: null,
+        marcadoPor: null,
+    }));
+    return {
+        ...orden,
+        formularios: [...formularios, formulario],
+        checklist: [...(orden.checklist ?? []), ...items],
+        requiereFirma: orden.requiereFirma || plantilla.requiereFirma,
+    };
+}
+
+function quitarFormulario(orden: OrdenCampo, formularioId: string): OrdenCampo {
+    const formularios = orden.formularios ?? [];
+    if (!formularios.some((f) => f.id === formularioId)) {
+        return orden;
+    }
+    const quedan = formularios.filter((f) => f.id !== formularioId);
+    return {
+        ...orden,
+        formularios: quedan,
+        checklist: (orden.checklist ?? []).filter((i) => i.formularioId !== formularioId),
+        requiereFirma: quedan.some((f) => f.requiereFirma),
+    };
+}
 
 function msDe(iso: string | null): number {
     if (iso === null) {
@@ -68,14 +176,55 @@ export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCa
     }
     switch (op.tipo) {
         case "checklist.marcar": {
-            const { itemId, codigo, valor } = op.datos;
+            const { itemId, codigo, valor, formularioId } = op.datos;
+            const delFormulario = (item: ItemChecklist) => formularioId === undefined || item.formularioId === undefined || item.formularioId === formularioId;
             return {
                 ...orden,
                 checklist: (orden.checklist ?? []).map((item) =>
-                    item.itemId === itemId || (itemId === undefined && item.codigo === codigo) ? fusionarMarca(item, valor, op.ocurridoEn) : item,
+                    (item.itemId === itemId || (itemId === undefined && item.codigo === codigo)) && delFormulario(item)
+                        ? fusionarMarca(item, valor, op.ocurridoEn)
+                        : item,
                 ),
             };
         }
+        case "orden.pausar": {
+            if (!ESTADOS_PAUSABLES.has(orden.estado)) {
+                return orden;
+            }
+            const desde = orden.estado === "en_camino" ? "en_camino" : "en_sitio";
+            // Pausa local (id 0) hasta que el servidor mande la suya en el paquete o los cambios.
+            const pausa: PausaOrden = {
+                id: 0,
+                motivo: op.datos.motivo,
+                nota: op.datos.nota ?? null,
+                desdeEstado: desde,
+                inicio: op.ocurridoEn,
+                fin: null,
+                duracionSeg: null,
+                cierre: null,
+                pausadaPor: null,
+                cerradaPor: null,
+            };
+            return { ...orden, estado: "pausada", pausadaDesde: desde, pausadaEn: op.ocurridoEn, pausas: [...(orden.pausas ?? []), pausa] };
+        }
+        case "orden.reanudar": {
+            if (orden.estado !== "pausada") {
+                return orden;
+            }
+            const tiempoPausadoSeg = segundosPausada(orden, Date.parse(op.ocurridoEn));
+            const fin = op.ocurridoEn;
+            const pausas = (orden.pausas ?? []).map((p) =>
+                p.fin === null ? { ...p, fin, duracionSeg: Math.max(0, Math.floor((Date.parse(fin) - Date.parse(p.inicio)) / 1000)), cierre: "reanudada" as const } : p,
+            );
+            const resto: OrdenCampo = { ...orden, estado: orden.pausadaDesde ?? "en_sitio", tiempoPausadoSeg, pausas };
+            delete resto.pausadaEn;
+            delete resto.pausadaDesde;
+            return resto;
+        }
+        case "orden.agregar_formulario":
+            return op.plantilla ? agregarFormulario(orden, op.id, op.plantilla, op.ocurridoEn) : orden;
+        case "orden.quitar_formulario":
+            return quitarFormulario(orden, op.datos.formularioId);
         case "nota.agregar": {
             const notas = orden.notas ?? [];
             if (notas.some((n) => n.id === op.id)) {

@@ -1,5 +1,16 @@
 // Registros locales que guarda el teléfono (en el `Almacen`).
-import type { DatosPorTipo, Existencias, OrdenCampo, Problema, RutaCampo, TipoAdjunto, TipoOperacion, TurnoCampo } from "./contrato";
+import type {
+    AvisoResultado,
+    DatosPorTipo,
+    Existencias,
+    OrdenCampo,
+    PlantillaFormulario,
+    Problema,
+    RutaCampo,
+    TipoAdjunto,
+    TipoOperacion,
+    TurnoCampo,
+} from "./contrato";
 
 /**
  * - `pendiente`: por enviar (o retenida detrás de un rechazo de su orden).
@@ -25,6 +36,11 @@ export type OperacionLocal = {
         error: Problema | null;
         /** Veces que salió en un lote sin respuesta definitiva. */
         intentos: number;
+        /**
+         * Solo `orden.agregar_formulario`: la plantilla del catálogo que vio el técnico (con sus
+         * ítems), para aplicarla sin señal. Es local: no viaja en el lote.
+         */
+        plantilla?: PlantillaFormulario;
     };
 }[TipoOperacion];
 
@@ -71,6 +87,18 @@ export interface AdjuntoLocal {
 /** Turno de la agenda guardado con el día del paquete al que pertenece (`YYYY-MM-DD`, Guatemala). */
 export type TurnoDelDia = TurnoCampo & { fecha: string };
 
+/**
+ * La API aplicó una operación con un aviso que el técnico debe ver (`version_anterior`,
+ * `pausa_ajustada`…): nunca se resuelve un conflicto en silencio. Queda hasta que lo descarta.
+ */
+export interface AvisoServidor {
+    /** Id de la operación. */
+    id: string;
+    ordenId: number;
+    tipo: TipoOperacion;
+    aviso: AvisoResultado;
+}
+
 export interface MetaSync {
     dispositivoId: string | null;
     /** Contador de `secuencia` de la cola. */
@@ -83,6 +111,10 @@ export interface MetaSync {
     ruta: RutaCampo | null;
     /** Turno del día según la agenda; `null` = sin paquete o ese día no trabaja según la agenda. */
     turno: TurnoDelDia | null;
+    /** Catálogo de plantillas activas (paquete o cambios) para agregar formularios sin señal. */
+    plantillas: PlantillaFormulario[] | null;
+    /** Avisos de operaciones aplicadas que el técnico todavía no vio. */
+    avisos: AvisoServidor[];
     /** Último contacto correcto con la API (hora del teléfono). */
     ultimaSincronizacion: number | null;
 }
@@ -96,5 +128,7 @@ export const META_INICIAL: MetaSync = {
     existencias: null,
     ruta: null,
     turno: null,
+    plantillas: null,
+    avisos: [],
     ultimaSincronizacion: null,
 };

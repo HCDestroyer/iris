@@ -1,7 +1,7 @@
 // Formularios de la app de campo (react-hook-form + zod), espejo de las entradas de la API
 // (apps/api/internal/campo: EntradaAgregarNota, EntradaUsarMaterial, EntradaEquipo,
 // EntradaCapturarFirma, EntradaFallarOrden).
-import { MOTIVOS_FALLA } from "@iris/sync";
+import { MOTIVOS_FALLA, MOTIVOS_PAUSA } from "@iris/sync";
 import { z } from "zod";
 
 const sinNul = (s: string) => !s.includes("\u0000");
@@ -71,6 +71,18 @@ export const esquemaFallar = z
         }
     });
 export type DatosFallar = z.infer<typeof esquemaFallar>;
+
+export const esquemaPausar = z
+    .object({
+        motivo: z.enum(MOTIVOS_PAUSA, { message: "Elige el motivo" }),
+        nota: texto(2000),
+    })
+    .superRefine((d, ctx) => {
+        if (d.motivo === "otro" && d.nota === "") {
+            ctx.addIssue({ code: "custom", path: ["nota"], message: "Con «Otro motivo» explica qué pasa" });
+        }
+    });
+export type DatosPausar = z.infer<typeof esquemaPausar>;
 
 export const esquemaCerrar = z.object({ resultado: z.enum(["exitosa", "parcial"]) });
 export type DatosCerrar = z.infer<typeof esquemaCerrar>;

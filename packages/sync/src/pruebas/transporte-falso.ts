@@ -33,10 +33,20 @@ export class TransporteFalso implements Transporte {
     /** Resultado por defecto: aplica la operación (versión + 1 y estado según el tipo). */
     aplicar(op: OperacionLote): ResultadoOperacion {
         const previa = this.ordenes.get(op.ordenId) ?? { version: op.versionBase ?? 1, estado: "programada" as EstadoOrden };
-        const orden = { version: previa.version + 1, estado: ESTADO_TRAS[op.tipo] ?? previa.estado };
+        let estado = ESTADO_TRAS[op.tipo] ?? previa.estado;
+        if (op.tipo === "orden.pausar") {
+            this.pausadaDesde.set(op.ordenId, previa.estado);
+            estado = "pausada";
+        } else if (op.tipo === "orden.reanudar") {
+            estado = this.pausadaDesde.get(op.ordenId) ?? "en_sitio";
+        }
+        const orden = { version: previa.version + 1, estado };
         this.ordenes.set(op.ordenId, orden);
         return { id: op.id, estado: "aplicada", orden };
     }
+
+    /** Estado previo a la pausa por orden (para `orden.reanudar`). */
+    private readonly pausadaDesde = new Map<number, EstadoOrden>();
 
     lote: Respondedor<EntradaLote, Omit<RespuestaLote, "servidorEn" | "cursor" | "desfaseMs">> = (p) => ({
         resultados: (p.operaciones ?? []).map((op) => this.aplicar(op)),
