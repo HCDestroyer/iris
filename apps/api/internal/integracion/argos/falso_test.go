@@ -34,7 +34,12 @@ type argosFalso struct {
 	sinPermiso bool
 	// empresaPedida: X-Empresa-Id de la última búsqueda.
 	empresaPedida string
-	conectorID    any // lo que responde el canje en conector_id (nil = "77")
+	// alcance: empresas del token de Iris en Argos (vacío = global). Sin global, ?empresas=todas
+	// responde 403 y /servicios solo devuelve las de su alcance.
+	alcance map[int64]bool
+	// estadoPedido: ?empresa_id= del último estado de cuenta.
+	estadoPedido string
+	conectorID   any // lo que responde el canje en conector_id (nil = "77")
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -174,6 +179,7 @@ func (a *argosFalso) cliente(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
+	a.estadoPedido = r.URL.Query().Get("empresa_id")
 	e, ok := a.estados[idDe(r)]
 	if !ok {
 		problema(w, 404, "urn:argos:no_encontrado", "No existe")
@@ -184,11 +190,33 @@ func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
 
 func (a *argosFalso) serviciosDe(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.URL.Query().Get("cliente_id"), 10, 64)
-	lista := a.servicios[id]
-	if lista == nil {
-		lista = []map[string]any{}
+	todas := r.URL.Query().Get("empresas") == "todas"
+	if todas && len(a.alcance) > 0 {
+		// Como Argos 1.3.0: el consolidado exige alcance global.
+		problema(w, 403, "urn:argos:empresa_no_permitida", "El consolidado de todas las empresas requiere alcance global")
+		return
+	}
+	lista := []map[string]any{}
+	for _, s := range a.servicios[id] {
+		// Sin «todas», solo lo del alcance del token (si el falso tiene uno).
+		if !todas && len(a.alcance) > 0 && !a.alcance[enteroDe(s["empresa_id"])] {
+			continue
+		}
+		lista = append(lista, s)
 	}
 	escribir(w, lista) // arreglo plano, sin { data }
+}
+
+func enteroDe(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	}
+	return 0
 }
 
 func (a *argosFalso) servicio(w http.ResponseWriter, r *http.Request) {

@@ -372,11 +372,11 @@ UPDATE nucleo.portal_sesiones SET revocada_en = now(), updated_at = now()
 WHERE id = @id AND revocada_en IS NULL;
 
 -- name: EmpresasDeClienteArgos :one
--- Empresas del cliente según la instantánea de Argos (las de sus servicios; vacío = sin servicios).
+-- Empresas del cliente según la instantánea de Argos (las de sus servicios) y si Argos dijo que no
+-- tiene servicios. Una fila sin empresas pero con empresa_id (anterior) cuenta como [empresa_id].
 -- Sin fila si Iris nunca lo leyó.
--- Una fila sin empresas pero con empresa_id (anterior a la migración) cuenta como [empresa_id].
 SELECT CASE WHEN cardinality(c.empresas) = 0 AND c.empresa_id <> 0 THEN ARRAY[c.empresa_id] ELSE c.empresas END::bigint[] AS empresas,
-       EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = c.id)::boolean AS con_servicios
+       c.sin_servicios
 FROM integracion.argos_clientes c WHERE c.id = @id;
 
 -- name: PurgarSesionesPortal :execrows

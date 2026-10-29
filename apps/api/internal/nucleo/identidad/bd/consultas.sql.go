@@ -776,22 +776,22 @@ func (q *Queries) EmpresasAccesibles(ctx context.Context, arg EmpresasAccesibles
 
 const empresasDeClienteArgos = `-- name: EmpresasDeClienteArgos :one
 SELECT CASE WHEN cardinality(c.empresas) = 0 AND c.empresa_id <> 0 THEN ARRAY[c.empresa_id] ELSE c.empresas END::bigint[] AS empresas,
-       EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = c.id)::boolean AS con_servicios
+       c.sin_servicios
 FROM integracion.argos_clientes c WHERE c.id = $1
 `
 
 type EmpresasDeClienteArgosRow struct {
 	Empresas     []int64
-	ConServicios bool
+	SinServicios bool
 }
 
-// Empresas del cliente según la instantánea de Argos (las de sus servicios; vacío = sin servicios).
+// Empresas del cliente según la instantánea de Argos (las de sus servicios) y si Argos dijo que no
+// tiene servicios. Una fila sin empresas pero con empresa_id (anterior) cuenta como [empresa_id].
 // Sin fila si Iris nunca lo leyó.
-// Una fila sin empresas pero con empresa_id (anterior a la migración) cuenta como [empresa_id].
 func (q *Queries) EmpresasDeClienteArgos(ctx context.Context, id int64) (EmpresasDeClienteArgosRow, error) {
 	row := q.db.QueryRow(ctx, empresasDeClienteArgos, id)
 	var i EmpresasDeClienteArgosRow
-	err := row.Scan(&i.Empresas, &i.ConServicios)
+	err := row.Scan(&i.Empresas, &i.SinServicios)
 	return i, err
 }
 

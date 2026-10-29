@@ -84,10 +84,36 @@ func (c *Cliente) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]Se
 	return conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", url.Values{"cliente_id": {strconv.FormatInt(clienteID, 10)}})
 }
 
-// EstadoCuenta: GET /clientes/:id/estado-cuenta (requiere clientes.estado_cuenta en Argos).
-func (c *Cliente) EstadoCuenta(ctx context.Context, clienteID int64) (EstadoCuentaArgos, error) {
+// ServiciosDeClienteCompletos: GET /servicios?cliente_id=&empresas=todas, el consolidado de todas
+// las empresas. Sin «todas», Argos 1.3.0 filtra por las empresas del token (empresasDeLaLista):
+// una lista vacía no probaría que el cliente no tiene servicios. Si Argos no da el consolidado
+// (403: el token no tiene alcance global), se leen los de su alcance y completa = false.
+func (c *Cliente) ServiciosDeClienteCompletos(ctx context.Context, clienteID int64) (servicios []ServicioArgos, completa bool, err error) {
+	v := url.Values{"cliente_id": {strconv.FormatInt(clienteID, 10)}, "empresas": {"todas"}}
+	servicios, err = conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", v)
+	if err == nil {
+		return servicios, true, nil
+	}
+	var e *conector.ErrorRemoto
+	if errors.As(err, &e) && e.Status == http.StatusForbidden {
+		servicios, err = c.ServiciosDeCliente(ctx, clienteID)
+		return servicios, false, err
+	}
+	return nil, false, err
+}
+
+// EstadoCuenta: GET /clientes/:id/estado-cuenta (requiere clientes.estado_cuenta en Argos). Con
+// empresa (≠ 0), solo la de esa empresa (?empresa_id= y X-Empresa-Id; multiempresa.md de Argos);
+// con 0, el consolidado.
+func (c *Cliente) EstadoCuenta(ctx context.Context, clienteID, empresa int64) (EstadoCuentaArgos, error) {
 	var e EstadoCuentaArgos
-	err := c.Pedir(ctx, http.MethodGet, "/clientes/"+strconv.FormatInt(clienteID, 10)+"/estado-cuenta", nil, nil, true, &conector.Recurso{Destino: &e})
+	cli := c.Cliente
+	var v url.Values
+	if empresa != 0 {
+		v = url.Values{"empresa_id": {strconv.FormatInt(empresa, 10)}}
+		cli = cli.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(empresa, 10))
+	}
+	err := cli.Pedir(ctx, http.MethodGet, "/clientes/"+strconv.FormatInt(clienteID, 10)+"/estado-cuenta", v, nil, true, &conector.Recurso{Destino: &e})
 	return e, err
 }
 
