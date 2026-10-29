@@ -49,7 +49,7 @@ function encuesta(d: Partial<Encuesta> & Pick<Encuesta, "id" | "entidad" | "nume
 
 function escenario(): Encuesta[] {
     const fijas: Encuesta[] = [
-        encuesta({ id: 1, entidad: "ticket", ticketId: 1, numero: "TK-000001", estado: "pendiente", canal: "enlace", enlace: `${base}${TOKENS.pendiente}`, creadaEn: "2026-10-28T20:00:00Z" }),
+        encuesta({ id: 1, entidad: "ticket", ticketId: 1, numero: "TK-000101", estado: "pendiente", canal: "enlace", enlace: `${base}${TOKENS.pendiente}`, creadaEn: "2026-10-28T20:00:00Z" }),
         encuesta({
             id: 2,
             entidad: "orden",
@@ -63,9 +63,9 @@ function escenario(): Encuesta[] {
             respondidaEn: "2026-10-28T19:30:00Z",
             creadaEn: "2026-10-28T19:00:00Z",
         }),
-        encuesta({ id: 3, entidad: "ticket", ticketId: 2, numero: "TK-000002", estado: "pendiente", canal: "correo", creadaEn: "2026-10-28T18:30:00Z" }),
-        encuesta({ id: 4, entidad: "ticket", ticketId: 4, numero: "TK-000004", estado: "pendiente", canal: "enlace", enlaceDisponible: false, creadaEn: "2026-10-28T18:10:00Z" }),
-        encuesta({ id: 5, entidad: "ticket", ticketId: 5, numero: "TK-000005", estado: "respondida", calificacion: 5, comentario: "Muy amables, gracias.", respondidaEn: "2026-10-27T15:00:00Z", creadaEn: "2026-10-27T14:00:00Z" }),
+        encuesta({ id: 3, entidad: "ticket", ticketId: 2, numero: "TK-000102", estado: "pendiente", canal: "correo", creadaEn: "2026-10-28T18:30:00Z" }),
+        encuesta({ id: 4, entidad: "ticket", ticketId: 4, numero: "TK-000104", estado: "pendiente", canal: "enlace", enlaceDisponible: false, creadaEn: "2026-10-28T18:10:00Z" }),
+        encuesta({ id: 5, entidad: "ticket", ticketId: 5, numero: "TK-000105", estado: "respondida", calificacion: 5, comentario: "Muy amables, gracias.", respondidaEn: "2026-10-27T15:00:00Z", creadaEn: "2026-10-27T14:00:00Z" }),
         encuesta({ id: 6, entidad: "orden", ordenId: 2, numero: "OT-000002", estado: "vencida", creadaEn: "2026-10-15T14:00:00Z", expiraEn: "2026-10-22T14:00:00Z" }),
     ];
     // Relleno para «Cargar más»: respondidas de días anteriores.
@@ -103,8 +103,8 @@ export function apiEncuestas(): ApiEncuestas {
     const respuestas: ApiEncuestas["respuestas"] = [];
     // Estado público por token.
     const publicas = new Map<string, Publica>([
-        [TOKENS.pendiente, { entidad: "ticket", numero: "TK-000001", fecha: "2026-10-28T20:00:00Z", empresa: "Fibra Express", estado: "pendiente", expiraEn: "2026-11-04T20:00:00Z" }],
-        [TOKENS.respondida, { entidad: "ticket", numero: "TK-000005", fecha: "2026-10-27T14:00:00Z", empresa: null, estado: "respondida", expiraEn: "2026-11-03T14:00:00Z", calificacion: 5 }],
+        [TOKENS.pendiente, { entidad: "ticket", numero: "TK-000101", fecha: "2026-10-28T20:00:00Z", empresa: "Fibra Express", estado: "pendiente", expiraEn: "2026-11-04T20:00:00Z" }],
+        [TOKENS.respondida, { entidad: "ticket", numero: "TK-000105", fecha: "2026-10-27T14:00:00Z", empresa: null, estado: "respondida", expiraEn: "2026-11-03T14:00:00Z", calificacion: 5 }],
         [TOKENS.vencida, { entidad: "orden", numero: "OT-000002", fecha: "2026-10-15T14:00:00Z", empresa: null, estado: "vencida", expiraEn: "2026-10-22T14:00:00Z" }],
     ]);
 
