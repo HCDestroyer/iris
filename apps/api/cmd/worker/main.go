@@ -142,7 +142,8 @@ func correr() error {
 			pend.RegistrarWorkers(w, pool)
 			adj.RegistrarWorkers(w, pool)
 			nucleo.RegistrarPurgaIdempotencia(w, pool)
-			// Ventana y bloqueo por defecto: cmd/iris tampoco los cambia (identidad.Config).
+			// Ventana y bloqueo por defecto (cmd/iris tampoco los cambia); la purga nunca baja de
+			// 24 h, aunque la API suba LoginVentana sin avisar al worker.
 			identidad.RegistrarPurgaIntentos(w, pool, 0, 0)
 			identidad.RegistrarPurgaPortal(w, pool)
 			cmp.RegistrarTrabajos(pool)(w)

@@ -41,27 +41,23 @@ func quedan(t *testing.T, prefijo string) map[string]bool {
 	return res
 }
 
-// Borra por lotes lo que ya no cuenta (último fallo fuera de la ventana y sin bloqueo vigente) y
+// Borra por lotes lo que ya no cuenta (último fallo de hace más de 24 h y sin bloqueo vigente) y
 // deja lo que sí: fallos recientes y bloqueos vigentes, aunque el último fallo sea viejo.
 func TestPurgarIntentosLogin(t *testing.T) {
 	ctx := context.Background()
 	pool := pruebas.Pool(t)
 	p := "purga-" + pruebas.Unico() + "-"
 	intento(t, p+"reciente", "5 minutes", "")
-	intento(t, p+"bloqueado", "40 minutes", "10 minutes")
-	intento(t, p+"usuario:1", "10 minutes", "")
-	intento(t, p+"bloqueo-vencido", "40 minutes", "-5 minutes")
+	intento(t, p+"usuario:1", "23 hours", "")
+	intento(t, p+"bloqueado", "2 days", "10 minutes")
+	intento(t, p+"bloqueo-vencido", "2 days", "-5 minutes")
 	// 250 viejas con lotes de 100: tres sentencias.
 	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.intentos_login (correo, fallos, updated_at)
 		SELECT $1 || 'viejo-' || g, 1, now() - interval '31 days' FROM generate_series(1, 250) g`, p); err != nil {
 		t.Fatal(err)
 	}
 
-	antiguedad := identidad.AntiguedadPurgaIntentos(0, 0)
-	if antiguedad != 15*time.Minute {
-		t.Fatalf("antigüedad por defecto: %v", antiguedad)
-	}
-	n, err := identidad.PurgarIntentosLogin(ctx, pool, time.Now(), antiguedad, 100)
+	n, err := identidad.PurgarIntentosLogin(ctx, pool, identidad.AntiguedadPurgaIntentos(0, 0), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,13 +70,54 @@ func TestPurgarIntentosLogin(t *testing.T) {
 		t.Fatalf("quedan %v", q)
 	}
 
-	// Con una ventana más larga (configurada), los fallos de hace 10 min siguen contando.
-	intento(t, p+"viejo-otra-vez", "2 hours", "")
-	if _, err := identidad.PurgarIntentosLogin(ctx, pool, time.Now(), identidad.AntiguedadPurgaIntentos(time.Hour, 0), 0); err != nil {
+	// Con una ventana configurada más larga que el piso (48 h), lo de hace 30 h sigue contando.
+	intento(t, p+"hace-30h", "30 hours", "")
+	intento(t, p+"hace-3d", "3 days", "")
+	if _, err := identidad.PurgarIntentosLogin(ctx, pool, identidad.AntiguedadPurgaIntentos(48*time.Hour, 0), 0); err != nil {
 		t.Fatal(err)
 	}
-	if q := quedan(t, p); len(q) != 3 || q[p+"viejo-otra-vez"] {
-		t.Fatalf("con ventana de 1 h quedan %v", q)
+	if q := quedan(t, p); len(q) != 4 || !q[p+"hace-30h"] || q[p+"hace-3d"] {
+		t.Fatalf("con ventana de 48 h quedan %v", q)
+	}
+}
+
+// Revisión de la PR #37 (1): el corte es de la base (now() - antigüedad, el mismo reloj que
+// escribe updated_at) y nunca baja del piso: una fila de hace 20 min no se borra aunque se pida
+// una antigüedad de 15 min o ninguna (un worker con otra configuración o con el reloj adelantado
+// no reinicia el contador de un atacante).
+func TestPurgaIntentosNoBorraFallosRecientes(t *testing.T) {
+	ctx := context.Background()
+	pool := pruebas.Pool(t)
+	p := "reloj-" + pruebas.Unico() + "-"
+	intento(t, p+"hace-20min", "20 minutes", "")
+	for _, a := range []time.Duration{0, 15 * time.Minute, time.Minute} {
+		if _, err := identidad.PurgarIntentosLogin(ctx, pool, a, 0); err != nil {
+			t.Fatal(err)
+		}
+		if q := quedan(t, p); !q[p+"hace-20min"] {
+			t.Fatalf("con antigüedad %v se borró un fallo de hace 20 min", a)
+		}
+	}
+}
+
+// Revisión de la PR #37 (2): la antigüedad efectiva nunca baja de 24 h, sea cual sea la
+// configuración del login; con una ventana o un bloqueo mayores, manda el mayor.
+func TestAntiguedadPurgaIntentosMinima(t *testing.T) {
+	if identidad.AntiguedadMinimaPurgaIntentos != 24*time.Hour {
+		t.Fatalf("piso: %v", identidad.AntiguedadMinimaPurgaIntentos)
+	}
+	for _, c := range []struct{ ventana, bloqueo, esperada time.Duration }{
+		{0, 0, 24 * time.Hour},
+		{15 * time.Minute, 15 * time.Minute, 24 * time.Hour},
+		{time.Second, time.Second, 24 * time.Hour},
+		{-time.Hour, -time.Hour, 24 * time.Hour},
+		{23 * time.Hour, 0, 24 * time.Hour},
+		{48 * time.Hour, 0, 48 * time.Hour},
+		{time.Hour, 72 * time.Hour, 72 * time.Hour},
+	} {
+		if got := identidad.AntiguedadPurgaIntentos(c.ventana, c.bloqueo); got != c.esperada || got < 24*time.Hour {
+			t.Fatalf("ventana %v, bloqueo %v: %v (esperaba %v)", c.ventana, c.bloqueo, got, c.esperada)
+		}
 	}
 }
 
@@ -88,8 +125,8 @@ func TestPurgarIntentosLogin(t *testing.T) {
 func TestJobPurgaIntentosLogin(t *testing.T) {
 	pool := pruebas.Pool(t)
 	p := "job-" + pruebas.Unico() + "-"
-	intento(t, p+"viejo", "1 hour", "")
-	intento(t, p+"reciente", "1 minute", "")
+	intento(t, p+"viejo", "25 hours", "")
+	intento(t, p+"reciente", "20 minutes", "")
 
 	if opts := (identidad.ArgsPurgaIntentosLogin{}).InsertOpts(); opts.UniqueOpts.ByPeriod <= 0 {
 		t.Fatalf("el job debe ser único por período: %+v", opts.UniqueOpts)

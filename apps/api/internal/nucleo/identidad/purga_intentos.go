@@ -22,19 +22,24 @@ const (
 	LoginVentanaPorDefecto = 15 * time.Minute
 	// LoginBloqueoPorDefecto: duración del bloqueo al llegar al máximo (Config.LoginBloqueo).
 	LoginBloqueoPorDefecto = 15 * time.Minute
+	// AntiguedadMinimaPurgaIntentos: piso holgado de la purga. Si alguien sube LoginVentana o
+	// LoginBloqueo en la API y el worker no se entera, la purga sigue sin tocar fallos vigentes
+	// (salvo ventanas de más de 24 h), y la tabla igual queda acotada.
+	AntiguedadMinimaPurgaIntentos = 24 * time.Hour
 	// LotePurga: filas por sentencia DELETE de las purgas (transacciones cortas, sin frenar logins).
 	LotePurga = 1000
 )
 
-// PurgarIntentosLogin borra, por lotes de `lote`, las filas cuyo último fallo es anterior a
-// `ahora - antiguedad` y sin bloqueo vigente. El corte se fija al empezar («todo lo pendiente
-// hasta ahora»): lo que falle mientras corre queda para la próxima vez y el bucle termina.
-// Devuelve cuántas borró.
-func PurgarIntentosLogin(ctx context.Context, bd nucleo.BD, ahora time.Time, antiguedad time.Duration, lote int32) (int64, error) {
-	hasta := ahora.Add(-antiguedad)
+// PurgarIntentosLogin borra, por lotes de `lote`, las filas cuyo último fallo tiene más de
+// `antiguedad` (nunca menos de AntiguedadMinimaPurgaIntentos) y sin bloqueo vigente. El corte lo
+// calcula la base con su now(), el mismo reloj que escribe updated_at, nunca el reloj del worker.
+// Lo que falle mientras corre tiene updated_at reciente y no entra: el bucle termina. Devuelve
+// cuántas borró.
+func PurgarIntentosLogin(ctx context.Context, bd nucleo.BD, antiguedad time.Duration, lote int32) (int64, error) {
+	segundos := int64(max(antiguedad, AntiguedadMinimaPurgaIntentos) / time.Second)
 	q := identidadbd.New(bd)
 	return porLotes(ctx, lote, func(lote int32) (int64, error) {
-		return q.PurgarIntentosLogin(ctx, identidadbd.PurgarIntentosLoginParams{Hasta: hasta, Lote: lote})
+		return q.PurgarIntentosLogin(ctx, identidadbd.PurgarIntentosLoginParams{AntiguedadSeg: segundos, Lote: lote})
 	})
 }
 
@@ -58,7 +63,8 @@ func porLotes(ctx context.Context, lote int32, borrar func(int32) (int64, error)
 }
 
 // AntiguedadPurgaIntentos es la edad a partir de la cual una fila se purga: la mayor entre la
-// ventana de conteo y el bloqueo (con los valores por defecto, 15 min).
+// ventana de conteo, el bloqueo y AntiguedadMinimaPurgaIntentos (con los valores por defecto,
+// 24 h).
 func AntiguedadPurgaIntentos(ventana, bloqueo time.Duration) time.Duration {
 	if ventana <= 0 {
 		ventana = LoginVentanaPorDefecto
@@ -66,7 +72,7 @@ func AntiguedadPurgaIntentos(ventana, bloqueo time.Duration) time.Duration {
 	if bloqueo <= 0 {
 		bloqueo = LoginBloqueoPorDefecto
 	}
-	return max(ventana, bloqueo)
+	return max(ventana, bloqueo, AntiguedadMinimaPurgaIntentos)
 }
 
 // ArgsPurgaIntentosLogin es el job periódico de la purga.
@@ -87,7 +93,7 @@ type trabajadorPurgaIntentos struct {
 }
 
 func (w *trabajadorPurgaIntentos) Work(ctx context.Context, _ *river.Job[ArgsPurgaIntentosLogin]) error {
-	n, err := PurgarIntentosLogin(ctx, w.bd, time.Now(), w.antiguedad, LotePurga)
+	n, err := PurgarIntentosLogin(ctx, w.bd, w.antiguedad, LotePurga)
 	if n > 0 {
 		slog.InfoContext(ctx, "identidad: intentos de login vencidos purgados", "filas", n)
 	}

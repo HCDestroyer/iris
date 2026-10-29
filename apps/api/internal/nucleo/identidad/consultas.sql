@@ -242,13 +242,15 @@ WHERE correo = @correo;
 DELETE FROM nucleo.intentos_login WHERE correo = @correo;
 
 -- name: PurgarIntentosLogin :execrows
--- Purga (job nucleo.intentos_login_purga): borra hasta @lote filas cuya cuenta venció antes de
--- @hasta y sin bloqueo vigente. Esas filas ya no cuentan (FallosVigentes las ignora y
--- RegistrarFalloLogin empieza de 1), así que borrarlas no cambia ningún límite. SKIP LOCKED:
--- no espera a un login que esté contando un fallo en esa fila.
+-- Purga (job nucleo.intentos_login_purga): borra hasta @lote filas cuyo último fallo tiene más
+-- de @antiguedad_seg segundos y sin bloqueo vigente. Esas filas ya no cuentan (FallosVigentes las
+-- ignora y RegistrarFalloLogin empieza de 1), así que borrarlas no cambia ningún límite. El corte
+-- usa now() de la base, el mismo reloj que escribe updated_at: un worker con el reloj adelantado
+-- no puede borrar fallos que todavía cuentan. SKIP LOCKED: no espera a un login que esté contando
+-- un fallo en esa fila.
 DELETE FROM nucleo.intentos_login WHERE correo IN (
     SELECT i.correo FROM nucleo.intentos_login i
-    WHERE i.updated_at < @hasta::timestamptz
+    WHERE i.updated_at < now() - make_interval(secs => @antiguedad_seg::bigint)
       AND (i.bloqueado_hasta IS NULL OR i.bloqueado_hasta <= now())
     ORDER BY i.updated_at
     LIMIT @lote::integer

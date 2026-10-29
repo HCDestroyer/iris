@@ -10,7 +10,8 @@ cursor, `version` → 409, `Idempotency-Key`, cifrado de secretos y el catálogo
 - `identidad`: usuarios (argon2id), sesiones con cookie + CSRF, TOTP, roles, tokens `iris_pat_`,
   límites de intentos (login: 10 fallos por correo → 15 min con 429; MFA: 5 fallos → sesión
   pendiente revocada; el job `nucleo.intentos_login_purga` del worker borra cada hora, por lotes,
-  los intentos fuera de la ventana y sin bloqueo vigente), empresas (`nucleo.empresas`, membresía `nucleo.usuarios_empresas`) y la
+  los intentos sin bloqueo vigente cuyo último fallo tiene más de max(ventana, bloqueo, 24 h),
+  con el corte calculado por `now()` de la base), empresas (`nucleo.empresas`, membresía `nucleo.usuarios_empresas`) y la
   empresa activa por petición (`MiddlewareEmpresa`, cabecera `X-Iris-Empresa`). **Portal de
   soporte** (`portal.go`): Argos emite un acceso de un solo uso (`POST /portal/tickets-acceso`,
   permiso `portal.emitir`, 60 s), el canje (`POST /portal/sesion`) abre una sesión de actor
