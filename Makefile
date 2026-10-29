@@ -110,6 +110,7 @@ lint-infra: ## bash -n + shellcheck de scripts y docker compose config (avisa si
 	fi
 	@if docker compose version >/dev/null 2>&1; then \
 		docker compose -f infra/docker-compose.yml --env-file .env.example --profile app config --quiet && echo "compose: ok"; \
+		docker compose -p iris-carga -f infra/docker-compose.yml -f infra/carga/compose.yml --env-file .env.example --profile app config --quiet && echo "compose de carga: ok"; \
 	else \
 		echo "lint-infra: omitido docker compose config (docker compose no instalado)"; \
 	fi
@@ -161,6 +162,18 @@ respaldo: ## pg_dump cifrado con age de IRIS_DB_URL (infra/respaldo/respaldar.sh
 ensayo-respaldo: ## Respalda IRIS_DB_URL, restaura en <base>_ensayo y compara conteos
 	$(requiere_db)
 	infra/respaldo/ensayo.sh "$$IRIS_DB_URL" "$$(psql "$$IRIS_DB_URL" -XAtqc 'select current_database()')_ensayo"
+
+# --- Pruebas de carga (docs/runbooks/carga.md) -----------------------------------------------
+
+.PHONY: carga carga-corta carga-limpiar
+carga: ## Carga completa: build, compose iris-carga, siembra, k6 15 min (50 técnicos, 20 del panel) y verificación
+	infra/carga/carga.sh
+
+carga-corta: ## Carga corta para local: 2 min, 10 técnicos y 5 del panel (misma siembra y umbrales)
+	CARGA_DURACION=$${CARGA_DURACION:-2m} CARGA_TECNICOS=$${CARGA_TECNICOS:-10} CARGA_PANEL=$${CARGA_PANEL:-5} infra/carga/carga.sh
+
+carga-limpiar: ## Baja el compose de carga y borra su base (volumen) e infra/carga/.salida
+	infra/carga/carga.sh limpiar
 
 # --- Generación -------------------------------------------------------------------------------
 

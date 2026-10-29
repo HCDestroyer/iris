@@ -46,7 +46,9 @@ const (
 	CookiePortalCSRF = "iris_portal_csrf"
 	// PrefijoRutasPortal: la cookie del portal solo autentica aquí.
 	PrefijoRutasPortal = "/api/v1/portal/"
-	rutaSesionPortal   = "/api/v1/portal/sesion"
+	// PrefijoRutasEncuestaPublica: la encuesta de satisfacción pública; ninguna cookie autentica.
+	PrefijoRutasEncuestaPublica = "/api/v1/encuestas/publica/"
+	rutaSesionPortal            = "/api/v1/portal/sesion"
 )
 
 // ClientePortal es el cliente de Argos de una sesión del portal.

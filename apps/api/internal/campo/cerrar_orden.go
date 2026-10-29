@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
 // EntradaCerrarOrden es la entrada de ordenes.cerrar.
@@ -110,6 +111,15 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			payload["cargo"] = cargoDe(f, tipo, plantilla)
 			if err := t.Emitir("orden.cerrada", payload); err != nil {
 				return f, "", err
+			}
+			// Encuesta de satisfacción: instalación o visita cerrada con éxito (una por orden).
+			if m.cfg.Encuestas != nil && resultado == "exitosa" && (tipo.Codigo == "instalacion" || tipo.Codigo == "visita") {
+				if err := m.cfg.Encuestas(ctx, t, soporte.EncuestaDeOrden{
+					OrdenID: f.ID, Numero: f.Numero, EmpresaID: f.EmpresaID, TicketID: f.TicketID,
+					ZonaID: f.ZonaID, CuadrillaID: f.CuadrillaID, TecnicoID: f.TecnicoID,
+				}); err != nil {
+					return f, "", err
+				}
 			}
 			return f, "", notaEnTicket(ctx, t, f, fmt.Sprintf("La orden %s se cerró (%s).", f.Numero, resultado))
 		})
