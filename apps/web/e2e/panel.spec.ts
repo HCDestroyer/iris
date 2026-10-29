@@ -3,7 +3,7 @@ import { ADMIN, LECTOR, PAGINA_1, PAGINA_2, conSesion, simularApi } from "./api-
 import { abrirMenu, avisoError, menu } from "./ayudas";
 
 test.describe("menú por permisos", () => {
-    test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.*, agenda.ver ni prospectos.ver no aparecen Usuarios, Administración, Tickets, Órdenes, Agenda, Despacho ni Comercial", async ({ page, context, baseURL }) => {
+    test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.*, agenda.ver prospectos.ver ni reportes.ver no aparecen Usuarios, Administración, Tickets, Órdenes, Agenda, Despacho, Comercial ni Reportes", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
         await page.goto("/");
@@ -17,6 +17,7 @@ test.describe("menú por permisos", () => {
         await expect(nav.getByRole("link", { name: /^Órdenes/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: "Usuarios" })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /Administración/ })).toHaveCount(0);
+        await expect(nav.getByRole("link", { name: /^Reportes/ })).toHaveCount(0);
     });
 
     test("entrar directo a una sección sin permiso muestra «Sin permiso»", async ({ page, context, baseURL }) => {
