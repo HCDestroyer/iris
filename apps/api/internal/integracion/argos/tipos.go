@@ -16,7 +16,8 @@ import (
 // viene envuelto en { data }, la respuesta se normaliza antes de leerla: todas las claves pasan
 // a snake_case, un objeto { data: {...} } se desenvuelve y una lista puede ser un arreglo o
 // { data: [...], nextCursor }. Los números pueden venir como número o como texto (numeric de
-// Postgres) y las coordenadas como lat/lon, latitud/longitud o { coordenadas: { lat, lon } }.
+// Postgres) y las coordenadas como lat/lon, latitud/longitud, { coordenadas: { lat, lon } } o
+// { coordenadas: "lat,lng" } (la forma de Argos 1.3.0 y del contrato §3.2).
 
 // Ref es una referencia anidada ({ id, nombre }).
 type Ref struct {
@@ -30,6 +31,45 @@ type Coordenadas struct {
 	Lon      *Numero `json:"lon"`
 	Latitud  *Numero `json:"latitud"`
 	Longitud *Numero `json:"longitud"`
+}
+
+// UnmarshalJSON acepta el objeto ({ lat, lon } o { latitud, longitud }), el texto "lat,lng" de
+// Argos (contrato §3.2; lo que devuelven /clientes y /servicios en 1.3.0) y null o "". Un texto
+// que no son dos números deja las coordenadas vacías: la ficha se lee igual, sin mapa.
+func (c *Coordenadas) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		*c = Coordenadas{}
+		return nil
+	}
+	if b[0] == '"' {
+		var texto string
+		if err := json.Unmarshal(b, &texto); err != nil {
+			return err
+		}
+		*c = Coordenadas{}
+		lat, lon, ok := strings.Cut(texto, ",")
+		if !ok {
+			return nil
+		}
+		var nLat, nLon Numero
+		if nLat.UnmarshalJSON([]byte(strings.TrimSpace(lat))) != nil || nLon.UnmarshalJSON([]byte(strings.TrimSpace(lon))) != nil {
+			return nil
+		}
+		la, lo := nLat.Float(), nLon.Float()
+		if la == nil || lo == nil || *la < -90 || *la > 90 || *lo < -180 || *lo > 180 {
+			return nil
+		}
+		c.Lat, c.Lon = &nLat, &nLon
+		return nil
+	}
+	type crudo Coordenadas
+	var v crudo
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*c = Coordenadas(v)
+	return nil
 }
 
 type conCoordenadas struct {
@@ -197,19 +237,38 @@ type PlanArgos struct {
 
 // ZonaArgos es una zona (GET /zonas).
 type ZonaArgos struct {
-	ID        int64  `json:"id"`
-	EmpresaID int64  `json:"empresa_id"`
-	Nombre    string `json:"nombre"`
+	ID                int64  `json:"id"`
+	EmpresaID         int64  `json:"empresa_id"`
+	EmpresaSugeridaID int64  `json:"empresa_sugerida_id"`
+	Nombre            string `json:"nombre"`
 }
+
+// Empresa de la zona en la instantánea: empresa_id o, como devuelve Argos 1.3.0 (zonas y routers
+// no son de una empresa; multiempresa.md), empresa_sugerida_id. 0 = sin empresa: la usan todas.
+func (z ZonaArgos) Empresa() int64 { return primeraEmpresa(z.EmpresaID, z.EmpresaSugeridaID) }
 
 // RouterArgos es un router (GET /routers).
 type RouterArgos struct {
 	conCoordenadas
-	ID        int64  `json:"id"`
-	EmpresaID int64  `json:"empresa_id"`
-	Nombre    string `json:"nombre"`
-	ZonaID    *int64 `json:"zona_id"`
-	Zona      *Ref   `json:"zona"`
+	ID                int64  `json:"id"`
+	EmpresaID         int64  `json:"empresa_id"`
+	EmpresaSugeridaID int64  `json:"empresa_sugerida_id"`
+	Nombre            string `json:"nombre"`
+	ZonaID            *int64 `json:"zona_id"`
+	Zona              *Ref   `json:"zona"`
+}
+
+// Empresa del router en la instantánea: empresa_id o empresa_sugerida_id (Argos 1.3.0). 0 = sin
+// empresa sugerida: en Argos lo usan todas las empresas.
+func (r RouterArgos) Empresa() int64 { return primeraEmpresa(r.EmpresaID, r.EmpresaSugeridaID) }
+
+func primeraEmpresa(ids ...int64) int64 {
+	for _, id := range ids {
+		if id != 0 {
+			return id
+		}
+	}
+	return 0
 }
 
 // Numero acepta un número JSON o un texto numérico.

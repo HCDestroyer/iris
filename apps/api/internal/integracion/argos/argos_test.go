@@ -24,6 +24,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -86,6 +87,8 @@ func nuevoEntorno(t *testing.T) *entorno {
 	}
 	mod := argos.Nuevo(cfg)
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
+	// Como cmd/iris: el canje entrega el iris_pat_ del usuario de integración (contrato §1.2).
+	mod.Nucleo().FijarEmisorToken(conector.EmisorDesde(ident.EmitirTokenIntegracion, ident.RevocarTokenIntegracion))
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Identidad: ident, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){mod.Registrar},
@@ -203,7 +206,7 @@ func (e *entorno) conectado() (*clienteHTTP, int64, string) {
 		e.t.Fatalf("activar: %d %s", a.status, a.crudo)
 	}
 	var secreto string
-	e.argos.con(func() { secreto, _ = e.argos.canjes[len(e.argos.canjes)-1]["webhook_secreto"].(string) })
+	e.argos.con(func() { secreto = secretoDelCanje(e.argos.canjes[len(e.argos.canjes)-1]) })
 	return admin, id, secreto
 }
 
@@ -262,13 +265,32 @@ func TestConectarConEnlaceDeArgos(t *testing.T) {
 	}
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
-	secreto, _ := canje["webhook_secreto"].(string)
-	if canje["sistema"] != "iris" || canje["url"] != "https://iris.prueba" || canje["webhook_url"] != r.cuerpo["webhookUrl"] || len(secreto) < 40 {
+	// Cuerpo del contrato (Argos ↔ Horus §1.4, como valida Argos 1.3.0): base_url, el iris_pat_
+	// que Iris emite para Argos (§1.2) y su receptor con el secreto.
+	secreto := secretoDelCanje(canje)
+	wh, _ := canje["webhook"].(map[string]any)
+	tokenIris, _ := canje["token"].(string)
+	if canje["sistema"] != "iris" || canje["base_url"] != "https://iris.prueba" || wh["url"] != r.cuerpo["webhookUrl"] || len(secreto) < 40 ||
+		!strings.HasPrefix(tokenIris, "iris_pat_") {
 		t.Fatalf("canje enviado a Argos: %v", canje)
 	}
+	// El token es del usuario de integración de Argos (rol integracion_argos), vigente.
+	if n := e.contar(`SELECT count(*) FROM nucleo.tokens_api t JOIN nucleo.usuarios u ON u.id = t.usuario_id
+		JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id JOIN nucleo.roles r ON r.id = ur.rol_id
+		WHERE t.hash = $1 AND t.revocado_en IS NULL AND u.tipo = 'integracion' AND r.codigo = 'integracion_argos'`, identidad.Hash256(tokenIris)); n != 1 {
+		t.Fatalf("el iris_pat_ del canje no es del usuario de integración de Argos: %d", n)
+	}
 
-	// El enlace es de un solo uso: Argos rechaza el segundo canje.
+	// El enlace es de un solo uso: Argos rechaza el segundo canje, y el iris_pat_ que Iris emitió
+	// para ese canje queda revocado.
 	admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": strings.Replace(e.argos.enlace(), "usado-", "", 1)}).problema(t, 502, "argos_rechazo")
+	var rechazado string
+	e.argos.con(func() { rechazado, _ = e.argos.canjes[len(e.argos.canjes)-1]["token"].(string) })
+	if rechazado == "" || rechazado == tokenIris ||
+		e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE hash = $1 AND revocado_en IS NOT NULL`, identidad.Hash256(rechazado)) != 1 {
+		t.Fatal("el token de un canje rechazado debe quedar revocado")
+	}
+	e.sinSecretos(tokenIris)
 
 	// Token y secreto cifrados: nunca en claro en la base, la auditoría ni el outbox; el
 	// código del enlace tampoco queda en la auditoría.
@@ -291,11 +313,21 @@ func TestConectarConEnlaceDeArgos(t *testing.T) {
 	ruta := fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", id)
 	lectura.pedir(http.MethodPost, ruta, map[string]any{"version": 1}).problema(t, 403, "prohibido")
 	admin.pedir(http.MethodPost, ruta, map[string]any{"version": 9}).problema(t, 409, "conflicto_version")
+	// El periódico de la carga corre al arrancar el worker (con el conector apagado no hace nada):
+	// uno del mismo minuto no puede tapar la carga de la activación (e2e con Argos 1.3.0).
+	cola, err := integracion.NuevoClienteInsercion(e.pool, migraciones.EsquemaRiver, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cola.Insert(context.Background(), argos.ArgsSincronizarCatalogos{}, nil); err != nil {
+		t.Fatal(err)
+	}
 	if a := admin.pedir(http.MethodPost, ruta, map[string]any{"version": 1}); a.status != 200 || a.cuerpo["estado"] != "activo" {
 		t.Fatalf("activar: %d %s", a.status, a.crudo)
 	}
-	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.argos_sincronizar_catalogos'`); n < 1 {
-		t.Fatal("activar debía encolar la carga de zonas y routers")
+	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.argos_sincronizar_catalogos'
+		AND args->>'motivo' = 'activacion' AND created_at > now() - interval '1 minute'`); n != 1 {
+		t.Fatalf("activar debía encolar la carga de zonas y routers aunque el periódico corriera en el mismo minuto: %d", n)
 	}
 	des := fmt.Sprintf("/api/v1/integraciones/conectores/%d/desactivar", id)
 	if d := admin.pedir(http.MethodPost, des, map[string]any{"version": 2, "motivo": "prueba"}); d.status != 200 || d.cuerpo["estado"] != "apagado" {
@@ -595,4 +627,11 @@ func TestSincronizarCatalogos(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_zonas`); n != 1 {
 		t.Fatal("un fallo no debía borrar la instantánea")
 	}
+}
+
+// secretoDelCanje es webhook.secreto del cuerpo que Iris mandó al canjear.
+func secretoDelCanje(canje map[string]any) string {
+	wh, _ := canje["webhook"].(map[string]any)
+	secreto, _ := wh["secreto"].(string)
+	return secreto
 }

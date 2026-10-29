@@ -95,12 +95,56 @@ type Nucleo struct {
 
 	mu       sync.RWMutex
 	sistemas map[string]*Conexion
+	emisor   EmisorToken
 
 	ListarConectores   *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	ActivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
 	CambiarURLPublica  *auditoria.Caso[EntradaURLPublica, Conector]
 	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]
+}
+
+// TokenEmitido es el token iris_pat_ que Iris entrega al otro sistema en el canje (§1.2 de cada
+// contrato): id (para revocarlo si el canje no se completa) y valor.
+type TokenEmitido struct {
+	ID    int64
+	Valor string
+	// Revocar lo anula (canje rechazado o caído). Opcional.
+	Revocar func(ctx context.Context, motivo string) error
+}
+
+// EmisorToken emite ese token para el usuario de integración del sistema. Lo arma cmd/iris con
+// identidad (el núcleo de conectores no depende de identidad).
+type EmisorToken func(ctx context.Context, sistema string) (TokenEmitido, error)
+
+// EmisorDesde arma un EmisorToken con las funciones de identidad (EmitirTokenIntegracion y
+// RevocarTokenIntegracion), sin que el núcleo de conectores dependa de ella.
+func EmisorDesde(emitir func(context.Context, string) (int64, string, error), revocar func(context.Context, int64, string) error) EmisorToken {
+	return func(ctx context.Context, sistema string) (TokenEmitido, error) {
+		id, valor, err := emitir(ctx, sistema)
+		if err != nil {
+			return TokenEmitido{}, err
+		}
+		t := TokenEmitido{ID: id, Valor: valor}
+		if revocar != nil {
+			t.Revocar = func(ctx context.Context, motivo string) error { return revocar(ctx, id, motivo) }
+		}
+		return t, nil
+	}
+}
+
+// FijarEmisorToken conecta el emisor de tokens (cmd/iris, después de armar identidad). Sin él,
+// conectar con un enlace del otro sistema responde 422 emisor_token_no_configurado.
+func (n *Nucleo) FijarEmisorToken(f EmisorToken) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.emisor = f
+}
+
+func (n *Nucleo) emisorToken() EmisorToken {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.emisor
 }
 
 // Nuevo arma el núcleo de conectores.

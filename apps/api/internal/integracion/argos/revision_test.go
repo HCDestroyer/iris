@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -291,6 +292,7 @@ func TestSSRFConectorYLecturas(t *testing.T) {
 	estricto := e.cfg
 	estricto.RedesPermitidas = nil
 	m := argos.Nuevo(estricto)
+	m.Nucleo().FijarEmisorToken(conector.EmisorDesde(e.ident.EmitirTokenIntegracion, e.ident.RevocarTokenIntegracion))
 	ctx := pruebas.ContextoUsuario(e.pool, 0, nucleo.PermIntegracionesConectar)
 	puerto := e.argos.srv.URL[strings.LastIndex(e.argos.srv.URL, ":")+1:]
 	canjesAntes := 0

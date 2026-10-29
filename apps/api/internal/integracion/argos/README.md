@@ -11,14 +11,21 @@ comunes de conectores); aquí queda lo propio de Argos.
 
 - **Enlace de conexión (§1.3), en los dos sentidos.** `POST /integraciones/argosisp/conectar
   { enlace }` canjea un enlace de Argos (Iris llama a `POST /api/v1/integraciones/iris/conexion/canjear`
-  de Argos con su URL, la URL del webhook y el secreto que genera). `POST
+  de Argos con el cuerpo de Horus §1.4: `{ codigo, sistema: "iris", base_url, token, webhook: { url,
+  secreto } }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
+  `identidad.EmitirTokenIntegracion`, revocado si el canje falla); Argos responde `{ token: "atk_…",
+  webhook, conector_id }`). `POST
   /integraciones/argosisp/conexion/enlaces` genera un enlace de Iris (15 min, un solo uso) que Argos
   canjea en `POST /integraciones/argosisp/conexion/canjear` (sin credenciales, autoriza el código).
   El token `atk_…` y el secreto del webhook se guardan cifrados (AES-256-GCM con
   `IRIS_CLAVE_CIFRADO`, atados a la fila) y nunca salen por la API ni en la auditoría (`***`).
 - **Activar / desactivar** (`POST /integraciones/conectores/{id}/activar|desactivar`, con
   `version`): nace apagado; uno activo por sistema. Activar encola la carga de zonas y routers.
-  El canje registra en `nucleo.empresas` las empresas que cubre el token.
+  El canje registra en `nucleo.empresas` las empresas que cubre el token, si las informa (Argos 1.3.0
+  no las manda: se registran con `POST /api/v1/empresas`).
+- **Argos 1.3.0** (prueba e2e, `infra/e2e/argos.sh`): las coordenadas llegan como texto `"lat,lng"`
+  y routers y zonas traen `empresa_sugerida_id` (0 = sin empresa: lo usan todas). La carga de
+  catálogos al activar tiene su propia clave de unicidad (`motivo: activacion`).
 - **Cliente HTTP** (`cliente.go`, sobre `conector.Cliente`): timeout por llamada (`IRIS_ARGOS_TIMEOUT`), 3 intentos con
   espera exponencial en lecturas ante red, 429 y 5xx, sin seguir redirecciones, problem+json
   mapeado (`Problema`): 404 → 404, 401/403 → 502 `argos_sin_permiso`, caída → 503

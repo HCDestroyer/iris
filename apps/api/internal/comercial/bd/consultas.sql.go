@@ -167,7 +167,7 @@ func (q *Queries) AnularContrato(ctx context.Context, arg AnularContratoParams) 
 }
 
 const contarRoutersDeEmpresa = `-- name: ContarRoutersDeEmpresa :one
-SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = $1
+SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = $1 OR empresa_id = 0
 `
 
 func (q *Queries) ContarRoutersDeEmpresa(ctx context.Context, empresaID int64) (int64, error) {
@@ -1732,7 +1732,7 @@ func (q *Queries) ResumenOrden(ctx context.Context, id int64) (ResumenOrdenRow, 
 }
 
 const routerDeEmpresa = `-- name: RouterDeEmpresa :one
-SELECT id, nombre FROM integracion.argos_routers WHERE id = $1 AND empresa_id = $2
+SELECT id, nombre FROM integracion.argos_routers WHERE id = $1 AND (empresa_id = $2 OR empresa_id = 0)
 `
 
 type RouterDeEmpresaParams struct {
@@ -1756,7 +1756,7 @@ func (q *Queries) RouterDeEmpresa(ctx context.Context, arg RouterDeEmpresaParams
 const routersConCoordenadas = `-- name: RoutersConCoordenadas :many
 SELECT id, nombre, zona_id, lat::double precision AS lat, lon::double precision AS lon, sincronizado_en
 FROM integracion.argos_routers
-WHERE empresa_id = $1 AND lat IS NOT NULL AND lon IS NOT NULL
+WHERE (empresa_id = $1 OR empresa_id = 0) AND lat IS NOT NULL AND lon IS NOT NULL
 ORDER BY id
 `
 
@@ -1770,6 +1770,7 @@ type RoutersConCoordenadasRow struct {
 }
 
 // Routers de la instantánea de Argos de la empresa con coordenadas (factibilidad por distancia).
+// empresa_id 0 = sin empresa sugerida en Argos: lo usan todas las empresas (multiempresa de Argos).
 func (q *Queries) RoutersConCoordenadas(ctx context.Context, empresaID int64) ([]RoutersConCoordenadasRow, error) {
 	rows, err := q.db.Query(ctx, routersConCoordenadas, empresaID)
 	if err != nil {

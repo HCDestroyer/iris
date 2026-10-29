@@ -8,7 +8,10 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
 ## Qué hace
 
 - **Enlace de conexión en los dos sentidos** (`conexion.go`) bajo `/api/v1/integraciones/<sistema>/`:
-  `conectar` (enlace del otro sistema: Iris canjea en `Sistema.RutaCanje`), `conexion/enlaces`
+  `conectar` (enlace del otro sistema: Iris canjea en `Sistema.RutaCanje` con el cuerpo de Horus §1.4,
+  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`; el `iris_pat_` lo emite el
+  `EmisorToken` que fija `cmd/iris` con `Nucleo.FijarEmisorToken` y se revoca si el canje no se
+  completa; sin emisor, 422 `emisor_token_no_configurado`), `conexion/enlaces`
   (enlace de Iris, 15 min, un solo uso) y `conexion/canjear` (lo llama el otro sistema; 401
   `codigo_invalido`; `sistema` debe ser el de la ruta). Token y secreto del webhook cifrados con
   `IRIS_CLAVE_CIFRADO`, atados a la fila; nunca salen por la API ni en la auditoría. Nace apagado.

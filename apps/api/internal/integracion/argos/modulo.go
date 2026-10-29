@@ -124,7 +124,7 @@ func Nuevo(cfg Config) *Modulo {
 			if cfg.Encolar == nil {
 				return nil
 			}
-			return cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{})
+			return cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion})
 		},
 		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})

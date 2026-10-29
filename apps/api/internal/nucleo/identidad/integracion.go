@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
@@ -123,4 +124,45 @@ func (m *Modulo) integracionExistente(ctx context.Context, correo, rol string) (
 func esCodigo(err error, codigo string) bool {
 	p, _ := nucleo.AProblema(err)
 	return p.Codigo() == codigo
+}
+
+// EmitirTokenIntegracion prepara el usuario de integración del sistema (el mismo de `iris
+// integracion crear`) con todas las empresas registradas y le emite un token nuevo para el canje
+// de un enlace de conexión (contratos Argos/Horus §1.2). Devuelve el id del token y su valor
+// iris_pat_ (se muestra una sola vez).
+// Corre como el actor sistema (lo dispara un administrador al conectar; su acción queda en
+// integraciones.conectar): el rol del usuario de integración es fijo y no depende de quien conecta.
+// Sin empresas registradas, el usuario queda sin empresas (modo sin conector).
+func (m *Modulo) EmitirTokenIntegracion(ctx context.Context, sistema string) (int64, string, error) {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return 0, "", nucleo.ErrSinBD
+	}
+	var empresas []int64
+	q := identidadbd.New(bd)
+	for despues := int64(0); ; {
+		filas, err := q.ListarEmpresas(ctx, identidadbd.ListarEmpresasParams{DespuesDe: despues, Todas: true, Limite: 500})
+		if err != nil {
+			return 0, "", err
+		}
+		for _, f := range filas {
+			empresas = append(empresas, f.ID)
+		}
+		if len(filas) < 500 {
+			break
+		}
+		despues = filas[len(filas)-1].ID
+	}
+	sctx := contexto.Sistema(ctx, contexto.CanalIntegracion)
+	p, err := m.PrepararIntegracion(sctx, EntradaPrepararIntegracion{Sistema: sistema, Empresas: empresas})
+	if err != nil {
+		return 0, "", err
+	}
+	return p.Token.Token.ID, p.Token.Valor, nil
+}
+
+// RevocarTokenIntegracion revoca un token emitido para un canje que no se completó.
+func (m *Modulo) RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error {
+	_, err := m.RevocarToken.Ejecutar(contexto.Sistema(ctx, contexto.CanalIntegracion), EntradaRevocarToken{ID: id, Motivo: motivo})
+	return err
 }

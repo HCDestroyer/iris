@@ -35,6 +35,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -200,6 +201,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Al conectar con un enlace de Argos u Horus, Iris les entrega un iris_pat_ de su usuario de
+	// integración (contratos §1.2).
+	conectorArgos.Nucleo().FijarEmisorToken(conector.EmisorDesde(id.EmitirTokenIntegracion, id.RevocarTokenIntegracion))
 	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
 	if err != nil {
 		return err

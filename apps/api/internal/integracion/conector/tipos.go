@@ -112,27 +112,42 @@ type EnlacesExternos struct {
 	Horus *EnlaceExterno `json:"horus,omitempty" doc:"Horus Flow; ausente sin conector activo"`
 }
 
-// PeticionCanje es el cuerpo del canje en el otro sistema. Supuesto: mismos campos que el canje
-// Argos ↔ Horus, en snake_case; el receptor de los webhooks (Iris) genera el secreto.
+// PeticionCanje es el cuerpo del canje en el otro sistema (contrato Argos ↔ Horus §1.4, al que
+// remite §1.3 de los contratos de Iris): el origen de la API de Iris, el token iris_pat_ que Iris
+// emite ahora para que el otro sistema la lea (§1.2) y el receptor de webhooks de Iris con el
+// secreto que Iris generó.
 type PeticionCanje struct {
-	Codigo         string `json:"codigo"`
-	Sistema        string `json:"sistema"`
-	URL            string `json:"url"`
-	WebhookURL     string `json:"webhook_url"`
-	WebhookSecreto string `json:"webhook_secreto"`
+	Codigo  string       `json:"codigo"`
+	Sistema string       `json:"sistema"`
+	BaseURL string       `json:"base_url"`
+	Token   string       `json:"token"`
+	Webhook WebhookCanje `json:"webhook"`
 }
 
-// RespuestaCanje es lo que devuelve el otro sistema al canjear: su token para Iris y
-// opcionalmente el id de la conexión y las empresas que cubre el token.
+// WebhookCanje es un receptor de webhooks y su secreto HMAC, en el canje.
+type WebhookCanje struct {
+	URL     string `json:"url"`
+	Secreto string `json:"secreto"`
+}
+
+// RespuestaCanje es lo que devuelve el otro sistema al canjear (§1.4): su token para Iris, su
+// receptor de webhooks (Iris aún no envía eventos: no se guarda) y el id del conector allá.
+// conexion_id y empresas son opcionales (versiones anteriores del supuesto).
 type RespuestaCanje struct {
 	Token      string            `json:"token"`
+	Webhook    *WebhookCanje     `json:"webhook"`
+	ConectorID json.RawMessage   `json:"conector_id"`
 	ConexionID json.RawMessage   `json:"conexion_id"`
 	Empresas   []json.RawMessage `json:"empresas"`
 }
 
 // IDConexion devuelve el id de la conexión como texto (número o texto).
 func (r RespuestaCanje) IDConexion() *string {
-	crudo := strings.Trim(strings.TrimSpace(string(r.ConexionID)), `"`)
+	id := r.ConectorID
+	if len(strings.TrimSpace(string(id))) == 0 || string(id) == "null" {
+		id = r.ConexionID
+	}
+	crudo := strings.Trim(strings.TrimSpace(string(id)), `"`)
 	if crudo == "" || crudo == "null" {
 		return nil
 	}

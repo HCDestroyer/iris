@@ -3,6 +3,7 @@ package conector
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -143,9 +144,11 @@ func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int
 type entradaGuardarConector struct {
 	Base       string `json:"base_url"`
 	ConectorID int64  `json:"conector_id"`
-	secreto    string
-	respuesta  RespuestaCanje
-	errRemoto  error
+	// tokenEntregado: id del iris_pat_ entregado al otro sistema (queda en la auditoría).
+	tokenEntregado int64
+	secreto        string
+	respuesta      RespuestaCanje
+	errRemoto      error
 }
 
 // Conectar canjea un enlace generado en el otro sistema (sentido enlace_remoto). La llamada va
@@ -178,7 +181,7 @@ func nuevoConectar(c *Conexion) *Conectar {
 		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarConector) (Conector, error) {
 			t.FijarEntidad("conector", in.ConectorID)
-			t.Anotar(map[string]any{"sistema": c.s.Nombre})
+			t.Anotar(map[string]any{"sistema": c.s.Nombre, "token_entregado_id": in.tokenEntregado})
 			if in.errRemoto != nil {
 				return Conector{}, Problema(in.errRemoto)
 			}
@@ -209,13 +212,31 @@ func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (Conector, 
 	if err != nil {
 		return Conector{}, err
 	}
-	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto}
+	emisor := k.c.n.emisorToken()
+	if emisor == nil {
+		return Conector{}, nucleo.ReglaNegocio("emisor_token_no_configurado",
+			"Iris no puede emitir el token para "+k.c.s.Remoto.Nombre+" (falta configurar identidad en el servidor)")
+	}
+	// El token iris_pat_ con el que el otro sistema leerá de Iris (§1.2): se emite antes del canje
+	// porque va en la petición, y se revoca si el canje no se completa.
+	tok, err := emisor(ctx, k.c.s.Nombre)
+	if err != nil {
+		return Conector{}, err
+	}
+	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto, tokenEntregado: tok.ID}
 	cli := k.c.clienteHacia(base, "")
 	// Sin reintentos (el código es de un solo uso) y sin token.
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, k.c.s.RutaCanje, nil, PeticionCanje{
-		Codigo: codigo, Sistema: "iris", URL: k.c.n.cfg.BaseURL, WebhookURL: k.c.n.URLWebhook(k.c.s.Nombre, id), WebhookSecreto: secreto,
+		Codigo: codigo, Sistema: "iris", BaseURL: k.c.n.cfg.BaseURL, Token: tok.Valor,
+		Webhook: WebhookCanje{URL: k.c.n.URLWebhook(k.c.s.Nombre, id), Secreto: secreto},
 	}, false, &Recurso{Destino: &g.respuesta})
-	return k.guardar.Ejecutar(ctx, g)
+	con, err := k.guardar.Ejecutar(ctx, g)
+	if err != nil && tok.Revocar != nil {
+		if errRev := tok.Revocar(context.WithoutCancel(ctx), "canje_no_completado"); errRev != nil {
+			slog.ErrorContext(ctx, "conector: revocar el token de un canje fallido", "sistema", k.c.s.Nombre, "token_id", tok.ID, "err", errRev)
+		}
+	}
+	return con, err
 }
 
 // Generar un enlace para el otro sistema ----------------------------------------------------
