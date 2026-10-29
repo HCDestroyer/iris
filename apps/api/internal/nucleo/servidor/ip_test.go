@@ -107,13 +107,16 @@ func TestIPClienteEnHandlersYLog(t *testing.T) {
 			})
 	}
 	for _, c := range []struct {
-		nombre, confiable, xff, esperada string
+		nombre, remoto, confiable, xff, esperada string
 	}{
-		{"proxy confiable", "127.0.0.0/8", "1.2.3.4, 203.0.113.7", "203.0.113.7"},
-		{"proxy confiable, varios saltos", "127.0.0.0/8, 10.0.0.0/8", "1.2.3.4, 203.0.113.7, 10.0.0.9", "203.0.113.7"},
-		{"proxy confiable, malformado", "127.0.0.0/8", "203.0.113.7, no-es-ip", "127.0.0.1"},
-		{"sin configurar: XFF falso ignorado", "", "203.0.113.7", "127.0.0.1"},
-		{"otra red: XFF falso ignorado", "10.0.0.0/8", "203.0.113.7", "127.0.0.1"},
+		// Compose: solo web (/32). Lo de un puerto publicado llega desde el gateway (NAT).
+		{"gateway con XFF falso, web /32", "172.28.10.1:51234", "172.28.10.10/32", "203.0.113.7", "172.28.10.1"},
+		{"desde web /32", "172.28.10.10:40000", "172.28.10.10/32", "1.2.3.4, 203.0.113.7", "203.0.113.7"},
+		{"proxy confiable", "127.0.0.1:40000", "127.0.0.0/8", "1.2.3.4, 203.0.113.7", "203.0.113.7"},
+		{"proxy confiable, varios saltos", "127.0.0.1:40000", "127.0.0.0/8, 10.0.0.0/8", "1.2.3.4, 203.0.113.7, 10.0.0.9", "203.0.113.7"},
+		{"proxy confiable, malformado", "127.0.0.1:40000", "127.0.0.0/8", "203.0.113.7, no-es-ip", "127.0.0.1"},
+		{"sin configurar: XFF falso ignorado", "127.0.0.1:40000", "", "203.0.113.7", "127.0.0.1"},
+		{"otra red: XFF falso ignorado", "127.0.0.1:40000", "10.0.0.0/8", "203.0.113.7", "127.0.0.1"},
 	} {
 		log := &registroIP{}
 		h, _ := servidor.Nuevo(servidor.Deps{
@@ -121,7 +124,7 @@ func TestIPClienteEnHandlersYLog(t *testing.T) {
 			ProxiesConfiables: redes(t, c.confiable), Modulos: []func(huma.API){sonda},
 		})
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/salud/sonda-ip", nil)
-		req.RemoteAddr = "127.0.0.1:40000"
+		req.RemoteAddr = c.remoto
 		req.Header.Set("X-Forwarded-For", c.xff)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

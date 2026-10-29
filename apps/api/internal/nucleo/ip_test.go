@@ -56,6 +56,25 @@ func TestIPCliente(t *testing.T) {
 			t.Errorf("%s: %s, esperaba %s", c.nombre, got, c.esperada)
 		}
 	}
+	// Compose: solo web (IP fija, /32) es confiable. Lo que entra por un puerto publicado llega
+	// con la IP del gateway de la red (NAT de Docker): su X-Forwarded-For no se cree.
+	web := redes(t, "172.28.10.10/32")
+	for _, c := range []struct {
+		nombre, remoto string
+		xff            []string
+		esperada       string
+	}{
+		{"desde el gateway con XFF falso: la del gateway", "172.28.10.1:51234", []string{"203.0.113.7"}, "172.28.10.1"},
+		{"desde el gateway fingiendo ser web: la del gateway", "172.28.10.1:51234", []string{"172.28.10.10"}, "172.28.10.1"},
+		{"otro contenedor de la red: el suyo", "172.28.10.20:40000", []string{"203.0.113.7"}, "172.28.10.20"},
+		{"desde web: la del cliente", "172.28.10.10:40000", []string{"203.0.113.7"}, "203.0.113.7"},
+		{"desde web, cliente que falsifica a la izquierda", "172.28.10.10:40000", []string{"1.2.3.4, 203.0.113.7"}, "203.0.113.7"},
+		{"desde web, proxy del host delante (gateway): el gateway", "172.28.10.10:40000", []string{"203.0.113.7, 172.28.10.1"}, "172.28.10.1"},
+	} {
+		if got := nucleo.IPCliente(c.remoto, c.xff, web); got != c.esperada {
+			t.Errorf("/32 %s: %s, esperaba %s", c.nombre, got, c.esperada)
+		}
+	}
 	if _, err := config.ParsearRedes("10.0.0.0/33"); err == nil {
 		t.Error("CIDR inválido aceptado")
 	}

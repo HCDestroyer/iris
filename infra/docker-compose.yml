@@ -38,10 +38,11 @@ x-api-env: &api-env
   # Correo, Argos y Horus pueden llamar a la red del compose (protección SSRF). Si el .env trae su
   # propia lista (p. ej. la red de Argos en lab), esa manda.
   IRIS_CORREO_REDES_PERMITIDAS: ${IRIS_CORREO_REDES_PERMITIDAS:-${IRIS_RED_COMPOSE:-172.28.10.0/24}}
-  # El panel (web) hace de proxy de /api desde la red del compose: la API cree su X-Forwarded-For
-  # solo si la conexión viene de esa red (si no, guardaría la IP del contenedor web en sesiones,
-  # encuestas y logs). Si el .env trae su propia lista, esa manda.
-  IRIS_PROXIES_CONFIABLES: ${IRIS_PROXIES_CONFIABLES:-${IRIS_RED_COMPOSE:-172.28.10.0/24}}
+  # El panel (web) hace de proxy de /api: la API cree su X-Forwarded-For solo si la conexión viene
+  # de la IP fija de web (/32). Nunca la red entera: con un puerto publicado, Docker hace NAT y
+  # lo que llega de fuera entra con la IP del gateway de esta red, que podría fijar su propio
+  # X-Forwarded-For. Si el .env trae su propia lista, esa manda.
+  IRIS_PROXIES_CONFIABLES: ${IRIS_PROXIES_CONFIABLES:-${IRIS_WEB_IP:-172.28.10.10}/32}
 
 x-api-volumes: &api-volumes
   - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro
@@ -247,8 +248,14 @@ services:
         condition: service_healthy
     ports:
       - 127.0.0.1:${IRIS_WEB_PUERTO:-3000}:3000
+    # IP fija: la única en que la API confía para X-Forwarded-For (IRIS_PROXIES_CONFIABLES). Debe
+    # estar dentro de IRIS_RED_COMPOSE y fuera de su gateway (.1).
+    networks:
+      default:
+        ipv4_address: ${IRIS_WEB_IP:-172.28.10.10}
 
-# Red con subred fija: IRIS_CORREO_REDES_PERMITIDAS la usa por defecto (Mailpit vive aquí).
+# Red con subred fija: IRIS_CORREO_REDES_PERMITIDAS la usa por defecto (Mailpit vive aquí) y web
+# tiene una IP fija dentro de ella (IRIS_WEB_IP).
 networks:
   default:
     ipam:

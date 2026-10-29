@@ -67,8 +67,8 @@ services:
       IRIS_ADJUNTOS_DIR: /tmp/adjuntos
       # La siembra y k6 hablan por HTTP plano: la cookie de sesión no puede ser Secure.
       IRIS_COOKIE_SEGURA: 'false'
-      # Red propia de carga (la base trae la de dev): X-Forwarded-For solo desde ella.
-      IRIS_PROXIES_CONFIABLES: ${IRIS_CARGA_RED:-172.28.20.0/24}
+      # Sin web: k6 le habla directo a la API, que no cree ningún X-Forwarded-For.
+      IRIS_PROXIES_CONFIABLES: ''
       IRIS_LOG_NIVEL: warn
     ports: !override
       - 127.0.0.1:${IRIS_CARGA_API_PUERTO:-3505}:8080
@@ -93,6 +93,13 @@ services:
       IRIS_ADJUNTOS_ALMACEN: local
       IRIS_ADJUNTOS_DIR: /tmp/adjuntos
       IRIS_LOG_NIVEL: warn
+
+  # web no se levanta aquí, pero la base le fija una IP de la red de dev: se mueve a la de carga
+  # para que un `up` sin servicios no falle por una IP fuera de la subred.
+  web:
+    networks: !override
+      default:
+        ipv4_address: ${IRIS_CARGA_WEB_IP:-172.28.20.10}
 
 # Subred propia: la de dev (IRIS_RED_COMPOSE, 172.28.10.0/24) choca («Pool overlaps») si los dos
 # composes están arriba a la vez.
