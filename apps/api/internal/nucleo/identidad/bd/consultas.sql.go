@@ -561,18 +561,6 @@ func (q *Queries) EditarEmpresa(ctx context.Context, arg EditarEmpresaParams) (N
 	return i, err
 }
 
-const empresaDeClienteArgos = `-- name: EmpresaDeClienteArgos :one
-SELECT empresa_id FROM integracion.argos_clientes WHERE id = $1
-`
-
-// Empresa del cliente según la instantánea de Argos (sin fila si Iris nunca lo leyó).
-func (q *Queries) EmpresaDeClienteArgos(ctx context.Context, id int64) (int64, error) {
-	row := q.db.QueryRow(ctx, empresaDeClienteArgos, id)
-	var empresa_id int64
-	err := row.Scan(&empresa_id)
-	return empresa_id, err
-}
-
 const empresaPorID = `-- name: EmpresaPorID :one
 SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = $1
 `
@@ -647,6 +635,27 @@ func (q *Queries) EmpresasAccesibles(ctx context.Context, arg EmpresasAccesibles
 		return nil, err
 	}
 	return items, nil
+}
+
+const empresasDeClienteArgos = `-- name: EmpresasDeClienteArgos :one
+SELECT CASE WHEN cardinality(c.empresas) = 0 AND c.empresa_id <> 0 THEN ARRAY[c.empresa_id] ELSE c.empresas END::bigint[] AS empresas,
+       EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = c.id)::boolean AS con_servicios
+FROM integracion.argos_clientes c WHERE c.id = $1
+`
+
+type EmpresasDeClienteArgosRow struct {
+	Empresas     []int64
+	ConServicios bool
+}
+
+// Empresas del cliente según la instantánea de Argos (las de sus servicios; vacío = sin servicios).
+// Sin fila si Iris nunca lo leyó.
+// Una fila sin empresas pero con empresa_id (anterior a la migración) cuenta como [empresa_id].
+func (q *Queries) EmpresasDeClienteArgos(ctx context.Context, id int64) (EmpresasDeClienteArgosRow, error) {
+	row := q.db.QueryRow(ctx, empresasDeClienteArgos, id)
+	var i EmpresasDeClienteArgosRow
+	err := row.Scan(&i.Empresas, &i.ConServicios)
+	return i, err
 }
 
 const empresasDeUsuarios = `-- name: EmpresasDeUsuarios :many

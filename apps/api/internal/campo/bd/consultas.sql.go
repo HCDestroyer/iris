@@ -351,7 +351,7 @@ func (q *Queries) CitasDeOrdenes(ctx context.Context, ordenes []int64) ([]Agenda
 
 const clienteArgos = `-- name: ClienteArgos :one
 
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas FROM integracion.argos_clientes WHERE id = $1
 `
 
 // Instantáneas de Argos (solo lectura) --------------------------------------------
@@ -372,12 +372,13 @@ func (q *Queries) ClienteArgos(ctx context.Context, id int64) (IntegracionArgosC
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Empresas,
 	)
 	return i, err
 }
 
 const clientesArgos = `-- name: ClientesArgos :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]IntegracionArgosCliente, error) {
@@ -403,6 +404,7 @@ func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]Integracion
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Empresas,
 		); err != nil {
 			return nil, err
 		}

@@ -502,8 +502,8 @@ func TestSesionDelPanelNoDeclaraCanalPortal(t *testing.T) {
 func TestPortalValidaClienteEnArgos(t *testing.T) {
 	llamadas := 0
 	argosDice := map[int64]identidad.ValidacionCliente{
-		90: {Validado: true, Existe: true, EmpresaID: 1},
-		91: {Validado: true, Existe: true, EmpresaID: 2},
+		90: {Validado: true, Existe: true, Empresas: []int64{1}, ConServicios: true},
+		91: {Validado: true, Existe: true, Empresas: []int64{2}, ConServicios: true},
 		92: {Validado: true},
 		93: {Motivo: "conector_argos_apagado"},
 	}

@@ -356,7 +356,7 @@ func TestValidarClienteParaElPortal(t *testing.T) {
 	}
 	_, _, _ = e.conectado()
 	e.sembrarClienteEn(71, 2, "Fabiola")
-	if v, err := e.mod.ValidarCliente(ctx, 71); err != nil || !v.Validado || !v.Existe || v.EmpresaID != 2 {
+	if v, err := e.mod.ValidarCliente(ctx, 71); err != nil || !v.Validado || !v.Existe || len(v.Empresas) != 1 || v.Empresas[0] != 2 {
 		t.Fatalf("existe: %+v %v", v, err)
 	}
 	if v, err := e.mod.ValidarCliente(ctx, 999); err != nil || !v.Validado || v.Existe {

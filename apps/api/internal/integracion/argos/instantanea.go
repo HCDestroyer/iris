@@ -36,8 +36,15 @@ func leerFichaArgos(ctx context.Context, c *Cliente, clienteID int64) (fichaArgo
 func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 	c := f.cliente
 	lat, lon := c.LatLon()
+	// El cliente de Argos no tiene empresa: las suyas son las de sus servicios. empresa_id queda
+	// como la primera (0 sin servicios), por compatibilidad.
+	empresas := EmpresasDelCliente(c, f.servicios)
+	primera := int64(0)
+	if len(empresas) > 0 {
+		primera = empresas[0]
+	}
 	if err := q.GuardarCliente(ctx, argosbd.GuardarClienteParams{
-		ID: c.ID, EmpresaID: c.EmpresaID, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
+		ID: c.ID, EmpresaID: primera, Empresas: empresas, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado, SincronizadoEn: f.leidoEn,
 	}); err != nil {
 		return err
@@ -51,7 +58,7 @@ func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 			continue
 		}
 		if s.EmpresaID == 0 {
-			s.EmpresaID = c.EmpresaID
+			s.EmpresaID = primera
 		}
 		slat, slon := s.LatLon()
 		if err := q.GuardarServicio(ctx, argosbd.GuardarServicioParams{
@@ -71,8 +78,12 @@ func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 }
 
 func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
+	empresas := empresasDeFila(f)
+	if empresas == nil {
+		empresas = []int64{}
+	}
 	return ClienteResumen{
-		ID: f.ID, EmpresaID: f.EmpresaID, Codigo: f.Codigo, Nombre: f.Nombre, Telefono: f.Telefono,
+		ID: f.ID, EmpresaID: f.EmpresaID, Empresas: empresas, Codigo: f.Codigo, Nombre: f.Nombre, Telefono: f.Telefono,
 		Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, ZonaID: f.ZonaID, Estado: f.Estado,
 	}
 }
@@ -80,7 +91,7 @@ func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
 func clienteArgosAResumen(c ClienteArgos) ClienteResumen {
 	lat, lon := c.LatLon()
 	return ClienteResumen{
-		ID: c.ID, EmpresaID: c.EmpresaID, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
+		ID: c.ID, EmpresaID: c.EmpresaID, Empresas: EmpresasDelCliente(c, nil), Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado,
 	}
 }

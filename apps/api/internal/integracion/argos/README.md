@@ -65,3 +65,13 @@ comunes de conectores); aquí queda lo propio de Argos.
 
 `integracion.argos_procesar_entrante` (uno por entrante, hasta 12 intentos) e
 `integracion.argos_sincronizar_catalogos` (cada 6 h y al activar).
+
+## Empresa del cliente
+
+En Argos el cliente no tiene empresa: la tienen sus servicios (`multiempresa.md` de Argos). La
+instantánea guarda `empresas` (las de sus servicios; migración `…_integracion_argos_clientes_empresas`)
+y `empresa_id` queda como la primera. Un cliente se ve en una empresa si alguno de sus servicios es
+de ella, o si no tiene servicios (lo ven todas, como en Argos). La búsqueda pide `empresas=<activa>`
+a Argos y, para los clientes que Iris no conoce, verifica sus servicios (`GET /servicios?cliente_id=`,
+hasta 5 a la vez, falla cerrado). La ficha, el portal y el refresco por webhook usan la misma regla.
+

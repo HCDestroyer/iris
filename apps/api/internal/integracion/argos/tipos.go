@@ -3,6 +3,7 @@ package argos
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -70,15 +71,18 @@ func primero(a, b *Numero) *Numero {
 // ClienteArgos es un cliente de Argos (GET /clientes, /clientes/:id).
 type ClienteArgos struct {
 	conCoordenadas
-	ID        int64  `json:"id"`
-	EmpresaID int64  `json:"empresa_id"`
-	Codigo    string `json:"codigo"`
-	Nombre    string `json:"nombre"`
-	Telefono  string `json:"telefono"`
-	Direccion string `json:"direccion"`
-	ZonaID    *int64 `json:"zona_id"`
-	Zona      *Ref   `json:"zona"`
-	Estado    string `json:"estado"`
+	ID        int64 `json:"id"`
+	EmpresaID int64 `json:"empresa_id"`
+	// Empresas: Argos no le da empresa al cliente (la tienen sus servicios); si algún día manda
+	// empresas[] (como en el webhook cliente.actualizado), se suman a las de sus servicios.
+	Empresas  []int64 `json:"empresas"`
+	Codigo    string  `json:"codigo"`
+	Nombre    string  `json:"nombre"`
+	Telefono  string  `json:"telefono"`
+	Direccion string  `json:"direccion"`
+	ZonaID    *int64  `json:"zona_id"`
+	Zona      *Ref    `json:"zona"`
+	Estado    string  `json:"estado"`
 }
 
 // IDZona devuelve zona_id o zona.id.
@@ -240,4 +244,28 @@ func (d *Decimal) Texto() *string {
 	}
 	s := string(*d)
 	return &s
+}
+
+// EmpresasDelCliente: las empresas de un cliente de Argos = las de sus servicios (y empresa_id o
+// empresas[] del cliente si vinieran), sin repetir y ordenadas. Vacío = sin servicios.
+func EmpresasDelCliente(c ClienteArgos, servicios []ServicioArgos) []int64 {
+	vistas := map[int64]bool{}
+	salida := []int64{}
+	agregar := func(e int64) {
+		if e > 0 && !vistas[e] {
+			vistas[e] = true
+			salida = append(salida, e)
+		}
+	}
+	agregar(c.EmpresaID)
+	for _, e := range c.Empresas {
+		agregar(e)
+	}
+	for _, s := range servicios {
+		if s.ClienteID == 0 || s.ClienteID == c.ID {
+			agregar(s.EmpresaID)
+		}
+	}
+	slices.Sort(salida)
+	return salida
 }

@@ -2,12 +2,12 @@
 
 -- name: GuardarCliente :exec
 INSERT INTO integracion.argos_clientes (
-    id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
+    id, empresa_id, empresas, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
 ) VALUES (
-    @id, @empresa_id, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en
+    @id, @empresa_id, @empresas::bigint[], @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en
 )
 ON CONFLICT (id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, codigo = excluded.codigo, nombre = excluded.nombre,
+    empresa_id = excluded.empresa_id, empresas = excluded.empresas, codigo = excluded.codigo, nombre = excluded.nombre,
     telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     updated_at = now()
@@ -23,7 +23,11 @@ DELETE FROM integracion.argos_clientes WHERE id = @id;
 -- Respaldo de la búsqueda cuando Argos no responde: solo lo que ya está en la instantánea.
 SELECT * FROM integracion.argos_clientes
 WHERE (nombre ILIKE '%' || @q::text || '%' OR codigo ILIKE '%' || @q::text || '%' OR telefono ILIKE '%' || @q::text || '%')
-  AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+  -- Visible en la empresa si es una de las de sus servicios o si no tiene servicios (como Argos).
+  AND (@empresa_id::bigint = 0 OR @empresa_id::bigint = ANY(empresas)
+       OR (cardinality(empresas) = 0 AND empresa_id = @empresa_id::bigint)
+       OR (cardinality(empresas) = 0 AND empresa_id = 0 AND NOT EXISTS (
+           SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = integracion.argos_clientes.id)))
 ORDER BY nombre, id
 LIMIT @limite;
 

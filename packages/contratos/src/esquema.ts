@@ -3783,9 +3783,11 @@ export interface components {
             direccion: string;
             /**
              * Format: int64
-             * @description Empresa en Argos
+             * @description Primera de empresas (0 sin servicios). En Argos el cliente no tiene empresa: la tienen sus servicios; usa empresas
              */
             empresaId: number;
+            /** @description Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos) */
+            empresas?: number[] | null;
             /** @description Estado del cliente en Argos */
             estado: string;
             /**

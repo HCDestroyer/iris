@@ -699,6 +699,7 @@ type IntegracionArgosCliente struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Empresas       []int64
 }
 
 type IntegracionArgosRouter struct {

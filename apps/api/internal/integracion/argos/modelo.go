@@ -12,7 +12,8 @@ import (
 // ClienteResumen es un cliente de Argos tal como lo muestra Iris.
 type ClienteResumen struct {
 	ID        int64    `json:"id" doc:"Id del cliente en Argos"`
-	EmpresaID int64    `json:"empresaId" doc:"Empresa en Argos"`
+	EmpresaID int64    `json:"empresaId" doc:"Primera de empresas (0 sin servicios). En Argos el cliente no tiene empresa: la tienen sus servicios; usa empresas"`
+	Empresas  []int64  `json:"empresas" required:"false" doc:"Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos)"`
 	Codigo    string   `json:"codigo"`
 	Nombre    string   `json:"nombre"`
 	Telefono  string   `json:"telefono"`

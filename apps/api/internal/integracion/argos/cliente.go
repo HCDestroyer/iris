@@ -46,15 +46,17 @@ type Pagina[T any] = conector.Pagina[T]
 
 // Lecturas de §2.1 ------------------------------------------------------------------------
 
-// BuscarClientes: GET /clientes?q=&limit=&cursor=[&empresa_id=]. empresa_id (≠ 0) acota la
-// búsqueda en Argos (supuesto: Argos filtra por empresa_id; si lo ignora, Iris descarta igual
-// lo que no es de la empresa activa).
+// BuscarClientes: GET /clientes?q=&limit=&cursor=[&empresas=]. La empresa (≠ 0) acota la
+// búsqueda en Argos; Iris además descarta lo que sabe que es de otra empresa.
 func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64) (Pagina[ClienteArgos], error) {
 	v := url.Values{"q": {q}, "limit": {strconv.Itoa(limite)}}
 	if cursor != "" {
 		v.Set("cursor", cursor)
 	}
 	if empresaID != 0 {
+		// Argos 1.3.0 filtra con empresas= (clientes con algún servicio en la empresa o sin
+		// servicios); empresa_id queda por compatibilidad con versiones anteriores del supuesto.
+		v.Set("empresas", strconv.FormatInt(empresaID, 10))
 		v.Set("empresa_id", strconv.FormatInt(empresaID, 10))
 	}
 	return conector.ListaDe[ClienteArgos](ctx, c.Cliente, "/clientes", v)
