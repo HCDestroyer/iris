@@ -66,6 +66,11 @@ describe("menú por permisos", () => {
         expect(menuVisible(["tickets.ver", "agenda.ver", "ordenes.ver"]).map((e) => e.href)).not.toContain("/reportes");
     });
 
+    it("encuestas.ver muestra Encuestas; reportes.ver solo, no", () => {
+        expect(menuVisible(["encuestas.ver"]).map((e) => e.href)).toContain("/encuestas");
+        expect(menuVisible(["reportes.ver", "tickets.ver"]).map((e) => e.href)).not.toContain("/encuestas");
+    });
+
     it("marca la entrada activa por prefijo", () => {
         expect(entradaActiva("/")?.href).toBe("/");
         expect(entradaActiva("/usuarios/7")?.href).toBe("/usuarios");

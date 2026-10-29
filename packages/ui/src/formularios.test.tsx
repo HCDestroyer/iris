@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CampoArea } from "./componentes/area-texto";
 import { Casilla } from "./componentes/casilla";
+import { GrupoOpciones } from "./componentes/grupo-opciones";
 import { CampoSelector } from "./componentes/selector";
 
 describe("campos de formulario", () => {
@@ -31,5 +32,27 @@ describe("campos de formulario", () => {
         expect(html).toMatch(/<label[^>]*for="s"[^>]*><input type="checkbox"/);
         expect(html).toMatch(/<input[^>]*aria-describedby="s-ayuda"/);
         expect(html).toContain("Usa SMTP");
+    });
+
+    it("GrupoOpciones: radios nativos en un fieldset, con texto en cada opción y error enlazado", () => {
+        const html = renderToStaticMarkup(
+            <GrupoOpciones
+                leyenda="¿Cómo te atendimos?"
+                nombre="calificacion"
+                opciones={[
+                    { valor: 1, etiqueta: "Muy mal" },
+                    { valor: 5, etiqueta: "Muy bien" },
+                ]}
+                valor={5}
+                alCambiar={() => undefined}
+                error="Elige una calificación"
+            />,
+        );
+        expect(html).toMatch(/<fieldset[^>]*aria-invalid="true"/);
+        expect(html).toContain("<legend");
+        expect(html.match(/type="radio"/g)).toHaveLength(2);
+        expect(html).toMatch(/<input type="radio"[^>]*name="calificacion" checked="" value="5"/);
+        expect(html).toContain("Muy mal");
+        expect(html).toContain("Elige una calificación");
     });
 });

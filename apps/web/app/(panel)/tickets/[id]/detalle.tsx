@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FichaCliente } from "@/componentes/clientes/ficha-cliente";
 import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
+import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { DialogoCrearOrden } from "@/componentes/ordenes/crear-orden";
 import { OrdenesDelTicket } from "@/componentes/ordenes/ordenes-ticket";
@@ -233,6 +234,7 @@ function Detalle({ id }: { id: number }) {
                         </Aviso>
                     )}
                     <FichaCliente ticket={t} enlaces={enlaces} />
+                    {puede(["encuestas.ver"]) ? <TarjetaEncuesta key={t.estado} filtro={{ ticketId: t.id }} /> : null}
                 </aside>
             </div>
         </>

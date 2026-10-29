@@ -12,6 +12,8 @@ export type FilaResolucion = Schema<"FilaResolucion">;
 export type FilaTecnico = Schema<"FilaTecnico">;
 export type FilaPrimeraVisita = Schema<"FilaPrimeraVisita">;
 export type Reincidencia = Schema<"Reincidencia">;
+export type ReporteSatisfaccion = Schema<"ReporteSatisfaccion">;
+export type FilaSatisfaccion = Schema<"FilaSatisfaccion">;
 
 /** Página de reincidencias (la lista va por cursor; los totales vienen en cada página). */
 export const LIMITE_REINCIDENCIAS = 50;
@@ -37,6 +39,9 @@ export const leerTecnicos = (query: QueryReporte, signal?: AbortSignal): Promise
 
 export const leerPrimeraVisita = (query: QueryReporte, signal?: AbortSignal): Promise<ReportePrimeraVisita> =>
     jsonDe(api().GET("/api/v1/reportes/primera-visita", { params: { query }, signal }));
+
+export const leerSatisfaccion = (query: QueryReporte, signal?: AbortSignal): Promise<ReporteSatisfaccion> =>
+    jsonDe(api().GET("/api/v1/reportes/satisfaccion", { params: { query }, signal }));
 
 export const leerReincidencias = (query: QueryReporte, cursor: string | undefined, signal?: AbortSignal): Promise<ReporteReincidencias> =>
     jsonDe(
@@ -66,6 +71,9 @@ export async function descargarCsv(reporte: Reporte, query: QueryReporte): Promi
             break;
         case "reincidencias":
             datos = await resolver(c.GET("/api/v1/reportes/reincidencias", opciones));
+            break;
+        case "satisfaccion":
+            datos = await resolver(c.GET("/api/v1/reportes/satisfaccion", opciones));
             break;
     }
     if (!(datos instanceof Blob)) throw new Error("La respuesta no trajo el archivo");

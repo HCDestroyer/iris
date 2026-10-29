@@ -22,6 +22,7 @@ export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazos
 export { Esqueleto } from "./componentes/esqueleto";
 export { EstadoVacio, type PropsEstadoVacio } from "./componentes/estado-vacio";
 export { Etiqueta } from "./componentes/etiqueta";
+export { GrupoOpciones, type OpcionGrupo, type PropsGrupoOpciones } from "./componentes/grupo-opciones";
 export { GrupoSegmentado, type OpcionSegmentada, type PropsGrupoSegmentado } from "./componentes/grupo-segmentado";
 export { Hoja, HojaCerrar, HojaContenido, HojaDisparador, type PropsHojaContenido } from "./componentes/hoja";
 export { InsigniaEstado, type PropsInsigniaEstado } from "./componentes/insignia-estado";

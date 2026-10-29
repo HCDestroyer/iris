@@ -1,4 +1,5 @@
 import { cn } from "@iris/ui";
+import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 /*
@@ -32,6 +33,8 @@ export type FilaGrafico = {
     valores: { valor: number | null; texto: string }[];
     /** Texto del tooltip (al pasar el puntero) con el desglose. */
     detalle?: string;
+    /** Fila que pide atención (p. ej. calificaciones de alerta): icono + texto, nunca solo color. */
+    alerta?: string;
 };
 
 /**
@@ -77,7 +80,15 @@ export function Barras({
                         title={f.detalle}
                         className="grid grid-cols-[minmax(5.5rem,9rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-sm hover:bg-muted/50"
                     >
-                        <span className="truncate text-xs text-foreground">{f.etiqueta}</span>
+                        {f.alerta ? (
+                            <span className="flex min-w-0 items-center gap-1 text-xs text-foreground" data-alerta>
+                                <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-warning" />
+                                <span className="truncate">{f.etiqueta}</span>
+                                <span className="sr-only">({f.alerta})</span>
+                            </span>
+                        ) : (
+                            <span className="truncate text-xs text-foreground">{f.etiqueta}</span>
+                        )}
                         <span className="grid gap-1 border-l border-border py-0.5">
                             {f.valores.map((v, i) => {
                                 const serie = series[i];
