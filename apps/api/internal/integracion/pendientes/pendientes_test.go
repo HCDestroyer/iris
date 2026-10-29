@@ -40,6 +40,7 @@ type llamada struct {
 	Clave  string
 	Token  string
 	Cuerpo map[string]any
+	Crudo  []byte
 }
 
 // argosFalso responde el canje y registra las escrituras de §3. respuestas fija el status por
@@ -50,10 +51,12 @@ type argosFalso struct {
 	llamadas   []llamada
 	respuestas map[string][]int // ruta → statuses en orden (el último se repite)
 	detalle    string
+	cuerpos    map[string]string // ruta → cuerpo del 2xx (por defecto {"ok":true})
+	tipos      map[string]string // ruta → type del problem+json (por defecto urn:argos:sin_existencias)
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
-	a := &argosFalso{respuestas: map[string][]int{}}
+	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -62,10 +65,11 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		crudo, _ := io.ReadAll(r.Body)
 		var c map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&c)
+		_ = json.Unmarshal(crudo, &c)
 		ruta := strings.TrimPrefix(r.URL.Path, "/api/v1")
-		a.llamadas = append(a.llamadas, llamada{Ruta: ruta, Clave: r.Header.Get("Idempotency-Key"), Token: r.Header.Get("Authorization"), Cuerpo: c})
+		a.llamadas = append(a.llamadas, llamada{Ruta: ruta, Clave: r.Header.Get("Idempotency-Key"), Token: r.Header.Get("Authorization"), Cuerpo: c, Crudo: crudo})
 		status := 201
 		if lista := a.respuestas[ruta]; len(lista) > 0 {
 			status = lista[0]
@@ -76,11 +80,20 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		if status >= 400 {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(status)
-			_ = json.NewEncoder(w).Encode(map[string]any{"type": "urn:argos:sin_existencias", "title": "Error", "status": status, "detail": a.detalle})
+			tipo, ok := a.tipos[ruta]
+			if !ok {
+				tipo = "urn:argos:sin_existencias"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": tipo, "title": "Error", "status": status, "detail": a.detalle})
 			return
 		}
+		cuerpo, ok := a.cuerpos[ruta]
+		if !ok {
+			cuerpo = `{"ok":true}`
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(cuerpo))
 	})
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)

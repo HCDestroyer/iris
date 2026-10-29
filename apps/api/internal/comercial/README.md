@@ -41,20 +41,23 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
 - **Ganar** (`POST /prospectos/{id}/ganar`): exige el contrato firmado, su cotización aceptada y
   la última factibilidad viable (o `requiere_obra` con `confirmarObra: true`) sobre las
   coordenadas actuales del prospecto.
-  - **Con conector** (activo o apagado, como la cola de I1): encola en `integracion.pendientes`
-    `POST /clientes` (`iris:cliente:<prospecto_id>`, entidad `prospecto`; cuerpo de Argos 1.2 con
-    `codigo_externo = iris:prospecto:<id>`, sin empresa). El router del servicio es el sugerido por
-    la factibilidad o `routerId` al ganar (422 `router_requerido`). Al quedar hecho
-    (`integracion.pendiente_hecho` → `SuscribirAltas`, o el barrido `comercial.completar_altas`
-    cada 5 min), recupera el id del cliente repitiendo la llamada con la misma Idempotency-Key
-    (Argos devuelve el mismo resultado) y encola `POST /servicios` con
-    `estado_inicial = pendiente_instalacion` (`iris:servicio:<prospecto_id>`, `depende_de` el
-    primero). La repetición manda los mismos bytes guardados en el pendiente, y el id recuperado se
-    comprueba (`GET /clientes/{id}` → `codigo_externo`); si no coincide, Argos rechaza o el pendiente
-    tiene más de 30 días, el alta queda en `alta.error` (revisión manual).
-    Al quedar hecho, crea la orden de instalación con el cliente y el servicio de Argos
-    (`origen = sistema`, clave `comercial.instalacion:<id>`: una sola). `alta.estado`:
+  - **Con conector** (activo o apagado, como la cola de I1): encola juntos, con
+    `pendientes.Encolar`, `POST /clientes` (`iris:cliente:<prospecto_id>`, entidad `prospecto`;
+    cuerpo de Argos 1.2 con `codigo_externo = iris:prospecto:<id>`, sin empresa) y `POST /servicios`
+    con `estado_inicial = pendiente_instalacion` (`iris:servicio:<prospecto_id>`, `depende_de` el
+    primero), cuyo `cliente_id` es un marcador (`pendientes.Ref(0, "id")`) que la cola resuelve una
+    vez con la respuesta guardada del cliente (mismos bytes en cada intento). El router del
+    servicio es el sugerido por la factibilidad o `routerId` al ganar (422 `router_requerido`).
+    Al quedar hechos (`integracion.pendiente_hecho` → `SuscribirAltas`, o el barrido
+    `comercial.completar_altas` cada 5 min), toma los ids de las respuestas guardadas
+    (`pendientes.IDDeRespuesta`) y crea la orden de instalación con el cliente y el servicio de
+    Argos (`origen = sistema`, clave `comercial.instalacion:<id>`: una sola). `alta.estado`:
     `esperando_cliente` → `esperando_servicio` → `completa`.
+    **Respaldo** para pendientes de antes de que la cola guardara la respuesta: recupera el id
+    repitiendo la llamada con la misma Idempotency-Key y los mismos bytes, y lo comprueba
+    (`GET /clientes/{id}` → `codigo_externo`); si no coincide, Argos rechaza o el pendiente tiene
+    más de 30 días, el alta queda en `alta.error` (revisión manual); un alta vieja sin el servicio
+    encolado lo encola con el id ya conocido.
   - **Sin conector** (nunca se conectó Argos): crea la orden con los datos capturados; el prospecto
     queda ganado sin ids de Argos (`alta.modo = local`).
 - **Permisos y alcance:** `prospectos.*`, `factibilidad.evaluar|configurar`,

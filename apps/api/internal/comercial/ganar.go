@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,26 +21,24 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
-	pendientesbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Ganar un prospecto (contratos/argosisp.md §3, «Prospecto ganado»):
 //
-//   - con conector (activo o apagado, como la cola de I1): se encola POST /clientes
-//     (iris:cliente:<prospecto_id>). Cuando queda hecho, comercial recupera el id del cliente y
-//     encola POST /servicios en pendiente_instalacion (iris:servicio:<prospecto_id>), que depende
-//     del primero. Cuando ese queda hecho, crea la orden de instalación con el cliente y el
-//     servicio de Argos (origen sistema), una sola vez.
+//   - con conector (activo o apagado, como la cola de I1): se encolan juntos POST /clientes
+//     (iris:cliente:<prospecto_id>) y POST /servicios en pendiente_instalacion
+//     (iris:servicio:<prospecto_id>), que depende del primero y toma su cliente_id de la
+//     respuesta guardada del cliente (marcador pendientes.Ref, resuelto una vez por la cola).
+//     Comercial lee los ids de las respuestas guardadas y, cuando el servicio queda hecho, crea
+//     la orden de instalación con el cliente y el servicio de Argos (origen sistema), una vez.
 //   - sin conector (modo local): crea la orden con los datos capturados y el prospecto queda
 //     ganado sin ids de Argos.
 //
-// La cola de I1 descarta el cuerpo de la respuesta de Argos: para saber el id que Argos dio al
-// cliente (y al servicio), comercial repite la llamada con la MISMA Idempotency-Key, que Argos
-// responde con el resultado guardado sin crear otro (RecuperadorAltas). Pedido a I1 (i2.md):
-// guardar la respuesta del 2xx en el pendiente y armar el cuerpo de un dependiente con datos de
-// su dependencia; con eso los dos pendientes se encolan juntos al ganar y la repetición sobra.
+// Respaldo para pendientes de antes de que la cola guardara la respuesta: comercial repite la
+// llamada con la MISMA Idempotency-Key, que Argos responde con el resultado guardado sin crear
+// otro (RecuperadorAltas), y verifica codigo_externo (o el cliente del servicio).
 
 // Operaciones de la cola (integracion.pendientes.operacion).
 const (
@@ -67,7 +66,7 @@ func ClaveServicio(prospecto int64) string { return "iris:servicio:" + idTexto(p
 // POST /servicios), repitiendo la llamada con la misma Idempotency-Key y el mismo cuerpo. Fuera
 // de toda transacción.
 type RecuperadorAltas interface {
-	Recuperar(ctx context.Context, p pendientesbd.IntegracionPendiente) (int64, error)
+	Recuperar(ctx context.Context, p pendientes.Registro) (int64, error)
 }
 
 // AltasDeArgos repite la llamada por el cliente del conector Argos activo.
@@ -79,7 +78,7 @@ type altasArgos struct{ am *argos.Modulo }
 // cliente distintos). No se reintenta: el alta queda en error para revisión manual.
 var ErrAltaInconsistente = errors.New("comercial: el recurso de Argos no corresponde al alta del prospecto")
 
-func (a altasArgos) Recuperar(ctx context.Context, p pendientesbd.IntegracionPendiente) (int64, error) {
+func (a altasArgos) Recuperar(ctx context.Context, p pendientes.Registro) (int64, error) {
 	cli, err := a.am.ClienteActivo(ctx, nucleo.BDDe(ctx))
 	if err != nil {
 		return 0, err
@@ -88,7 +87,7 @@ func (a altasArgos) Recuperar(ctx context.Context, p pendientesbd.IntegracionPen
 		ID json.Number `json:"id"`
 	}
 	// Mismos bytes que el primer envío: el cuerpo guardado en el pendiente, sin reserializar.
-	if err := cli.Escribir(ctx, p.Metodo, p.Ruta, json.RawMessage(p.Payload), p.IdempotencyKey, &conector.Recurso{Destino: &r}); err != nil {
+	if err := cli.Escribir(ctx, p.Metodo, p.Ruta, p.Payload, p.IdempotencyKey, &conector.Recurso{Destino: &r}); err != nil {
 		return 0, err
 	}
 	id, err := r.ID.Int64()
@@ -226,15 +225,26 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 				}
 				d.RouterID = router
 				evento["router_id"] = *router
-				p, err := m.encolar(ctx, t, pendientesbd.InsertarPendienteParams{
+				c, err := m.encolar(ctx, t, pendientes.Accion{
 					EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
-					Ruta: "/clientes", Payload: payloadCliente(antes), DependeDe: []int64{},
-				}, ahora)
+					Ruta: "/clientes", Cuerpo: payloadCliente(antes),
+					// Si Argos responde otro codigo_externo, el cliente no queda hecho y el
+					// servicio no sale (queda bloqueado).
+					Verificar: []string{"codigo_externo"},
+				})
+				if err != nil {
+					return Prospecto{}, err
+				}
+				// El servicio, junto: su cliente_id sale de la respuesta del cliente (Ref).
+				srv, err := m.encolar(ctx, t, pendientes.Accion{
+					EmpresaID: antes.EmpresaID, Operacion: OpCrearServicio, IdempotencyKey: ClaveServicio(antes.ID),
+					Ruta: "/servicios", Cuerpo: payloadServicio(d, r, pendientes.Ref(0, "id")), DependeDe: []int64{c.ID},
+				})
 				if err != nil {
 					return Prospecto{}, err
 				}
 				d.AltaModo, d.AltaEstado = ptr(AltaArgos), ptr(AltaEsperandoCliente)
-				evento["modo"], evento["orden_id"], evento["pendientes"] = AltaArgos, nil, []int64{p.ID}
+				evento["modo"], evento["orden_id"], evento["pendientes"] = AltaArgos, nil, []int64{c.ID, srv.ID}
 			}
 			f, err := guardar(ctx, t, q, antes, d)
 			if err != nil {
@@ -298,8 +308,9 @@ func payloadCliente(p comercialbd.ComercialProspecto) []byte {
 
 // payloadServicio: cuerpo de POST /servicios (Argos 1.2): cliente, router y plan obligatorios,
 // empresa_id siempre (la del prospecto) y estado_inicial pendiente_instalacion (A1). Sin
-// origen_tipo ni origen_id (van solo en activar-instalacion).
-func payloadServicio(p comercialbd.ComercialProspecto, r requisitos, cliente int64) []byte {
+// origen_tipo ni origen_id (van solo en activar-instalacion). cliente es el id (int64) o el
+// marcador pendientes.Ref de la respuesta del cliente.
+func payloadServicio(p comercialbd.ComercialProspecto, r requisitos, cliente any) []byte {
 	b, _ := json.Marshal(conDatos(map[string]any{
 		"cliente_id": cliente, "router_id": deref(p.RouterID), "plan_id": deref(r.cotizacion.PlanID),
 		"empresa_id": deref(p.EmpresaID), "estado_inicial": "pendiente_instalacion",
@@ -307,27 +318,19 @@ func payloadServicio(p comercialbd.ComercialProspecto, r requisitos, cliente int
 	return b
 }
 
-// encolar inserta un pendiente hacia Argos (idempotente por su Idempotency-Key) y avisa a la cola.
-func (m *Modulo) encolar(ctx context.Context, t *auditoria.Tx, p pendientesbd.InsertarPendienteParams, ahora time.Time) (pendientesbd.IntegracionPendiente, error) {
-	p.Sistema, p.Entidad, p.Metodo, p.Estado, p.ProximoIntento = argos.Sistema, EntidadPendientes, "POST", pendientes.EstadoPendiente, ahora
-	if p.EntidadID == "" {
-		p.EntidadID = idTexto(prospectoDeClave(p.IdempotencyKey))
+// encolar inserta un pendiente hacia Argos por la API de la cola (idempotente por su
+// Idempotency-Key) y avisa a la cola.
+func (m *Modulo) encolar(ctx context.Context, t *auditoria.Tx, a pendientes.Accion) (pendientes.Registro, error) {
+	a.Sistema, a.Entidad, a.Metodo, a.Desde = argos.Sistema, EntidadPendientes, "POST", m.ahora()
+	if a.EntidadID == "" {
+		a.EntidadID = idTexto(prospectoDeClave(a.IdempotencyKey))
 	}
-	pq := pendientesbd.New(t)
-	f, err := pq.InsertarPendiente(ctx, p)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return pq.PendientePorClave(ctx, p.IdempotencyKey)
-	}
-	if err != nil {
-		return f, err
-	}
-	t.RegistrarCambios("pendiente", f.ID, nil, map[string]any{"operacion": f.Operacion, "estado": f.Estado, "idempotency_key": f.IdempotencyKey})
+	var aviso pendientes.Encolador
 	if m.cfg.Encolar != nil {
-		if err := m.cfg.Encolar(ctx, t.Tx, pendientes.ArgsProcesar{}); err != nil {
-			return f, err
-		}
+		aviso = pendientes.Encolador(m.cfg.Encolar)
 	}
-	return f, nil
+	r, _, err := pendientes.Encolar(ctx, t, a, aviso)
+	return r, err
 }
 
 // prospectoDeClave: el id al final de iris:<op>:<id>.
@@ -409,14 +412,16 @@ func (m *Modulo) nuevoRegistrarCliente() *auditoria.Caso[entradaAltaArgos, Prosp
 			if err != nil {
 				return Prospecto{}, err
 			}
-			a, err := pendientesbd.New(t).PendientePorClave(ctx, ClaveCliente(antes.ID))
+			a, err := pendientes.PorClave(ctx, t, ClaveCliente(antes.ID))
 			if err != nil {
 				return Prospecto{}, err
 			}
-			b, err := m.encolar(ctx, t, pendientesbd.InsertarPendienteParams{
+			// Altas de ahora: el servicio se encoló al ganar (esto devuelve ese). Altas de antes
+			// (sin servicio encolado): se encola con el id ya conocido.
+			b, err := m.encolar(ctx, t, pendientes.Accion{
 				EmpresaID: antes.EmpresaID, Operacion: OpCrearServicio, IdempotencyKey: ClaveServicio(antes.ID),
-				Ruta: "/servicios", Payload: payloadServicio(antes, r, in.ArgosID), DependeDe: []int64{a.ID},
-			}, m.ahora())
+				Ruta: "/servicios", Cuerpo: payloadServicio(antes, r, in.ArgosID), DependeDe: []int64{a.ID},
+			})
 			if err != nil {
 				return Prospecto{}, err
 			}
@@ -523,32 +528,23 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 		default:
 			return nil
 		}
-		pend, err := pendientesbd.New(bd).PendientePorClave(ctx, clave)
+		pend, err := pendientes.PorClave(ctx, bd, clave)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		if pend.Estado == pendientes.EstadoFallidoNegocio && pend.UltimoError != nil &&
+			strings.HasPrefix(*pend.UltimoError, pendientes.MotivoInconsistente) {
+			// La cola detectó que Argos respondió otro recurso: el servicio no salió (bloqueado).
+			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("%s: %s", clave, *pend.UltimoError))
+		}
 		if pend.Estado != pendientes.EstadoHecho {
 			return nil
 		}
-		if m.cfg.Altas == nil {
-			slog.WarnContext(ctx, "comercial: sin RecuperadorAltas; el alta en Argos no avanza", "prospecto", p.ID)
-			return nil
-		}
-		// Argos guarda la clave al menos 30 días: más viejo, no se repite (revisión manual).
-		if pend.HechoEn != nil && m.ahora().Sub(*pend.HechoEn) > RetencionIdempotencia {
-			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("%s quedó hecho hace más de 30 días sin completar el alta: revisar a mano en Argos", clave))
-		}
-		id, err := m.cfg.Altas.Recuperar(ctx, pend)
-		var er *conector.ErrorRemoto
-		switch {
-		case errors.Is(err, ErrAltaInconsistente):
-			return m.errorDeAlta(ctx, p.ID, err.Error())
-		case errors.As(err, &er) && rechazoDeNegocio(er):
-			return m.errorDeAlta(ctx, p.ID, fmt.Sprintf("Argos rechazó %s %s al recuperar el alta (HTTP %d %s)", pend.Metodo, pend.Ruta, er.Status, er.Tipo))
-		case err != nil:
+		id, err := m.idDeAlta(ctx, p.ID, clave, pend)
+		if err != nil || id == 0 {
 			return err
 		}
 		if _, err := paso.Ejecutar(ctx, entradaAltaArgos{ProspectoID: p.ID, ArgosID: id}); err != nil {
@@ -558,22 +554,66 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 	return nil
 }
 
+// idDeAlta: el id que Argos dio al alta hecha. Lo normal es leerlo de la respuesta guardada en
+// el pendiente. Respaldo para pendientes de antes de guardarla (sin respuesta): repetir la
+// llamada con la misma clave y verificar codigo_externo (RecuperadorAltas). 0 sin error = el
+// alta quedó en error visible o no hay cómo recuperarla todavía.
+func (m *Modulo) idDeAlta(ctx context.Context, prospecto int64, clave string, pend pendientes.Registro) (int64, error) {
+	if len(pend.Respuesta) > 0 {
+		id, ok := pendientes.IDDeRespuesta(pend.Respuesta)
+		if !ok {
+			return 0, m.errorDeAlta(ctx, prospecto, fmt.Sprintf("%s: la respuesta de Argos no trae el id del recurso creado: revisar a mano en Argos", clave))
+		}
+		// Defensa en profundidad: si la respuesta trae codigo_externo (cliente) o cliente_id
+		// (servicio), debe ser el que se mandó.
+		campo := map[string]string{"/clientes": "codigo_externo", "/servicios": "cliente_id"}[pend.Ruta]
+		if campo != "" {
+			if recibido, ok := pendientes.CampoDeRespuesta(pend.Respuesta, campo); ok {
+				enviado, _ := pendientes.CampoDeRespuesta(pend.Payload, campo)
+				if escalar(recibido) != escalar(enviado) {
+					return 0, m.errorDeAlta(ctx, prospecto, fmt.Errorf("%w: %s %s: Argos respondió %s %s y se mandó %s",
+						ErrAltaInconsistente, pend.Metodo, pend.Ruta, campo, escalar(recibido), escalar(enviado)).Error())
+				}
+			}
+		}
+		return id, nil
+	}
+	if m.cfg.Altas == nil {
+		slog.WarnContext(ctx, "comercial: sin RecuperadorAltas; el alta en Argos no avanza", "prospecto", prospecto)
+		return 0, nil
+	}
+	// Argos guarda la clave al menos 30 días: más viejo, no se repite (revisión manual).
+	if pend.HechoEn != nil && m.ahora().Sub(*pend.HechoEn) > RetencionIdempotencia {
+		return 0, m.errorDeAlta(ctx, prospecto, fmt.Sprintf("%s quedó hecho hace más de 30 días sin completar el alta: revisar a mano en Argos", clave))
+	}
+	id, err := m.cfg.Altas.Recuperar(ctx, pend)
+	var er *conector.ErrorRemoto
+	switch {
+	case errors.Is(err, ErrAltaInconsistente):
+		return 0, m.errorDeAlta(ctx, prospecto, err.Error())
+	case errors.As(err, &er) && rechazoDeNegocio(er):
+		return 0, m.errorDeAlta(ctx, prospecto, fmt.Sprintf("Argos rechazó %s %s al recuperar el alta (HTTP %d %s)", pend.Metodo, pend.Ruta, er.Status, er.Tipo))
+	case err != nil:
+		return 0, err
+	}
+	return id, nil
+}
+
+// escalar: un valor JSON escalar como texto ("9001" y 9001 son iguales).
+func escalar(v []byte) string {
+	t := string(v)
+	if u, err := strconv.Unquote(t); err == nil {
+		return u
+	}
+	return t
+}
+
 // RetencionIdempotencia: Argos guarda una Idempotency-Key al menos 30 días.
 const RetencionIdempotencia = 30 * 24 * time.Hour
 
-// rechazoDeNegocio: un 4xx que repetir no arregla (422 idempotency_key_reutilizada, 404…). No lo
-// son 401/403 (credencial), 408, 409 (idempotencia_en_curso), 425 ni 429: esos se reintentan.
-func rechazoDeNegocio(er *conector.ErrorRemoto) bool {
-	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
-		return false
-	}
-	switch er.Status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusConflict,
-		http.StatusTooEarly, http.StatusTooManyRequests:
-		return false
-	}
-	return true
-}
+// rechazoDeNegocio: un 4xx que repetir no arregla (422 idempotency_key_reutilizada, 404, un
+// 409 que no es idempotencia_en_curso…): la misma regla que la cola (pendientes.EsNegocio).
+func rechazoDeNegocio(er *conector.ErrorRemoto) bool { return pendientes.EsNegocio(er) }
 
 type entradaErrorAlta struct {
 	ProspectoID int64  `json:"prospecto_id"`
@@ -629,10 +669,11 @@ type eventoPendienteHecho struct {
 	EntidadID string `json:"entidad_id"`
 }
 
-// SuscribirAltas: al quedar hecho un pendiente de un prospecto, avanza su alta (cmd/worker).
+// SuscribirAltas: al quedar hecho (o fallido) un pendiente de un prospecto, avanza su alta o la
+// deja en error visible (cmd/worker).
 // Una regla de negocio (4xx) queda en el log; un error temporal lo reintenta el relay.
 func (m *Modulo) SuscribirAltas(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
-	bus.Suscribir("comercial.alta_argos", pendientes.EventoHecho, func(ctx context.Context, e integracion.Evento) error {
+	avanzar := func(ctx context.Context, e integracion.Evento) error {
 		var p eventoPendienteHecho
 		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != EntidadPendientes {
 			return nil
@@ -648,7 +689,9 @@ func (m *Modulo) SuscribirAltas(bus *integracion.Bus, bd nucleo.BD, log *slog.Lo
 			return nil
 		}
 		return err
-	})
+	}
+	bus.Suscribir("comercial.alta_argos", pendientes.EventoHecho, avanzar)
+	bus.Suscribir("comercial.alta_argos_fallida", pendientes.EventoFallido, avanzar)
 }
 
 // ArgsCompletarAltas barre los prospectos ganados con el alta en Argos sin terminar (por si se

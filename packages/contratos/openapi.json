@@ -8849,6 +8849,10 @@
               "null"
             ]
           },
+          "porResolver": {
+            "description": "El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)",
+            "type": "boolean"
+          },
           "proximoIntento": {
             "description": "Solo en pendiente",
             "format": "date-time",
@@ -8856,6 +8860,9 @@
               "string",
               "null"
             ]
+          },
+          "respuesta": {
+            "description": "Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó)"
           },
           "ruta": {
             "description": "Ruta en la API de Argos (bajo /api/v1)",

@@ -4,10 +4,11 @@
 -- Idempotente por la Idempotency-Key del contrato: un evento repetido no duplica la acción.
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
-    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id
+    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
-    @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id)
+    @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
+    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}')
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -27,6 +28,7 @@ SELECT * FROM integracion.pendientes WHERE id = @id FOR UPDATE;
 SELECT p.* FROM integracion.pendientes p
 WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= @ahora)
     OR (p.estado = 'en_curso' AND p.tomado_en <= @reclamar_antes::timestamptz))
+  AND NOT p.por_resolver
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
 ORDER BY p.proximo_intento, p.id
@@ -45,6 +47,7 @@ SET estado          = @estado,
     ultimo_error    = sqlc.narg(ultimo_error),
     ultimo_status   = sqlc.narg(ultimo_status),
     hecho_en        = sqlc.narg(hecho_en),
+    respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
     tomado_en       = NULL,
     version         = version + 1,
     updated_at      = now()
@@ -105,3 +108,43 @@ WHERE p.estado = 'bloqueado' AND @id::bigint = ANY (p.depende_de)
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
 RETURNING p.*;
+
+-- name: DependientesPorResolver :many
+-- Dependientes de @id cuyo cuerpo todavía tiene marcadores, con candado.
+SELECT * FROM integracion.pendientes
+WHERE por_resolver AND @id::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+ORDER BY id
+FOR UPDATE;
+
+-- name: PendientesPorIDCompartido :many
+-- Las dependencias de un pendiente con candado compartido: si otra transacción está dejando una
+-- en «hecho», se espera a que confirme (y se ve su estado y su respuesta); y mientras esta
+-- transacción no confirme, la otra no puede marcarla (y luego ve al dependiente nuevo).
+SELECT * FROM integracion.pendientes WHERE id = ANY (@ids::bigint[]) ORDER BY id FOR SHARE;
+
+-- name: PorResolverListos :many
+-- Red de seguridad del job: dependientes con marcadores cuyas dependencias ya están todas
+-- hechas (no se debería ver ninguno: se resuelven al quedar hecha la última).
+SELECT p.* FROM integracion.pendientes p
+WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+ORDER BY p.id
+LIMIT @limite
+FOR UPDATE OF p SKIP LOCKED;
+
+-- name: FijarCuerpoResuelto :one
+-- Una sola vez: el cuerpo final reemplaza a la plantilla (después no cambia).
+UPDATE integracion.pendientes
+SET payload = @payload, por_resolver = false, proximo_intento = @ahora::timestamptz,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND por_resolver
+RETURNING *;
+
+-- name: FallarResolucion :one
+-- La respuesta de la dependencia no trae el dato que pide el marcador: fallido de negocio.
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = @motivo,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND por_resolver
+RETURNING *;

@@ -25,10 +25,45 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   esperado: `contratos/eventos.md`, «`orden.cerrada`: lo que la cola espera de campo».
 - **Job** `integracion.pendientes_procesar` (River, cola `integracion`, cada minuto y al encolar):
   procesa todo lo vencido cuyas dependencias estén hechas, por el cliente anti-SSRF del conector y
-  con `Idempotency-Key: iris:<operacion>:<id>`. 2xx → `hecho`; 4xx de negocio → `fallido_negocio`
-  (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409, 425, 429 → reintento a 1 min,
+  con `Idempotency-Key: iris:<operacion>:<id>`. 2xx → `hecho` (guarda la respuesta); 4xx de
+  negocio → `fallido_negocio` (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409
+  `idempotencia_en_curso`, 425, 429 → reintento a 1 min,
   5 min, 30 min, 2 h y 12 h; el 6.º fallo → `agotado`. Un `en_curso` de más de 15 min (worker
   caído) se retoma. Reloj inyectable (`Config.Reloj`).
+- **API para otros módulos** (comercial, campo; sin `pendientesbd`): `pendientes.Encolar(ctx, t,
+  Accion{…}, aviso)` en la transacción del caso de uso (idempotente por la clave; `Desde` = el
+  reloj de quien encola) y `pendientes.PorClave` → `Registro` (estado, cuerpo, respuesta).
+- **Respuesta guardada (lista blanca):** del cuerpo del primer 2xx de Argos se guardan **solo**
+  los campos escalares de `CamposRespuesta` — `id`, `codigo`, `codigo_externo`, `cliente_id`,
+  `servicio_id`, `estado`, `empresa_id` (y sus formas camelCase) — en la raíz o dentro de
+  `{ data: {...} }`. Todo lo demás (credenciales PPP, claves WiFi, tokens, datos personales,
+  objetos y listas) se descarta. Un cuerpo de más de 64 KiB, no JSON o sin ninguno de esos campos
+  queda null. Si alguien necesita otro campo, se agrega a la lista (y aquí).
+  `CampoDeRespuesta` / `IDDeRespuesta` la leen. La API la muestra en `Pendiente.respuesta`.
+- **Dependientes con datos de su dependencia:** el cuerpo lleva marcadores
+  `{"$iris_ref": {"dependencia": i, "campo": "id"}}` (`pendientes.Ref`; `i` = índice en
+  `DependeDe`), validados al encolar; cada dependencia debe existir, sin repetir, y ser de la
+  misma empresa (si no, error de programación). Nace `por_resolver` con `proximo_intento =
+  9999-12-31` (`NuncaVence`) y se resuelve **una sola vez** cuando todas sus dependencias quedan
+  hechas (o al encolar, si ya lo están): el cuerpo final queda en `payload` y no cambia (mismos
+  bytes en cada intento, contrato §3.1), `proximo_intento` vuelve a «ahora»; la plantilla queda
+  en su columna. Las dependencias se leen con candado compartido (`FOR SHARE`): si una termina
+  en otra transacción mientras se encola, se espera y se resuelve igual. Red de seguridad: cada
+  corrida del job resuelve los `por_resolver` cuyas dependencias ya están hechas. Si la
+  respuesta no trae el campo: `fallido_negocio`, `datos_incompletos`, `respuesta_sin_<campo>`
+  (nunca se adivina) y bloquea a sus dependientes.
+- **Verificar identidad (`Accion.Verificar`):** campos del cuerpo (de la lista blanca) que la
+  respuesta del 2xx, si los trae, debe repetir igual — p. ej. `codigo_externo` en `POST /clientes`.
+  Si no coinciden: `fallido_negocio` con `respuesta_inconsistente: …` (se guarda la respuesta para
+  revisarla), **no** resuelve a sus dependientes (quedan bloqueados y nunca salen hacia Argos) y
+  avisa (`integracion.pendiente_fallido`). Un campo que la respuesta no trae no se compara.
+- **Despliegue (migración `20261028233355_integracion_pendientes_respuesta`):** detén o reemplaza
+  el worker **antes** de `iris migrar`. Candado por si no: un pendiente por resolver nunca vence
+  (`NuncaVence`), así que un worker de antes (cuyo `TomarVencido` no mira `por_resolver`) no lo
+  toma ni manda el marcador crudo a Argos; el worker nuevo lo resuelve y lo pone al día.
+- **409 por type:** `idempotencia_en_curso` (y un 409 sin type o con `about:blank`) se reintenta; los demás 409
+  (`user_ppp_duplicado`…) y el 422 `idempotency_key_reutilizada` son de negocio
+  (`pendientes.EsNegocio`, que también usa comercial).
 - `GET /api/v1/integraciones/pendientes?entidad=&entidadId=&estado=` (`integraciones.ver_pendientes`)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,
   auditado).
