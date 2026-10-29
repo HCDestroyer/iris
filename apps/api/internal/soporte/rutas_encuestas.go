@@ -75,6 +75,8 @@ func (m *Modulo) registrarEncuestas(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
+		// La respuesta lleva el token: no se guarda en nucleo.idempotencia.
+		nucleo.NoRepetible(ctx)
 		return &salidaEnlace{CacheControl: "no-store", Body: e}, nil
 	})
 
