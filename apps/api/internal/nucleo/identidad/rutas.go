@@ -202,9 +202,9 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	reiniciarMFA := operacion("reiniciarMFAUsuario", http.MethodPost, "/api/v1/usuarios/{id}/reiniciar-mfa", "Reiniciar el MFA de otro usuario", nucleo.PermUsuariosReiniciarMFA, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
+	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
 	huma.Register(api, reiniciarMFA,
-		func(ctx context.Context, in *conID[EntradaReiniciarMFA]) (*cuerpo[Usuario], error) {
+		func(ctx context.Context, in *conID[EntradaReiniciarMFA]) (*cuerpo[MFAReiniciado], error) {
 			e := in.Body
 			e.ID = in.ID
 			return responder(m.ReiniciarMFA.Ejecutar(ctx, e))

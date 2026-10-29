@@ -103,7 +103,10 @@ type EntradaListar struct {
 	Entidad   string `query:"entidad" pattern:"^[a-z][a-z_]{0,39}$" doc:"orden…"`
 	EntidadID string `query:"entidadId" maxLength:"64"`
 	Estado    string `query:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,"`
-	Conflicto bool   `query:"conflicto" doc:"Solo los que tienen un conflicto por cierre repetido"`
+	// EstadoDistintoDe: estadoDistintoDe=hecho trae todo lo que aún no llegó a Argos en una sola
+	// lectura (el tablero de despacho hacía una por estado).
+	EstadoDistintoDe string `query:"estadoDistintoDe" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado," doc:"Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto"`
+	Conflicto        bool   `query:"conflicto" doc:"Solo los que tienen un conflicto por cierre repetido"`
 }
 
 func texto(s string) *string {
@@ -125,7 +128,7 @@ func nuevoListar(*Modulo) *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente
 			limite := in.Limite()
 			filas, err := pendientesbd.New(t).ListarPendientes(ctx, pendientesbd.ListarPendientesParams{
 				DespuesDe: despues, Todas: todas, EmpresaID: empresa, Entidad: texto(in.Entidad),
-				EntidadID: texto(in.EntidadID), Estado: texto(in.Estado), SoloConflicto: in.Conflicto, Limite: int32(limite + 1), //nolint:gosec // acotado a 201
+				EntidadID: texto(in.EntidadID), Estado: texto(in.Estado), EstadoDistintoDe: texto(in.EstadoDistintoDe), SoloConflicto: in.Conflicto, Limite: int32(limite + 1), //nolint:gosec // acotado a 201
 			})
 			if err != nil {
 				return nucleo.Pagina[Pendiente]{}, err
