@@ -1,0 +1,101 @@
+# Iris · pruebas de carga (docs/runbooks/carga.md). Se aplica ENCIMA de infra/docker-compose.yml
+# con otro nombre de proyecto (volúmenes propios, nunca los de dev):
+#
+#   docker compose -p iris-carga -f infra/docker-compose.yml -f infra/carga/compose.yml \
+#       --env-file .env.example --profile app up -d postgres redis migrar api
+#
+# Solo levanta lo que mide la carga: postgres (con pg_stat_statements), redis, migrar, api y
+# worker. Sin MinIO, Mailpit, OSRM ni web: los adjuntos van a un directorio local dentro del contenedor y no se
+# publica más que la API (IRIS_CARGA_API_PUERTO, 3505) y Postgres (IRIS_CARGA_PG_PUERTO, 3515,
+# para la siembra y las comprobaciones). Las imágenes las construye `make carga` (iris/api:carga
+# e iris/worker:carga) desde el árbol actual.
+
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - log_min_duration_statement=${IRIS_CARGA_PG_LENTAS_MS:-500}
+      - -c
+      # Las consultas lentas se registran sin sus parámetros (los logs se suben si CI falla).
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+    ports: !override
+      - 127.0.0.1:${IRIS_CARGA_PG_PUERTO:-3515}:5432
+
+  redis:
+    ports: !reset []
+
+  migrar:
+    image: iris/api:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
+    build: !reset null
+    volumes: !reset []
+    environment:
+      IRIS_CORREO_CA: ''
+
+  api:
+    image: iris/api:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
+    build: !reset null
+    volumes: !reset []
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrar:
+        condition: service_completed_successfully
+    environment:
+      IRIS_CORREO_CA: ''
+      IRIS_ADJUNTOS_ALMACEN: local
+      IRIS_ADJUNTOS_DIR: /tmp/adjuntos
+      # La siembra y k6 hablan por HTTP plano: la cookie de sesión no puede ser Secure.
+      IRIS_COOKIE_SEGURA: 'false'
+      IRIS_LOG_NIVEL: warn
+    ports: !override
+      - 127.0.0.1:${IRIS_CARGA_API_PUERTO:-3505}:8080
+
+  worker:
+    image: iris/worker:${IRIS_CARGA_TAG:-carga}
+    # Solo .env.example: nunca el ../.env del desarrollador (SMTP, clave, conectores reales).
+    env_file: !override
+      - path: ../.env.example
+        required: true
+    build: !reset null
+    volumes: !reset []
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrar:
+        condition: service_completed_successfully
+    environment:
+      IRIS_CORREO_CA: ''
+      IRIS_ADJUNTOS_ALMACEN: local
+      IRIS_ADJUNTOS_DIR: /tmp/adjuntos
+      IRIS_LOG_NIVEL: warn
+
+# Subred propia: la de dev (IRIS_RED_COMPOSE, 172.28.10.0/24) choca («Pool overlaps») si los dos
+# composes están arriba a la vez.
+networks:
+  default:
+    ipam:
+      config: !override
+        - subnet: ${IRIS_CARGA_RED:-172.28.20.0/24}
