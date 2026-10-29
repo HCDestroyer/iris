@@ -10273,6 +10273,41 @@
         ],
         "type": "object"
       },
+      "Previsualizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "conectorExistente": {
+            "description": "Ya hay un conector de este sistema con ese origen",
+            "type": "boolean"
+          },
+          "motivo": {
+            "description": "Si no se permite: origenes_no_configurados u origen_no_permitido",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origen": {
+            "description": "esquema://host[:puerto] del enlace: adónde irá el token de Iris",
+            "type": "string"
+          },
+          "permitido": {
+            "description": "El origen está en la lista o ya hay un conector con él",
+            "type": "boolean"
+          },
+          "sistema": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sistema",
+          "origen",
+          "permitido",
+          "motivo",
+          "conectorExistente"
+        ],
+        "type": "object"
+      },
       "Problema": {
         "additionalProperties": false,
         "properties": {
@@ -18748,7 +18783,7 @@
     },
     "/api/v1/integraciones/argosisp/conectar": {
       "post": {
-        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).",
+        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Argos un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_ARGOS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).",
         "operationId": "conectarArgos",
         "parameters": [
           {
@@ -19008,6 +19043,87 @@
           }
         ],
         "summary": "Generar un enlace de conexión para pegar en Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/argosisp/conexion/previsualizar": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. No llama a Argos ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_ARGOS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.",
+        "operationId": "previsualizarConexionArgos",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConectar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Previsualizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver a qué origen irá el token antes de conectar con Argos",
         "tags": [
           "integraciones"
         ],
@@ -19677,7 +19793,7 @@
     },
     "/api/v1/integraciones/horus/conectar": {
       "post": {
-        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).",
+        "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Horus un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_HORUS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).",
         "operationId": "conectarHorus",
         "parameters": [
           {
@@ -19937,6 +20053,87 @@
           }
         ],
         "summary": "Generar un enlace de conexión para pegar en Horus",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/horus/conexion/previsualizar": {
+      "post": {
+        "description": "Permiso: `integraciones.conectar`. No llama a Horus ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_HORUS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.",
+        "operationId": "previsualizarConexionHorus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConectar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Previsualizacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ver a qué origen irá el token antes de conectar con Horus",
         "tags": [
           "integraciones"
         ],

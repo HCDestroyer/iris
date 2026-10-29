@@ -32,6 +32,7 @@ type argosFalso struct {
 	sinA8      bool
 	llamadas   map[string]int
 	sinPermiso bool
+	conectorID any // lo que responde el canje en conector_id (nil = "77")
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -101,7 +102,14 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
 	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
 	escribir(w, map[string]any{"token": a.token, "webhook": map[string]any{"url": "https://argos.prueba/api/v1/integraciones/iris/webhook", "secreto": "secreto-de-argos-para-iris"},
-		"conector_id": "77", "empresas": []any{map[string]any{"id": 1}}})
+		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}})
+}
+
+func (a *argosFalso) idDelCanje() any {
+	if a.conectorID != nil {
+		return a.conectorID
+	}
+	return "77"
 }
 
 func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {

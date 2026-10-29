@@ -6,11 +6,22 @@ SELECT nextval(pg_get_serial_sequence('integracion.conectores', 'id'))::bigint A
 
 -- name: InsertarConector :one
 INSERT INTO integracion.conectores (
-    id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por
+    id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
+    token_entregado_id
 ) VALUES (
-    @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por
+    @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por,
+    sqlc.narg(token_entregado_id)
 )
 RETURNING *;
+
+-- name: TokensEntregadosDeOtros :many
+-- Los iris_pat_ entregados por los demás conectores del sistema (se revocan al guardar uno nuevo).
+SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
+WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL;
+
+-- name: ExisteConectorConBase :one
+-- Ya hay un conector del sistema con ese origen (un enlace del mismo origen no es phishing).
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema AND base_url = @base_url)::boolean AS existe;
 
 -- name: ConectorPorID :one
 SELECT * FROM integracion.conectores WHERE id = @id;

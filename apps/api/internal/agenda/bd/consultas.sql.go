@@ -953,7 +953,7 @@ const desactivarZonasSinArgos = `-- name: DesactivarZonasSinArgos :execrows
 UPDATE agenda.zonas z SET activa = false, version = version + 1, updated_at = now()
 WHERE z.origen = 'argos' AND z.activa
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_zonas a WHERE a.id = z.id)
-  AND EXISTS (SELECT 1 FROM integracion.argos_zonas a WHERE a.empresa_id = z.empresa_id)
+  AND EXISTS (SELECT 1 FROM integracion.argos_zonas a WHERE a.empresa_id IS NOT DISTINCT FROM z.empresa_id)
 `
 
 // Zonas de Argos que ya no están en su catálogo (solo si Iris tiene el catálogo de esa empresa).

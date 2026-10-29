@@ -139,18 +139,18 @@ RETURNING *;
 
 -- name: RoutersConCoordenadas :many
 -- Routers de la instantánea de Argos de la empresa con coordenadas (factibilidad por distancia).
--- empresa_id 0 = sin empresa sugerida en Argos: lo usan todas las empresas (multiempresa de Argos).
+-- empresa_id NULL = sin empresa sugerida en Argos: lo usan todas las empresas (multiempresa de Argos).
 SELECT id, nombre, zona_id, lat::double precision AS lat, lon::double precision AS lon, sincronizado_en
 FROM integracion.argos_routers
-WHERE (empresa_id = @empresa_id OR empresa_id = 0) AND lat IS NOT NULL AND lon IS NOT NULL
+WHERE (empresa_id = @empresa_id::bigint OR empresa_id IS NULL) AND lat IS NOT NULL AND lon IS NOT NULL
 ORDER BY id;
 
 -- name: RouterDeEmpresa :one
 -- El router está en la instantánea de Argos de la empresa (al elegirlo al ganar).
-SELECT id, nombre FROM integracion.argos_routers WHERE id = @id AND (empresa_id = @empresa_id OR empresa_id = 0);
+SELECT id, nombre FROM integracion.argos_routers WHERE id = @id AND (empresa_id = @empresa_id::bigint OR empresa_id IS NULL);
 
 -- name: ContarRoutersDeEmpresa :one
-SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = @empresa_id OR empresa_id = 0;
+SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = @empresa_id::bigint OR empresa_id IS NULL;
 
 -- name: EstadoConectorArgos :one
 -- 'activo', 'apagado' o '' (nunca se conectó: modo sin conector).

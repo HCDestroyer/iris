@@ -24,7 +24,6 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
-	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -88,7 +87,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	mod := argos.Nuevo(cfg)
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
 	// Como cmd/iris: el canje entrega el iris_pat_ del usuario de integración (contrato §1.2).
-	mod.Nucleo().FijarEmisorToken(conector.EmisorDesde(ident.EmitirTokenIntegracion, ident.RevocarTokenIntegracion))
+	mod.Nucleo().FijarTokens(ident)
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Identidad: ident, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){mod.Registrar},

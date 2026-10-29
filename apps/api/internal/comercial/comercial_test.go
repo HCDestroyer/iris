@@ -26,7 +26,6 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
-	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
@@ -242,9 +241,7 @@ func nuevoEntorno(t *testing.T, reloj func() time.Time) *entorno {
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 	})
 	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
-	e.am.Nucleo().FijarEmisorToken(conector.EmisorDesde(func(context.Context, string) (int64, string, error) {
-		return 1, "iris_pat_" + strings.Repeat("p", 32), nil
-	}, nil))
+	e.am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
 	e.pend = pendientes.Nuevo(pendientes.Config{Argos: e.am})
 	e.cmp = campo.Nuevo(campo.Config{Adjuntos: campo.SinAdjuntosObligatorios{}})
 	almacen, err := adjuntos.NuevoDisco(t.TempDir())

@@ -84,7 +84,7 @@ func nuevoEntorno(t *testing.T, redesHorus []netip.Prefix) *entorno {
 	mod := horus.Nuevo(horus.Config{Argos: am, RedesPermitidas: redesHorus, Espera: 5 * time.Millisecond, Timeout: 2 * time.Second})
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
 	// Como cmd/iris: el canje entrega el iris_pat_ del usuario de integración (contrato §1.2).
-	am.Nucleo().FijarEmisorToken(conector.EmisorDesde(ident.EmitirTokenIntegracion, ident.RevocarTokenIntegracion))
+	am.Nucleo().FijarTokens(ident)
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Identidad: ident, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){am.Registrar, mod.Registrar},

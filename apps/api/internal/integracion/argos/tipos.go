@@ -244,8 +244,8 @@ type ZonaArgos struct {
 }
 
 // Empresa de la zona en la instantánea: empresa_id o, como devuelve Argos 1.3.0 (zonas y routers
-// no son de una empresa; multiempresa.md), empresa_sugerida_id. 0 = sin empresa: la usan todas.
-func (z ZonaArgos) Empresa() int64 { return primeraEmpresa(z.EmpresaID, z.EmpresaSugeridaID) }
+// no son de una empresa; multiempresa.md), empresa_sugerida_id. nil = sin empresa: la usan todas.
+func (z ZonaArgos) Empresa() *int64 { return primeraEmpresa(z.EmpresaID, z.EmpresaSugeridaID) }
 
 // RouterArgos es un router (GET /routers).
 type RouterArgos struct {
@@ -258,17 +258,17 @@ type RouterArgos struct {
 	Zona              *Ref   `json:"zona"`
 }
 
-// Empresa del router en la instantánea: empresa_id o empresa_sugerida_id (Argos 1.3.0). 0 = sin
+// Empresa del router en la instantánea: empresa_id o empresa_sugerida_id (Argos 1.3.0). nil = sin
 // empresa sugerida: en Argos lo usan todas las empresas.
-func (r RouterArgos) Empresa() int64 { return primeraEmpresa(r.EmpresaID, r.EmpresaSugeridaID) }
+func (r RouterArgos) Empresa() *int64 { return primeraEmpresa(r.EmpresaID, r.EmpresaSugeridaID) }
 
-func primeraEmpresa(ids ...int64) int64 {
+func primeraEmpresa(ids ...int64) *int64 {
 	for _, id := range ids {
-		if id != 0 {
-			return id
+		if id > 0 {
+			return &id
 		}
 	}
-	return 0
+	return nil
 }
 
 // Numero acepta un número JSON o un texto numérico.

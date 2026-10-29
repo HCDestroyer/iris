@@ -74,6 +74,10 @@ type Sistema struct {
 	RegistrarEmpresas bool
 	// RedesPermitidas: redes internas a las que sí se puede llamar (dev y lab).
 	RedesPermitidas []netip.Prefix
+	// Origenes de los que se acepta un enlace de conexión (https://host[:puerto], normalizados con
+	// nucleo.NormalizarOrigen; IRIS_ARGOS_ORIGENES, IRIS_HORUS_ORIGENES). Vacía: solo en desarrollo
+	// (Config.PermitirHTTP) o el origen de un conector que ya existe.
+	Origenes []string
 	// Timeout de cada llamada (5 s), reintentos de las lecturas (3) y espera base (200 ms).
 	Timeout  time.Duration
 	Intentos int
@@ -95,7 +99,7 @@ type Nucleo struct {
 
 	mu       sync.RWMutex
 	sistemas map[string]*Conexion
-	emisor   EmisorToken
+	tokens   Tokens
 
 	ListarConectores   *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	ActivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
@@ -104,47 +108,33 @@ type Nucleo struct {
 	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]
 }
 
-// TokenEmitido es el token iris_pat_ que Iris entrega al otro sistema en el canje (§1.2 de cada
-// contrato): id (para revocarlo si el canje no se completa) y valor.
-type TokenEmitido struct {
-	ID    int64
-	Valor string
-	// Revocar lo anula (canje rechazado o caído). Opcional.
-	Revocar func(ctx context.Context, motivo string) error
+// Tokens emite, confirma y revoca el iris_pat_ que Iris entrega al otro sistema en el canje
+// (contratos §1.2). Lo implementa identidad.Modulo; cmd/iris lo conecta con FijarTokens (el
+// núcleo de conectores no depende de identidad).
+type Tokens interface {
+	// EmitirTokenCanje: token del usuario de integración del sistema, con vencimiento (expira).
+	EmitirTokenCanje(ctx context.Context, sistema string, expira time.Time) (id int64, valor string, err error)
+	// ConfirmarTokenCanje le quita el vencimiento al activar el conector (422 si ya venció).
+	ConfirmarTokenCanje(ctx context.Context, id int64) error
+	// RevocarTokenIntegracion lo revoca (revocar uno ya revocado no es error).
+	RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error
 }
 
-// EmisorToken emite ese token para el usuario de integración del sistema. Lo arma cmd/iris con
-// identidad (el núcleo de conectores no depende de identidad).
-type EmisorToken func(ctx context.Context, sistema string) (TokenEmitido, error)
+// VigenciaTokenCanje: el iris_pat_ entregado muere solo si el conector no se activa en este plazo.
+const VigenciaTokenCanje = 15 * time.Minute
 
-// EmisorDesde arma un EmisorToken con las funciones de identidad (EmitirTokenIntegracion y
-// RevocarTokenIntegracion), sin que el núcleo de conectores dependa de ella.
-func EmisorDesde(emitir func(context.Context, string) (int64, string, error), revocar func(context.Context, int64, string) error) EmisorToken {
-	return func(ctx context.Context, sistema string) (TokenEmitido, error) {
-		id, valor, err := emitir(ctx, sistema)
-		if err != nil {
-			return TokenEmitido{}, err
-		}
-		t := TokenEmitido{ID: id, Valor: valor}
-		if revocar != nil {
-			t.Revocar = func(ctx context.Context, motivo string) error { return revocar(ctx, id, motivo) }
-		}
-		return t, nil
-	}
-}
-
-// FijarEmisorToken conecta el emisor de tokens (cmd/iris, después de armar identidad). Sin él,
-// conectar con un enlace del otro sistema responde 422 emisor_token_no_configurado.
-func (n *Nucleo) FijarEmisorToken(f EmisorToken) {
+// FijarTokens conecta el emisor de tokens (cmd/iris y cmd/worker, después de armar identidad).
+// Sin él, conectar con un enlace del otro sistema responde 422 emisor_token_no_configurado.
+func (n *Nucleo) FijarTokens(t Tokens) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.emisor = f
+	n.tokens = t
 }
 
-func (n *Nucleo) emisorToken() EmisorToken {
+func (n *Nucleo) tokensFijados() Tokens {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	return n.emisor
+	return n.tokens
 }
 
 // Nuevo arma el núcleo de conectores.
@@ -174,6 +164,7 @@ type Conexion struct {
 	http *http.Client
 
 	Conectar        *Conectar
+	Previsualizar   *auditoria.Caso[EntradaConectar, Previsualizacion]
 	GenerarEnlace   *auditoria.Caso[struct{}, EnlaceGenerado]
 	CanjearConexion *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
 	RecibirWebhook  *auditoria.Caso[EntradaWebhook, WebhookRecibido]
@@ -204,6 +195,7 @@ func (n *Nucleo) Agregar(s Sistema) *Conexion {
 	}
 	c := &Conexion{n: n, s: s, http: NuevoHTTP(s.RedesPermitidas)}
 	c.Conectar = nuevoConectar(c)
+	c.Previsualizar = nuevoPrevisualizar(c)
 	c.GenerarEnlace = nuevoGenerarEnlace(c)
 	c.CanjearConexion = nuevoCanjearConexion(c)
 	c.RecibirWebhook = nuevoRecibirWebhook(c)

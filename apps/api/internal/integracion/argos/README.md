@@ -13,7 +13,7 @@ comunes de conectores); aquí queda lo propio de Argos.
   { enlace }` canjea un enlace de Argos (Iris llama a `POST /api/v1/integraciones/iris/conexion/canjear`
   de Argos con el cuerpo de Horus §1.4: `{ codigo, sistema: "iris", base_url, token, webhook: { url,
   secreto } }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
-  `identidad.EmitirTokenIntegracion`, revocado si el canje falla); Argos responde `{ token: "atk_…",
+  `identidad.EmitirTokenCanje`, 15 min hasta activar, solo a orígenes de `IRIS_ARGOS_ORIGENES`; ver `conector/README.md`); Argos responde `{ token: "atk_…",
   webhook, conector_id }`). `POST
   /integraciones/argosisp/conexion/enlaces` genera un enlace de Iris (15 min, un solo uso) que Argos
   canjea en `POST /integraciones/argosisp/conexion/canjear` (sin credenciales, autoriza el código).

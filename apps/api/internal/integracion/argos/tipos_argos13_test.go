@@ -49,7 +49,7 @@ func TestCoordenadasDeArgos13(t *testing.T) {
 }
 
 // Argos 1.3.0 no tiene routers ni zonas «de una empresa»: devuelve empresa_sugerida_id (o null =
-// la usan todas). La instantánea guarda esa empresa, o 0.
+// la usan todas). La instantánea guarda esa empresa, o NULL.
 func TestEmpresaSugeridaDeArgos13(t *testing.T) {
 	var r argos.RouterArgos
 	if err := conector.Decodificar([]byte(`{"id":1,"nombre":"RB-E2E","host":"192.0.2.10","empresa_sugerida_id":1,"zona_id":1,"activo":true}`), &r); err != nil {
@@ -67,7 +67,7 @@ func TestEmpresaSugeridaDeArgos13(t *testing.T) {
 	if err := conector.Decodificar([]byte(`{"id":2,"nombre":"Zona","empresa_id":4,"empresa_sugerida_id":5}`), &vieja); err != nil {
 		t.Fatal(err)
 	}
-	if r.Empresa() != 1 || sin.Empresa() != 0 || z.Empresa() != 3 || vieja.Empresa() != 4 {
-		t.Fatalf("empresas: router %d, sin %d, zona %d, con empresa_id %d", r.Empresa(), sin.Empresa(), z.Empresa(), vieja.Empresa())
+	if r.Empresa() == nil || *r.Empresa() != 1 || sin.Empresa() != nil || z.Empresa() == nil || *z.Empresa() != 3 || *vieja.Empresa() != 4 {
+		t.Fatalf("empresas: router %v, sin %v, zona %v, con empresa_id %v", r.Empresa(), sin.Empresa(), z.Empresa(), vieja.Empresa())
 	}
 }

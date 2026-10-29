@@ -9,12 +9,21 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
 
 - **Enlace de conexión en los dos sentidos** (`conexion.go`) bajo `/api/v1/integraciones/<sistema>/`:
   `conectar` (enlace del otro sistema: Iris canjea en `Sistema.RutaCanje` con el cuerpo de Horus §1.4,
-  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`; el `iris_pat_` lo emite el
-  `EmisorToken` que fija `cmd/iris` con `Nucleo.FijarEmisorToken` y se revoca si el canje no se
-  completa; sin emisor, 422 `emisor_token_no_configurado`), `conexion/enlaces`
+  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`; el `iris_pat_` lo emite
+  `Tokens` (identidad, fijado con `Nucleo.FijarTokens`; sin él, 422 `emisor_token_no_configurado`)),
+  `conexion/previsualizar` (origen del enlace y si está permitido, sin llamar afuera), `conexion/enlaces`
   (enlace de Iris, 15 min, un solo uso) y `conexion/canjear` (lo llama el otro sistema; 401
   `codigo_invalido`; `sistema` debe ser el de la ruta). Token y secreto del webhook cifrados con
   `IRIS_CLAVE_CIFRADO`, atados a la fila; nunca salen por la API ni en la auditoría. Nace apagado.
+- **Token entregado en el canje** (revisión de seguridad de la PR #50): solo para orígenes de
+  `Sistema.Origenes` (`IRIS_ARGOS_ORIGENES`, `IRIS_HORUS_ORIGENES`) o de un conector que ya existe
+  (sin lista, solo en desarrollo; 422 `origenes_no_configurados` / `origen_no_permitido`; también en
+  el receptor `conexion/canjear`). Exige `empresas.todas` global (403) y se emite con el actor real.
+  Nace con vencimiento de 15 min (`VigenciaTokenCanje`); al activar el conector se confirma (sin
+  vencimiento; vencido: 422 `token_entregado_vencido`). Queda en `integracion.conectores.token_entregado_id`
+  y se revoca si el canje no se completa (`defer`, también ante un pánico), al conectar otro del
+  mismo sistema y al desactivar. Si la revocación falla, el job `integracion.revocar_token_entregado`
+  (único por token) la reintenta. `conector_id` de la respuesta: entero positivo o `[A-Za-z0-9_-]{1,64}`.
 - **Rutas comunes por id** (`rutas.go`, las publica `argos.Registrar`): `GET /integraciones/conectores`,
   `POST /integraciones/conectores/{id}/activar|desactivar` (uno activo por sistema, 409
   `otro_conector_activo`; `Sistema.AlActivar` corre en la misma transacción),

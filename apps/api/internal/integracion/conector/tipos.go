@@ -1,9 +1,11 @@
 package conector
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
@@ -141,17 +143,35 @@ type RespuestaCanje struct {
 	Empresas   []json.RawMessage `json:"empresas"`
 }
 
-// IDConexion devuelve el id de la conexión como texto (número o texto).
-func (r RespuestaCanje) IDConexion() *string {
-	id := r.ConectorID
-	if len(strings.TrimSpace(string(id))) == 0 || string(id) == "null" {
-		id = r.ConexionID
+var (
+	idRemotoTexto  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	idRemotoNumero = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
+)
+
+// ConectorIDValido devuelve el id del conector en el otro sistema (conector_id o, en versiones
+// anteriores, conexion_id) como texto: un entero positivo o un texto de hasta 64 caracteres de
+// [A-Za-z0-9_-]. nil si no vino. Cualquier otra cosa es un error (el canje falla y el token
+// entregado se revoca).
+func (r RespuestaCanje) ConectorIDValido() (*string, error) {
+	crudo := bytes.TrimSpace(r.ConectorID)
+	if len(crudo) == 0 || string(crudo) == "null" {
+		crudo = bytes.TrimSpace(r.ConexionID)
 	}
-	crudo := strings.Trim(strings.TrimSpace(string(id)), `"`)
-	if crudo == "" || crudo == "null" {
-		return nil
+	if len(crudo) == 0 || string(crudo) == "null" {
+		return nil, nil
 	}
-	return &crudo
+	var texto string
+	if crudo[0] == '"' {
+		if err := json.Unmarshal(crudo, &texto); err != nil || !idRemotoTexto.MatchString(texto) {
+			return nil, errors.New("conector_id inválido")
+		}
+		return &texto, nil
+	}
+	texto = string(crudo)
+	if !idRemotoNumero.MatchString(texto) {
+		return nil, errors.New("conector_id inválido")
+	}
+	return &texto, nil
 }
 
 // IDsEmpresas acepta [1, 2] o [{ id: 1 }, …].
