@@ -21,7 +21,7 @@ type OrdenDetalle = Schema<"OrdenDetalle">;
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
-const VIVAS: readonly OrdenDetalle["estado"][] = ["programada", "en_camino", "en_sitio", "cerrada"];
+const VIVAS: readonly OrdenDetalle["estado"][] = ["programada", "en_camino", "en_sitio", "pausada", "cerrada"];
 const FIJAS: readonly OrdenDetalle["estado"][] = ["en_camino", "en_sitio", "cerrada"];
 
 export type ContextoRutas = {

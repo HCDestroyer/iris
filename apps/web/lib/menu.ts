@@ -55,7 +55,7 @@ export const MENU: readonly EntradaMenu[] = [
         href: "/administracion",
         etiqueta: "Administración",
         icono: Settings,
-        permisos: ["buzones.ver", "tokens.ver", "roles.ver", "permisos.ver"],
+        permisos: ["buzones.ver", "plantillas.ver", "tokens.ver", "roles.ver", "permisos.ver"],
     },
 ];
 

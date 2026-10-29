@@ -4,6 +4,7 @@ import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
+import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
 import { apiRutas, type ApiRutas } from "./api-rutas";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
@@ -112,6 +113,9 @@ export const PERMISOS_VENTAS: Permiso[] = [
     "prospectos.ver",
 ];
 
+/** Formularios y pausa (PR #29): los de despacho. */
+const PERMISOS_FORMULARIOS: Permiso[] = ["plantillas.ver", "ordenes.asignar_formulario", "ordenes.pausar", "ordenes.reanudar"];
+
 export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_VENTAS.filter((p) => p !== "adjuntos.ver" && p !== "agenda.ver"),
     "factibilidad.configurar",
@@ -126,6 +130,11 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "rutas.ver",
     "integraciones.ver_pendientes",
     ...PERMISOS_ORDENES,
+    ...PERMISOS_FORMULARIOS,
+    "plantillas.crear",
+    "plantillas.editar",
+    "plantillas.activar",
+    "plantillas.desactivar",
     "clientes.estado_cuenta",
     "clientes.ver",
     "empresas.adoptar",
@@ -154,7 +163,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
@@ -225,6 +234,8 @@ export type ApiFalsa = {
     agenda: ApiAgenda["escenario"];
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
+    /** Plantillas de formulario (se pueden cambiar en la prueba). */
+    plantillas: Pick<ApiPlantillas, "plantillas" | "cambiarVersion">;
     /** Prospectos, cotizaciones y contratos del escenario comercial. */
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
@@ -285,10 +296,11 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     let siguienteBuzon = 100;
     // La agenda valida contra las órdenes: se crean juntas (solo con `despacho` se aplican sus reglas).
     const enlace: { agenda?: ApiAgenda } = {};
-    const ordenes = apiOrdenes(
-        empresas.map((e) => e.id),
-        opciones.despacho ? { tecnicos: [3, 11, 12], validarCita: (o, e, accion) => enlace.agenda?.validarCita(o, e, accion) } : {},
-    );
+    const plantillas = apiPlantillas();
+    const ordenes = apiOrdenes(empresas.map((e) => e.id), {
+        plantilla: plantillas.buscar,
+        ...(opciones.despacho ? { tecnicos: [3, 11, 12], validarCita: (o, e, accion) => enlace.agenda?.validarCita(o, e, accion) } : {}),
+    });
     const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     enlace.agenda = agenda;
     const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
@@ -600,6 +612,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 
+        if (await plantillas.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, hayEmpresas: hayRegistradas, empresaId })) {
+            return;
+        }
         if (await comercial.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], actual, puede })) {
             return;
         }
@@ -744,6 +759,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
         rutas: rutas.rutas,
+        plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {

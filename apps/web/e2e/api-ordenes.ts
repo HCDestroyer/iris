@@ -48,8 +48,8 @@ function pagina<T>(lista: readonly T[], q: URLSearchParams, porDefecto = 50): { 
 const TRANSICIONES: Record<string, readonly Orden["estado"][]> = {
     asignar: ["pendiente", "programada", "en_camino"],
     programar: ["pendiente"],
-    reprogramar: ["programada", "en_camino", "fallida"],
-    cancelar: ["pendiente", "programada", "en_camino", "en_sitio"],
+    reprogramar: ["programada", "en_camino", "pausada", "fallida"],
+    cancelar: ["pendiente", "programada", "en_camino", "en_sitio", "pausada"],
     reabrir: ["fallida", "cancelada"],
 };
 
@@ -58,7 +58,22 @@ export type OpcionesOrdenes = {
     tecnicos?: readonly number[];
     /** Reglas de la agenda al programar, reprogramar o asignar (422 legibles). */
     validarCita?: (o: Orden, e: { tecnicoId?: number; inicio?: string; fin?: string }, accion: string) => Problema | undefined;
+    /** Plantillas de formulario (para agregar un formulario a una orden). */
+    plantilla?: (id: number) => { p: Schema<"PlantillaFormulario">; versiones: { id: number; numero: number; nombre: string; requiereFirma: boolean; formularios: number; items: Schema<"ItemPlantilla">[] }[] } | undefined;
 };
+
+const FINALES: readonly Orden["estado"][] = ["cerrada", "fallida", "cancelada"];
+
+/** Cierra la pausa abierta (reanudar, reprogramar o cancelar) y suma su duración. */
+function cerrarPausa(o: Orden, cierre: NonNullable<Schema<"PausaOrden">["cierre"]>, actorId: number, ahora: string) {
+    const abierta = (o.pausas ?? []).find((p) => p.fin === null);
+    if (!abierta) return;
+    const dur = Math.max(0, Math.round((Date.parse(ahora) - Date.parse(abierta.inicio)) / 1000));
+    Object.assign(abierta, { fin: ahora, duracionSeg: dur, cierre, cerradaPor: actorId });
+    o.tiempoPausadoSeg = (o.tiempoPausadoSeg ?? 0) + dur;
+    delete o.pausadaEn;
+    delete o.pausadaDesde;
+}
 
 export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdenes = {}): ApiOrdenes {
     const esc = escenarioOrdenes(Date.now(), empresas);
@@ -162,7 +177,7 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
             return true;
         }
 
-        const deOrden = /^\/api\/v1\/ordenes\/(\d+)(?:\/([a-z-]+))?$/.exec(ruta);
+        const deOrden = /^\/api\/v1\/ordenes\/(\d+)(?:\/([a-z-]+)(?:\/[^/]+\/quitar)?)?$/.exec(ruta);
         if (deOrden) {
             if (!veTodas && !puede("ordenes.ver_propias")) return prohibido(route).then(() => true);
             const o = visibles.find((x) => x.id === Number(deOrden[1]));
@@ -182,6 +197,83 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                     });
                 await json(route, { data, nextCursor: null } satisfies Schema<"PaginaEventoOrden">);
                 return true;
+            }
+            const evento = (tipo: Schema<"EventoOrden">["tipo"], datos: Record<string, unknown>, de: string | null = null, a: string | null = null, motivo: string | null = null) => {
+                const ahora = new Date().toISOString();
+                esc.eventos.push({ id: siguienteEvento++, ordenId: o.id, tipo, de, a, motivo, datos, actorTipo: "usuario", actorId: actual.id, actorNombre: actual.nombre, canal: "panel", ocurridoEn: ahora, creadoEn: ahora });
+            };
+            const conflicto = (detail = "La orden cambió desde que la leíste") => problema(route, { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409, detail }).then(() => true);
+            const regla = (codigo: string, detail: string, status = 422) => problema(route, { type: `urn:iris:problema:${codigo}`, title: "Regla de negocio", status, detail }).then(() => true);
+            const listo = async () => {
+                o.version++;
+                o.actualizadoEn = new Date().toISOString();
+                await json(route, soloOrden(o));
+                return true;
+            };
+            if (metodo === "POST" && (sub === "pausar" || sub === "reanudar")) {
+                if (!puede(`ordenes.${sub}` as Permiso)) return prohibido(route).then(() => true);
+                if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");
+                const e = (cuerpo ?? {}) as Schema<"EntradaPausar">;
+                if (e.version !== o.version) return conflicto();
+                const ahora = new Date().toISOString();
+                if (sub === "pausar") {
+                    if (o.estado === "pausada") return regla("orden_ya_pausada", "La orden ya está pausada", 409);
+                    if (o.estado !== "en_camino" && o.estado !== "en_sitio") return regla("transicion_invalida", `No se puede pausar una orden ${o.estado}`);
+                    if (e.motivo === "otro" && !e.nota) {
+                        await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "nota", message: "Con motivo otro, la nota es obligatoria" }] });
+                        return true;
+                    }
+                    const desde = o.estado;
+                    o.pausas = [...(o.pausas ?? []), { id: 9000 + (o.pausas?.length ?? 0), motivo: e.motivo, nota: e.nota ?? null, desdeEstado: desde, inicio: ahora, fin: null, duracionSeg: null, cierre: null, pausadaPor: actual.id, cerradaPor: null }];
+                    o.estado = "pausada";
+                    o.pausadaDesde = desde;
+                    o.pausadaEn = ahora;
+                    evento("estado", { motivo: e.motivo, nota: e.nota ?? null }, desde, "pausada", e.nota ?? null);
+                } else {
+                    if (o.estado !== "pausada") return regla("orden_no_pausada", "La orden no está pausada", 409);
+                    const a = o.pausadaDesde ?? "en_camino";
+                    cerrarPausa(o, "reanudada", actual.id, ahora);
+                    o.estado = a;
+                    evento("estado", {}, "pausada", a);
+                }
+                return listo();
+            }
+            const fm = /^\/api\/v1\/ordenes\/\d+\/formularios(?:\/([^/]+)\/quitar)?$/.exec(ruta);
+            if (metodo === "POST" && fm) {
+                if (!puede("ordenes.asignar_formulario")) return prohibido(route).then(() => true);
+                if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");
+                if ((cuerpo as { version?: number }).version !== o.version) return conflicto();
+                if (FINALES.includes(o.estado)) return regla("transicion_invalida", `No se pueden cambiar los formularios de una orden ${o.estado}`);
+                const formularios = o.formularios ?? [];
+                if (fm[1]) {
+                    const f = formularios.find((x) => x.id === decodeURIComponent(fm[1] ?? ""));
+                    if (!f) return regla("formulario_ya_quitado", "El formulario ya no está en la orden", 409);
+                    if (f.origen === "tipo") return regla("formulario_del_tipo", "El formulario del tipo de orden no se quita");
+                    if (f.conRespuestas) return regla("formulario_con_respuestas", "El formulario ya tiene respuestas: no se puede quitar");
+                    o.formularios = formularios.filter((x) => x.id !== f.id);
+                    o.checklist = (o.checklist ?? []).filter((i) => i.formularioId !== f.id);
+                    evento("formulario", { accion: "quitado", nombre: f.nombre });
+                    return listo();
+                }
+                const plantillaId = (cuerpo as Schema<"EntradaAgregarFormulario">).plantillaId;
+                const pl = opciones.plantilla?.(plantillaId);
+                if (!pl) {
+                    await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "plantillaId", message: "No existe la plantilla" }] });
+                    return true;
+                }
+                if (!pl.p.activa) return regla("plantilla_inactiva", `La plantilla «${pl.p.nombre}» está desactivada: no se puede agregar`);
+                const ya = formularios.find((x) => x.plantillaId === plantillaId);
+                if (ya) return regla("formulario_duplicado", `La orden ya tiene «${pl.p.nombre}» (formulario ${ya.id})`, 409);
+                const v = pl.versiones.at(-1);
+                const id = `f-${o.id}-${plantillaId}`;
+                o.formularios = [...formularios, { id, plantillaId, codigo: pl.p.codigo, nombre: pl.p.nombre, versionId: v?.id ?? 0, numeroVersion: v?.numero ?? 1, requiereFirma: pl.p.requiereFirma, origen: "despacho", agregadoPor: actual.id, agregadoEn: new Date().toISOString(), conRespuestas: false }];
+                o.checklist = [
+                    ...(o.checklist ?? []),
+                    ...(v?.items ?? []).map((i) => ({ itemId: i.id, formularioId: id, codigo: i.codigo, etiqueta: i.etiqueta, tipo: i.tipo, obligatorio: i.obligatorio, unidad: i.unidad, posicion: i.posicion, ...(i.opciones ? { opciones: i.opciones } : {}), valor: null, marcadoPor: null, ocurridoEn: null })),
+                ];
+                if (v) v.formularios++;
+                evento("formulario", { accion: "agregado", nombre: pl.p.nombre });
+                return listo();
             }
             if (metodo === "POST" && sub && sub in TRANSICIONES) {
                 if (!puede(`ordenes.${sub}` as Permiso)) return prohibido(route).then(() => true);
@@ -221,6 +313,7 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                         await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "body.tecnicoId", message: "Obligatorio" }] });
                         return true;
                     }
+                    if (sub === "reprogramar") cerrarPausa(o, "reprogramada", actual.id, ahora);
                     o.tecnicoId = e.tecnicoId ?? o.tecnicoId;
                     o.programadaInicio = e.inicio ?? null;
                     const dur = TIPOS_ORDEN.find((t) => t.codigo === o.tipo)?.duracionMin ?? 60;
@@ -231,6 +324,7 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                     if (sub === "reprogramar") o.motivo = e.motivo ?? null;
                     esc.eventos.push({ id: siguienteEvento++, ordenId: o.id, tipo: "programada", de: null, a: null, motivo: e.motivo ?? null, datos: { tecnico_id: o.tecnicoId, inicio: o.programadaInicio, fin: o.programadaFin, reprogramada: sub === "reprogramar" }, actorTipo: "usuario", actorId: actual.id, actorNombre: actual.nombre, canal: "panel", ocurridoEn: ahora, creadoEn: ahora });
                 } else if (sub === "cancelar") {
+                    cerrarPausa(o, "cancelada", actual.id, ahora);
                     o.estado = "cancelada";
                     o.resultado = "cancelada";
                     o.motivo = e.motivo ?? null;
