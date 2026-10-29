@@ -83,6 +83,8 @@ func nuevoEntorno(t *testing.T, redesHorus []netip.Prefix) *entorno {
 	})
 	mod := horus.Nuevo(horus.Config{Argos: am, RedesPermitidas: redesHorus, Espera: 5 * time.Millisecond, Timeout: 2 * time.Second})
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
+	// Como cmd/iris: el canje entrega el iris_pat_ del usuario de integración (contrato §1.2).
+	am.Nucleo().FijarTokens(ident)
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Identidad: ident, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Modulos: []func(huma.API){am.Registrar, mod.Registrar},
@@ -219,7 +221,10 @@ func (e *entorno) conectarHorus() (*clienteHTTP, int64, string) {
 	id := int64(r.cuerpo["id"].(float64))
 	activar(e.t, admin, id)
 	var secreto string
-	e.horus.con(func() { secreto, _ = e.horus.canjes[len(e.horus.canjes)-1]["webhook_secreto"].(string) })
+	e.horus.con(func() {
+		wh, _ := e.horus.canjes[len(e.horus.canjes)-1]["webhook"].(map[string]any)
+		secreto, _ = wh["secreto"].(string)
+	})
 	return admin, id, secreto
 }
 
@@ -339,10 +344,14 @@ func TestConectarHorusConEnlace(t *testing.T) {
 	}
 	var canje map[string]any
 	e.horus.con(func() { canje = e.horus.canjes[len(e.horus.canjes)-1] })
-	if canje["sistema"] != "iris" || canje["url"] != "https://iris.prueba" || canje["webhook_url"] != r.cuerpo["webhookUrl"] || canje["webhook_secreto"] == "" {
+	wh, _ := canje["webhook"].(map[string]any)
+	secretoCanje, _ := wh["secreto"].(string)
+	tokenIris, _ := canje["token"].(string)
+	if canje["sistema"] != "iris" || canje["base_url"] != "https://iris.prueba" || wh["url"] != r.cuerpo["webhookUrl"] || secretoCanje == "" ||
+		!strings.HasPrefix(tokenIris, "iris_pat_") {
 		t.Fatalf("canje en Horus: %v", canje)
 	}
-	e.sinSecretos(tokenHorus, canje["webhook_secreto"].(string))
+	e.sinSecretos(tokenHorus, secretoCanje, tokenIris)
 	if e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.creado' AND payload->>'sistema' = 'horus' AND (payload->>'conector_id')::bigint = $1`, id) != 1 {
 		t.Fatal("falta conector.creado")
 	}

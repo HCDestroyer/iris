@@ -147,6 +147,8 @@ func nuevoEntorno(t *testing.T) *entorno {
 		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Timeout: 2 * time.Second,
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 	})
+	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
+	am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
 	e := &entorno{t: t, pool: pool, argos: fa, am: am, bus: integracion.NuevoBus(),
 		reloj: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
 	e.m = pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})

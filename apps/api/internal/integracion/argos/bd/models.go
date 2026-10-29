@@ -703,7 +703,7 @@ type IntegracionArgosCliente struct {
 
 type IntegracionArgosRouter struct {
 	ID             int64
-	EmpresaID      int64
+	EmpresaID      *int64
 	Nombre         string
 	ZonaID         *int64
 	Lat            *float64
@@ -736,7 +736,7 @@ type IntegracionArgosServicio struct {
 
 type IntegracionArgosZona struct {
 	ID             int64
-	EmpresaID      int64
+	EmpresaID      *int64
 	Nombre         string
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
@@ -773,6 +773,7 @@ type IntegracionConectore struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	UrlPublica            *string
+	TokenEntregadoID      *int64
 }
 
 type IntegracionEntrante struct {

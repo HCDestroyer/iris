@@ -34,6 +34,8 @@ type Remoto struct {
 	Nombre string
 	// VariableRedes es la variable de entorno con sus redes internas permitidas.
 	VariableRedes string
+	// VariableOrigenes es la variable de entorno con los orígenes de sus enlaces de conexión.
+	VariableOrigenes string
 }
 
 // Cliente llama a la API de un conector.

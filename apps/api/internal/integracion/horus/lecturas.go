@@ -143,7 +143,14 @@ func nuevoConsultarRouter(m *Modulo) *ConsultarRouter {
 	return nuevaLectura(m, "horus.router", "router_argos",
 		func(ctx context.Context, q *argosbd.Queries, id int64) (int64, error) {
 			r, err := q.RouterPorID(ctx, id)
-			return r.EmpresaID, err
+			if err == nil && r.EmpresaID == nil {
+				// Sin empresa sugerida en Argos: lo usan todas las empresas.
+				return contexto.EmpresaDe(ctx), nil
+			}
+			if err != nil {
+				return 0, err
+			}
+			return *r.EmpresaID, nil
 		},
 		func(ctx context.Context, c *Cliente, id int64) (Router, error) {
 			h, err := c.Router(ctx, id)
