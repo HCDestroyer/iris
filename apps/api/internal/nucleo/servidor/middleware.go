@@ -8,6 +8,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -66,15 +68,25 @@ func middlewareLog(log *slog.Logger) func(http.Handler) http.Handler {
 			if reg.status >= 500 {
 				nivel = slog.LevelError
 			}
-			log.LogAttrs(r.Context(), nivel, "http",
+			attrs := []slog.Attr{
 				slog.String("metodo", r.Method),
-				slog.String("ruta", r.URL.Path),
+				// Ruta escapada (un %2F dentro de un token no parte el segmento) y con los
+				// secretos de las rutas públicas como *** (nucleo.EnmascararRuta).
+				slog.String("ruta", nucleo.EnmascararRuta(r.URL.EscapedPath())),
 				slog.String("ip", nucleo.HostDe(r.RemoteAddr)),
 				slog.Int("status", reg.status),
 				slog.Int("bytes", reg.bytes),
 				slog.Duration("duracion", time.Since(inicio)),
 				slog.String("request_id", contexto.RequestIDDe(r.Context())),
-			)
+			}
+			// El patrón de chi (/api/v1/tickets/{id}) no lleva valores: sirve para agrupar
+			// y nunca contiene un secreto. Vacío si ninguna ruta coincidió.
+			if rc := chi.RouteContext(r.Context()); rc != nil {
+				if patron := rc.RoutePattern(); patron != "" {
+					attrs = append(attrs, slog.String("patron", patron))
+				}
+			}
+			log.LogAttrs(r.Context(), nivel, "http", attrs...)
 		})
 	}
 }

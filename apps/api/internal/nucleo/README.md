@@ -2,9 +2,15 @@
 
 Piezas comunes de la API: errores RFC 9457 (`Problema`), transacciones (`EnTx`), paginación por
 cursor, `version` → 409, `Idempotency-Key`, cifrado de secretos y el catálogo único de permisos
-(`permisos.go`). **IP del cliente** (`ip.go`): `IPCliente` resuelve `X-Forwarded-For` solo desde
+(`permisos.go`). **Rutas con secretos** (`rutas_secretas.go`): las rutas públicas con un secreto
+en un segmento (hoy `/api/v1/encuestas/publica/{token}` y sus subrutas) se registran como
+plantilla (`RutasConSecretoBase` o `RegistrarRutaConSecreto` desde el módulo); `EnmascararRuta`
+las deja con `***` y es lo único que debe escribir una ruta en logs, trazas o métricas. El log de
+acceso escribe `ruta` (escapada y enmascarada, sin query) y `patron` (el de chi, sin valores).
+**IP del cliente** (`ip.go`): `IPCliente` resuelve `X-Forwarded-For` solo desde
 `IRIS_PROXIES_CONFIABLES`; el servidor reescribe `RemoteAddr` una vez por petición y todos leen la IP con
-`HostDe(RemoteAddr)`. Subpaquetes:
+`HostDe(RemoteAddr)`.
+Subpaquetes:
 
 - `contexto`: `Actor` (también el **actor cliente** del portal: `ActorCliente`, con `ClienteID` y
   `EmpresaID` de Argos), `Canal`, `RequestID`, permisos efectivos con alcance (zona/cuadrilla) y
