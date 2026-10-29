@@ -2,6 +2,7 @@ package campo_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -630,4 +632,59 @@ func TestRevisionEdicionDeActivaSinUsoCreaVersion(t *testing.T) {
 		slices.ContainsFunc(detalle(t, e, o.ID).Checklist, func(it campo.ItemChecklist) bool { return it.Codigo == "nuevo" }) {
 		t.Fatalf("el formulario conserva la versión que vio el teléfono: %+v", f)
 	}
+}
+
+// Ajuste del panel: sin empresa activa (modo «todas», el sistema) una plantilla solo es común si
+// se pide (comun: true); si no, 422 empresa_requerida.
+func TestPlantillaComunSoloExplicita(t *testing.T) {
+	e := nuevoEntorno()
+	sis := pruebas.ContextoSistema(pruebas.Pool(t))
+	codigo := "sin_empresa_" + strings.ReplaceAll(pruebas.Unico(), "-", "_")
+	_, err := e.m.CrearPlantilla.Ejecutar(sis, campo.EntradaCrearPlantilla{Codigo: codigo, Nombre: "X", Items: itemsPrueba()})
+	problema(t, err, 422, "empresa_requerida")
+	p := deber(e.m.CrearPlantilla.Ejecutar(sis, campo.EntradaCrearPlantilla{Codigo: codigo, Nombre: "X", Comun: true, Items: itemsPrueba()}))(t)
+	if p.EmpresaID != nil {
+		t.Fatalf("común explícita: %+v", p.EmpresaID)
+	}
+	// Sin conector sigue siendo común sin pedirlo.
+	q := crearPlantilla(t, e, supervisor(t), false)
+	if q.EmpresaID != nil {
+		t.Fatalf("sin conector: %+v", q.EmpresaID)
+	}
+}
+
+// GET /plantillas paginado por cursor (por nombre), con los filtros.
+func TestListarPlantillasPorCursor(t *testing.T) {
+	e := nuevoEntorno()
+	cs := supervisor(t)
+	marca := strings.ReplaceAll(pruebas.Unico(), "-", "_")
+	for i := range 5 {
+		deber(e.m.CrearPlantilla.Ejecutar(cs, campo.EntradaCrearPlantilla{Codigo: fmt.Sprintf("pag_%s_%d", marca, i),
+			Nombre: fmt.Sprintf("Paginada %s %d", marca, i), Borrador: i == 4, Items: itemsPrueba()}))(t)
+	}
+	vistas := []string{}
+	in := campo.EntradaListarPlantillas{Q: "Paginada " + marca, Todas: true}
+	in.Limit = 2
+	for paginas := 0; ; paginas++ {
+		pg := deber(e.m.ListarPlantillas.Ejecutar(cs, in))(t)
+		for _, p := range pg.Data {
+			vistas = append(vistas, p.Nombre)
+		}
+		if pg.NextCursor == nil {
+			if paginas != 2 {
+				t.Fatalf("páginas: %d", paginas+1)
+			}
+			break
+		}
+		in.Cursor = *pg.NextCursor
+	}
+	if len(vistas) != 5 || !slices.IsSorted(vistas) {
+		t.Fatalf("todas, por nombre y sin repetir: %v", vistas)
+	}
+	// Sin todas, el borrador (inactivo) no sale.
+	if pg := deber(e.m.ListarPlantillas.Ejecutar(cs, campo.EntradaListarPlantillas{Q: "Paginada " + marca}))(t); len(pg.Data) != 4 || pg.NextCursor != nil {
+		t.Fatalf("activas: %d", len(pg.Data))
+	}
+	_, err := e.m.ListarPlantillas.Ejecutar(cs, campo.EntradaListarPlantillas{ParamsPagina: nucleo.ParamsPagina{Cursor: "@@"}})
+	problema(t, err, 422, "validacion")
 }

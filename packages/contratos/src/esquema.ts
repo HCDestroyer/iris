@@ -1538,7 +1538,7 @@ export interface paths {
         };
         /**
          * Plantillas de formulario (catálogo)
-         * @description Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`.
+         * @description Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual, por nombre. Cursor (`?cursor=&limit=`, 50 por defecto): `{ data, nextCursor }`.
          */
         get: operations["listarPlantillas"];
         put?: never;
@@ -13742,6 +13742,10 @@ export interface operations {
     listarPlantillas: {
         parameters: {
             query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
                 /** @description Las de ese tipo y las de cualquier tipo */
                 tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
                 /** @description Busca en nombre y código */

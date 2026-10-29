@@ -39,6 +39,17 @@ WHERE (@todas_empresas::boolean OR empresa_id IS NULL OR empresa_id = sqlc.narg(
 ORDER BY nombre, id
 LIMIT 500;
 
+-- name: PaginaPlantillas :many
+-- GET /plantillas: mismas reglas que PlantillasVisibles, por nombre e id (cursor: el último).
+SELECT * FROM campo.plantillas_checklist
+WHERE (@todas_empresas::boolean OR empresa_id IS NULL OR empresa_id = sqlc.narg(empresa_id))
+  AND (NOT @solo_activas::boolean OR activa)
+  AND (sqlc.narg(tipo)::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = sqlc.narg(tipo))
+  AND (sqlc.narg(q)::text IS NULL OR nombre ILIKE '%' || sqlc.narg(q) || '%' OR codigo ILIKE '%' || sqlc.narg(q) || '%')
+  AND (sqlc.narg(despues_id)::bigint IS NULL OR (nombre, id) > (sqlc.narg(despues_nombre)::text, sqlc.narg(despues_id)::bigint))
+ORDER BY nombre, id
+LIMIT @limite;
+
 -- name: CrearPlantilla :one
 -- Nace con una versión provisional (la 1 se crea enseguida y se fija con FijarVersionActual).
 INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo, requiere_firma, empresa_id, creado_por,

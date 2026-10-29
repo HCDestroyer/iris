@@ -2620,6 +2620,77 @@ func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden,
 	return items, nil
 }
 
+const paginaPlantillas = `-- name: PaginaPlantillas :many
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa FROM campo.plantillas_checklist
+WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
+  AND (NOT $3::boolean OR activa)
+  AND ($4::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = $4)
+  AND ($5::text IS NULL OR nombre ILIKE '%' || $5 || '%' OR codigo ILIKE '%' || $5 || '%')
+  AND ($6::bigint IS NULL OR (nombre, id) > ($7::text, $6::bigint))
+ORDER BY nombre, id
+LIMIT $8
+`
+
+type PaginaPlantillasParams struct {
+	TodasEmpresas bool
+	EmpresaID     *int64
+	SoloActivas   bool
+	Tipo          *string
+	Q             *string
+	DespuesID     *int64
+	DespuesNombre *string
+	Limite        int32
+}
+
+// GET /plantillas: mismas reglas que PlantillasVisibles, por nombre e id (cursor: el último).
+func (q *Queries) PaginaPlantillas(ctx context.Context, arg PaginaPlantillasParams) ([]CampoPlantillasChecklist, error) {
+	rows, err := q.db.Query(ctx, paginaPlantillas,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.SoloActivas,
+		arg.Tipo,
+		arg.Q,
+		arg.DespuesID,
+		arg.DespuesNombre,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoPlantillasChecklist
+	for rows.Next() {
+		var i CampoPlantillasChecklist
+		if err := rows.Scan(
+			&i.ID,
+			&i.Codigo,
+			&i.Nombre,
+			&i.TipoCodigo,
+			&i.RequiereFirma,
+			&i.Activa,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Cobrar,
+			&i.CargoProductoID,
+			&i.CargoMonto,
+			&i.CargoDescripcion,
+			&i.EmpresaID,
+			&i.Descripcion,
+			&i.CreadoPor,
+			&i.VersionActualID,
+			&i.AlgunaVezActiva,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pausaAbierta = `-- name: PausaAbierta :one
 SELECT id, orden_id, motivo, nota, desde_estado, inicio, fin, cierre, pausada_por, cerrada_por, canal, canal_cierre, operacion_id, operacion_cierre, created_at, updated_at FROM campo.orden_pausas WHERE orden_id = $1 AND fin IS NULL
 `

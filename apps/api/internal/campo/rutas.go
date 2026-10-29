@@ -73,7 +73,7 @@ type conFormulario struct {
 // registrarPlantillas publica el catálogo administrable de plantillas de formulario.
 func (m *Modulo) registrarPlantillas(api huma.API) {
 	listar := operacion("listarPlantillas", http.MethodGet, "/api/v1/plantillas", "Plantillas de formulario (catálogo)", nucleo.PermPlantillasVer, http.StatusOK)
-	listar.Description += " Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`."
+	listar.Description += " Las comunes y las de la empresa activa, con los ítems de su versión actual, por nombre. Cursor (`?cursor=&limit=`, 50 por defecto): `{ data, nextCursor }`."
 	huma.Register(api, listar, func(ctx context.Context, in *EntradaListarPlantillas) (*cuerpo[nucleo.Pagina[PlantillaFormulario]], error) {
 		return responder(m.ListarPlantillas.Ejecutar(ctx, *in))
 	})
