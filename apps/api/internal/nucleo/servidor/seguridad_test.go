@@ -307,8 +307,8 @@ func TestIdempotenciaRetomaClaveAbandonada(t *testing.T) {
 	_, _ = fmt.Fprintf(h, "%s\n%s\n", http.MethodPost, "/api/v1/usuarios")
 	h.Write(crudo)
 	clave := "aband-" + pruebas.Unico()
-	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.idempotencia (actor, clave, metodo, ruta, hash_peticion, expira_en, updated_at)
-		VALUES ($1, $2, 'POST', '/api/v1/usuarios', $3, now() + interval '1 day', now() - interval '10 seconds')`,
+	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.idempotencia (actor, clave, metodo, ruta, hash_peticion, hash_formato, expira_en, updated_at)
+		VALUES ($1, $2, 'POST', '/api/v1/usuarios', $3, 0, now() + interval '1 day', now() - interval '10 seconds')`,
 		fmt.Sprintf("usuario:%d", idAdmin), clave, h.Sum(nil)); err != nil {
 		t.Fatal(err)
 	}

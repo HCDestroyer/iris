@@ -118,13 +118,13 @@ func TestIdempotenciaFilasViejas(t *testing.T) {
 	clave := "vieja-" + pruebas.Unico()
 	guardada := []byte(`{"id":4242,"nombre":"Viejo"}`)
 	if _, err := pruebas.Pool(t).Exec(ctx, `INSERT INTO nucleo.idempotencia
-		(actor, clave, metodo, ruta, hash_peticion, estado, status, content_type, respuesta, expira_en)
-		VALUES ($1, $2, 'POST', '/api/v1/usuarios', $3, 'completa', 201, 'application/json', $4, now() + interval '1 day')`,
+		(actor, clave, metodo, ruta, hash_peticion, hash_formato, estado, status, content_type, respuesta, expira_en)
+		VALUES ($1, $2, 'POST', '/api/v1/usuarios', $3, 0, 'completa', 201, 'application/json', $4, now() + interval '1 day')`,
 		fmt.Sprintf("usuario:%d", idAdmin), clave, shaPlano(http.MethodPost, "/api/v1/usuarios", crudo), guardada); err != nil {
 		t.Fatal(err)
 	}
 	if f := leerFila(t, fmt.Sprintf("usuario:%d", idAdmin), clave); f.formato != 0 {
-		t.Fatalf("una fila sin formato es la vieja (0): %d", f.formato)
+		t.Fatalf("la fila vieja es de formato 0: %d", f.formato)
 	}
 	r := c.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo, nucleo.CabeceraIdempotencia, clave)
 	if r.status != 201 || r.h.Get(nucleo.CabeceraRepetida) != "true" || !bytes.Equal(r.crudo, guardada) {
