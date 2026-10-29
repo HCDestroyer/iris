@@ -1,25 +1,28 @@
 # APK de Android de la app de campo (apps/movil, Expo) compilado aquí mismo, sin EAS ni cuentas
 # externas (decisión del PM). Runbook: docs/runbooks/movil-apk.md.
 #
-# - A mano: Actions → «APK de Android» → Run workflow, con la URL https de la API. Versión
-#   0.0.0-dev+<sha corto>; el APK queda como artefacto (30 días).
-# - Release publicada a mano: `release: published` compila esa versión y la adjunta.
-# - En cada versión: release.yml lo llama como workflow reutilizable cuando release-please crea la
-#   release (una release creada con GITHUB_TOKEN no dispara `release: published`), con la versión y
-#   la URL de la variable del repo IRIS_MOVIL_API_URL, y lo adjunta a la GitHub Release como
-#   iris-campo-<versión>.apk.
+# Jobs, para que la llave nunca conviva con código de terceros:
+#   preparar  decide el modo (real o prueba), la versión, el versionCode y la URL de la API.
+#   compilar  sin secretos: pnpm install, expo prebuild y Gradle → APK SIN FIRMAR (artefacto).
+#   firmar    sin checkout ni pnpm: baja el APK y lo firma con el apksigner del SDK del runner. En
+#             modo real entra al environment `android-firma` (secretos ANDROID_*, ramas/tags
+#             permitidos y revisor obligatorio, configurados por el dueño del repo); en modo prueba,
+#             sin environment, con una llave de un solo uso (iris-campo-<v>-prueba.apk).
+#   publicar  solo con una release: adjunta el APK firmado (único job con contents: write).
 #
-# Firma: con los secretos ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS y
-# ANDROID_KEY_PASSWORD (el keystore va a $RUNNER_TEMP y se borra). Sin ellos, con una llave de
-# PRUEBA generada en el job: el archivo se llama iris-campo-<versión>-prueba.apk y no sirve para
-# actualizar una instalación firmada con otra llave.
+# Modos:
+# - Versión (release-please → release.yml → workflow_call, o release publicada a mano): exige una
+#   etiqueta vX.Y.Z cuyo commit esté en main; firma real; si falta un secreto ANDROID_*, falla.
+# - A mano (workflow_dispatch) desde main: firma real si el environment tiene los secretos; si no,
+#   prueba. Desde cualquier otra rama: siempre prueba y nunca entra al environment.
+#
+# versionCode (un solo origen, monótono): versión X.Y.Z → (X·10000 + Y·100 + Z)·100. A mano: el del
+# último tag vX.Y.Z alcanzable + (run_number % 99) + 1, así nunca llega al de la versión siguiente.
 #
 # No corre en PRs. Acciones fijadas por SHA; los inputs llegan a los scripts por `env:`.
 name: APK de Android
 
 on:
-  # Releases creadas a mano (una persona o un token que no sea GITHUB_TOKEN). Las de release-please
-  # llegan por workflow_call desde release.yml.
   release:
     types: [published]
   workflow_dispatch:
@@ -30,67 +33,139 @@ on:
         type: string
   workflow_call:
     inputs:
-      version:
-        description: Versión (versionName), p. ej. 0.3.0
+      tag:
+        description: Etiqueta vX.Y.Z de la GitHub Release (compila ese commit y adjunta el APK)
         required: true
         type: string
-      tag:
-        description: Etiqueta de la GitHub Release donde se adjunta el APK (vacía = no se adjunta)
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
         required: false
-        type: string
-        default: ''
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: movil-apk-${{ github.ref }}-${{ inputs.version || 'dispatch' }}
+  group: movil-apk-${{ github.ref }}-${{ inputs.tag || github.event.release.tag_name || 'dispatch' }}
   cancel-in-progress: false
 
 jobs:
-  compilar:
-    name: Compilar y firmar el APK
+  preparar:
+    name: Versión, modo y URL
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 5
     permissions:
       contents: read
     outputs:
-      archivo: ${{ steps.firmar.outputs.archivo }}
+      ref: ${{ steps.p.outputs.ref }}
+      version: ${{ steps.p.outputs.version }}
+      codigo: ${{ steps.p.outputs.codigo }}
+      real: ${{ steps.p.outputs.real }}
+      tag: ${{ steps.p.outputs.tag }}
+      api_url: ${{ steps.p.outputs.api_url }}
+    env:
+      EVENTO: ${{ github.event_name }}
+      TAG_ENTRADA: ${{ inputs.tag || github.event.release.tag_name }}
+      # A mano: el input; en una versión: la variable del repo.
+      API_URL: ${{ inputs.api_url || vars.IRIS_MOVIL_API_URL }}
+      CORRIDA: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: p
+        run: |
+          set -euo pipefail
+          re_url='^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$'
+          if [[ -z "$API_URL" ]]; then
+            echo "::error::Falta la URL de la API: input api_url (a mano) o variable del repo IRIS_MOVIL_API_URL (en una versión)."
+            exit 1
+          fi
+          if [[ ! "$API_URL" =~ $re_url ]]; then
+            echo "::error::URL de la API no válida: tiene que ser https://host[:puerto][/ruta], sin usuario, query ni espacios."
+            exit 1
+          fi
+          api_url="${API_URL%/}"
+
+          codigo_de() { # X.Y.Z → (X·10000 + Y·100 + Z)·100
+            local x y z
+            IFS=. read -r x y z <<<"$1"
+            echo $(((10#$x * 10000 + 10#$y * 100 + 10#$z) * 100))
+          }
+
+          if [[ "$EVENTO" == "workflow_dispatch" ]]; then
+            ultimo="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$GITHUB_SHA" 2>/dev/null || echo v0.0.0)"
+            base="${ultimo#v}"
+            [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || base=0.0.0
+            version="${base}-dev+${GITHUB_SHA::7}"
+            codigo=$(($(codigo_de "$base") + CORRIDA % 99 + 1))
+            ref="$GITHUB_SHA"
+            tag=""
+            # Solo un dispatch desde main puede entrar al environment de la llave real.
+            if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then real=true; else real=false; fi
+          else
+            if [[ ! "$TAG_ENTRADA" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Una versión necesita una etiqueta vX.Y.Z (vale «$TAG_ENTRADA»)."
+              exit 1
+            fi
+            commit="$(git rev-list -n 1 "refs/tags/$TAG_ENTRADA")"
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor "$commit" origin/main || ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::La etiqueta $TAG_ENTRADA (o el commit de la corrida) no está en main: no se firma con la llave real."
+              exit 1
+            fi
+            version="${TAG_ENTRADA#v}"
+            codigo="$(codigo_de "$version")"
+            ref="$commit"
+            tag="$TAG_ENTRADA"
+            real=true
+          fi
+          if ((codigo < 1 || codigo > 2100000000)); then
+            echo "::error::versionCode fuera de rango: $codigo"
+            exit 1
+          fi
+          {
+            echo "ref=$ref"
+            echo "version=$version"
+            echo "codigo=$codigo"
+            echo "real=$real"
+            echo "tag=$tag"
+            echo "api_url=$api_url"
+          } >>"$GITHUB_OUTPUT"
+          modo=PRUEBA
+          [[ "$real" == true ]] && modo=real
+          echo "Versión $version · versionCode $codigo · firma $modo · API $api_url" >>"$GITHUB_STEP_SUMMARY"
+
+  compilar:
+    name: Compilar APK sin firmar
+    needs: preparar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Sin secretos: aquí corre todo el código de terceros (npm, Gradle).
+    permissions:
+      contents: read
     env:
       TZ: UTC
       EXPO_NO_TELEMETRY: '1'
       CI: '1'
-      # Dispatch: el input; release: la variable del repo. Se valida abajo.
-      EXPO_PUBLIC_IRIS_API_URL: ${{ inputs.api_url || vars.IRIS_MOVIL_API_URL }}
-      VERSION_ENTRADA: ${{ inputs.version || github.event.release.tag_name }}
-      IRIS_MOVIL_VERSION_CODE: ${{ github.run_number }}
+      EXPO_PUBLIC_IRIS_API_URL: ${{ needs.preparar.outputs.api_url }}
+      IRIS_MOVIL_VERSION: ${{ needs.preparar.outputs.version }}
+      IRIS_MOVIL_VERSION_CODE: ${{ needs.preparar.outputs.codigo }}
     defaults:
       run:
         working-directory: apps/movil
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          ref: ${{ needs.preparar.outputs.ref }}
           persist-credentials: false
-
-      - name: Validar URL de la API y versión
-        run: |
-          if [[ -z "$EXPO_PUBLIC_IRIS_API_URL" ]]; then
-            echo "::error::Falta la URL de la API: input api_url (a mano) o variable del repo IRIS_MOVIL_API_URL (en una versión)."
-            exit 1
-          fi
-          if [[ "$EXPO_PUBLIC_IRIS_API_URL" != https://* ]]; then
-            echo "::error::La URL de la API debe empezar con https:// (la app la exige fuera de desarrollo; validarUrlApi)."
-            exit 1
-          fi
-          version="${VERSION_ENTRADA#v}"
-          if [[ -z "$version" ]]; then
-            version="0.0.0-dev+${GITHUB_SHA::7}"
-          fi
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
-            echo "::error::Versión no válida: $version"
-            exit 1
-          fi
-          echo "IRIS_MOVIL_VERSION=$version" >>"$GITHUB_ENV"
 
       # Versión de pnpm desde "packageManager" del package.json raíz (como ci.yml).
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -112,13 +187,29 @@ jobs:
       # El runner ubuntu-24.04 trae el Android SDK (ANDROID_HOME) con licencias aceptadas; Gradle
       # baja solo la plataforma o el NDK que falten.
       - name: Comprobar Android SDK
-        run: |
-          test -d "${ANDROID_HOME:?ANDROID_HOME vacío}" || { echo "::error::El runner no trae Android SDK"; exit 1; }
-          find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1 | tee "$RUNNER_TEMP/build-tools"
+        run: test -d "${ANDROID_HOME:?ANDROID_HOME vacío}" || { echo "::error::El runner no trae Android SDK"; exit 1; }
 
       # CNG: android/ se genera aquí y no se commitea (apps/movil/.gitignore).
       - name: expo prebuild
         run: pnpm exec expo prebuild --platform android --clean --no-install
+
+      # La plantilla de Expo trae el wrapper sin suma: se fija la de la distribución. Si cambia la
+      # versión de Gradle, actualizar GRADLE_VERSION y GRADLE_SHA256 (services.gradle.org).
+      - name: Fijar la distribución de Gradle
+        env:
+          GRADLE_VERSION: 9.4.1
+          GRADLE_SHA256: 2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb
+        run: |
+          set -euo pipefail
+          props=android/gradle/wrapper/gradle-wrapper.properties
+          if ! grep -q "gradle-${GRADLE_VERSION}-bin.zip" "$props"; then
+            echo "::error::expo prebuild generó otra versión de Gradle ($(grep distributionUrl "$props")): actualiza GRADLE_VERSION y GRADLE_SHA256."
+            exit 1
+          fi
+          sed -i '/^distributionSha256Sum=/d' "$props"
+          echo "distributionSha256Sum=${GRADLE_SHA256}" >>"$props"
+
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       - name: gradlew assembleRelease
         working-directory: apps/movil/android
@@ -126,58 +217,100 @@ jobs:
           NODE_ENV: production
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
+      - name: Subir APK sin firmar
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk-sin-firmar
+          path: apps/movil/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  firmar:
+    name: Firmar APK
+    needs: [preparar, compilar]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Modo real: environment con los secretos y sus reglas. Modo prueba: sin environment.
+    environment: ${{ needs.preparar.outputs.real == 'true' && 'android-firma' || '' }}
+    permissions: {}
+    outputs:
+      archivo: ${{ steps.firmar.outputs.archivo }}
+    env:
+      REAL: ${{ needs.preparar.outputs.real }}
+      EVENTO: ${{ github.event_name }}
+      VERSION: ${{ needs.preparar.outputs.version }}
+      CODIGO: ${{ needs.preparar.outputs.codigo }}
+      API_URL: ${{ needs.preparar.outputs.api_url }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: apk-sin-firmar
+          path: ${{ runner.temp }}/sin-firmar
+
       - name: Firmar
         id: firmar
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # En modo prueba ni se leen (aunque existieran como secretos del repo).
+          KEYSTORE_BASE64: ${{ needs.preparar.outputs.real == 'true' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          KEYSTORE_PASSWORD: ${{ needs.preparar.outputs.real == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ needs.preparar.outputs.real == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ needs.preparar.outputs.real == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
-          herramientas="$ANDROID_HOME/build-tools/$(cat "$RUNNER_TEMP/build-tools")"
-          origen="android/app/build/outputs/apk/release/app-release.apk"
+          herramientas="$(find "${ANDROID_HOME:?}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          apksigner="$herramientas/apksigner"
+          test -x "$apksigner" || { echo "::error::No está apksigner en el SDK del runner"; exit 1; }
+          origen="$RUNNER_TEMP/sin-firmar/app-release.apk"
           keystore="$RUNNER_TEMP/iris-campo.jks"
+          trap 'rm -f "$keystore"' EXIT
+          completos=false
           if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            completos=true
+          fi
+          if [[ "$REAL" == true && "$completos" == true ]]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d >"$keystore"
-            archivo="iris-campo-${IRIS_MOVIL_VERSION}.apk"
+            archivo="iris-campo-${VERSION}.apk"
             prueba=false
+          elif [[ "$EVENTO" != "workflow_dispatch" ]]; then
+            echo "::error::Una versión se firma con la llave real: faltan secretos ANDROID_* en el environment android-firma."
+            exit 1
           else
-            # Llave de prueba de un solo uso: contraseña al azar, nunca se guarda.
+            # Llave de prueba de un solo uso: contraseña al azar, nunca se guarda ni va en la línea de comandos.
             KEYSTORE_PASSWORD="$(openssl rand -hex 24)"
+            echo "::add-mask::$KEYSTORE_PASSWORD"
             KEY_PASSWORD="$KEYSTORE_PASSWORD"
             KEY_ALIAS=prueba
-            echo "::add-mask::$KEYSTORE_PASSWORD"
-            keytool -genkeypair -v -keystore "$keystore" -storetype PKCS12 -alias "$KEY_ALIAS" \
-              -keyalg RSA -keysize 4096 -validity 30 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+            export KEYSTORE_PASSWORD KEY_PASSWORD
+            keytool -genkeypair -keystore "$keystore" -storetype PKCS12 -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 4096 -validity 30 -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD \
               -dname "CN=Iris Campo PRUEBA, O=Iris, C=GT" >/dev/null 2>&1
-            archivo="iris-campo-${IRIS_MOVIL_VERSION}-prueba.apk"
+            archivo="iris-campo-${VERSION}-prueba.apk"
             prueba=true
           fi
           export KEYSTORE_PASSWORD KEY_PASSWORD
           mkdir -p "$RUNNER_TEMP/apk"
           destino="$RUNNER_TEMP/apk/$archivo"
-          "$herramientas/apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+          "$apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$destino" "$origen"
           rm -f "$keystore"
-          "$herramientas/apksigner" verify --print-certs "$destino" | grep -E "Signer #1 certificate (DN|SHA-256)" >"$RUNNER_TEMP/certificado"
+          certificado="$("$apksigner" verify --print-certs "$destino" | grep -E 'Signer #1 certificate (DN|SHA-256)' | tr '\n' ' ')"
           sha="$(sha256sum "$destino" | cut -d' ' -f1)"
           {
             echo "## APK de Android: \`$archivo\`"
             echo
-            echo "- Versión: \`$IRIS_MOVIL_VERSION\` · versionCode \`$IRIS_MOVIL_VERSION_CODE\`"
-            echo "- API: \`$EXPO_PUBLIC_IRIS_API_URL\`"
+            echo "- Versión: \`$VERSION\` · versionCode \`$CODIGO\`"
+            echo "- API: \`$API_URL\`"
             echo "- SHA-256 del APK: \`$sha\`"
-            echo "- Certificado: \`$(tr '\n' ' ' <"$RUNNER_TEMP/certificado")\`"
+            echo "- Certificado: \`$certificado\`"
             if [[ "$prueba" == true ]]; then
               echo
-              echo "> **APK de PRUEBA**: firmado con una llave generada en este job (faltan los secretos ANDROID_*)."
+              echo "> **APK de PRUEBA**: firmado con una llave generada en este job (fuera de main o sin los secretos del environment android-firma)."
               echo "> No sirve para actualizar una instalación firmada con otra llave: hay que desinstalar antes."
             fi
           } >>"$GITHUB_STEP_SUMMARY"
           echo "archivo=$archivo" >>"$GITHUB_OUTPUT"
 
-      - name: Subir artefacto
+      - name: Subir APK firmado
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.firmar.outputs.archivo }}
@@ -187,22 +320,22 @@ jobs:
 
   publicar:
     name: Adjuntar a la GitHub Release
-    needs: compilar
-    if: inputs.tag || github.event_name == 'release'
+    needs: [preparar, firmar]
+    if: needs.preparar.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Única parte con escritura: subir el APK a la release.
     permissions:
       contents: write
     env:
-      ARCHIVO: ${{ needs.compilar.outputs.archivo }}
-      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      ARCHIVO: ${{ needs.firmar.outputs.archivo }}
+      TAG: ${{ needs.preparar.outputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: ${{ needs.compilar.outputs.archivo }}
+          name: ${{ needs.firmar.outputs.archivo }}
           path: apk
 
       - name: gh release upload
