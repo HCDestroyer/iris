@@ -6,7 +6,8 @@ import { JORGE, LUCIA, ROSA } from "./datos-agenda";
  * Reportes (Fase 5) en la API falsa (e2e/api-falsa.ts), tipados con packages/contratos y fieles a
  * internal/reportes: permiso `reportes.ver`, `desde`/`hasta` obligatorios (422 `validacion`),
  * como mucho 366 días (422 `rango_excedido`), porcentajes `null` sin base, reincidencias con
- * cursor y `?formato=csv` → `text/csv` con BOM (422 `exportacion_excedida` si se pide).
+ * cursor (el ticket siguiente fuera del alcance en null), `prioridad` con 4 valores como mucho
+ * y `?formato=csv` → `text/csv` con BOM (422 `exportacion_excedida` si se pide).
  */
 
 type Problema = Schema<"Problema">;
@@ -108,10 +109,11 @@ export const REINCIDENCIAS: Schema<"Reincidencia">[] = Array.from({ length: 60 }
         clienteId: 501,
         servicioId: 9001 + i,
         resueltoEn: new Date(resuelto).toISOString(),
-        siguienteId: 8000 + i,
-        siguienteNumero: `TK-${String(8000 + i).padStart(6, "0")}`,
-        siguienteCreadoEn: new Date(resuelto + horas * 3600_000).toISOString(),
-        horasHastaVolver: horas,
+        // El siguiente de la 7003 está fuera del alcance del usuario: la API lo manda en null.
+        siguienteId: i === 3 ? null : 8000 + i,
+        siguienteNumero: i === 3 ? null : `TK-${String(8000 + i).padStart(6, "0")}`,
+        siguienteCreadoEn: i === 3 ? null : new Date(resuelto + horas * 3600_000).toISOString(),
+        horasHastaVolver: i === 3 ? null : horas,
         nuevosEnVentana: 1 + (i % 3),
     };
 });
@@ -148,7 +150,7 @@ export function apiReportes(): ApiReportes {
                 return true;
             }
             // La API lee los arreglos separados por coma (explode=false): `prioridad=alta,critica`.
-            if (query.getAll("prioridad").length > 1) {
+            if (query.getAll("prioridad").length > 1 || (query.get("prioridad") ?? "").split(",").length > 4) {
                 await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, detail: "prioridad repetida" });
                 return true;
             }

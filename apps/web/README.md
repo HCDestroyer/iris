@@ -64,7 +64,10 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   la paleta categórica de Horus (`bg-grafico-1`/`-2`, valor en texto al final, leyenda con dos
   series) y tabla de desglose; porcentaje `null` = «Sin datos», nunca 0 %. Reincidencias con
   «Cargar más». «Descargar CSV» con los mismos filtros (`formato=csv`, con la sesión) y el `detail`
-  de un 422. Si la lectura falla, error con «Reintentar» y ningún total. No emite ni consume eventos.
+  de un 422 (`exportacion_excedida`, `rango_excedido`). El ticket siguiente fuera del alcance (null)
+  se muestra «Fuera de tu zona», sin enlace. 503 `reporte_demasiado_largo` → mensaje, sugerencia de
+  acotar y «Reintentar». Si la lectura falla, error con «Reintentar» y ningún total. No emite ni
+  consume eventos.
 - **Plantillas de formulario** (`/administracion/plantillas`, `lib/plantillas`, `componentes/plantillas`,
   `plantillas.ver`): lista por tipo y activas o todas; crear (borrador por omisión), editar (ítems
   `si_no`, `texto`, `numero`, `medicion`, `foto`, `seleccion` con opciones; orden con subir/bajar;

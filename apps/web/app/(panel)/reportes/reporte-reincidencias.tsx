@@ -1,7 +1,7 @@
 "use client";
 
 import { Esqueleto, EstadoVacio, InsigniaEstado, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo } from "@iris/ui";
-import { Inbox } from "lucide-react";
+import { EyeOff, Inbox } from "lucide-react";
 import Link from "next/link";
 import { FilaIndicadores, Indicador } from "@/componentes/reportes/graficos";
 import { MarcoReporte, Seccion } from "@/componentes/reportes/marco";
@@ -68,12 +68,23 @@ export function ReporteReincidencias({ query }: { query: QueryReporte }) {
                                                 <TablaCelda>{etiquetaCategoria(f)}</TablaCelda>
                                                 <TablaCelda className="whitespace-nowrap">{textoFechaHora(f.resueltoEn)}</TablaCelda>
                                                 <TablaCelda className="whitespace-nowrap">
-                                                    <Link href={`/tickets/${f.siguienteId}`} className="font-medium text-primary underline-offset-4 hover:underline">
-                                                        {f.siguienteNumero}
-                                                    </Link>
-                                                    <span className="block text-xs text-muted-foreground">{textoFechaHora(f.siguienteCreadoEn)}</span>
+                                                    {f.siguienteId !== null && f.siguienteNumero ? (
+                                                        <>
+                                                            <Link href={`/tickets/${f.siguienteId}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                                                                {f.siguienteNumero}
+                                                            </Link>
+                                                            {f.siguienteCreadoEn ? <span className="block text-xs text-muted-foreground">{textoFechaHora(f.siguienteCreadoEn)}</span> : null}
+                                                        </>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 text-muted-foreground" title="El ticket siguiente es de una zona o cuadrilla que no ves; la reincidencia cuenta igual.">
+                                                            <EyeOff aria-hidden className="size-4 shrink-0" />
+                                                            Fuera de tu zona
+                                                        </span>
+                                                    )}
                                                 </TablaCelda>
-                                                <TablaCelda className="text-right whitespace-nowrap">{textoHoras(f.horasHastaVolver)}</TablaCelda>
+                                                <TablaCelda className="text-right whitespace-nowrap">
+                                                    {f.horasHastaVolver === null ? <span className="text-muted-foreground">No disponible</span> : textoHoras(f.horasHastaVolver)}
+                                                </TablaCelda>
                                                 <TablaCelda className="text-right">{textoEntero(f.nuevosEnVentana)}</TablaCelda>
                                             </TablaFila>
                                         ))}

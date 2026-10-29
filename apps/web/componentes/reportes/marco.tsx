@@ -1,14 +1,21 @@
 "use client";
 
 import { Aviso, Boton, Esqueleto, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { FileDown, RotateCw } from "lucide-react";
+import { FileDown, Hourglass, RotateCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { mensajeDeError } from "@/lib/api/errores";
+import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import type { EstadoLectura } from "@/lib/lectura";
 import { descargarCsv } from "@/lib/reportes/api";
 import { nombreCsv, type QueryReporte, type Reporte } from "@/lib/reportes/filtros";
 import { NOMBRES_REPORTE, textoPeriodo } from "@/lib/reportes/presentacion";
+
+const SUGERENCIA_ACOTAR = "Acota el período o agrega filtros (zona, cuadrilla o técnico) y vuelve a intentarlo.";
+
+/** 503 `reporte_demasiado_largo`: la consulta pasó el tiempo máximo de la API (15 s). */
+export function esDemasiadoLargo(error: unknown): boolean {
+    return error instanceof ErrorApi && error.codigo === "reporte_demasiado_largo";
+}
 
 /**
  * Tarjeta de un reporte: título, período, «Descargar CSV» (los mismos filtros con
@@ -52,6 +59,20 @@ export function MarcoReporte<T>({
                         </div>
                         <Esqueleto className="h-48" />
                     </div>
+                ) : lectura.estado === "error" && esDemasiadoLargo(lectura.error) ? (
+                    <Aviso
+                        tono="error"
+                        icono={Hourglass}
+                        titulo={`El reporte «${nombre.titulo}» tardó demasiado`}
+                        accion={
+                            <Boton variante="secundario" tamano="sm" onClick={reintentar}>
+                                <RotateCw />
+                                Reintentar
+                            </Boton>
+                        }
+                    >
+                        {[mensajeDeError(lectura.error).detalle, SUGERENCIA_ACOTAR].filter(Boolean).join(" ")}
+                    </Aviso>
                 ) : lectura.estado === "error" ? (
                     <ErrorLectura error={lectura.error} reintentar={reintentar} que={`el reporte «${nombre.titulo}»`} />
                 ) : (
@@ -106,7 +127,7 @@ export function BotonCsv({ reporte, query }: { reporte: Reporte; query: QueryRep
                         </Boton>
                     }
                 >
-                    {detalle ?? titulo}
+                    {[detalle ?? titulo, esDemasiadoLargo(error) ? SUGERENCIA_ACOTAR : undefined].filter(Boolean).join(" ")}
                 </Aviso>
             ) : null}
         </div>

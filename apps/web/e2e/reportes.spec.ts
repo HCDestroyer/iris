@@ -203,6 +203,11 @@ test.describe("cada reporte", () => {
         await page.getByRole("button", { name: "Cargar más" }).click();
         await expect(page.locator("[data-reincidencia]")).toHaveCount(60);
         await expect(page.getByRole("button", { name: "Cargar más" })).toHaveCount(0);
+        // El ticket siguiente fuera del alcance llega en null: se cuenta, sin enlace ni horas.
+        const fuera = page.locator('[data-reincidencia="7003"]');
+        await expect(fuera).toContainText("Fuera de tu zona");
+        await expect(fuera).toContainText("No disponible");
+        await expect(fuera.getByRole("link")).toHaveCount(1);
         const pedidas = lecturas(api, "reincidencias");
         expect(pedidas.at(-1)?.query.get("cursor")).toBe("50");
         expect(pedidas.at(-1)?.query.get("dias")).toBe("7");
@@ -244,6 +249,24 @@ test.describe("CSV y errores", () => {
         await expect(page.getByRole("table")).toHaveCount(0);
         await avisoError(page).getByRole("button", { name: "Reintentar" }).click();
         await expect(indicador(page, "Tickets resueltos")).toContainText("120");
+        await expect(avisoError(page)).toHaveCount(0);
+    });
+
+    test("503 reporte_demasiado_largo: el mensaje, la sugerencia de acotar y «Reintentar», sin totales", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        api.responderProblema(
+            "/api/v1/reportes/primera-visita",
+            { type: "urn:iris:problema:reporte_demasiado_largo", title: "El reporte tardó demasiado", status: 503, detail: "La consulta pasó el tiempo máximo (15 s)" },
+            1,
+        );
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto(`/reportes?reporte=primera-visita&${OCT}`);
+        await expect(avisoError(page)).toContainText("El reporte «Primera visita resuelta» tardó demasiado");
+        await expect(avisoError(page)).toContainText("La consulta pasó el tiempo máximo (15 s)");
+        await expect(avisoError(page)).toContainText("Acota el período o agrega filtros");
+        await expect(page.locator("[data-indicador]")).toHaveCount(0);
+        await avisoError(page).getByRole("button", { name: "Reintentar" }).click();
+        await expect(indicador(page, "En observación")).toBeVisible();
         await expect(avisoError(page)).toHaveCount(0);
     });
 
