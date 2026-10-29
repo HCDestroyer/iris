@@ -7,6 +7,9 @@ en un segmento (hoy `/api/v1/encuestas/publica/{token}` y sus subrutas) se regis
 plantilla (`RutasConSecretoBase` o `RegistrarRutaConSecreto` desde el módulo); `EnmascararRuta`
 las deja con `***` y es lo único que debe escribir una ruta en logs, trazas o métricas. El log de
 acceso escribe `ruta` (escapada y enmascarada, sin query) y `patron` (el de chi, sin valores).
+**IP del cliente** (`ip.go`): `IPCliente` resuelve `X-Forwarded-For` solo desde
+`IRIS_PROXIES_CONFIABLES`; el servidor reescribe `RemoteAddr` una vez por petición y todos leen la IP con
+`HostDe(RemoteAddr)`.
 Subpaquetes:
 
 - `contexto`: `Actor` (también el **actor cliente** del portal: `ActorCliente`, con `ClienteID` y
