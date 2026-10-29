@@ -291,7 +291,9 @@ func TestSSRFConectorYLecturas(t *testing.T) {
 	estricto := e.cfg
 	estricto.RedesPermitidas = nil
 	m := argos.Nuevo(estricto)
-	ctx := pruebas.ContextoUsuario(e.pool, 0, nucleo.PermIntegracionesConectar)
+	m.Nucleo().FijarTokens(e.ident)
+	// Quien conecta entrega un token con permisos de integración: necesita tenerlos todos.
+	ctx := pruebas.ContextoSistema(e.pool)
 	puerto := e.argos.srv.URL[strings.LastIndex(e.argos.srv.URL, ":")+1:]
 	canjesAntes := 0
 	e.argos.con(func() { canjesAntes = len(e.argos.canjes) })

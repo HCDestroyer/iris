@@ -29,6 +29,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -153,6 +154,8 @@ func correr() error {
 			// 24 h, aunque la API suba LoginVentana sin avisar al worker.
 			identidad.RegistrarPurgaIntentos(w, pool, 0, 0)
 			identidad.RegistrarPurgaPortal(w, pool)
+			// Reintento de revocar un iris_pat_ entregado en un canje (si la revocación inmediata falló).
+			conector.RegistrarRevocador(w, pool, identidad.Nuevo(identidad.Config{}))
 			cmp.RegistrarTrabajos(pool)(w)
 			cmp.Agenda().RegistrarTrabajos(pool)(w)
 			com.RegistrarTrabajos(pool)(w)

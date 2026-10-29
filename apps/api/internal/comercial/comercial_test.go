@@ -83,7 +83,9 @@ func nuevoArgos(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/routers", func(w http.ResponseWriter, _ *http.Request) {
 		json200(w, `{"data":[{"id":51,"empresa_id":1,"nombre":"RT-Centro","zona_id":7001,"lat":14.6000,"lon":-90.5000},
 			{"id":53,"empresa_id":1,"nombre":"RT-Sin-Coordenadas","zona_id":7001},
-			{"id":52,"empresa_id":2,"nombre":"RT-Otra","zona_id":7002,"lat":14.6000,"lon":-90.5000}],"nextCursor":null}`)
+			{"id":52,"empresa_id":2,"nombre":"RT-Otra","zona_id":7002,"lat":14.6000,"lon":-90.5000},
+			{"id":54,"empresa_sugerida_id":null,"nombre":"RT-Compartido (Argos 1.3.0)","zona_id":7001},
+			{"id":55,"empresa_sugerida_id":2,"nombre":"RT-Sugerido-Otra (Argos 1.3.0)","zona_id":7002}],"nextCursor":null}`)
 	})
 	// Planes de toda la instalación: precio texto, activo booleano, filtro por router.
 	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +240,8 @@ func nuevoEntorno(t *testing.T, reloj func() time.Time) *entorno {
 		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Timeout: 2 * time.Second,
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 	})
+	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
+	e.am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
 	e.pend = pendientes.Nuevo(pendientes.Config{Argos: e.am})
 	e.cmp = campo.Nuevo(campo.Config{Adjuntos: campo.SinAdjuntosObligatorios{}})
 	almacen, err := adjuntos.NuevoDisco(t.TempDir())
@@ -839,6 +843,14 @@ func TestEmbudoConArgos(t *testing.T) {
 	problema(t, err, 422, "router_requerido")
 	_, err = e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version, RouterID: ptr(int64(52))})
 	problema(t, err, 422, "validacion")
+	// Argos 1.3.0: un router sin empresa sugerida lo usan todas; uno sugerido para otra, no.
+	_, err = e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version, RouterID: ptr(int64(55))})
+	problema(t, err, 422, "validacion")
+	p7 := deber(e.com.CrearProspecto.Ejecutar(ctx, comercial.EntradaCrearProspecto{Nombre: "Router compartido", Direccion: "Aldea"}))(t)
+	d7 := hastaContrato(t, e.com, ctx, p7.ID, lineas, "viable")
+	if g7 := deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p7.ID, Version: d7.Version, RouterID: ptr(int64(54))}))(t); g7.Alta.RouterID == nil || *g7.Alta.RouterID != 54 {
+		t.Fatalf("router sin empresa sugerida: %+v", g7.Alta)
+	}
 	g4 := deber(e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: p4.ID, Version: d4.Version, RouterID: ptr(int64(51))}))(t)
 	if g4.Alta.RouterID == nil || *g4.Alta.RouterID != 51 {
 		t.Fatalf("router del alta: %+v", g4.Alta)

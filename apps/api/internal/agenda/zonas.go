@@ -313,18 +313,18 @@ func ValidarZona(ctx context.Context, db agendabd.DBTX, campo string, zonaID int
 	z, err := q.ZonaPorID(ctx, zonaID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		a, err := q.ZonaArgos(ctx, zonaID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !mismoID(&a.EmpresaID, empresa)) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !zonaArgosSirve(a.EmpresaID, empresa)) {
 			return ZonaInvalida(campo)
 		}
 		if err != nil {
 			return err
 		}
-		return asegurar(ctx, q, zonaID, &a.EmpresaID, a.Nombre, &a.SincronizadoEn)
+		return asegurar(ctx, q, zonaID, a.EmpresaID, a.Nombre, &a.SincronizadoEn)
 	}
 	if err != nil {
 		return err
 	}
-	ok, err := sirveA(ctx, q, z.EmpresaID, empresa)
+	ok, err := zonaSirveA(ctx, q, z, empresa)
 	if err != nil {
 		return err
 	}
@@ -345,7 +345,7 @@ func ZonaDeArgos(ctx context.Context, db agendabd.DBTX, zonaID *int64, empresa *
 	q := agendabd.New(db)
 	z, err := q.ZonaPorID(ctx, *zonaID)
 	if err == nil {
-		if ok, err := sirveA(ctx, q, z.EmpresaID, empresa); err != nil || !ok {
+		if ok, err := zonaSirveA(ctx, q, z, empresa); err != nil || !ok {
 			return nil, err
 		}
 		return zonaID, nil
@@ -355,17 +355,19 @@ func ZonaDeArgos(ctx context.Context, db agendabd.DBTX, zonaID *int64, empresa *
 	}
 	nombre := "Zona " + strconv.FormatInt(*zonaID, 10)
 	var sinc *time.Time
+	empresaEspejo := empresa
 	a, err := q.ZonaArgos(ctx, *zonaID)
 	switch {
 	case err == nil:
-		if !mismoID(&a.EmpresaID, empresa) {
+		if !zonaArgosSirve(a.EmpresaID, empresa) {
 			return nil, nil
 		}
-		nombre, sinc = a.Nombre, &a.SincronizadoEn
+		// Sin empresa en Argos: el espejo queda sin empresa (de todas), no de esta.
+		nombre, sinc, empresaEspejo = a.Nombre, &a.SincronizadoEn, a.EmpresaID
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, err
 	}
-	if err := asegurar(ctx, q, *zonaID, empresa, nombre, sinc); err != nil {
+	if err := asegurar(ctx, q, *zonaID, empresaEspejo, nombre, sinc); err != nil {
 		return nil, err
 	}
 	return zonaID, nil
@@ -397,4 +399,20 @@ func ValidarCuadrilla(ctx context.Context, db agendabd.DBTX, campo string, cuadr
 		return CuadrillaInvalida(campo)
 	}
 	return nil
+}
+
+// zonaSirveA: como sirveA, pero una zona de Argos sin empresa (sin empresa sugerida en Argos) la
+// usan todas las empresas, como en Argos (multiempresa.md); una local sin empresa, solo sin
+// empresas registradas.
+func zonaSirveA(ctx context.Context, q *agendabd.Queries, z agendabd.AgendaZona, empresa *int64) (bool, error) {
+	if z.EmpresaID == nil && z.Origen == "argos" {
+		return true, nil
+	}
+	return sirveA(ctx, q, z.EmpresaID, empresa)
+}
+
+// zonaArgosSirve: una zona de la instantánea de Argos sirve a la empresa si es la suya o si no
+// tiene empresa sugerida (la usan todas).
+func zonaArgosSirve(empresaZona, empresa *int64) bool {
+	return empresaZona == nil || mismoID(empresaZona, empresa)
 }

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // Config de la API y el worker.
@@ -53,6 +55,12 @@ type Config struct {
 	HorusRedesPermitidas []netip.Prefix
 	// IRIS_HORUS_TIMEOUT: tiempo máximo de cada llamada a Horus (5s).
 	HorusTimeout time.Duration
+	// IRIS_ARGOS_ORIGENES / IRIS_HORUS_ORIGENES: orígenes (https://host[:puerto], separados por coma)
+	// de los que Iris acepta un enlace de conexión. Iris entrega un token al canjear: sin esta lista
+	// un enlace de phishing se llevaría uno. Vacía = solo en desarrollo (IRIS_CONECTORES_PERMITIR_HTTP)
+	// o el origen de un conector que ya existe.
+	ArgosOrigenes []string
+	HorusOrigenes []string
 	// IRIS_DURACION_SESION_PORTAL: vida de una sesión del portal de soporte (2h).
 	DuracionSesionPortal time.Duration
 	// IRIS_WEBHOOK_VENTANA: desfase máximo aceptado en X-Webhook-Timestamp (5m).
@@ -182,6 +190,13 @@ func Cargar() (Config, error) {
 		errs = append(errs, "IRIS_HORUS_REDES_PERMITIDAS inválido: "+err.Error())
 	}
 	c.HorusRedesPermitidas = horus
+	for nombre, destino := range map[string]*[]string{"IRIS_ARGOS_ORIGENES": &c.ArgosOrigenes, "IRIS_HORUS_ORIGENES": &c.HorusOrigenes} {
+		origenes, err := ParsearOrigenes(os.Getenv(nombre))
+		if err != nil {
+			errs = append(errs, nombre+" inválido: "+err.Error())
+		}
+		*destino = origenes
+	}
 	for nombre, destino := range map[string]*time.Duration{
 		"IRIS_DURACION_SESION": &c.DuracionSesion, "IRIS_RELAY_INTERVALO": &c.RelayIntervalo,
 		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,
@@ -296,6 +311,27 @@ func ParsearRedes(v string) ([]netip.Prefix, error) {
 		redes = append(redes, netip.PrefixFrom(ip, ip.BitLen()))
 	}
 	return redes, nil
+}
+
+// ParsearOrigenes lee una lista de orígenes separados por coma (https://host[:puerto]) y los
+// normaliza (nucleo.NormalizarOrigen). Una ruta, consulta o credenciales son un error.
+func ParsearOrigenes(v string) ([]string, error) {
+	var salida []string
+	for _, parte := range strings.Split(v, ",") {
+		parte = strings.TrimSpace(parte)
+		if parte == "" {
+			continue
+		}
+		o, err := nucleo.NormalizarOrigen(parte)
+		if err != nil {
+			return nil, fmt.Errorf("%q no es un origen https://host[:puerto]", parte)
+		}
+		if u, _ := url.Parse(parte); u != nil && (strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "") {
+			return nil, fmt.Errorf("%q lleva ruta o consulta: solo esquema, host y puerto", parte)
+		}
+		salida = append(salida, o)
+	}
+	return salida, nil
 }
 
 // Logger arma el slog JSON del proceso.

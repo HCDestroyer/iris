@@ -180,3 +180,18 @@ func Unico() string {
 func Correo(prefijo string) string {
 	return prefijo + "." + Unico() + "@prueba.iris.gt"
 }
+
+// TokensFalsos implementa conector.Tokens para pruebas con un Argos falso que no valida el
+// iris_pat_ del canje: emite uno fijo (sin fila: id 0), confirma y revoca sin hacer nada.
+type TokensFalsos struct{}
+
+// EmitirTokenCanje devuelve un iris_pat_ fijo.
+func (TokensFalsos) EmitirTokenCanje(context.Context, string, time.Time) (int64, string, error) {
+	return 0, "iris_pat_" + strings.Repeat("p", 32), nil
+}
+
+// ConfirmarTokenCanje no hace nada.
+func (TokensFalsos) ConfirmarTokenCanje(context.Context, int64) error { return nil }
+
+// RevocarTokenIntegracion no hace nada.
+func (TokensFalsos) RevocarTokenIntegracion(context.Context, int64, string) error { return nil }

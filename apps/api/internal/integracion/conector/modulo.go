@@ -74,6 +74,10 @@ type Sistema struct {
 	RegistrarEmpresas bool
 	// RedesPermitidas: redes internas a las que sí se puede llamar (dev y lab).
 	RedesPermitidas []netip.Prefix
+	// Origenes de los que se acepta un enlace de conexión (https://host[:puerto], normalizados con
+	// nucleo.NormalizarOrigen; IRIS_ARGOS_ORIGENES, IRIS_HORUS_ORIGENES). Vacía: solo en desarrollo
+	// (Config.PermitirHTTP) o el origen de un conector que ya existe.
+	Origenes []string
 	// Timeout de cada llamada (5 s), reintentos de las lecturas (3) y espera base (200 ms).
 	Timeout  time.Duration
 	Intentos int
@@ -95,12 +99,42 @@ type Nucleo struct {
 
 	mu       sync.RWMutex
 	sistemas map[string]*Conexion
+	tokens   Tokens
 
 	ListarConectores   *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	ActivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
 	CambiarURLPublica  *auditoria.Caso[EntradaURLPublica, Conector]
 	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]
+}
+
+// Tokens emite, confirma y revoca el iris_pat_ que Iris entrega al otro sistema en el canje
+// (contratos §1.2). Lo implementa identidad.Modulo; cmd/iris lo conecta con FijarTokens (el
+// núcleo de conectores no depende de identidad).
+type Tokens interface {
+	// EmitirTokenCanje: token del usuario de integración del sistema, con vencimiento (expira).
+	EmitirTokenCanje(ctx context.Context, sistema string, expira time.Time) (id int64, valor string, err error)
+	// ConfirmarTokenCanje le quita el vencimiento al activar el conector (422 si ya venció).
+	ConfirmarTokenCanje(ctx context.Context, id int64) error
+	// RevocarTokenIntegracion lo revoca (revocar uno ya revocado no es error).
+	RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error
+}
+
+// VigenciaTokenCanje: el iris_pat_ entregado muere solo si el conector no se activa en este plazo.
+const VigenciaTokenCanje = 15 * time.Minute
+
+// FijarTokens conecta el emisor de tokens (cmd/iris y cmd/worker, después de armar identidad).
+// Sin él, conectar con un enlace del otro sistema responde 422 emisor_token_no_configurado.
+func (n *Nucleo) FijarTokens(t Tokens) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.tokens = t
+}
+
+func (n *Nucleo) tokensFijados() Tokens {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.tokens
 }
 
 // Nuevo arma el núcleo de conectores.
@@ -130,6 +164,7 @@ type Conexion struct {
 	http *http.Client
 
 	Conectar        *Conectar
+	Previsualizar   *auditoria.Caso[EntradaConectar, Previsualizacion]
 	GenerarEnlace   *auditoria.Caso[struct{}, EnlaceGenerado]
 	CanjearConexion *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
 	RecibirWebhook  *auditoria.Caso[EntradaWebhook, WebhookRecibido]
@@ -160,6 +195,7 @@ func (n *Nucleo) Agregar(s Sistema) *Conexion {
 	}
 	c := &Conexion{n: n, s: s, http: NuevoHTTP(s.RedesPermitidas)}
 	c.Conectar = nuevoConectar(c)
+	c.Previsualizar = nuevoPrevisualizar(c)
 	c.GenerarEnlace = nuevoGenerarEnlace(c)
 	c.CanjearConexion = nuevoCanjearConexion(c)
 	c.RecibirWebhook = nuevoRecibirWebhook(c)
