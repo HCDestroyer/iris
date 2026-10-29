@@ -25,6 +25,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
+	"github.com/HCDestroyer/iris/apps/api/internal/reportes"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
@@ -56,6 +57,7 @@ func escribir(salida string) error {
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
 			comercial.Nuevo(comercial.Config{}).Registrar,
+			reportes.Nuevo(reportes.Config{}).Registrar,
 		},
 	})
 	crudo, err := api.OpenAPI().MarshalJSON()

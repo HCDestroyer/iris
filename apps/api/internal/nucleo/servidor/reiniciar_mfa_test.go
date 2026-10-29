@@ -235,7 +235,7 @@ func TestReiniciarMFARespetaEmpresas(t *testing.T) {
 	admin := e.cliente()
 	admin.entrar(correoAdmin)
 	bot := tokenDe(t, e, admin, "usuarios.reiniciar_mfa", "usuarios.desactivar", "usuarios.editar", "usuarios.ver", "roles.ver", "permisos.ver",
-		"clientes.ver", "empresas.ver", "tickets.ver", "ordenes.ver", "agenda.ver", "rutas.ver", "prospectos.ver") // los del rol lectura
+		"clientes.ver", "empresas.ver", "tickets.ver", "ordenes.ver", "agenda.ver", "rutas.ver", "prospectos.ver", "reportes.ver") // los del rol lectura
 
 	// Fuera de su alcance: 404 con cualquier versión (la correcta, otra o una inexistente), como
 	// un id que no existe.
