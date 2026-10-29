@@ -38,6 +38,10 @@ x-api-env: &api-env
   # Correo, Argos y Horus pueden llamar a la red del compose (protección SSRF). Si el .env trae su
   # propia lista (p. ej. la red de Argos en lab), esa manda.
   IRIS_CORREO_REDES_PERMITIDAS: ${IRIS_CORREO_REDES_PERMITIDAS:-${IRIS_RED_COMPOSE:-172.28.10.0/24}}
+  # El panel (web) hace de proxy de /api desde la red del compose: la API cree su X-Forwarded-For
+  # solo si la conexión viene de esa red (si no, guardaría la IP del contenedor web en sesiones,
+  # encuestas y logs). Si el .env trae su propia lista, esa manda.
+  IRIS_PROXIES_CONFIABLES: ${IRIS_PROXIES_CONFIABLES:-${IRIS_RED_COMPOSE:-172.28.10.0/24}}
 
 x-api-volumes: &api-volumes
   - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro

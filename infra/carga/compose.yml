@@ -67,6 +67,8 @@ services:
       IRIS_ADJUNTOS_DIR: /tmp/adjuntos
       # La siembra y k6 hablan por HTTP plano: la cookie de sesión no puede ser Secure.
       IRIS_COOKIE_SEGURA: 'false'
+      # Red propia de carga (la base trae la de dev): X-Forwarded-For solo desde ella.
+      IRIS_PROXIES_CONFIABLES: ${IRIS_CARGA_RED:-172.28.20.0/24}
       IRIS_LOG_NIVEL: warn
     ports: !override
       - 127.0.0.1:${IRIS_CARGA_API_PUERTO:-3505}:8080

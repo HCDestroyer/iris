@@ -2,7 +2,6 @@ package soporte
 
 import (
 	"context"
-	"net"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -26,11 +25,7 @@ type entradaResponderPublica struct {
 
 // Resolve implementa huma.Resolver: toma la IP remota.
 func (e *entradaResponderPublica) Resolve(ctx huma.Context) []error {
-	host, _, err := net.SplitHostPort(ctx.RemoteAddr())
-	if err != nil {
-		host = ctx.RemoteAddr()
-	}
-	e.ip = host
+	e.ip = nucleo.HostDe(ctx.RemoteAddr())
 	return nil
 }
 
