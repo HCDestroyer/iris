@@ -81,14 +81,16 @@ export function calcularHasta(ahora: number): number {
 
 /**
  * Marca que lee la tarea en segundo plano: de quién son los puntos, a qué base van y hasta cuándo
- * valen. Sin marca, vencida o de otro usuario, la tarea descarta los puntos y apaga el GPS.
+ * valen. Sin marca, `vencida`, pasada de `hasta` o de otro usuario, la tarea descarta y apaga.
  */
 export interface MarcaRastreo {
     usuarioId: number;
     empresaId: number | null;
     base: string;
-    /** ms; ver `calcularHasta`. */
+    /** ms; `calcularHasta` de la última confirmación del servidor en una sesión de la app. */
     hasta: number;
+    /** Llegó al tope: queda (no se borra) y nada local la revive; solo otra confirmación del servidor. */
+    vencida: boolean;
 }
 
 export function leerMarca(claves: AlmacenClaves): MarcaRastreo | null {
@@ -99,28 +101,40 @@ export function leerMarca(claves: AlmacenClaves): MarcaRastreo | null {
     try {
         const m = JSON.parse(texto) as Partial<MarcaRastreo>;
         return typeof m.usuarioId === "number" && typeof m.base === "string" && typeof m.hasta === "number" && (m.empresaId === null || typeof m.empresaId === "number")
-            ? { usuarioId: m.usuarioId, empresaId: m.empresaId, base: m.base, hasta: m.hasta }
+            ? { usuarioId: m.usuarioId, empresaId: m.empresaId, base: m.base, hasta: m.hasta, vencida: m.vencida === true }
             : null;
     } catch {
         return null;
     }
 }
 
+function escribirMarca(claves: AlmacenClaves, marca: MarcaRastreo): void {
+    claves.escribir(CLAVE_RASTREO, JSON.stringify(marca));
+}
+
+/** «Dejar de compartir ubicación», guardado por usuario y empresa (sobrevive a reabrir la app). */
+export const clavePausaManual = (usuarioId: number, empresaId: number | null) => `iris-campo-ubicacion-pausada-${usuarioId}-${empresaId ?? 0}`;
+
 /**
  * - `fuera_de_curso`: ninguna orden en curso; no se registra nada.
  * - `explicar`: hay una en curso y falta que el técnico lea la explicación (o dijo «Ahora no»).
- * - `sin_permiso`: el sistema negó el permiso (`fondo`: solo el de segundo plano).
- * - `activa`: se registra un punto por minuto, también con la app en segundo plano.
- * - `suspendida`: apagada por «Dejar de compartir ubicación» (`manual`) o por el tope (`tope`:
- *   medianoche o 12 h sin confirmar con el servidor); vuelve al cambiar de estado una orden (o, con
- *   `tope`, al confirmar con el servidor que sigue en curso).
+ * - `sin_permiso`: el sistema negó el permiso.
+ * - `sin_confirmar`: hay una en curso pero en esta sesión de la app el servidor todavía no respondió
+ *   (paquete o cambios) y no hay una marca vigente: se enciende al llegar la respuesta.
+ * - `vencida`: pasó el tope (medianoche de Guatemala o 12 h desde la última confirmación); solo
+ *   otra confirmación del servidor lo vuelve a encender.
+ * - `pausada_por_ti`: «Dejar de compartir ubicación»; vuelve cuando el técnico cambia de estado una
+ *   orden suya (en camino, llegué, reanudar).
+ * - `activa`: un punto por minuto, también con la app en segundo plano.
  */
 export type EstadoRastreo =
     | { tipo: "fuera_de_curso" }
     | { tipo: "explicar"; ahoraNo: boolean }
     | { tipo: "sin_permiso"; fondo: boolean }
+    | { tipo: "sin_confirmar" }
+    | { tipo: "vencida" }
+    | { tipo: "pausada_por_ti" }
     | { tipo: "activa"; soloPrimerPlano: boolean; hasta: number }
-    | { tipo: "suspendida"; motivo: "manual" | "tope" }
     | { tipo: "error"; mensaje: string };
 
 export interface OpcionesRastreo {
@@ -135,16 +149,19 @@ export interface OpcionesRastreo {
 }
 
 /**
- * Enciende y apaga el GPS en segundo plano según las órdenes en curso. Una llamada a la vez. La marca
- * (`CLAVE_RASTREO`) la lee la tarea en segundo plano: sin ella, vencida o de otro usuario, descarta
- * los puntos (nunca se guarda una posición fuera de una orden en curso y de una sesión vigente).
+ * Enciende y apaga el GPS en segundo plano. Una llamada a la vez. Reglas:
+ * - Solo con órdenes en curso, explicación aceptada, permiso y sin «Dejar de compartir».
+ * - `hasta` nace solo de una respuesta del servidor **en esta sesión de la app**
+ *   (`confirmarServidor`, al bajar el paquete o los cambios): `calcularHasta(hora de la respuesta)`.
+ *   Lo local (abrir la app, «Llegué» sin señal) nunca crea ni extiende `hasta`; sin confirmación
+ *   solo sigue una marca vigente de antes.
+ * - Al llegar al tope, la marca queda `vencida` y el GPS apagado hasta la próxima confirmación.
  */
 export class RastreoUbicacion {
     private estado: EstadoRastreo = { tipo: "fuera_de_curso" };
     private enCurso = 0;
-    /** Estados de las órdenes (`id:estado,…`): al cambiar, termina una suspensión. */
-    private firma = "";
-    private suspension: { motivo: "manual" | "tope"; firma: string } | null = null;
+    /** Hora de la última respuesta del servidor (paquete o cambios) en esta sesión de la app. */
+    private confirmadoEn: number | null = null;
     private ahoraNoEnVisita = false;
     private cola: Promise<void> = Promise.resolve();
     private readonly ahora: () => number;
@@ -161,39 +178,35 @@ export class RastreoUbicacion {
         return this.o.claves.leer(claveExplicacion(this.o.usuarioId)) === "1";
     }
 
-    /** Órdenes en curso y la firma de estados de todas (del estado del motor). */
-    actualizar(enCurso: number, firma = ""): Promise<void> {
+    get pausadaPorTi(): boolean {
+        return this.o.claves.leer(clavePausaManual(this.o.usuarioId, this.o.empresaId)) === "1";
+    }
+
+    /** Órdenes en curso según el estado del motor (cambios locales incluidos). */
+    actualizar(enCurso: number): Promise<void> {
         this.enCurso = enCurso;
-        if (this.suspension && firma !== this.suspension.firma) {
-            this.suspension = null;
-        }
-        this.firma = firma;
         return this.serializar(() => this.aplicar());
     }
 
     /**
-     * El servidor confirmó que sigue habiendo una orden en curso (sincronización correcta): renueva
-     * `hasta` con el mismo tope y levanta una suspensión por tope.
+     * El servidor respondió en esta sesión (paquete o cambios ya aplicados en el motor) con
+     * `enCurso` órdenes en curso: abre o renueva la ventana del GPS desde ahora.
      */
-    renovar(): Promise<void> {
-        return this.serializar(async () => {
-            if (this.enCurso === 0) {
-                return;
-            }
-            if (this.suspension?.motivo === "tope") {
-                this.suspension = null;
-            }
-            const marca = leerMarca(this.o.claves);
-            if (marca && marca.usuarioId === this.o.usuarioId && marca.base === this.o.base) {
-                this.escribirMarca(calcularHasta(this.ahora()));
-            }
-            await this.aplicar();
-        });
+    confirmarServidor(enCurso: number): Promise<void> {
+        this.enCurso = enCurso;
+        this.confirmadoEn = this.ahora();
+        return this.serializar(() => this.aplicar());
     }
 
-    /** «Dejar de compartir ubicación»: apaga hasta que cambie de estado alguna orden. */
+    /** «Dejar de compartir ubicación»: apaga y lo guarda hasta una acción del propio técnico. */
     dejarDeCompartir(): Promise<void> {
-        this.suspension = { motivo: "manual", firma: this.firma };
+        this.o.claves.escribir(clavePausaManual(this.o.usuarioId, this.o.empresaId), "1");
+        return this.serializar(() => this.aplicar());
+    }
+
+    /** El técnico cambió de estado una orden suya (en camino, llegué, reanudar): levanta su pausa. */
+    accionPropia(): Promise<void> {
+        this.o.claves.borrar(clavePausaManual(this.o.usuarioId, this.o.empresaId));
         return this.serializar(() => this.aplicar());
     }
 
@@ -222,38 +235,51 @@ export class RastreoUbicacion {
     private async aplicar(): Promise<void> {
         try {
             if (this.enCurso === 0) {
-                await this.apagar();
+                await this.apagar(true);
                 this.poner({ tipo: "fuera_de_curso" });
                 return;
             }
-            if (this.suspension) {
-                await this.apagar();
-                this.poner({ tipo: "suspendida", motivo: this.suspension.motivo });
+            if (this.pausadaPorTi) {
+                await this.apagar(true);
+                this.poner({ tipo: "pausada_por_ti" });
                 return;
             }
             if (!this.explicacionAceptada || this.ahoraNoEnVisita) {
-                await this.apagar();
+                await this.apagar(true);
                 this.poner({ tipo: "explicar", ahoraNo: this.ahoraNoEnVisita });
                 return;
             }
             const permisos = await this.o.gps.permisos();
             if (permisos.primerPlano !== "concedido") {
-                await this.apagar();
+                await this.apagar(true);
                 this.poner({ tipo: "sin_permiso", fondo: false });
                 return;
             }
-            // Un encendido conserva su `hasta` (solo `renovar` lo extiende); vencido, se suspende.
             const ahora = this.ahora();
             const marca = leerMarca(this.o.claves);
             const propia = marca && marca.usuarioId === this.o.usuarioId && marca.base === this.o.base ? marca : null;
-            if (propia && propia.hasta <= ahora) {
-                this.suspension = { motivo: "tope", firma: this.firma };
-                await this.apagar();
-                this.poner({ tipo: "suspendida", motivo: "tope" });
+            let hasta: number;
+            if (this.confirmadoEn !== null) {
+                hasta = calcularHasta(this.confirmadoEn);
+            } else if (propia && !propia.vencida) {
+                hasta = propia.hasta;
+            } else if (propia?.vencida) {
+                await this.apagar(false);
+                this.poner({ tipo: "vencida" });
+                return;
+            } else {
+                await this.apagar(true);
+                this.poner({ tipo: "sin_confirmar" });
                 return;
             }
-            const hasta = propia?.hasta ?? calcularHasta(ahora);
-            this.escribirMarca(hasta);
+            if (hasta <= ahora) {
+                escribirMarca(this.o.claves, { usuarioId: this.o.usuarioId, empresaId: this.o.empresaId, base: this.o.base, hasta, vencida: true });
+                this.confirmadoEn = null;
+                await this.apagar(false);
+                this.poner({ tipo: "vencida" });
+                return;
+            }
+            escribirMarca(this.o.claves, { usuarioId: this.o.usuarioId, empresaId: this.o.empresaId, base: this.o.base, hasta, vencida: false });
             if (!(await this.o.gps.activo())) {
                 await this.o.gps.iniciar();
             }
@@ -264,13 +290,11 @@ export class RastreoUbicacion {
         }
     }
 
-    private escribirMarca(hasta: number): void {
-        const marca: MarcaRastreo = { usuarioId: this.o.usuarioId, empresaId: this.o.empresaId, base: this.o.base, hasta };
-        this.o.claves.escribir(CLAVE_RASTREO, JSON.stringify(marca));
-    }
-
-    private async apagar(): Promise<void> {
-        this.o.claves.borrar(CLAVE_RASTREO);
+    /** Apaga el GPS; `borrarMarca: false` deja una marca vencida en su lugar. */
+    private async apagar(borrarMarca: boolean): Promise<void> {
+        if (borrarMarca) {
+            this.o.claves.borrar(CLAVE_RASTREO);
+        }
         if (await this.o.gps.activo()) {
             await this.o.gps.detener();
         }
@@ -286,6 +310,17 @@ export class RastreoUbicacion {
         this.cola = siguiente.catch(() => undefined);
         return siguiente;
     }
+}
+
+/**
+ * Apagado de emergencia, sin pasar por la cola del rastreo (lo usa la pantalla de error de la raíz):
+ * borra la marca en el acto (la tarea deja de guardar puntos desde la próxima lectura), suelta el
+ * receptor y pide al sistema detener las actualizaciones.
+ */
+export function apagarGpsYa(claves: AlmacenClaves, gps: Pick<GpsFondo, "detener">): Promise<void> {
+    claves.borrar(CLAVE_RASTREO);
+    registrarReceptor(null);
+    return gps.detener().catch(() => undefined);
 }
 
 /** Recibe los puntos de la tarea: la cola abierta (app viva) o, si no, el almacén guardado. */
@@ -311,14 +346,22 @@ export interface DependenciasTarea {
 
 /**
  * Lo que hace la tarea en segundo plano con cada tanda de lecturas. Devuelve cuántos puntos guardó.
- * Descarta todo, borra la marca y apaga el GPS si no hay marca, si pasó su `hasta` o si la sesión
- * guardada ya no es de ese usuario o ya no vale sin señal.
+ * Descarta todo y apaga el GPS si no hay marca, si está vencida o pasó su `hasta` (la deja
+ * `vencida`) o si la sesión guardada ya no es de ese usuario o ya no vale sin señal (la borra).
  */
 export async function recibirLecturas(lecturas: readonly LecturaGps[], deps: DependenciasTarea): Promise<number> {
     const marca = leerMarca(deps.claves);
     const ahora = (deps.ahora ?? Date.now)();
-    if (!marca || marca.hasta <= ahora || !deps.sesionVigente(marca.usuarioId)) {
-        deps.claves.borrar(CLAVE_RASTREO);
+    if (marca && !marca.vencida && marca.hasta <= ahora) {
+        // Llegó al tope con la app cerrada: queda vencida (nada local la revive).
+        escribirMarca(deps.claves, { ...marca, vencida: true });
+        await deps.detenerGps();
+        return 0;
+    }
+    if (!marca || marca.vencida || !deps.sesionVigente(marca.usuarioId)) {
+        if (!marca?.vencida) {
+            deps.claves.borrar(CLAVE_RASTREO);
+        }
         await deps.detenerGps();
         return 0;
     }

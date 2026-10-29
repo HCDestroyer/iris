@@ -16,6 +16,7 @@ import { abrirMotor, borrarBase } from "./campo/motor";
 import { entorno } from "./entorno";
 import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
+import { RecuperarError } from "./pantallas/RecuperarError";
 import { Entrar } from "./pantallas/Entrar";
 import {
     cargarCsrf,
@@ -50,8 +51,8 @@ const conInternet = (s: Network.NetworkState) => s.isConnected === true && s.isI
 let depsNativas: DependenciasCampo | null = null;
 function dependenciasNativas(): DependenciasCampo {
     depsNativas ??= {
-        async abrirMotor(clave, alSesionAjena) {
-            const m = await abrirMotor(clave, alSesionAjena);
+        async abrirMotor(clave, alSesionAjena, alConfirmarServidor) {
+            const m = await abrirMotor(clave, alSesionAjena, alConfirmarServidor);
             return { motor: m.motor, posiciones: m.posiciones, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
         },
         gps: gpsNativo,
@@ -84,7 +85,9 @@ export default function App() {
     return (
         <SafeAreaProvider>
             <ProveedorTema>
-                <Raiz />
+                <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
+                    <Raiz />
+                </RecuperarError>
             </ProveedorTema>
         </SafeAreaProvider>
     );

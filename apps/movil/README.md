@@ -36,11 +36,13 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   sistema pida el permiso. Un punto por minuto a la `ColaPosiciones` de `@iris/sync` (misma base) y de
   ahí a `POST /campo/posiciones`. Con la app cerrada, la tarea guarda los puntos en la base del usuario
   y salen al abrir. Topes: la marca de rastreo lleva `{ usuarioId, empresaId, base, hasta }` con
-  `hasta` = medianoche de Guatemala o +12 h (lo primero), que solo se renueva cuando la app confirma
-  con el servidor; la tarea descarta y apaga si pasó `hasta`, si la sesión guardada ya no vale sin
+  `hasta` = medianoche de Guatemala o +12 h (lo primero) desde la última respuesta del servidor
+  (paquete o cambios) en esta sesión de la app; nada local lo crea ni lo extiende, y al tope la marca
+  queda `vencida`; la tarea descarta y apaga si pasó `hasta`, si la sesión guardada ya no vale sin
   señal o es de otro usuario. Toda salida (cerrar sesión, sesión vencida o ajena, cambiar de empresa)
-  apaga el GPS y borra la marca. «Dejar de compartir ubicación» lo apaga hasta que cambie de estado
-  alguna orden.
+  apaga el GPS y borra la marca. «Dejar de compartir ubicación» lo apaga (guardado por usuario y
+  empresa) hasta el próximo «En camino», «Llegué» o «Reanudar» del técnico. Un error de pantalla
+  apaga el GPS en el acto (`RecuperarError`).
 - **Identidad Horus:** tokens de `docs/marca/horus-tokens.css` traducidos a `src/tema/tokens.ts`
   (claro y oscuro según el teléfono), íconos de `lucide-react-native`, estados con icono + texto +
   color. Las pantallas usan `src/componentes` (no `Pressable`/`TextInput` crudos; ESLint lo exige).

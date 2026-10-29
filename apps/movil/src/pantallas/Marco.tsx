@@ -213,7 +213,9 @@ const TEXTO_RASTREO: Record<EstadoRastreo["tipo"], { tono: TonoEstado; icono: Lu
     fuera_de_curso: { tono: "neutral", icono: LocateOff },
     explicar: { tono: "neutral", icono: LocateOff },
     sin_permiso: { tono: "warning", icono: LocateOff },
-    suspendida: { tono: "neutral", icono: LocateOff },
+    sin_confirmar: { tono: "neutral", icono: LocateOff },
+    vencida: { tono: "warning", icono: LocateOff },
+    pausada_por_ti: { tono: "neutral", icono: LocateOff },
     error: { tono: "error", icono: LocateOff },
 };
 
@@ -223,10 +225,12 @@ function textoRastreo(e: EstadoRastreo): string {
             const hasta = horaCorta(new Date(e.hasta).toISOString()) ?? "";
             return e.soloPrimerPlano ? `Ubicación activa con la app abierta · hasta las ${hasta}` : `Ubicación activa · orden en curso · hasta las ${hasta}`;
         }
-        case "suspendida":
-            return e.motivo === "manual"
-                ? "Dejaste de compartir la ubicación · vuelve al cambiar de estado una orden"
-                : "Ubicación apagada: pasó el tope sin confirmar con el servidor · vuelve al sincronizar";
+        case "pausada_por_ti":
+            return "Dejaste de compartir la ubicación · vuelve con tu próximo «En camino», «Llegué» o «Reanudar»";
+        case "sin_confirmar":
+            return "Ubicación en espera · se enciende al conectar con el servidor";
+        case "vencida":
+            return "Ubicación apagada: pasó el tope del día sin confirmar con el servidor · vuelve al sincronizar";
         case "fuera_de_curso":
             return "Ubicación apagada · sin orden en curso";
         case "explicar":

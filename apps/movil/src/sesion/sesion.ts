@@ -125,11 +125,18 @@ export function empresaDeTrabajo(s: SesionCampo, elegida: number | null): number
 
 /** `POST /sesion`: guarda el CSRF; con MFA activo la sesión queda pendiente del código. */
 export async function iniciarSesion(datos: Schema<"EntradaIniciarSesion">): Promise<SesionIniciada> {
-    // Si quedó una sesión por cerrar en la API, se intenta antes (la nueva la reemplaza en el teléfono).
-    await reintentarCierrePendiente();
+    // Si quedó una sesión por cerrar en la API, primero se cierra: con la nueva, la cookie vieja se
+    // perdería y la sesión quedaría abierta en el servidor. Un error que no es de red no se descarta.
+    if ((await intentarCierrePendiente()) === "fallo") {
+        throw new ErrorApi({
+            estado: 409,
+            codigo: "cierre_pendiente",
+            titulo: "No se pudo cerrar tu sesión anterior",
+            detalle: "El servidor no aceptó cerrarla. Inténtalo de nuevo en unos minutos.",
+        });
+    }
     const r = await resolver(cliente().POST("/api/v1/sesion", { body: datos }));
     await guardarCsrf(r.csrfToken);
-    await olvidarCierrePendiente();
     return r;
 }
 
@@ -149,6 +156,11 @@ export async function leerYo(empresa: number | null): Promise<Schema<"Yo">> {
                 throw errorSinConexion(e);
             });
         if (!r.response.ok || !r.data) {
+            if (r.response.status === 401) {
+                // Sesión cerrada o revocada en la API (p. ej. logout remoto): la guardada deja de valer
+                // para abrir sin señal y para la tarea del GPS en segundo plano.
+                entorno().claves.borrar(CLAVE_SESION);
+            }
             throw errorDesdeRespuesta(r.response, r.error);
         }
         return r.data;
@@ -216,26 +228,49 @@ async function olvidarCierrePendiente(): Promise<void> {
     await entorno().secreto.borrar(CLAVE_CSRF_CIERRE);
 }
 
-/** ¿Quedó un cierre de sesión sin llegar a la API? */
-export function hayCierrePendiente(): boolean {
-    return entorno().claves.leer(CLAVE_CIERRE_PENDIENTE) === "1";
+/** Desde cuándo hay un cierre pendiente (ms), o `null`. El formato viejo («1») cuenta como de ahora. */
+function cierrePendienteDesde(ahora: number): number | null {
+    const texto = entorno().claves.leer(CLAVE_CIERRE_PENDIENTE);
+    if (texto === null) {
+        return null;
+    }
+    const desde = Number(texto);
+    return Number.isFinite(desde) && desde > 1 ? desde : ahora;
 }
 
+/** ¿Quedó un cierre de sesión sin llegar a la API? */
+export function hayCierrePendiente(): boolean {
+    return entorno().claves.leer(CLAVE_CIERRE_PENDIENTE) !== null;
+}
+
+export type ResultadoCierre = "listo" | "sin_red" | "fallo";
+
 /**
- * Reintenta el `DELETE /sesion` de un cierre hecho sin señal. Devuelve `true` si no queda nada por
- * cerrar. Mientras devuelva `false`, la app no entra sola con la cookie vieja (pide la contraseña).
+ * Reintenta el `DELETE /sesion` de un cierre que no llegó a la API. Solo un 2xx o un 401 (la sesión
+ * ya no existe) lo dan por cerrado; sin señal (`sin_red`) o con otro error (`fallo`: 403, 5xx…) sigue
+ * pendiente. A los 7 días (la vida de la sesión) se olvida con su CSRF.
  */
-export async function reintentarCierrePendiente(): Promise<boolean> {
-    if (!hayCierrePendiente()) {
-        return true;
+export async function intentarCierrePendiente(ahora = Date.now()): Promise<ResultadoCierre> {
+    const desde = cierrePendienteDesde(ahora);
+    if (desde === null) {
+        return "listo";
+    }
+    if (ahora - desde > SIETE_DIAS_MS) {
+        await olvidarCierrePendiente();
+        return "listo";
     }
     try {
         await borrarSesionApi(await entorno().secreto.leer(CLAVE_CSRF_CIERRE));
-    } catch {
-        return false;
+    } catch (e) {
+        return e instanceof ErrorApi && e.estado === 0 ? "sin_red" : "fallo";
     }
     await olvidarCierrePendiente();
-    return true;
+    return "listo";
+}
+
+/** `true` si no queda nada por cerrar. Mientras sea `false`, la app no entra sola (pide la contraseña). */
+export async function reintentarCierrePendiente(ahora = Date.now()): Promise<boolean> {
+    return (await intentarCierrePendiente(ahora)) === "listo";
 }
 
 /**
@@ -251,7 +286,7 @@ export async function cerrarSesion(usuarioId: number): Promise<void> {
     try {
         await borrarSesionApi(csrfSesion);
     } catch {
-        entorno().claves.escribir(CLAVE_CIERRE_PENDIENTE, "1");
+        entorno().claves.escribir(CLAVE_CIERRE_PENDIENTE, String(Date.now()));
         if (csrfSesion) {
             await entorno().secreto.escribir(CLAVE_CSRF_CIERRE, csrfSesion);
         }

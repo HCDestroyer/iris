@@ -212,7 +212,7 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
 }
 
 function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: boolean; llegar: boolean }) {
-    const { motor, ejecutar, servicios } = useCampo();
+    const { motor, ejecutar, servicios, rastreo } = useCampo();
     const [ocupado, setOcupado] = useState<null | "camino" | "llegar">(null);
     const correr = async (cual: "camino" | "llegar") => {
         setOcupado(cual);
@@ -220,7 +220,10 @@ function AccionesEstado({ orden, camino, llegar }: { orden: OrdenVista; camino: 
         const p = await servicios.posicion();
         const datos = p ? { lat: p.lat, lon: p.lon, precision: p.precision } : {};
         const texto = cual === "camino" ? (p ? "En camino, con ubicación" : "En camino, sin ubicación") : p ? "Llegada registrada con ubicación" : "Llegada registrada sin ubicación";
-        await ejecutar(() => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos), texto);
+        if (await ejecutar(() => motor.registrar(cual === "camino" ? "orden.iniciar_camino" : "orden.llegar", orden.id, datos), texto)) {
+            // Acción del propio técnico: levanta su «Dejar de compartir ubicación».
+            void rastreo?.accionPropia();
+        }
         setOcupado(null);
     };
     return (

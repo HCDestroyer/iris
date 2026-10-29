@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { entorno } from "../src/entorno";
 import { Entrar } from "../src/pantallas/Entrar";
-import { cerrarSesion, CLAVE_CSRF, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, verificarDueno } from "../src/sesion/sesion";
+import { cerrarSesion, CLAVE_CSRF, guardarSesion, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, sesionGuardada, verificarDueno } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 import { ApiFalsa, problema, usuario, yo } from "./api-falsa";
 
@@ -148,5 +148,44 @@ describe("cerrar sesión sin señal (cierre pendiente)", () => {
         await iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" });
         expect(api.peticiones.map((p) => p.metodo)).toEqual(["DELETE", "DELETE", "POST"]);
         expect(hayCierrePendiente()).toBe(false);
+    });
+});
+
+describe("cierre pendiente con error del servidor", () => {
+    it("un 403 o 5xx no lo descarta: iniciar sesión se niega hasta cerrarla (2xx o 401)", async () => {
+        let respuesta: () => { status: number; cuerpo?: unknown; cabeceras?: Record<string, string> } = () => problema(503, "no_disponible");
+        const api = new ApiFalsa()
+            .en("DELETE", "/api/v1/sesion", () => respuesta())
+            .en("POST", "/api/v1/sesion", () => ({ status: 200, cuerpo: sesion("c3", false) }))
+            .instalar();
+        await cerrarSesion(5);
+        expect(hayCierrePendiente()).toBe(true);
+        await expect(iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" })).rejects.toMatchObject({ codigo: "cierre_pendiente" });
+        respuesta = () => problema(403, "csrf_invalido");
+        expect(await reintentarCierrePendiente()).toBe(false);
+        expect(api.peticiones.some((p) => p.metodo === "POST")).toBe(false);
+        respuesta = () => ({ status: 204 });
+        await iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" });
+        expect(hayCierrePendiente()).toBe(false);
+    });
+
+    it("a los 7 días se olvida el cierre pendiente y su CSRF", async () => {
+        const api = new ApiFalsa().en("DELETE", "/api/v1/sesion", () => problema(500, "error")).instalar();
+        await cerrarSesion(5);
+        expect(hayCierrePendiente()).toBe(true);
+        expect(await reintentarCierrePendiente(Date.now() + 8 * 24 * 3600_000)).toBe(true);
+        expect(hayCierrePendiente()).toBe(false);
+        expect(await entorno().secreto.leer("iris-campo-csrf-cierre")).toBeNull();
+        expect(api.peticiones).toHaveLength(1);
+    });
+});
+
+describe("401 en GET /yo (logout remoto)", () => {
+    it("borra la sesión guardada: ni abrir sin señal ni la tarea del GPS la aceptan después", async () => {
+        guardarSesion({ usuarioId: 5, nombre: "Ana", correo: "ana@isp.gt", empresas: [], modoEmpresa: "sin_conector", empresaActiva: null, verificadoEn: Date.now() });
+        expect(sesionGuardada()).not.toBeNull();
+        new ApiFalsa().en("GET", "/api/v1/yo", () => problema(401, "no_autenticado")).instalar();
+        await expect(verificarDueno(5, null)).rejects.toMatchObject({ status: 401 });
+        expect(sesionGuardada()).toBeNull();
     });
 });

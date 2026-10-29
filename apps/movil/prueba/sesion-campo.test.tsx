@@ -6,8 +6,9 @@ import { montar, ordenDePrueba, paqueteDePrueba, TransportePosicionesFalso } fro
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { useState } from "react";
 import { Text } from "react-native";
-import { CLAVE_RASTREO, claveExplicacion, leerMarca, type GpsFondo, type PermisosGps } from "../src/campo/ubicacion";
+import { CLAVE_RASTREO, claveExplicacion, clavePausaManual, leerMarca, type GpsFondo, type PermisosGps } from "../src/campo/ubicacion";
 import { AppCampo, type DependenciasCampo } from "../src/pantallas/AppCampo";
+import { RecuperarError } from "../src/pantallas/RecuperarError";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 import { clavesMemoria } from "./preparar";
@@ -40,13 +41,14 @@ const sesion: SesionCampo = {
     verificadoEn: Date.now(),
 };
 
-async function preparar(fallaDeSesion = false) {
+async function preparar(fallaDeSesion = false, sinRed = false) {
     const m = await montar();
     m.transporte.paquete = (fecha) => ({ ...paqueteDePrueba(fecha), ordenes: [ordenDePrueba(1, { estado: "en_camino" })] });
     await m.motor.cargarPaquete("2026-10-28");
     if (fallaDeSesion) {
         m.transporte.fallar(20, new ErrorTransporte("http", "No autenticado", 401, { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }));
     }
+    m.transporte.sinRed = sinRed;
     const posiciones = await ColaPosiciones.abrir({ almacen: m.almacen, transporte: new TransportePosicionesFalso(m.reloj), reloj: m.reloj });
     const gps = new GpsFalso();
     const claves = clavesMemoria();
@@ -54,8 +56,21 @@ async function preparar(fallaDeSesion = false) {
     const salidas: string[] = [];
     let sesionAjena: (() => void) | null = null;
     const deps: DependenciasCampo = {
-        abrirMotor: async (_clave, alSesionAjena) => {
+        abrirMotor: async (_clave, alSesionAjena, alConfirmarServidor) => {
             sesionAjena = alSesionAjena;
+            // Como `conConfirmacion` del transporte nativo: cada paquete o cambios del servidor avisa.
+            const paquete = m.transporte.obtenerPaquete.bind(m.transporte);
+            const cambios = m.transporte.obtenerCambios.bind(m.transporte);
+            m.transporte.obtenerPaquete = async (f) => {
+                const r = await paquete(f);
+                alConfirmarServidor();
+                return r;
+            };
+            m.transporte.obtenerCambios = async (c) => {
+                const r = await cambios(c);
+                alConfirmarServidor();
+                return r;
+            };
             return { motor: m.motor, posiciones, nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
         },
         gps,
@@ -118,6 +133,7 @@ describe("GPS y salidas de la sesión de campo", () => {
         await waitFor(() => expect(gps.corriendo).toBe(false));
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
         expect(screen.getByTestId("estado-ubicacion")).toHaveTextContent(/Dejaste de compartir la ubicación/);
+        expect(claves.leer(clavePausaManual(5, 1))).toBe("1");
     });
 
     it("sesión vencida (401): apaga el GPS aunque la orden siga en curso, y al salir sigue apagado", async () => {
@@ -158,5 +174,44 @@ describe("GPS y salidas de la sesión de campo", () => {
         expect(m.transporte.llamadas.filter((l) => l.tipo === "paquete")).toHaveLength(2);
         await waitFor(() => expect(gps.corriendo).toBe(false));
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
+    });
+
+    it("abrir sin señal y sin marca: no enciende hasta que el servidor responda en esta sesión", async () => {
+        const { m, gps } = await preparar(false, true);
+        await waitFor(() => expect(screen.getByTestId("estado-ubicacion")).toHaveTextContent(/se enciende al conectar con el servidor/));
+        expect(gps.corriendo).toBe(false);
+        m.transporte.sinRed = false;
+        await act(() => m.motor.sincronizar());
+        await esperarEncendido(gps);
+    });
+});
+
+describe("pantalla de error de la raíz", () => {
+    it("ante un error de render apaga el GPS y borra la marca en el acto, y «Reintentar» vuelve a dibujar", async () => {
+        const claves = clavesMemoria();
+        claves.escribir(CLAVE_RASTREO, JSON.stringify({ usuarioId: 5, empresaId: 1, base: "b.db", hasta: Number.MAX_SAFE_INTEGER, vencida: false }));
+        const detener = jest.fn(async () => undefined);
+        let falla = true;
+        function Fragil() {
+            if (falla) {
+                throw new Error("pantalla rota");
+            }
+            return <Text>Bien</Text>;
+        }
+        const errorConsola = jest.spyOn(console, "error").mockImplementation(() => undefined);
+        await render(
+            <ProveedorTema>
+                <RecuperarError claves={() => claves} gps={{ detener }}>
+                    <Fragil />
+                </RecuperarError>
+            </ProveedorTema>,
+        );
+        expect(await screen.findByTestId("pantalla-error")).toHaveTextContent(/se apagó la ubicación/);
+        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
+        expect(detener).toHaveBeenCalled();
+        falla = false;
+        await fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
+        expect(await screen.findByText("Bien")).toBeTruthy();
+        errorConsola.mockRestore();
     });
 });

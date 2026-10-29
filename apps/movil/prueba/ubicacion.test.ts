@@ -1,7 +1,9 @@
 import type { EstadoOrden } from "@iris/sync";
 import { ordenDePrueba } from "@iris/sync/pruebas";
 import {
+    apagarGpsYa,
     calcularHasta,
+    clavePausaManual,
     CLAVE_RASTREO,
     claveExplicacion,
     finDelDiaGuatemala,
@@ -42,7 +44,7 @@ class GpsFalso implements GpsFondo {
     activo = async () => this.corriendo;
 }
 
-const marca = (base: string, hasta = Number.MAX_SAFE_INTEGER, usuarioId = 5) => JSON.stringify({ usuarioId, empresaId: null, base, hasta });
+const marca = (base: string, hasta = Number.MAX_SAFE_INTEGER, usuarioId = 5, vencida = false) => JSON.stringify({ usuarioId, empresaId: null, base, hasta, vencida });
 
 const lectura = (ms: number, extra: Partial<LecturaGps["coords"]> = {}): LecturaGps => ({
     coords: { latitude: 14.6349, longitude: -90.5069, accuracy: 8, speed: 3.2, heading: 90, ...extra },
@@ -101,11 +103,15 @@ describe("RastreoUbicacion", () => {
 
         await rastreo.aceptarExplicacion();
         expect(gps.pedidos).toBe(1);
+        // Con permiso pero sin respuesta del servidor en esta sesión: espera.
+        expect(rastreo.obtenerEstado()).toEqual({ tipo: "sin_confirmar" });
+        expect(gps.corriendo).toBe(false);
+        await rastreo.confirmarServidor(1);
         // 09:00 GT: +12 h (21:00) llega antes que la medianoche.
         const tope = Date.UTC(2026, 9, 29, 3, 0, 0);
         expect(rastreo.obtenerEstado()).toEqual({ tipo: "activa", soloPrimerPlano: false, hasta: tope });
         expect(gps.corriendo).toBe(true);
-        expect(leerMarca(claves)).toEqual({ usuarioId: 5, empresaId: null, base: "iris-campo-5-0.db", hasta: tope });
+        expect(leerMarca(claves)).toEqual({ usuarioId: 5, empresaId: null, base: "iris-campo-5-0.db", hasta: tope, vencida: false });
         expect(claves.leer(claveExplicacion(5))).toBe("1");
     });
 
@@ -113,7 +119,7 @@ describe("RastreoUbicacion", () => {
         const { gps, claves, rastreo } = montar();
         claves.escribir(claveExplicacion(5), "1");
         gps.permisosActuales = { primerPlano: "concedido", fondo: "concedido" };
-        await rastreo.actualizar(1);
+        await rastreo.confirmarServidor(1);
         expect(gps.corriendo).toBe(true);
         await rastreo.actualizar(0); // la orden quedó pausada
         expect(gps.corriendo).toBe(false);
@@ -142,7 +148,7 @@ describe("RastreoUbicacion", () => {
     it("sin «Permitir todo el tiempo» rastrea solo con la app abierta y lo dice", async () => {
         const { gps, rastreo } = montar();
         gps.alPedir = { primerPlano: "concedido", fondo: "negado" };
-        await rastreo.actualizar(1);
+        await rastreo.confirmarServidor(1);
         await rastreo.aceptarExplicacion();
         expect(rastreo.obtenerEstado()).toMatchObject({ tipo: "activa", soloPrimerPlano: true });
     });
@@ -151,7 +157,8 @@ describe("RastreoUbicacion", () => {
         const { gps, claves, rastreo } = montar();
         claves.escribir(claveExplicacion(5), "1");
         gps.permisosActuales = { primerPlano: "concedido", fondo: "concedido" };
-        await rastreo.actualizar(2);
+        await rastreo.confirmarServidor(2);
+        expect(gps.corriendo).toBe(true);
         await rastreo.detener();
         expect(gps.corriendo).toBe(false);
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
@@ -192,8 +199,19 @@ describe("tarea en segundo plano (recibirLecturas)", () => {
         expect(guardarEnBase).toHaveBeenCalledWith("iris-campo-5-9.db", [expect.objectContaining({ lat: 14.6349, registradaEn: "1970-01-01T00:00:01.000Z" })]);
     });
 
+    it("pasado el «hasta» la deja vencida (no la borra), descarta y apaga; vencida sigue descartando", async () => {
+        const claves = clavesMemoria();
+        claves.escribir(CLAVE_RASTREO, marca("b.db", 1000));
+        const detenerGps = jest.fn(async () => undefined);
+        const guardarEnBase = jest.fn(async () => undefined);
+        expect(await recibirLecturas([lectura(5000)], { claves, detenerGps, guardarEnBase, sesionVigente: () => true, ahora: () => 2000 })).toBe(0);
+        expect(leerMarca(claves)).toMatchObject({ vencida: true });
+        expect(detenerGps).toHaveBeenCalled();
+        expect(await recibirLecturas([lectura(5000)], { claves, detenerGps, guardarEnBase, sesionVigente: () => true, ahora: () => 500 })).toBe(0);
+        expect(guardarEnBase).not.toHaveBeenCalled();
+    });
+
     it.each([
-        ["pasó el «hasta» de la marca", marca("b.db", 1000), () => true],
         ["la sesión guardada ya no vale sin señal (o es de otro)", marca("b.db"), () => false],
         ["la marca no se entiende (formato viejo)", "iris-campo-5-0.db", () => true],
     ])("descarta, borra la marca y apaga el GPS si %s", async (_caso, valor, sesionVigente) => {
@@ -228,62 +246,101 @@ describe("topes del GPS", () => {
         expect(calcularHasta(Date.UTC(2026, 9, 29, 5, 30, 0))).toBe(Date.UTC(2026, 9, 29, 6, 0, 0));
     });
 
-    function encendido() {
-        const gps = new GpsFalso();
+    function encendido(claves = clavesMemoria(), gps = new GpsFalso()) {
         gps.permisosActuales = { primerPlano: "concedido", fondo: "concedido" };
-        const claves = clavesMemoria();
         claves.escribir(claveExplicacion(5), "1");
         const reloj = { ms: Date.UTC(2026, 9, 28, 12, 0, 0) }; // 06:00 GT
         const rastreo = new RastreoUbicacion({ gps, claves, usuarioId: 5, empresaId: 3, base: "b.db", ahora: () => reloj.ms });
         return { gps, claves, reloj, rastreo };
     }
 
-    it("sin confirmar con el servidor, al pasar el tope se suspende; al confirmar, vuelve y renueva", async () => {
-        const { gps, claves, reloj, rastreo } = encendido();
-        await rastreo.actualizar(1, "1:en_camino");
+    it("un cambio local sin confirmación del servidor en esta sesión no crea «hasta»", async () => {
+        const { gps, claves, rastreo } = encendido();
+        await rastreo.actualizar(1); // «Llegué» sin señal al abrir
+        expect(rastreo.obtenerEstado()).toEqual({ tipo: "sin_confirmar" });
+        expect(gps.corriendo).toBe(false);
+        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
+    });
+
+    it("«hasta» sale de la hora de la confirmación; reabrir la app o acciones locales no lo extienden", async () => {
+        const { claves, reloj, rastreo } = encendido();
+        await rastreo.confirmarServidor(1);
         const primero = leerMarca(claves)?.hasta ?? 0;
         expect(primero).toBe(reloj.ms + 12 * 3600_000);
-        // Reabrir la app no extiende el tope (solo el servidor lo renueva).
         reloj.ms += 3600_000;
-        await rastreo.actualizar(1, "1:en_camino");
+        await rastreo.actualizar(1);
         expect(leerMarca(claves)?.hasta).toBe(primero);
-
-        reloj.ms = primero + 1;
-        await rastreo.actualizar(1, "1:en_camino");
-        expect(rastreo.obtenerEstado()).toEqual({ tipo: "suspendida", motivo: "tope" });
-        expect(gps.corriendo).toBe(false);
-        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
-
-        await rastreo.renovar();
-        expect(rastreo.obtenerEstado()).toMatchObject({ tipo: "activa", hasta: calcularHasta(reloj.ms) });
-        expect(gps.corriendo).toBe(true);
-    });
-
-    it("renovar con la orden en curso extiende el tope; sin órdenes en curso no hace nada", async () => {
-        const { claves, reloj, rastreo } = encendido();
-        await rastreo.actualizar(1, "1:en_sitio");
-        reloj.ms += 2 * 3600_000;
-        await rastreo.renovar();
+        // Reabrir la app (otra instancia, sin confirmar): sigue la marca vigente con el mismo tope.
+        const otra = encendido(claves);
+        otra.reloj.ms = reloj.ms;
+        await otra.rastreo.actualizar(1);
+        expect(otra.rastreo.obtenerEstado()).toMatchObject({ tipo: "activa", hasta: primero });
+        // Una confirmación nueva sí lo renueva.
+        await rastreo.confirmarServidor(1);
         expect(leerMarca(claves)?.hasta).toBe(calcularHasta(reloj.ms));
-        await rastreo.actualizar(0, "1:cerrada");
-        await rastreo.renovar();
+    });
+
+    it("al tope la marca queda vencida; reabrir sin señal y «Llegué» sin señal no encienden; con el paquete confirmado sí", async () => {
+        const { gps, claves, reloj, rastreo } = encendido();
+        await rastreo.confirmarServidor(1);
+        const tope = leerMarca(claves)?.hasta ?? 0;
+        reloj.ms = tope + 1;
+        await rastreo.actualizar(1);
+        expect(rastreo.obtenerEstado()).toEqual({ tipo: "vencida" });
+        expect(gps.corriendo).toBe(false);
+        expect(leerMarca(claves)).toMatchObject({ vencida: true });
+
+        // Reabrir sin señal: otra instancia sin confirmación.
+        const reabierta = encendido(claves, gps);
+        reabierta.reloj.ms = reloj.ms;
+        await reabierta.rastreo.actualizar(1);
+        expect(reabierta.rastreo.obtenerEstado()).toEqual({ tipo: "vencida" });
+        // «Llegué» sin señal (cambio local, acción propia): sigue apagado.
+        await reabierta.rastreo.accionPropia();
+        await reabierta.rastreo.actualizar(1);
+        expect(gps.corriendo).toBe(false);
+        expect(leerMarca(claves)).toMatchObject({ vencida: true });
+        // Vuelve la señal y el paquete confirma la orden en curso: enciende con un tope nuevo.
+        await reabierta.rastreo.confirmarServidor(1);
+        expect(reabierta.rastreo.obtenerEstado()).toMatchObject({ tipo: "activa", hasta: calcularHasta(reloj.ms) });
+        expect(gps.corriendo).toBe(true);
+        // El servidor dice que ya no hay órdenes en curso: apaga y borra.
+        await reabierta.rastreo.confirmarServidor(0);
+        expect(gps.corriendo).toBe(false);
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
     });
 
-    it("«Dejar de compartir ubicación» apaga hasta que cambie de estado alguna orden", async () => {
+    it("«Dejar de compartir» se guarda: reabrir y las sincronizaciones no lo levantan; una acción propia sí", async () => {
         const { gps, claves, rastreo } = encendido();
-        await rastreo.actualizar(2, "1:en_camino,2:en_sitio");
+        await rastreo.confirmarServidor(2);
         await rastreo.dejarDeCompartir();
-        expect(rastreo.obtenerEstado()).toEqual({ tipo: "suspendida", motivo: "manual" });
+        expect(rastreo.obtenerEstado()).toEqual({ tipo: "pausada_por_ti" });
         expect(gps.corriendo).toBe(false);
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
-        // Mismas órdenes en los mismos estados (otra sincronización): sigue apagado, también al renovar.
-        await rastreo.actualizar(2, "1:en_camino,2:en_sitio");
-        await rastreo.renovar();
+        expect(claves.leer(clavePausaManual(5, 3))).toBe("1");
+
+        // Reabrir la app: sigue apagado.
+        const reabierta = encendido(claves, gps);
+        await reabierta.rastreo.confirmarServidor(2);
+        expect(reabierta.rastreo.obtenerEstado()).toEqual({ tipo: "pausada_por_ti" });
+        // Despacho manda una orden nueva y la sincronización la trae: sigue apagado.
+        await reabierta.rastreo.actualizar(3);
+        await reabierta.rastreo.confirmarServidor(3);
         expect(gps.corriendo).toBe(false);
-        // Otra orden cambió de estado: vuelve.
-        await rastreo.actualizar(2, "1:en_sitio,2:en_sitio");
-        expect(rastreo.obtenerEstado().tipo).toBe("activa");
+        // El técnico marca «En camino»: vuelve.
+        await reabierta.rastreo.accionPropia();
+        expect(reabierta.rastreo.obtenerEstado().tipo).toBe("activa");
         expect(gps.corriendo).toBe(true);
+        // Es por usuario y empresa: otra empresa no hereda la pausa.
+        expect(claves.leer(clavePausaManual(5, 4))).toBeNull();
+    });
+
+    it("apagarGpsYa borra la marca en el acto y pide detener sin pasar por la cola", () => {
+        const claves = clavesMemoria();
+        claves.escribir(CLAVE_RASTREO, marca("b.db"));
+        const detener = jest.fn(async () => undefined);
+        void apagarGpsYa(claves, { detener });
+        expect(claves.leer(CLAVE_RASTREO)).toBeNull();
+        expect(detener).toHaveBeenCalledTimes(1);
     });
 });

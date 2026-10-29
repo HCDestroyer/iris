@@ -34,7 +34,13 @@ export function PausaOrden({ orden, pausar, reanudar }: { orden: OrdenVista; pau
 }
 
 function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number }) {
-    const { motor, ejecutar } = useCampo();
+    const { motor, ejecutar, rastreo } = useCampo();
+    const reanudar = async () => {
+        if (await ejecutar(() => motor.registrar("orden.reanudar", orden.id, {}), "Orden reanudada")) {
+            // Acción del propio técnico: levanta su «Dejar de compartir ubicación».
+            void rastreo?.accionPropia();
+        }
+    };
     const pausa = (orden.pausas ?? []).find((p) => p.fin === null);
     const motivo = pausa ? MOTIVOS_PAUSA[pausa.motivo] : undefined;
     return (
@@ -44,7 +50,7 @@ function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number
             titulo={`Orden pausada${motivo ? `: ${motivo}` : ""}`}
             testID="orden-pausada"
             accion={
-                <Boton variante="secundario" icono={CirclePlay} alPresionar={() => void ejecutar(() => motor.registrar("orden.reanudar", orden.id, {}), "Orden reanudada")}>
+                <Boton variante="secundario" icono={CirclePlay} alPresionar={() => void reanudar()}>
                     Reanudar
                 </Boton>
             }

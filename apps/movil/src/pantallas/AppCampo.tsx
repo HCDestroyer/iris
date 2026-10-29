@@ -3,7 +3,7 @@
 // **toda** salida: desmontar (sesión vencida, sesión ajena, cambiar de empresa), cerrar sesión o
 // perder la sesión con la app abierta. Lo nativo llega por `DependenciasCampo` (las pruebas lo
 // reemplazan).
-import { ErrorTransporte, type ColaPosiciones, type MotorSync } from "@iris/sync";
+import { ErrorTransporte, type ColaPosiciones, type Conexion, type MotorSync } from "@iris/sync";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
@@ -27,7 +27,11 @@ export interface MotorDeSesion {
 }
 
 export interface DependenciasCampo {
-    abrirMotor: (clave: { usuarioId: number; empresaId: number | null }, alSesionAjena: () => void) => Promise<MotorDeSesion>;
+    /**
+     * `alConfirmarServidor`: el transporte lo llama cada vez que la API responde el paquete o los
+     * cambios (antes de que el motor los aplique).
+     */
+    abrirMotor: (clave: { usuarioId: number; empresaId: number | null }, alSesionAjena: () => void, alConfirmarServidor: () => void) => Promise<MotorDeSesion>;
     gps: GpsFondo;
     claves: AlmacenClaves;
     servicios: ServiciosNativos;
@@ -42,6 +46,31 @@ export interface DependenciasCampo {
 }
 
 export type MotivoSalida = "expirada" | "salida";
+
+/** Con la sesión o la empresa inválidas no se rastrea, aunque la orden siga en curso. */
+const vigente = (c: Conexion) => c !== "sin_sesion" && c !== "sin_empresa";
+
+/**
+ * Respuestas del servidor (paquete o cambios) de esta sesión de la app, para el GPS: el transporte
+ * avisa al recibirlas y la confirmación se toma con el primer estado del motor ya aplicado (sin
+ * sincronización en curso).
+ */
+export class ConfirmacionesServidor {
+    private pendiente = false;
+
+    avisar = () => {
+        this.pendiente = true;
+    };
+
+    /** `true` una sola vez por respuesta, cuando el motor terminó de aplicarla. */
+    tomar(sincronizando: boolean): boolean {
+        if (!this.pendiente || sincronizando) {
+            return false;
+        }
+        this.pendiente = false;
+        return true;
+    }
+}
 
 function Centro({ children }: { children: ReactNode }) {
     const { colores } = useTema();
@@ -63,11 +92,12 @@ export function AppCampo({
 }) {
     const [abierto, setAbierto] = useState<MotorDeSesion | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [confirmaciones] = useState(() => new ConfirmacionesServidor());
     const actual = useRef<MotorDeSesion | null>(null);
 
     useEffect(() => {
         let vivo = true;
-        deps.abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, () => alSalir("expirada"))
+        deps.abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, () => alSalir("expirada"), confirmaciones.avisar)
             .then((m) => {
                 if (!vivo) {
                     m.motor.detener();
@@ -90,7 +120,7 @@ export function AppCampo({
                 void m.cerrar();
             }
         };
-    }, [sesion.usuarioId, empresa, alSalir, deps]);
+    }, [sesion.usuarioId, empresa, alSalir, deps, confirmaciones]);
 
     if (error) {
         return (
@@ -108,7 +138,7 @@ export function AppCampo({
             </Centro>
         );
     }
-    return <CampoAbierto abierto={abierto} sesion={sesion} empresa={empresa} alSalir={alSalir} cambiarEmpresa={cambiarEmpresa} deps={deps} />;
+    return <CampoAbierto abierto={abierto} sesion={sesion} empresa={empresa} alSalir={alSalir} cambiarEmpresa={cambiarEmpresa} deps={deps} confirmaciones={confirmaciones} />;
 }
 
 function CampoAbierto({
@@ -118,7 +148,9 @@ function CampoAbierto({
     alSalir,
     cambiarEmpresa,
     deps,
+    confirmaciones,
 }: {
+    confirmaciones: ConfirmacionesServidor;
     abierto: MotorDeSesion;
     sesion: SesionCampo;
     empresa: number | null;
@@ -161,20 +193,22 @@ function CampoAbierto({
     }, [motor, posiciones, deps]);
 
     // GPS en segundo plano: solo con órdenes en curso (pausada no cuenta) y con la sesión vigente.
-    const sesionVigente = estado.conexion !== "sin_sesion" && estado.conexion !== "sin_empresa";
-    const enCurso = sesionVigente ? ordenesEnCurso(estado.ordenes) : 0;
-    const firma = estado.ordenes.map((o) => `${o.id}:${o.estado}${o.reasignada ? "!" : ""}`).join(",");
+    const enCurso = vigente(estado.conexion) ? ordenesEnCurso(estado.ordenes) : 0;
     useEffect(() => {
-        void rastreo.actualizar(enCurso, firma);
-    }, [rastreo, enCurso, firma]);
+        void rastreo.actualizar(enCurso);
+    }, [rastreo, enCurso]);
 
-    // Cada contacto correcto con el servidor con órdenes en curso renueva el tope del GPS.
-    const ultimaSincronizacion = estado.ultimaSincronizacion;
-    useEffect(() => {
-        if (ultimaSincronizacion !== null && enCurso > 0) {
-            void rastreo.renovar();
-        }
-    }, [rastreo, ultimaSincronizacion, enCurso]);
+    // Solo una respuesta del servidor de esta sesión (paquete o cambios, ya aplicada) abre o renueva
+    // la ventana del GPS; nunca lo cargado de la base al abrir ni una acción local.
+    useEffect(
+        () =>
+            motor.suscribir((e) => {
+                if (confirmaciones.tomar(e.sincronizando)) {
+                    void rastreo.confirmarServidor(vigente(e.conexion) ? ordenesEnCurso(e.ordenes) : 0);
+                }
+            }),
+        [motor, rastreo, confirmaciones],
+    );
 
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
