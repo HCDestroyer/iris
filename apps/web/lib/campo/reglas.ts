@@ -5,7 +5,7 @@ import { ESTADOS_TERMINALES, valorDe, type OrdenVista, type TipoOrden } from "@i
 export interface AccionesOrden {
     iniciarCamino: boolean;
     llegar: boolean;
-    /** Checklist, materiales, equipos, firma y fotos: con la orden en sitio. */
+    /** Checklist, materiales, equipos, firma y fotos: en sitio, o con la orden pausada (evidencia). */
     trabajo: boolean;
     cerrar: boolean;
     fallar: boolean;
@@ -13,6 +13,11 @@ export interface AccionesOrden {
     notas: boolean;
     instalar: boolean;
     retirar: boolean;
+    /** En camino o en sitio: pausar con motivo. */
+    pausar: boolean;
+    reanudar: boolean;
+    /** Sumar un formulario del catálogo (orden propia y abierta). */
+    agregarFormulario: boolean;
 }
 
 const INSTALAN: ReadonlySet<TipoOrden> = new Set<TipoOrden>(["instalacion", "cambio_equipo"]);
@@ -21,16 +26,20 @@ const RETIRAN: ReadonlySet<TipoOrden> = new Set<TipoOrden>(["retiro", "cambio_eq
 export function accionesDe(orden: Pick<OrdenVista, "estado" | "tipo" | "reasignada">): AccionesOrden {
     const e = orden.estado;
     const viva = !orden.reasignada && !ESTADOS_TERMINALES.has(e);
-    const trabajo = viva && e === "en_sitio";
+    // Con la orden pausada no se llega, ni se sale, ni se cierra, ni se falla (la API: `orden_pausada`).
+    const trabajo = viva && (e === "en_sitio" || e === "pausada");
     return {
         iniciarCamino: viva && e === "programada",
         llegar: viva && (e === "programada" || e === "en_camino"),
         trabajo,
-        cerrar: trabajo,
+        cerrar: viva && e === "en_sitio",
         fallar: viva && (e === "programada" || e === "en_camino" || e === "en_sitio"),
         notas: !orden.reasignada,
         instalar: trabajo && INSTALAN.has(orden.tipo),
         retirar: trabajo && RETIRAN.has(orden.tipo),
+        pausar: viva && (e === "en_camino" || e === "en_sitio"),
+        reanudar: viva && e === "pausada",
+        agregarFormulario: viva,
     };
 }
 
@@ -40,10 +49,12 @@ export function accionesDe(orden: Pick<OrdenVista, "estado" | "tipo" | "reasigna
  */
 export function faltantesCierre(orden: OrdenVista): string[] {
     const faltan: string[] = [];
+    const formularios = new Map((orden.formularios ?? []).map((f) => [f.id, f.nombre]));
     for (const item of orden.checklist ?? []) {
         const v = valorDe(item);
         if (item.obligatorio && (v === null || v === "")) {
-            faltan.push(`Falta «${item.etiqueta}» del checklist.`);
+            const nombre = item.formularioId ? formularios.get(item.formularioId) : undefined;
+            faltan.push(nombre ? `Falta «${item.etiqueta}» (${nombre}).` : `Falta «${item.etiqueta}» del checklist.`);
         }
     }
     const equipos = orden.equipos ?? [];

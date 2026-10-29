@@ -73,6 +73,20 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **«En camino»:** `orden.iniciar_camino` (con GPS si hay permiso) a la cola sin conexión, e inicia
   el turno como se dice arriba. El aviso al cliente por Argos o Telegram todavía no existe en la API (pedido en
   `.claude/integration/i4.md`).
+- **Formularios** (`_componentes/checklist.tsx`): cada formulario de la orden en su tarjeta con
+  nombre, versión, origen y sus ítems (`checklist[]` plano agrupado por `formularioId`; tipo
+  `seleccion` con botones o lista). «Agregar formulario» suma una plantilla del catálogo del
+  teléfono (`Paquete.plantillas` / `Cambios.plantillas`) con `orden.agregar_formulario` (también sin
+  señal; el id de la operación es el del formulario y viaja la versión que se vio). «Quitar» solo en
+  los que agregó el técnico sin respuestas; el del tipo nunca. Un `cierre_incompleto` marca en cada
+  formulario el ítem que falta («Falta para cerrar») y «Por enviar» muestra el `message` de la API.
+- **Pausa** (`_componentes/pausa.tsx`): «Pausar» en camino o en sitio con motivo de catálogo (nota
+  obligatoria con «Otro»), aviso con motivo, nota y tiempo pausado, y «Reanudar». Pausada no ofrece
+  cerrar, fallar, llegar ni salir; sí notas, fotos, checklist, materiales, equipos y firma. Una
+  orden pausada no cuenta como «en curso»: no mantiene encendida la ubicación (reanudar la vuelve a
+  encender como «En camino»).
+- **Avisos del servidor** (`version_anterior`, `pausa_ajustada`) en el detalle de la orden hasta
+  «Entendido»: ningún ajuste pasa en silencio.
 - **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
   `cambio_contrasena_requerido` (paquete, lote, ubicaciones), va a
   `/cambiar-contrasena?siguiente=/campo` (pantalla del panel, I3, #27).
@@ -97,5 +111,6 @@ tramo, día sin turno y medianoche de Guatemala; `turno.test.ts`) y Playwright (
 sesión con y sin pendientes, abrir sin señal; `e2e/campo-ubicacion.spec.ts`: explicación antes del
 permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta, 429 con
 `Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-turno.spec.ts`:
-turno de la agenda con el reloj de Playwright; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
+turno de la agenda con el reloj de Playwright; `e2e/campo-formularios.spec.ts`: formularios y pausa
+sin señal, rechazos y cierre incompleto por formulario; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
 con `IRIS_E2E_API_REAL=1 IRIS_E2E_TECNICO=<correo>:<contraseña>`).

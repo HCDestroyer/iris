@@ -1,6 +1,6 @@
 // Textos de la app de campo en lenguaje claro: estados (icono + texto + tono), tipos, motivos y
 // problemas de la API. Un solo lugar para que la pantalla y las pruebas digan lo mismo.
-import type { EstadoOrden, MotivoFalla, OrdenCampo, Problema, TipoOperacion, TipoOrden } from "@iris/sync";
+import type { AvisoResultado, EstadoOrden, FormularioOrden, MotivoFalla, MotivoPausa, OrdenCampo, Problema, TipoOperacion, TipoOrden } from "@iris/sync";
 import { codigoProblema } from "@iris/sync";
 import type { Tono } from "@iris/ui";
 import { Ban, CalendarClock, CircleCheck, CircleDashed, CirclePause, CircleX, MapPinCheck, Navigation, type LucideIcon } from "lucide-react";
@@ -35,6 +35,27 @@ export const MOTIVOS_FALLA: Record<MotivoFalla, string> = {
     clima: "Mal clima",
     cliente_rechaza: "El cliente no aceptó",
     otro: "Otro motivo",
+};
+
+export const MOTIVOS_PAUSA: Record<MotivoPausa, string> = {
+    esperando_material: "Esperando material",
+    cliente_ausente: "El cliente no está",
+    clima: "Mal clima",
+    acceso: "Sin acceso por ahora",
+    otro: "Otro motivo",
+};
+
+export const ORIGENES_FORMULARIO: Record<FormularioOrden["origen"], string> = {
+    tipo: "Del tipo de orden",
+    despacho: "Agregado por despacho",
+    tecnico: "Agregado por ti",
+};
+
+/** Avisos de una operación que la API aplicó con un ajuste: el técnico los ve (nada en silencio). */
+export const AVISOS_SERVIDOR: Partial<Record<AvisoResultado, string>> = {
+    version_anterior:
+        "El formulario se editó mientras no tenías señal: se guardó con la versión que viste (tus respuestas son de esos ítems).",
+    pausa_ajustada: "La pausa empezaba antes del fin de la anterior: el servidor ajustó su inicio para que no se enciman.",
 };
 
 export const CONDICIONES = { buena: "Buena", danada: "Dañada", perdido: "Perdido" } as const;
@@ -80,6 +101,18 @@ const PROBLEMAS: Record<string, string> = {
     adjunto_existente: "Ya existe otro archivo con el mismo identificador.",
     entidad_no_adjuntable: "No se pueden adjuntar archivos a esta orden.",
     demasiadas_subidas: "Hay demasiadas subidas en curso; se reintenta sola.",
+    version_anterior: "El formulario tiene una versión más nueva; se usó la que viste.",
+    pausa_ajustada: "El servidor ajustó la hora de inicio de la pausa.",
+    plantilla_inactiva: "Ese formulario se desactivó mientras no tenías señal. Quítalo del teléfono o pide a despacho que lo active.",
+    formulario_duplicado: "Despacho ya agregó ese formulario a la orden: tus respuestas van al que ya tiene.",
+    formulario_ajeno: "Ese formulario lo agregó despacho u otro técnico: no lo puedes quitar.",
+    formulario_ya_quitado: "Ese formulario ya se había quitado.",
+    formulario_con_respuestas: "El formulario ya tiene respuestas: no se puede quitar.",
+    formulario_del_tipo: "El formulario del tipo de orden nunca se quita.",
+    formulario_quitado: "Despacho quitó ese formulario mientras no tenías señal: esta respuesta no se guardó. Pide que lo vuelva a asignar.",
+    orden_ya_pausada: "La orden ya estaba pausada (despacho u otro teléfono la pausó).",
+    orden_no_pausada: "La orden ya no estaba pausada (despacho la reanudó, reprogramó o canceló).",
+    orden_pausada: "La orden está pausada: primero reanúdala.",
 };
 
 export function textoProblema(problema: Problema | null | undefined, porDefecto = "El servidor no aceptó la acción."): string {
@@ -112,6 +145,9 @@ export function describirCampo(campo: string, mensaje: string, orden?: Pick<Orde
             return clave === "retirar" ? "Registra el equipo retirado." : "Registra el equipo instalado.";
         case "firma":
             return "Falta la firma del cliente.";
+        case "formularios":
+            // `formularios.<id>.checklist.<código>`: la API ya dice qué ítem y de qué formulario.
+            return mensaje || `Falta un ítem de un formulario (${campo}).`;
         default:
             return mensaje || campo;
     }
@@ -120,4 +156,22 @@ export function describirCampo(campo: string, mensaje: string, orden?: Pick<Orde
 /** Motivo completo de un rechazo: el código en claro y, debajo, cada cosa que falta o está mal. */
 export function detallesProblema(problema: Problema | null | undefined, orden?: Pick<OrdenCampo, "checklist"> | null): string[] {
     return (problema?.errors ?? []).map((e) => describirCampo(e.field, e.message, orden));
+}
+
+/** Ítem que falta en el cierre, por formulario (`formularios.<id>.checklist.<código>`). */
+export interface FaltanteFormulario {
+    formularioId: string;
+    codigo: string;
+    mensaje: string;
+}
+
+export function faltantesPorFormulario(problema: Problema | null | undefined): FaltanteFormulario[] {
+    const lista: FaltanteFormulario[] = [];
+    for (const e of problema?.errors ?? []) {
+        const m = /^formularios\.([^.]+)\.checklist\.(.+)$/.exec(e.field);
+        if (m?.[1] && m[2]) {
+            lista.push({ formularioId: m[1], codigo: m[2], mensaje: e.message });
+        }
+    }
+    return lista;
 }

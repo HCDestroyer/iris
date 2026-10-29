@@ -77,7 +77,17 @@ export type CodigoErrorLocal =
     | "operacion_desconocida"
     | "operacion_no_rechazada"
     | "adjunto_desconocido"
-    | "adjunto_no_rechazado";
+    | "adjunto_no_rechazado"
+    | "orden_pausada"
+    | "orden_no_pausada"
+    | "transicion_invalida"
+    | "nota_requerida"
+    | "plantilla_desconocida"
+    | "formulario_duplicado"
+    | "formulario_desconocido"
+    | "formulario_del_tipo"
+    | "formulario_ajeno"
+    | "formulario_con_respuestas";
 
 /** El teléfono no acepta la acción (antes de encolarla). */
 export class ErrorSync extends Error {
