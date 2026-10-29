@@ -147,6 +147,9 @@ Una tarea está terminada solo si:
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
 | `ticket.resolucion_propuesta` | soporte (Horus) | ticket_id, accion (resolver \| cerrar), motivo, origen, entrante_id |
 | `ticket.mensaje_cliente` | soporte (portal) | ticket_id, mensaje_id, canal |
+| `encuesta.enviada` | soporte | encuesta_id, entidad (ticket \| orden), entidad_id, canal (correo \| enlace) |
+| `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |
+| `encuesta.anulada` | soporte | encuesta_id, entidad (ticket), entidad_id, motivo (reabierto \| fusionado) |
 | `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |

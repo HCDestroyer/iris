@@ -91,6 +91,9 @@ func (m *Modulo) nuevoFusionarTickets() *auditoria.Caso[EntradaFusionarTickets, 
 			if err != nil {
 				return ResultadoFusion{}, err
 			}
+			if err := m.anularEncuestaTicket(ctx, t, q, f.ID, "fusionado"); err != nil {
+				return ResultadoFusion{}, err
+			}
 			nota := fmt.Sprintf("Fusionado en %s.", destino.Numero)
 			if motivo != nil {
 				nota += " " + *motivo

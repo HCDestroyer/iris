@@ -46,6 +46,9 @@ func (m *Modulo) nuevoReabrirTicket() *auditoria.Caso[EntradaReabrirTicket, Tick
 			if err != nil {
 				return Ticket{}, err
 			}
+			if err := m.anularEncuestaTicket(ctx, t, q, f.ID, "reabierto"); err != nil {
+				return Ticket{}, err
+			}
 			if err := cambioDeEstado(ctx, t, q, antes, f, &motivo); err != nil {
 				return Ticket{}, err
 			}

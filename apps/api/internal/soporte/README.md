@@ -202,12 +202,63 @@ Lógica común con el panel en funciones internas: `crearTicket` (también la us
 `reactivarPorCliente` (también el correo), `tomar`, `cerrar`. Las claves de idempotencia del
 cliente son `cliente:<empresa>:<cliente>|<clave>`.
 
+## Encuesta de satisfacción (`encuestas.go`, `rutas_encuestas.go`)
+
+- **Cuándo:** al pasar un ticket a `resuelto` (salvo el maestro de un incidente de red, sin
+  cliente) y al cerrar con éxito (`exitosa`) una orden de instalación o visita (campo llama a
+  `GenerarEncuestaOrden` en la transacción del cierre). Una viva por ticket y una por orden
+  (índices únicos que excluyen las `anuladas`).
+- **Anulación:** si el ticket se reabre (reabrir, o el cliente responde por portal o correo a un
+  resuelto) o se fusiona, su encuesta pendiente pasa a `anulada` en la misma transacción
+  (`encuesta.anulada`); la siguiente resolución genera otra. Responderla da 410 `encuesta_anulada`.
+- **Token:** enlace `<IRIS_BASE_URL>/encuesta#<token>`, de un solo uso, vence a los 7 días. En la
+  base solo quedan `token_hash` (SHA-256) y una `semilla` aleatoria; el token es
+  `HMAC-SHA256(clave, semilla)` con una clave derivada de `IRIS_CLAVE_CIFRADO` (`ClavesEncuestas`,
+  también la anterior en una rotación). Sin clave, el token es aleatorio y no se puede volver a
+  mostrar.
+- **Envío:** si el ticket (el de la orden, si tiene) tiene correo de contacto, hay un buzón activo
+  con SMTP de su empresa (el del último correo del contacto si cumple, con `In-Reply-To`), clave e
+  `IRIS_BASE_URL`: `canal = correo`, fila en `correos_salientes` con `encuesta_id` y job
+  `soporte.enviar_correo` (el cuerpo se arma al enviar; si ya está respondida, vencida, anulada o
+  sin enlace, se anota el error y no se reintenta). Si no, `canal = enlace`.
+- **Panel:** `GET /api/v1/encuestas` (`encuestas.ver`: admin, supervisor, soporte) **nunca trae el
+  enlace** (el personal no debe responder la encuesta que lo califica); `enlaceDisponible` dice si
+  se puede pedir. `POST /api/v1/encuestas/{id}/enlace` (`encuestas.compartir`: admin, supervisor,
+  soporte) lo devuelve, auditado (quién; token como `***`), solo pendiente y de canal `enlace` (por
+  correo, 409 `encuesta_por_correo`). Filtros de la lista: `desde`, `hasta`, `calificacion`,
+  `entidad`, `estado` (`pendiente`, `respondida`, `vencida`, `anulada`), `ticketId`, `ordenId`;
+  empresa activa y alcance por zona o cuadrilla (copiados al crear). El agregado es
+  `GET /api/v1/reportes/satisfaccion` (módulo reportes).
+- **Público** (`Acceso: Publico`; el middleware de identidad ignora la cookie del panel en
+  `/api/v1/encuestas/publica/`): el token va siempre en el cuerpo. `POST …/publica/consultar
+  { token }` (número, fecha, empresa, estado, vence; nada personal) y `POST …/publica/responder
+  { token, calificacion 1–5, comentario? ≤ 1000 }` (guarda IP y User-Agent ≤ 255). Repetir la misma
+  respuesta → 200 sin cambios; otra → 409 `encuesta_respondida`; vencida → 410 `encuesta_vencida`;
+  anulada → 410 `encuesta_anulada`. Token inválido → 404 `encuesta_no_encontrada` sin auditar
+  (contados, log con muestreo); más de 1000 inválidos por minuto → 429 `demasiados_intentos`, y
+  mientras dure la ventana, 429 antes de abrir la transacción. Token y comentario como `***` en la
+  auditoría.
+
+## Rendimiento (prueba de carga de I5)
+
+- **Cron de SLA:** `AlertasSLAPendientes` lee solo los tickets vivos con un reloj en riesgo (los
+  índices parciales `tickets_sla_respuesta_idx` / `tickets_sla_resolucion_idx`, BitmapOr) y mira
+  las alertas ya emitidas por ticket con la llave primaria de `ticket_sla_alertas`: su costo no
+  crece con la historia. Las alertas se emiten en lotes de 200 (`LoteSLAPorDefecto`), cada uno en
+  su transacción con su fila de auditoría (`RevisorSLA`); la idempotencia sigue siendo el `INSERT …
+  ON CONFLICT DO NOTHING` en la transacción del evento.
+- **Búsqueda `q` de la bandeja:** índices GIN de trigramas (`pg_trgm`, `fastupdate = off`) sobre
+  `numero`, `asunto` y `contacto_nombre`; la consulta no cambió (`ILIKE '%…%'`).
+- `internal/soporte/carga` siembra 60 000 tickets de un año, compara la consulta anterior del cron
+  con la nueva (mismo resultado), verifica los planes con `EXPLAIN` y mide.
+
 ## Eventos que emite
 
 `ticket.creado`, `ticket.asignado`, `ticket.estado_cambiado`, `ticket.respondido`,
 `ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`,
 `ticket.resolucion_propuesta`, `ticket.mensaje_cliente`, `soporte.horus_descartado`,
-`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`.
+`correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`,
+`encuesta.enviada`, `encuesta.respondida`, `encuesta.anulada`.
 Payloads en `.claude/integration/contratos/eventos.md`.
 
 ## Eventos que consume

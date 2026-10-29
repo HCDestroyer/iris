@@ -219,3 +219,32 @@ WHERE t.resuelto_en IS NOT NULL AND t.fusionado_en_id IS NULL
   AND (cardinality(@prioridades::text[]) = 0 OR t.prioridad = ANY(@prioridades::text[]))
 ORDER BY t.resuelto_en DESC, t.id DESC
 LIMIT @limite;
+
+-- name: ReporteSatisfaccion :many
+-- Encuestas creadas (enviadas) en [inicio, fin): respondidas, pendientes, vencidas sin
+-- responder, promedio y distribución de la calificación. Total y por entidad (ticket, orden).
+-- zona, cuadrilla, usuario y categoría son los copiados al crear la encuesta.
+SELECT GROUPING(e.entidad)::int AS por_entidad_g, coalesce(e.entidad, '')::text AS entidad,
+       count(*)::bigint AS enviadas,
+       count(*) FILTER (WHERE e.estado = 'respondida')::bigint AS respondidas,
+       count(*) FILTER (WHERE e.estado = 'pendiente' AND e.expira_en > @ahora)::bigint AS pendientes,
+       count(*) FILTER (WHERE e.estado = 'pendiente' AND e.expira_en <= @ahora)::bigint AS vencidas,
+       coalesce(avg(e.calificacion), 0)::float8 AS promedio,
+       count(*) FILTER (WHERE e.calificacion = 1)::bigint AS c1,
+       count(*) FILTER (WHERE e.calificacion = 2)::bigint AS c2,
+       count(*) FILTER (WHERE e.calificacion = 3)::bigint AS c3,
+       count(*) FILTER (WHERE e.calificacion = 4)::bigint AS c4,
+       count(*) FILTER (WHERE e.calificacion = 5)::bigint AS c5
+FROM soporte.encuestas e
+WHERE e.created_at >= @inicio AND e.created_at < @fin
+  AND (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND e.empresa_id IS NULL)
+       OR e.empresa_id = sqlc.narg(empresa_id))
+  AND (@alcance_global::boolean OR e.zona_id = ANY(@zonas::bigint[]) OR e.cuadrilla_id = ANY(@cuadrillas::bigint[]))
+  AND (sqlc.narg(zona_id)::bigint IS NULL OR e.zona_id = sqlc.narg(zona_id))
+  AND (sqlc.narg(cuadrilla_id)::bigint IS NULL OR e.cuadrilla_id = sqlc.narg(cuadrilla_id))
+  AND (sqlc.narg(tecnico_id)::bigint IS NULL OR e.usuario_id = sqlc.narg(tecnico_id))
+  AND (sqlc.narg(categoria_id)::bigint IS NULL OR e.categoria_id = sqlc.narg(categoria_id))
+  AND (sqlc.narg(entidad)::text IS NULL OR e.entidad = sqlc.narg(entidad))
+GROUP BY GROUPING SETS ((), (e.entidad))
+ORDER BY 1, 2;
