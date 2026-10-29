@@ -118,10 +118,10 @@ func (m *Modulo) EmpresaDeRouter(ctx context.Context, routerID int64) (*int64, e
 type ClienteValidado struct {
 	Validado bool
 	Existe   bool
-	// Empresas: las de sus servicios (el cliente de Argos no tiene empresa); ConServicios: tiene
-	// alguno (vacía y sin servicios = lo ven todas).
+	// Empresas: las de sus servicios (el cliente de Argos no tiene empresa); SinServicios: Argos
+	// dijo, con la lista de todas las empresas, que no tiene ninguno.
 	Empresas     []int64
-	ConServicios bool
+	SinServicios bool
 	Motivo       string
 }
 
@@ -143,12 +143,21 @@ func (m *Modulo) ValidarCliente(ctx context.Context, clienteID int64) (ClienteVa
 	cli := m.clienteDe(c)
 	cl, err := cli.ObtenerCliente(ctx, clienteID)
 	var servicios []ServicioArgos
+	completa := false
 	if err == nil {
-		servicios, err = cli.ServiciosDeCliente(ctx, clienteID)
+		servicios, completa, err = cli.ServiciosDeClienteCompletos(ctx, clienteID)
+	}
+	var info infoEmpresas
+	if err == nil {
+		info, err = infoDeServicios(ctx, cl, servicios, completa)
+		if err != nil {
+			return ClienteValidado{}, err
+		}
 	}
 	switch {
 	case err == nil:
-		return ClienteValidado{Validado: true, Existe: true, Empresas: EmpresasDelCliente(cl, servicios), ConServicios: len(servicios) > 0}, nil
+		// Una lista parcial (sin alcance global en Argos) solo vale por las empresas que muestra.
+		return ClienteValidado{Validado: true, Existe: true, Empresas: info.empresas, SinServicios: info.sinServicios}, nil
 	case EsNoEncontrado(err):
 		return ClienteValidado{Validado: true}, nil
 	case EsCaido(err):

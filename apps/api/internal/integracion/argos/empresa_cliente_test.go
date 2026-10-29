@@ -91,3 +91,112 @@ func TestEmpresaDelClienteSegunSusServicios(t *testing.T) {
 		t.Fatalf("tras el refresco sigue visible: %d %s", f.status, f.crudo)
 	}
 }
+
+// Revisión de seguridad de la PR #52.
+
+// Una lista de servicios vacía por el alcance del token (sin global en Argos) no es «sin
+// servicios»: ese cliente queda fuera de la búsqueda, la ficha y el portal.
+func TestListaVaciaPorAlcanceQuedaFuera(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.conectado()
+	e.exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2')`)
+	e.sembrarComoArgos13(91, "Gaby Ajena", 2)
+	e.argos.con(func() { e.argos.alcance = map[int64]bool{1: true} })
+	uno := e.usuarioEn([]int64{1}, "soporte")
+	if b := uno.pedir(http.MethodGet, "/api/v1/clientes?q=gaby", nil); b.status != 200 || len(b.cuerpo["data"].([]any)) != 0 {
+		t.Fatalf("búsqueda: %d %s", b.status, b.crudo)
+	}
+	uno.pedir(http.MethodGet, "/api/v1/clientes/91", nil).problema(t, 404, "no_encontrado")
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 91 AND sin_servicios`); n != 0 {
+		t.Fatal("una lista parcial vacía no marca sin_servicios")
+	}
+	if v, err := e.mod.ValidarCliente(pruebas.ContextoSistema(e.pool), 91); err != nil || !v.Validado || v.SinServicios || len(v.Empresas) != 0 {
+		t.Fatalf("portal: %+v %v", v, err)
+	}
+}
+
+// La ficha solo muestra los servicios de la empresa activa (con empresas.todas, todos) y pide el
+// estado de cuenta de esa empresa. Sin servicios: la ficha se ve, el estado de cuenta solo con
+// empresas.todas. Un servicio sin empresa no se atribuye a nadie.
+func TestFichaPorEmpresaYSinServicios(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.conectado()
+	e.exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2')`)
+	e.sembrarComoArgos13(93, "Hugo Mixto", 2, 1)
+	e.sembrarComoArgos13(94, "Hugo Nuevo")
+	e.sembrarComoArgos13(95, "Hugo Sin Empresa", 0)
+	uno := e.usuarioEn([]int64{1}, "soporte")
+
+	f := uno.pedir(http.MethodGet, "/api/v1/clientes/93", nil)
+	servicios, _ := f.cuerpo["servicios"].([]any)
+	if f.status != 200 || len(servicios) != 1 || servicios[0].(map[string]any)["empresaId"] != float64(1) {
+		t.Fatalf("solo los servicios de la empresa activa: %d %s", f.status, f.crudo)
+	}
+	var pedido string
+	e.argos.con(func() { pedido = e.argos.estadoPedido })
+	if f.cuerpo["estadoCuenta"] == nil || pedido != "1" {
+		t.Fatalf("estado de cuenta de la empresa activa: %q %s", pedido, f.crudo)
+	}
+	admin := e.usuario("admin")
+	if f := admin.pedir(http.MethodGet, "/api/v1/clientes/93", nil, "X-Iris-Empresa", "1"); f.status != 200 || len(f.cuerpo["servicios"].([]any)) != 2 {
+		t.Fatalf("con empresas.todas, todos los servicios: %d %s", f.status, f.crudo)
+	}
+
+	f = uno.pedir(http.MethodGet, "/api/v1/clientes/94", nil)
+	if f.status != 200 || f.cuerpo["estadoCuenta"] != nil || f.cuerpo["estadoCuentaError"] != "sin_permiso" {
+		t.Fatalf("sin servicios: ficha sí, estado de cuenta no: %d %s", f.status, f.crudo)
+	}
+	if f := admin.pedir(http.MethodGet, "/api/v1/clientes/94", nil, "X-Iris-Empresa", "1"); f.status != 200 || f.cuerpo["estadoCuenta"] == nil {
+		t.Fatalf("sin servicios, con empresas.todas: %d %s", f.status, f.crudo)
+	}
+
+	uno.pedir(http.MethodGet, "/api/v1/clientes/95", nil).problema(t, 404, "no_encontrado")
+	admin.pedir(http.MethodGet, "/api/v1/clientes/95", nil, "X-Iris-Empresa", "1").problema(t, 404, "no_encontrado")
+	// Con un servicio en la empresa 1 y otro sin empresa: se ve, y el segundo queda en 0.
+	e.sembrarComoArgos13(97, "Hugo Medio", 1, 0)
+	if f := uno.pedir(http.MethodGet, "/api/v1/clientes/97", nil); f.status != 200 || len(f.cuerpo["servicios"].([]any)) != 1 {
+		t.Fatalf("cliente con un servicio sin empresa: %d %s", f.status, f.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE cliente_id = 97 AND empresa_id = 0`); n != 1 {
+		t.Fatal("el servicio sin empresa no hereda la del cliente")
+	}
+	e.argos.con(func() { e.argos.ips["10.0.0.95"] = map[string]any{"cliente_id": 95, "servicio_id": 950, "empresa_id": 0} })
+	uno.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.95", nil).problema(t, 404, "no_encontrado")
+}
+
+// Un cliente recién creado por un alta desde Iris, aún sin servicio, solo se ve en la empresa
+// del prospecto (pista local).
+func TestPistaDeAltaSinServicio(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.conectado()
+	e.exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2')`)
+	e.sembrarComoArgos13(96, "Iván Recién Ganado")
+	e.exec(`INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta, empresa_id, estado, respuesta)
+		VALUES ('crear_cliente', 'iris:cliente:e2e-' || $1, 'prospecto', $1, 'POST', '/clientes', 2, 'hecho', '{"id": 96}')`, pruebas.Unico())
+	e.usuarioEn([]int64{1}, "soporte").pedir(http.MethodGet, "/api/v1/clientes/96", nil).problema(t, 404, "no_encontrado")
+	if f := e.usuarioEn([]int64{2}, "soporte").pedir(http.MethodGet, "/api/v1/clientes/96", nil); f.status != 200 {
+		t.Fatalf("en la empresa del prospecto: %d %s", f.status, f.crudo)
+	}
+}
+
+// La búsqueda verifica a lo sumo TopeVerificaciones clientes desconocidos; los demás quedan fuera.
+func TestTopeDeVerificacionesPorBusqueda(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.conectado()
+	for i := int64(0); i < 25; i++ {
+		e.sembrarComoArgos13(700+i, fmt.Sprintf("Zeta %02d", i), 1)
+	}
+	uno := e.usuarioEn([]int64{1}, "soporte")
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	b := uno.pedir(http.MethodGet, "/api/v1/clientes?q=zeta&limit=50", nil)
+	llamadas := e.argos.llamadasA("/api/v1/servicios") - antes
+	if b.status != 200 || len(b.cuerpo["data"].([]any)) != 20 || llamadas != 20 {
+		t.Fatalf("tope de 20: %d resultados, %d llamadas: %s", len(b.cuerpo["data"].([]any)), llamadas, b.crudo)
+	}
+	// Caché: la misma búsqueda no vuelve a verificar a los ya verificados.
+	antes = e.argos.llamadasA("/api/v1/servicios")
+	uno.pedir(http.MethodGet, "/api/v1/clientes?q=zeta&limit=50", nil)
+	if n := e.argos.llamadasA("/api/v1/servicios") - antes; n != 5 {
+		t.Fatalf("con caché solo se verifican los 5 restantes: %d", n)
+	}
+}

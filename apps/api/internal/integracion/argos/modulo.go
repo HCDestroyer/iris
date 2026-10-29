@@ -74,9 +74,11 @@ type Config struct {
 
 // Modulo reúne los casos de uso del conector Argos.
 type Modulo struct {
-	cfg      Config
-	nucleo   *conector.Nucleo
-	conexion *conector.Conexion
+	// verificacion: caché y cupos de la verificación de clientes en la búsqueda.
+	verificacion *verificaciones
+	cfg          Config
+	nucleo       *conector.Nucleo
+	conexion     *conector.Conexion
 
 	Conectar             *conector.Conectar
 	GenerarEnlace        *auditoria.Caso[struct{}, EnlaceGenerado]
@@ -110,7 +112,7 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.VigenciaInstantanea <= 0 {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
-	m := &Modulo{cfg: cfg}
+	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,

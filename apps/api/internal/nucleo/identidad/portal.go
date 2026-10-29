@@ -88,17 +88,18 @@ type ValidacionCliente struct {
 	Validado bool
 	Existe   bool
 	// Empresas del cliente: las de sus servicios en Argos (el cliente no tiene empresa; sus
-	// servicios sí). ConServicios distingue «sin servicios» (lo ven todas) de «servicios sin
-	// empresa conocida» (no es de ninguna).
+	// servicios sí). SinServicios: Argos dijo, con la lista de todas las empresas, que no tiene
+	// ninguno (una lista vacía por el alcance del token no cuenta).
 	Empresas     []int64
-	ConServicios bool
+	SinServicios bool
 	Motivo       string
 }
 
-// EnEmpresa indica si el cliente es de la empresa: una de las de sus servicios, o ninguno si no
-// tiene servicios (lo ven todas, como las listas de Argos; multiempresa.md).
-func EnEmpresa(empresas []int64, conServicios bool, empresa int64) bool {
-	return slices.Contains(empresas, empresa) || (len(empresas) == 0 && !conServicios)
+// EnEmpresa indica si el cliente es de la empresa: uno de sus servicios lo es. Un cliente sin
+// servicios se ve en todas (como en Argos), pero su acceso al portal (y su estado de cuenta) solo
+// lo pide quien tiene empresas.todas global (todas).
+func EnEmpresa(empresas []int64, sinServicios bool, empresa int64, todas bool) bool {
+	return slices.Contains(empresas, empresa) || (sinServicios && todas)
 }
 
 // ValidadorCliente lee un cliente en Argos (lo cablea cmd/iris con el conector Argos). Solo
@@ -130,7 +131,7 @@ func clienteConocido(ctx context.Context, q *identidadbd.Queries, in EntradaEmit
 		return false, nil
 	case err != nil:
 		return false, err
-	case !EnEmpresa(c.Empresas, c.ConServicios, in.EmpresaID):
+	case !EnEmpresa(c.Empresas, c.SinServicios, in.EmpresaID, todasGlobal(ctx)):
 		return true, empresaNoCoincide()
 	}
 	return true, nil
@@ -171,7 +172,7 @@ func nuevoEmitirAccesoPortal(cfg Config) *EmitirAccesoPortal {
 				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "instantanea"})
 			case v != nil && v.Validado && !v.Existe:
 				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("cliente_no_existe", "Argos no tiene ese cliente")
-			case v != nil && v.Validado && !EnEmpresa(v.Empresas, v.ConServicios, in.EmpresaID):
+			case v != nil && v.Validado && !EnEmpresa(v.Empresas, v.SinServicios, in.EmpresaID, todasGlobal(ctx)):
 				return AccesoPortalEmitido{}, empresaNoCoincide()
 			case v != nil && v.Validado:
 				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "argos"})

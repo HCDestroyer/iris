@@ -28,12 +28,12 @@ ORDER BY nombre, id;
 
 -- name: ClienteDeArgos :one
 -- Ficha del cliente en la instantánea de Argos (contacto del ticket del portal).
--- El cliente es de la empresa si alguno de sus servicios lo es, o si no tiene servicios (Argos).
+-- El cliente es de la empresa si alguno de sus servicios lo es (o, en filas anteriores, su
+-- empresa_id), o si no tiene servicios: a ese, el acceso al portal solo lo emite quien tiene
+-- empresas.todas, así que una sesión del portal suya ya pasó por ese control.
 SELECT c.nombre, c.telefono, c.zona_id FROM integracion.argos_clientes c
-WHERE c.id = @id AND (@empresa_id::bigint = ANY(c.empresas)
-    OR (cardinality(c.empresas) = 0 AND c.empresa_id = @empresa_id::bigint)
-    OR (cardinality(c.empresas) = 0 AND c.empresa_id = 0 AND NOT EXISTS (
-    SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = c.id)));
+WHERE c.id = @id AND (@empresa_id::bigint = ANY(c.empresas) OR c.sin_servicios
+    OR (cardinality(c.empresas) = 0 AND c.empresa_id = @empresa_id::bigint));
 
 -- name: ServicioDeCliente :one
 -- El servicio es del cliente según la instantánea de Argos (con su zona).

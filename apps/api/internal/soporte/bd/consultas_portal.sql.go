@@ -11,10 +11,8 @@ import (
 
 const clienteDeArgos = `-- name: ClienteDeArgos :one
 SELECT c.nombre, c.telefono, c.zona_id FROM integracion.argos_clientes c
-WHERE c.id = $1 AND ($2::bigint = ANY(c.empresas)
-    OR (cardinality(c.empresas) = 0 AND c.empresa_id = $2::bigint)
-    OR (cardinality(c.empresas) = 0 AND c.empresa_id = 0 AND NOT EXISTS (
-    SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = c.id)))
+WHERE c.id = $1 AND ($2::bigint = ANY(c.empresas) OR c.sin_servicios
+    OR (cardinality(c.empresas) = 0 AND c.empresa_id = $2::bigint))
 `
 
 type ClienteDeArgosParams struct {
@@ -29,7 +27,9 @@ type ClienteDeArgosRow struct {
 }
 
 // Ficha del cliente en la instantánea de Argos (contacto del ticket del portal).
-// El cliente es de la empresa si alguno de sus servicios lo es, o si no tiene servicios (Argos).
+// El cliente es de la empresa si alguno de sus servicios lo es (o, en filas anteriores, su
+// empresa_id), o si no tiene servicios: a ese, el acceso al portal solo lo emite quien tiene
+// empresas.todas, así que una sesión del portal suya ya pasó por ese control.
 func (q *Queries) ClienteDeArgos(ctx context.Context, arg ClienteDeArgosParams) (ClienteDeArgosRow, error) {
 	row := q.db.QueryRow(ctx, clienteDeArgos, arg.ID, arg.EmpresaID)
 	var i ClienteDeArgosRow

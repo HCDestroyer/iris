@@ -146,7 +146,7 @@ func moduloConArgos(cfg config.Config, a *argos.Modulo) (*identidad.Modulo, erro
 	if a != nil {
 		icfg.ValidarCliente = func(ctx context.Context, clienteID int64) (identidad.ValidacionCliente, error) {
 			v, err := a.ValidarCliente(ctx, clienteID)
-			return identidad.ValidacionCliente{Validado: v.Validado, Existe: v.Existe, Empresas: v.Empresas, ConServicios: v.ConServicios, Motivo: v.Motivo}, err
+			return identidad.ValidacionCliente{Validado: v.Validado, Existe: v.Existe, Empresas: v.Empresas, SinServicios: v.SinServicios, Motivo: v.Motivo}, err
 		}
 	}
 	return identidad.Nuevo(icfg), nil
