@@ -175,6 +175,15 @@ func (q *Queries) BloqueoLogin(ctx context.Context, correo string) (time.Time, e
 	return bloqueado_hasta, err
 }
 
+const borrarVinculoSSO = `-- name: BorrarVinculoSSO :exec
+DELETE FROM nucleo.sso_vinculos WHERE id = $1
+`
+
+func (q *Queries) BorrarVinculoSSO(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, borrarVinculoSSO, id)
+	return err
+}
+
 const cambiarContrasenaPropia = `-- name: CambiarContrasenaPropia :one
 UPDATE nucleo.usuarios
 SET contrasena_hash = $1, debe_cambiar_contrasena = false,
@@ -233,6 +242,36 @@ func (q *Queries) CompletarMFASesion(ctx context.Context, id int64) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const conectorActivoDeSistema = `-- name: ConectorActivoDeSistema :one
+
+SELECT id, token_entregado_id FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+`
+
+type ConectorActivoDeSistemaRow struct {
+	ID               int64
+	TokenEntregadoID *int64
+}
+
+// Autologin desde Argos (SSO, sso.go) -----------------------------------------------------
+// El conector activo del sistema y el iris_pat_ que Iris le entregó en el canje.
+func (q *Queries) ConectorActivoDeSistema(ctx context.Context, sistema string) (ConectorActivoDeSistemaRow, error) {
+	row := q.db.QueryRow(ctx, conectorActivoDeSistema, sistema)
+	var i ConectorActivoDeSistemaRow
+	err := row.Scan(&i.ID, &i.TokenEntregadoID)
+	return i, err
+}
+
+const conectorSigueActivo = `-- name: ConectorSigueActivo :one
+SELECT (estado = 'activo')::boolean AS activo FROM integracion.conectores WHERE id = $1
+`
+
+func (q *Queries) ConectorSigueActivo(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, conectorSigueActivo, id)
+	var activo bool
+	err := row.Scan(&activo)
+	return activo, err
 }
 
 const confirmarTokenEntregado = `-- name: ConfirmarTokenEntregado :execrows
@@ -418,6 +457,58 @@ func (q *Queries) CrearSesionPortal(ctx context.Context, arg CrearSesionPortalPa
 	return i, err
 }
 
+const crearTicketSSO = `-- name: CrearTicketSSO :one
+INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+`
+
+type CrearTicketSSOParams struct {
+	ConectorID     int64
+	TicketHash     []byte
+	UsuarioExterno string
+	Correo         string
+	Nombre         string
+	DestinoTipo    string
+	DestinoID      int64
+	EmitidoTokenID *int64
+	ExpiraEn       time.Time
+}
+
+func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) (NucleoSsoTicket, error) {
+	row := q.db.QueryRow(ctx, crearTicketSSO,
+		arg.ConectorID,
+		arg.TicketHash,
+		arg.UsuarioExterno,
+		arg.Correo,
+		arg.Nombre,
+		arg.DestinoTipo,
+		arg.DestinoID,
+		arg.EmitidoTokenID,
+		arg.ExpiraEn,
+	)
+	var i NucleoSsoTicket
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.TicketHash,
+		&i.UsuarioExterno,
+		&i.Correo,
+		&i.Nombre,
+		&i.DestinoTipo,
+		&i.DestinoID,
+		&i.EmitidoTokenID,
+		&i.ExpiraEn,
+		&i.CanjeadoEn,
+		&i.VinculacionHash,
+		&i.VinculacionExpiraEn,
+		&i.VinculadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const crearToken = `-- name: CrearToken :one
 
 INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por)
@@ -502,6 +593,38 @@ func (q *Queries) CrearUsuario(ctx context.Context, arg CrearUsuarioParams) (Nuc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DebeCambiarContrasena,
+	)
+	return i, err
+}
+
+const crearVinculoSSO = `-- name: CrearVinculoSSO :one
+INSERT INTO nucleo.sso_vinculos (conector_id, usuario_externo, usuario_id, ticket_id)
+VALUES ($1, $2, $3, $4)
+RETURNING id, conector_id, usuario_externo, usuario_id, ticket_id, created_at
+`
+
+type CrearVinculoSSOParams struct {
+	ConectorID     int64
+	UsuarioExterno string
+	UsuarioID      int64
+	TicketID       *int64
+}
+
+func (q *Queries) CrearVinculoSSO(ctx context.Context, arg CrearVinculoSSOParams) (NucleoSsoVinculo, error) {
+	row := q.db.QueryRow(ctx, crearVinculoSSO,
+		arg.ConectorID,
+		arg.UsuarioExterno,
+		arg.UsuarioID,
+		arg.TicketID,
+	)
+	var i NucleoSsoVinculo
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.UsuarioExterno,
+		&i.UsuarioID,
+		&i.TicketID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1146,6 +1269,22 @@ func (q *Queries) PermisosDeUsuario(ctx context.Context, usuarioID int64) ([]Per
 	return items, nil
 }
 
+const prepararVinculacionSSO = `-- name: PrepararVinculacionSSO :exec
+UPDATE nucleo.sso_tickets SET vinculacion_hash = $1, vinculacion_expira_en = $2, updated_at = now()
+WHERE id = $3
+`
+
+type PrepararVinculacionSSOParams struct {
+	VinculacionHash     []byte
+	VinculacionExpiraEn *time.Time
+	ID                  int64
+}
+
+func (q *Queries) PrepararVinculacionSSO(ctx context.Context, arg PrepararVinculacionSSOParams) error {
+	_, err := q.db.Exec(ctx, prepararVinculacionSSO, arg.VinculacionHash, arg.VinculacionExpiraEn, arg.ID)
+	return err
+}
+
 const purgarAccesosPortal = `-- name: PurgarAccesosPortal :execrows
 DELETE FROM nucleo.portal_accesos WHERE id IN (
     SELECT a.id FROM nucleo.portal_accesos a
@@ -1219,6 +1358,31 @@ type PurgarSesionesPortalParams struct {
 // lotes. Ya no autentican (SesionPortalVigentePorHash exige vigente y sin revocar).
 func (q *Queries) PurgarSesionesPortal(ctx context.Context, arg PurgarSesionesPortalParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgarSesionesPortal, arg.Hasta, arg.Lote)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgarTicketsSSO = `-- name: PurgarTicketsSSO :execrows
+DELETE FROM nucleo.sso_tickets WHERE id IN (
+    SELECT t.id FROM nucleo.sso_tickets t
+    WHERE t.expira_en < $1::timestamptz
+      AND (t.vinculacion_expira_en IS NULL OR t.vinculacion_expira_en < $1::timestamptz)
+    ORDER BY t.id
+    LIMIT $2::integer
+    FOR UPDATE SKIP LOCKED)
+`
+
+type PurgarTicketsSSOParams struct {
+	Hasta time.Time
+	Lote  int32
+}
+
+// Purga (job nucleo.portal_purga): tickets de autologin vencidos antes de @hasta (y su
+// vinculación pendiente, si la hubo), por lotes.
+func (q *Queries) PurgarTicketsSSO(ctx context.Context, arg PurgarTicketsSSOParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarTicketsSSO, arg.Hasta, arg.Lote)
 	if err != nil {
 		return 0, err
 	}
@@ -1555,6 +1719,17 @@ func (q *Queries) RolesPorCodigos(ctx context.Context, codigos []string) ([]Nucl
 	return items, nil
 }
 
+const sesionCreadaEn = `-- name: SesionCreadaEn :one
+SELECT created_at FROM nucleo.sesiones WHERE id = $1
+`
+
+func (q *Queries) SesionCreadaEn(ctx context.Context, id int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, sesionCreadaEn, id)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const sesionPortalPorID = `-- name: SesionPortalPorID :one
 SELECT id, acceso_id, cliente_id, empresa_id, nombre, token_hash, csrf_hash, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at FROM nucleo.portal_sesiones WHERE id = $1
 `
@@ -1823,6 +1998,68 @@ func (q *Queries) TomarAccesoPortal(ctx context.Context, ticketHash []byte) (Nuc
 	return i, err
 }
 
+const tomarTicketSSO = `-- name: TomarTicketSSO :one
+UPDATE nucleo.sso_tickets SET canjeado_en = now(), updated_at = now()
+WHERE ticket_hash = $1 AND canjeado_en IS NULL AND expira_en > now()
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+`
+
+// Un solo uso: lo marca canjeado solo si estaba vigente.
+func (q *Queries) TomarTicketSSO(ctx context.Context, ticketHash []byte) (NucleoSsoTicket, error) {
+	row := q.db.QueryRow(ctx, tomarTicketSSO, ticketHash)
+	var i NucleoSsoTicket
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.TicketHash,
+		&i.UsuarioExterno,
+		&i.Correo,
+		&i.Nombre,
+		&i.DestinoTipo,
+		&i.DestinoID,
+		&i.EmitidoTokenID,
+		&i.ExpiraEn,
+		&i.CanjeadoEn,
+		&i.VinculacionHash,
+		&i.VinculacionExpiraEn,
+		&i.VinculadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const tomarVinculacionSSO = `-- name: TomarVinculacionSSO :one
+UPDATE nucleo.sso_tickets SET vinculado_en = now(), updated_at = now()
+WHERE vinculacion_hash = $1 AND vinculado_en IS NULL AND vinculacion_expira_en > now()
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+`
+
+// La vinculación pendiente se usa una sola vez y dentro de su plazo.
+func (q *Queries) TomarVinculacionSSO(ctx context.Context, vinculacionHash []byte) (NucleoSsoTicket, error) {
+	row := q.db.QueryRow(ctx, tomarVinculacionSSO, vinculacionHash)
+	var i NucleoSsoTicket
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.TicketHash,
+		&i.UsuarioExterno,
+		&i.Correo,
+		&i.Nombre,
+		&i.DestinoTipo,
+		&i.DestinoID,
+		&i.EmitidoTokenID,
+		&i.ExpiraEn,
+		&i.CanjeadoEn,
+		&i.VinculacionHash,
+		&i.VinculacionExpiraEn,
+		&i.VinculadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const usuarioEnEmpresa = `-- name: UsuarioEnEmpresa :one
 SELECT COALESCE(
     EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = $1 AND ue.empresa_id = $2)
@@ -1924,4 +2161,118 @@ func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (Nuc
 		&i.DebeCambiarContrasena,
 	)
 	return i, err
+}
+
+const vinculoSSO = `-- name: VinculoSSO :one
+SELECT v.id, v.usuario_id, u.activo, u.tipo
+FROM nucleo.sso_vinculos v JOIN nucleo.usuarios u ON u.id = v.usuario_id
+WHERE v.conector_id = $1 AND v.usuario_externo = $2
+`
+
+type VinculoSSOParams struct {
+	ConectorID     int64
+	UsuarioExterno string
+}
+
+type VinculoSSORow struct {
+	ID        int64
+	UsuarioID int64
+	Activo    bool
+	Tipo      string
+}
+
+func (q *Queries) VinculoSSO(ctx context.Context, arg VinculoSSOParams) (VinculoSSORow, error) {
+	row := q.db.QueryRow(ctx, vinculoSSO, arg.ConectorID, arg.UsuarioExterno)
+	var i VinculoSSORow
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.Activo,
+		&i.Tipo,
+	)
+	return i, err
+}
+
+const vinculoSSODeUsuarioEnConector = `-- name: VinculoSSODeUsuarioEnConector :one
+SELECT id, usuario_externo FROM nucleo.sso_vinculos WHERE conector_id = $1 AND usuario_id = $2
+`
+
+type VinculoSSODeUsuarioEnConectorParams struct {
+	ConectorID int64
+	UsuarioID  int64
+}
+
+type VinculoSSODeUsuarioEnConectorRow struct {
+	ID             int64
+	UsuarioExterno string
+}
+
+func (q *Queries) VinculoSSODeUsuarioEnConector(ctx context.Context, arg VinculoSSODeUsuarioEnConectorParams) (VinculoSSODeUsuarioEnConectorRow, error) {
+	row := q.db.QueryRow(ctx, vinculoSSODeUsuarioEnConector, arg.ConectorID, arg.UsuarioID)
+	var i VinculoSSODeUsuarioEnConectorRow
+	err := row.Scan(&i.ID, &i.UsuarioExterno)
+	return i, err
+}
+
+const vinculoSSOParaBorrar = `-- name: VinculoSSOParaBorrar :one
+SELECT id, conector_id, usuario_externo, usuario_id, ticket_id, created_at FROM nucleo.sso_vinculos WHERE id = $1 AND usuario_id = $2 FOR UPDATE
+`
+
+type VinculoSSOParaBorrarParams struct {
+	ID        int64
+	UsuarioID int64
+}
+
+func (q *Queries) VinculoSSOParaBorrar(ctx context.Context, arg VinculoSSOParaBorrarParams) (NucleoSsoVinculo, error) {
+	row := q.db.QueryRow(ctx, vinculoSSOParaBorrar, arg.ID, arg.UsuarioID)
+	var i NucleoSsoVinculo
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.UsuarioExterno,
+		&i.UsuarioID,
+		&i.TicketID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const vinculosSSODeUsuario = `-- name: VinculosSSODeUsuario :many
+SELECT v.id, v.conector_id, c.sistema, v.usuario_externo, v.created_at
+FROM nucleo.sso_vinculos v JOIN integracion.conectores c ON c.id = v.conector_id
+WHERE v.usuario_id = $1 ORDER BY v.id
+`
+
+type VinculosSSODeUsuarioRow struct {
+	ID             int64
+	ConectorID     int64
+	Sistema        string
+	UsuarioExterno string
+	CreatedAt      time.Time
+}
+
+func (q *Queries) VinculosSSODeUsuario(ctx context.Context, usuarioID int64) ([]VinculosSSODeUsuarioRow, error) {
+	rows, err := q.db.Query(ctx, vinculosSSODeUsuario, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VinculosSSODeUsuarioRow
+	for rows.Next() {
+		var i VinculosSSODeUsuarioRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConectorID,
+			&i.Sistema,
+			&i.UsuarioExterno,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

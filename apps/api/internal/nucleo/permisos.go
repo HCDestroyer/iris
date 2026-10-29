@@ -173,6 +173,8 @@ const (
 // Portal de soporte (/soporte).
 const (
 	PermPortalEmitir Permiso = "portal.emitir"
+	// PermSSOEmitir: pedir un ticket de autologin («Ver en Iris»; contrato argosisp.md §1.2–§1.3).
+	PermSSOEmitir Permiso = "sso.emitir"
 )
 
 // DefPermiso es una entrada del catálogo.
@@ -255,6 +257,7 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasEditar, "Editar plantillas de formulario (con uso, crea una versión nueva)"},
 	{PermPlantillasVer, "Ver las plantillas de formulario y sus versiones"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
+	{PermSSOEmitir, "Pedir un ticket de autologin («Ver en Iris») para abrir un ticket, una orden o un prospecto (lo usa Argos con el token del canje)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
 	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
@@ -375,13 +378,13 @@ var RolesBase = []DefRol{
 			PermReportesVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
-	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir
-	//    (también §1.2) se agrega cuando exista ese permiso. portal.emitir NO es
+	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).
+	//    portal.emitir NO es
 	//    del §1.2: es el pedido A9 (botón «Soporte» del portal de Argos), propuesto por Iris y
 	//    pendiente de acordar con Argos; se deja por decisión del líder.
 	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
-		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir}},
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
