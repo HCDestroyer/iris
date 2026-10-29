@@ -241,6 +241,19 @@ WHERE correo = @correo;
 -- name: LimpiarIntentosLogin :exec
 DELETE FROM nucleo.intentos_login WHERE correo = @correo;
 
+-- name: PurgarIntentosLogin :execrows
+-- Purga (job nucleo.intentos_login_purga): borra hasta @lote filas cuya cuenta venció antes de
+-- @hasta y sin bloqueo vigente. Esas filas ya no cuentan (FallosVigentes las ignora y
+-- RegistrarFalloLogin empieza de 1), así que borrarlas no cambia ningún límite. SKIP LOCKED:
+-- no espera a un login que esté contando un fallo en esa fila.
+DELETE FROM nucleo.intentos_login WHERE correo IN (
+    SELECT i.correo FROM nucleo.intentos_login i
+    WHERE i.updated_at < @hasta::timestamptz
+      AND (i.bloqueado_hasta IS NULL OR i.bloqueado_hasta <= now())
+    ORDER BY i.updated_at
+    LIMIT @lote::integer
+    FOR UPDATE SKIP LOCKED);
+
 -- name: FallosMFASesion :one
 SELECT mfa_fallos FROM nucleo.sesiones WHERE id = @id;
 
@@ -359,3 +372,25 @@ WHERE id = @id AND revocada_en IS NULL;
 -- name: EmpresaDeClienteArgos :one
 -- Empresa del cliente según la instantánea de Argos (sin fila si Iris nunca lo leyó).
 SELECT empresa_id FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: PurgarSesionesPortal :execrows
+-- Purga (job nucleo.portal_purga): sesiones del portal vencidas o revocadas antes de @hasta, por
+-- lotes. Ya no autentican (SesionPortalVigentePorHash exige vigente y sin revocar).
+DELETE FROM nucleo.portal_sesiones WHERE id IN (
+    SELECT s.id FROM nucleo.portal_sesiones s
+    WHERE s.expira_en < @hasta::timestamptz OR s.revocada_en < @hasta::timestamptz
+    ORDER BY s.id
+    LIMIT @lote::integer
+    FOR UPDATE SKIP LOCKED);
+
+-- name: PurgarAccesosPortal :execrows
+-- Tickets de acceso vencidos antes de @hasta que ya no tienen sesiones (la llave foránea lo
+-- exige). Un ticket así ya no se puede canjear: borrarlo no cambia nada (el canje busca el hash
+-- vigente y sin usar).
+DELETE FROM nucleo.portal_accesos WHERE id IN (
+    SELECT a.id FROM nucleo.portal_accesos a
+    WHERE a.expira_en < @hasta::timestamptz
+      AND NOT EXISTS (SELECT 1 FROM nucleo.portal_sesiones s WHERE s.acceso_id = a.id)
+    ORDER BY a.id
+    LIMIT @lote::integer
+    FOR UPDATE SKIP LOCKED);
