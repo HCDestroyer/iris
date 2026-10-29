@@ -2,36 +2,40 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
-import { Ban, CalendarClock, CalendarSync, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
+import { Ban, CalendarClock, CalendarSync, CirclePause, CirclePlay, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
-import { useForm, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
+import { useForm, useWatch, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
 import { tecnicosDe } from "@/componentes/ordenes/catalogos";
 import type { Usuario } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
 import type { Permiso } from "@/lib/menu";
-import { entradaProgramarOrden, esquemaAsignarOrden, esquemaMotivoOrden, esquemaProgramarOrden, guatemalaDesdeIso } from "@/lib/ordenes/esquemas";
-import type { EstadoOrden, Orden } from "@/lib/ordenes/presentacion";
+import { entradaPausar, entradaProgramarOrden, esquemaAsignarOrden, esquemaMotivoOrden, esquemaPausar, esquemaProgramarOrden, guatemalaDesdeIso, type DatosPausar } from "@/lib/ordenes/esquemas";
+import { MOTIVOS_PAUSA, type EstadoOrden, type MotivoPausa, type Orden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
 
-export type AccionOrden = "asignar" | "programar" | "reprogramar" | "cancelar" | "reabrir";
+export type AccionOrden = "asignar" | "programar" | "reprogramar" | "pausar" | "reanudar" | "cancelar" | "reabrir";
 
 type DefAccion = { etiqueta: string; icono: LucideIcon; permiso: Permiso; estados: readonly EstadoOrden[]; titulo: string };
 
 /**
  * Acciones del panel (nunca PATCH de estado): permiso del mismo nombre y estados en que la API
- * las acepta (README de campo). Salir, llegar, cerrar y fallar son del técnico en la app de campo.
+ * las acepta (README de campo). Salir, llegar, cerrar y fallar son del técnico en la app de campo
+ * (con la orden pausada la API los rechaza: 422 `orden_pausada`). Una pausada se reanuda,
+ * reprograma o cancela; no se reasigna sin reprogramar.
  */
 export const ACCIONES_ORDEN: Record<AccionOrden, DefAccion> = {
     asignar: { etiqueta: "Asignar", icono: UserRoundPlus, permiso: "ordenes.asignar", estados: ["pendiente", "programada", "en_camino"], titulo: "Asignar técnico" },
     programar: { etiqueta: "Programar", icono: CalendarClock, permiso: "ordenes.programar", estados: ["pendiente"], titulo: "Programar visita" },
-    reprogramar: { etiqueta: "Reprogramar", icono: CalendarSync, permiso: "ordenes.reprogramar", estados: ["programada", "en_camino", "fallida"], titulo: "Reprogramar visita" },
+    reprogramar: { etiqueta: "Reprogramar", icono: CalendarSync, permiso: "ordenes.reprogramar", estados: ["programada", "en_camino", "pausada", "fallida"], titulo: "Reprogramar visita" },
+    pausar: { etiqueta: "Pausar", icono: CirclePause, permiso: "ordenes.pausar", estados: ["en_camino", "en_sitio"], titulo: "Pausar la orden" },
+    reanudar: { etiqueta: "Reanudar", icono: CirclePlay, permiso: "ordenes.reanudar", estados: ["pausada"], titulo: "Reanudar la orden" },
     reabrir: { etiqueta: "Reabrir", icono: RotateCcw, permiso: "ordenes.reabrir", estados: ["fallida", "cancelada"], titulo: "Reabrir orden" },
-    cancelar: { etiqueta: "Cancelar orden", icono: Ban, permiso: "ordenes.cancelar", estados: ["pendiente", "programada", "en_camino", "en_sitio"], titulo: "Cancelar orden" },
+    cancelar: { etiqueta: "Cancelar orden", icono: Ban, permiso: "ordenes.cancelar", estados: ["pendiente", "programada", "en_camino", "en_sitio", "pausada"], titulo: "Cancelar orden" },
 };
 
-const ORDEN: readonly AccionOrden[] = ["programar", "asignar", "reprogramar", "reabrir", "cancelar"];
+const ORDEN: readonly AccionOrden[] = ["reanudar", "programar", "asignar", "reprogramar", "pausar", "reabrir", "cancelar"];
 
 export function accionesOrdenDisponibles(orden: Pick<Orden, "estado">, puede: (p: readonly Permiso[]) => boolean): AccionOrden[] {
     return ORDEN.filter((a) => puede([ACCIONES_ORDEN[a].permiso]) && ACCIONES_ORDEN[a].estados.includes(orden.estado));
@@ -174,6 +178,8 @@ function DialogoAccionOrden({
                 {accion === "reprogramar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar /> : null}
                 {accion === "cancelar" ? <FormMotivo {...props} accion="cancelar" /> : null}
                 {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
+                {accion === "pausar" ? <FormPausar {...props} /> : null}
+                {accion === "reanudar" ? <FormReanudar {...props} /> : null}
             </DialogoContenido>
         </Dialogo>
     );
@@ -330,6 +336,53 @@ function FormMotivo({ orden, enviar, pie, accion }: PropsFormulario & { accion: 
             )}
             <CampoArea etiqueta={accion === "cancelar" ? "Por qué se cancela" : "Por qué se reabre"} rows={3} maxLength={500} autoFocus error={form.formState.errors.motivo?.message} {...form.register("motivo")} />
             {pie(accion === "cancelar" ? "Cancelar orden" : "Reabrir", form.formState.isSubmitting)}
+        </form>
+    );
+}
+
+function FormPausar({ orden, enviar, pie }: PropsFormulario) {
+    const form = useForm<DatosPausar>({ resolver: zodResolver(esquemaPausar), defaultValues: { motivo: "esperando_material", nota: "" } });
+    const motivo = useWatch({ control: form.control, name: "motivo" });
+    return (
+        <form
+            noValidate
+            className="grid gap-4"
+            onSubmit={form.handleSubmit((d) =>
+                enviar((clave) => resolver(api().POST("/api/v1/ordenes/{id}/pausar", { params: ruta(orden, clave), body: entradaPausar(d, orden.version) })), ["motivo", "nota"], form.setError),
+            )}
+        >
+            <p className="text-sm text-muted-foreground">La cita sigue en la agenda y en la ruta. Para seguir, reanúdala; también se puede reprogramar o cancelar.</p>
+            <CampoSelector etiqueta="Motivo" error={form.formState.errors.motivo?.message} {...form.register("motivo")}>
+                {(Object.keys(MOTIVOS_PAUSA) as MotivoPausa[]).map((m) => (
+                    <option key={m} value={m}>
+                        {MOTIVOS_PAUSA[m]}
+                    </option>
+                ))}
+            </CampoSelector>
+            <CampoArea
+                etiqueta={motivo === "otro" ? "Nota" : "Nota (opcional)"}
+                rows={3}
+                maxLength={2000}
+                error={form.formState.errors.nota?.message}
+                {...form.register("nota")}
+            />
+            {pie("Pausar", form.formState.isSubmitting)}
+        </form>
+    );
+}
+
+function FormReanudar({ orden, enviar, pie }: PropsFormulario) {
+    const form = useForm();
+    return (
+        <form
+            noValidate
+            className="grid gap-4"
+            onSubmit={form.handleSubmit(() => enviar((clave) => resolver(api().POST("/api/v1/ordenes/{id}/reanudar", { params: ruta(orden, clave), body: { version: orden.version } })), [], form.setError))}
+        >
+            <p className="text-sm text-muted-foreground">
+                La orden vuelve a {orden.pausadaDesde === "en_sitio" ? "«En sitio»" : "«En camino»"} y el tiempo de esta pausa se suma al total.
+            </p>
+            {pie("Reanudar", form.formState.isSubmitting)}
         </form>
     );
 }

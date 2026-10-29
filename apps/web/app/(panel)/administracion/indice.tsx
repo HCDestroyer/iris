@@ -1,7 +1,7 @@
 "use client";
 
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ChevronRight, DatabaseZap, Hourglass, KeyRound, Mail, ShieldCheck, type LucideIcon } from "lucide-react";
+import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, ShieldCheck, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import type { Permiso } from "@/lib/menu";
@@ -16,6 +16,13 @@ const SECCIONES: readonly Seccion[] = [
         descripcion: "Correos que abren tickets y servidor de salida de las respuestas.",
         icono: Mail,
         permisos: ["buzones.ver"],
+    },
+    {
+        href: "/administracion/plantillas",
+        titulo: "Plantillas de formulario",
+        descripcion: "Checklists de las órdenes: ítems, versiones y cuáles se ofrecen por tipo.",
+        icono: ClipboardList,
+        permisos: ["plantillas.ver"],
     },
     {
         href: "/administracion/datos-sin-empresa",
