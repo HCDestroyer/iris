@@ -16,7 +16,7 @@ export interface AccionesOrden {
     /** En camino o en sitio: pausar con motivo. */
     pausar: boolean;
     reanudar: boolean;
-    /** Sumar un formulario del catálogo (orden propia y abierta). */
+    /** Sumar un formulario del catálogo (orden propia y en curso o pausada). */
     agregarFormulario: boolean;
 }
 
@@ -39,7 +39,8 @@ export function accionesDe(orden: Pick<OrdenVista, "estado" | "tipo" | "reasigna
         retirar: trabajo && RETIRAN.has(orden.tipo),
         pausar: viva && (e === "en_camino" || e === "en_sitio"),
         reanudar: viva && e === "pausada",
-        agregarFormulario: viva,
+        // Con el trabajo empezado (en camino, en sitio o pausada): en una programada solo se ve la visita.
+        agregarFormulario: viva && (e === "en_camino" || e === "en_sitio" || e === "pausada"),
     };
 }
 

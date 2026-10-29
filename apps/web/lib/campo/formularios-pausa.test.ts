@@ -33,7 +33,8 @@ describe("pausa en la app de campo", () => {
         });
         expect(accionesDe(vista({ estado: "en_camino" }))).toMatchObject({ pausar: true, reanudar: false });
         expect(accionesDe(vista({ estado: "en_sitio" }))).toMatchObject({ pausar: true, cerrar: true });
-        expect(accionesDe(vista({ estado: "programada" }))).toMatchObject({ pausar: false });
+        expect(accionesDe(vista({ estado: "programada" }))).toMatchObject({ pausar: false, agregarFormulario: false });
+        expect(accionesDe(vista({ estado: "en_camino" }))).toMatchObject({ agregarFormulario: true });
         expect(accionesDe(vista({ estado: "cerrada" }))).toMatchObject({ pausar: false, agregarFormulario: false });
     });
 

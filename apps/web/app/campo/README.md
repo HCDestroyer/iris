@@ -78,7 +78,8 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   `seleccion` con botones o lista). «Agregar formulario» suma una plantilla del catálogo del
   teléfono (`Paquete.plantillas` / `Cambios.plantillas`) con `orden.agregar_formulario` (también sin
   señal; el id de la operación es el del formulario y viaja la versión que se vio). «Quitar» solo en
-  los que agregó el técnico sin respuestas; el del tipo nunca. Un `cierre_incompleto` marca en cada
+  los que agregó el técnico sin respuestas; el del tipo nunca. Se ofrece con el trabajo empezado
+  (en camino, en sitio o pausada). Un `cierre_incompleto` marca en cada
   formulario el ítem que falta («Falta para cerrar») y «Por enviar» muestra el `message` de la API.
 - **Pausa** (`_componentes/pausa.tsx`): «Pausar» en camino o en sitio con motivo de catálogo (nota
   obligatoria con «Otro»), aviso con motivo, nota y tiempo pausado, y «Reanudar». Pausada no ofrece

@@ -145,6 +145,7 @@ test.describe("en el teléfono", () => {
         await page.getByRole("dialog", { name: "Agregar formulario" }).getByRole("button", { name: /Inventario de equipos/ }).click();
         api.plantillas = [];
         await sinSenal(context, api, false);
+        await expect.poll(() => api.resultados.map((r) => r.estado), { timeout: 30_000 }).toEqual(["rechazada"]);
         await expect(page.getByText("1 acción rechazada por el servidor")).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId("formulario-inventario")).toHaveCount(0);
         await page.getByRole("button", { name: "Revisar" }).click();
@@ -194,7 +195,9 @@ test.describe("en el teléfono", () => {
         await expect.poll(() => operaciones(api).map((o) => o.tipo), { timeout: 15_000 }).toEqual(["orden.pausar", "checklist.marcar", "orden.reanudar"]);
         expect(api.ordenes.get(102)?.estado).toBe("en_sitio");
         expect(operaciones(api)[0]?.datos).toEqual({ motivo: "otro", nota: "El cliente pidió volver después del almuerzo" });
-        expect(api.ordenes.get(102)?.tiempoPausadoSeg).toBe(900);
+        // 15 min del reloj de Playwright (más lo poco que corre el reloj real durante la prueba).
+        expect(api.ordenes.get(102)?.tiempoPausadoSeg).toBeGreaterThanOrEqual(900);
+        expect(api.ordenes.get(102)?.tiempoPausadoSeg).toBeLessThan(960);
     });
 
     test("una orden pausada no mantiene la ubicación encendida; al reanudar vuelve", async ({ page, context }) => {

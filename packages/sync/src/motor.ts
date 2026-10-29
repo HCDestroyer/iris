@@ -298,6 +298,9 @@ export class MotorSync {
     private bucle: AbortController | null = null;
     private sueno: AbortController | null = null;
     private enEspera = false;
+    /** `reintentarAhora` / `despertar` llegaron sin espera que cortar: la próxima no se duerme. */
+    private reintentoPedido = false;
+    private despertarPedido = false;
 
     private constructor(opciones: OpcionesMotor, meta: MetaSync) {
         this.almacen = opciones.almacen;
@@ -679,7 +682,13 @@ export class MotorSync {
     /** «Reintentar» del técnico (o volver a entrar tras perder la sesión): corta la espera. */
     reintentarAhora(): void {
         this.enEspera = false;
-        this.sueno?.abort();
+        if (this.sueno) {
+            this.sueno.abort();
+        } else {
+            // Llegó mientras corría una pasada (p. ej. vuelve la señal con un envío fallando):
+            // al terminarla no se espera.
+            this.reintentoPedido = true;
+        }
     }
 
     // --- Internos: bucle ----------------------------------------------------------------------
@@ -687,7 +696,11 @@ export class MotorSync {
     /** Una acción nueva despierta al bucle, salvo que esté esperando por una falla. */
     private despertar(): void {
         if (!this.enEspera) {
-            this.sueno?.abort();
+            if (this.sueno) {
+                this.sueno.abort();
+            } else {
+                this.despertarPedido = true;
+            }
         }
     }
 
@@ -725,6 +738,13 @@ export class MotorSync {
             this.emitir();
             if (senal.aborted) {
                 break;
+            }
+            const reintentar = this.reintentoPedido || (this.despertarPedido && !this.enEspera);
+            this.reintentoPedido = false;
+            this.despertarPedido = false;
+            if (reintentar) {
+                this.enEspera = false;
+                continue;
             }
             const sueno = new AbortController();
             this.sueno = sueno;
