@@ -26,6 +26,13 @@ Subpaquetes:
   cliente (cookie `iris_portal` + CSRF `iris_portal_csrf`, 2 h, solo válida en `/api/v1/portal/…`;
   sin límite por IP; freno global: pasados 1000 canjes fallidos por minuto los fallidos dan 429; un ticket válido entra siempre), `GET`/`DELETE
   /portal/sesion`. Consola: `iris portal acceso --cliente <id> --empresa <id>`. El job
+  `nucleo.portal_purga` (worker, cada hora) borra también los tickets de autologin vencidos.
+  **Autologin desde Argos** (`sso.go`, «Ver en Iris»): Argos pide `POST /integraciones/argosisp/sso/tickets`
+  (`sso.emitir`, solo con el `iris_pat_` entregado al conector activo; 60 s, un uso, SHA-256); la
+  página `/sso/entrar` canjea (`POST /sso/canjear`): con vínculo abre la sesión (pendiente de MFA
+  si lo tiene), sin vínculo deja la cookie `iris_sso_vincular` y, tras un login posterior al canje,
+  `POST /sso/vincular` guarda el vínculo. Vínculos: `GET /usuarios/{id}/vinculos-sso` y
+  `POST /usuarios/{id}/vinculos-sso/{vinculoId}/borrar`. El job
   `nucleo.portal_purga` (worker, cada hora) borra las sesiones vencidas o revocadas y los tickets
   vencidos sin sesiones 30 días después. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y
@@ -50,6 +57,7 @@ guardan: repetir la clave da 409 `idempotencia_no_repetible`. Una clave abandona
 solo admin, nunca el propio: borra el TOTP, pone una contraseña temporal que hay que cambiar con
 `POST /yo/contrasena` antes de cualquier otra cosa, cierra sesiones y revoca tokens; responde el `Usuario` con `sesionesCerradas` y `tokensRevocados`), `token.creado`, `token.revocado`; y, con la
 empresa afectada, `empresa.creada`, `empresa.actualizada`, `usuario.empresa_asignada`,
-`usuario.empresa_quitada`, `empresa.datos_adoptados` (payloads en `.claude/integration/contratos/eventos.md`). El portal no
+`usuario.empresa_quitada`, `empresa.datos_adoptados`; y, del autologin desde Argos (`sso.go`),
+`usuario.sso_vinculado` y `usuario.sso_desvinculado` (payloads en `.claude/integration/contratos/eventos.md`). El portal no
 emite eventos (como el inicio de sesión del panel): sus accesos y sesiones quedan en
 `auditoria.acciones` con el actor cliente. **No consume eventos.**

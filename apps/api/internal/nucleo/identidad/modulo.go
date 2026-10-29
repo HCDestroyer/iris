@@ -95,6 +95,13 @@ type Modulo struct {
 	EntrarPortal        *auditoria.Caso[EntradaEntrarPortal, SesionPortal]
 	ObtenerSesionPortal *auditoria.Caso[struct{}, SesionPortalActual]
 	CerrarSesionPortal  *auditoria.Caso[struct{}, struct{}]
+
+	// Autologin desde Argos (sso.go).
+	EmitirTicketSSO   *auditoria.Caso[EntradaEmitirTicketSSO, TicketSSOEmitido]
+	CanjearSSO        *auditoria.Caso[EntradaCanjearSSO, CanjeSSO]
+	VincularSSO       *auditoria.Caso[EntradaVincularSSO, VinculoSSOCreado]
+	ListarVinculosSSO *auditoria.Caso[EntradaVinculosSSO, nucleo.Pagina[VinculoSSO]]
+	BorrarVinculoSSO  *auditoria.Caso[EntradaBorrarVinculoSSO, VinculoSSO]
 }
 
 // Nuevo arma el módulo.
@@ -158,6 +165,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.EntrarPortal = nuevoEntrarPortal(m)
 	m.ObtenerSesionPortal = nuevoObtenerSesionPortal()
 	m.CerrarSesionPortal = nuevoCerrarSesionPortal()
+	m.EmitirTicketSSO = nuevoEmitirTicketSSO(cfg)
+	m.CanjearSSO = nuevoCanjearSSO(m)
+	m.VincularSSO = nuevoVincularSSO()
+	m.ListarVinculosSSO = nuevoListarVinculosSSO()
+	m.BorrarVinculoSSO = nuevoBorrarVinculoSSO()
 	return m
 }
 

@@ -34,7 +34,7 @@ const (
 // quedarse con el MFA sin cambiarla primero.
 func permitidaConTemporal(r *http.Request) bool {
 	switch {
-	case r.Method == http.MethodPost && (r.URL.Path == RutaCambiarContrasena || r.URL.Path == rutaIniciar):
+	case r.Method == http.MethodPost && (r.URL.Path == RutaCambiarContrasena || r.URL.Path == rutaIniciar || r.URL.Path == rutaCanjearSSO):
 		return true
 	case r.Method == http.MethodDelete && r.URL.Path == rutaIniciar:
 		return true
@@ -53,7 +53,8 @@ func permitidaConTemporal(r *http.Request) bool {
 //   - una petición que cambia estado con cookie de sesión sin X-CSRF-Token correcto → 403.
 //
 // CSRF por doble envío: la cabecera X-CSRF-Token debe ser igual a la cookie iris_csrf y a lo
-// que la sesión guardó al iniciarse. El inicio de sesión (POST /api/v1/sesion) no lo exige.
+// que la sesión guardó al iniciarse. El inicio de sesión (POST /api/v1/sesion) y el canje del
+// autologin (POST /api/v1/sso/canjear) no lo exigen.
 //
 // Portal de soporte: en /api/v1/portal/… la cookie iris_portal autentica al actor cliente
 // (portal.go), con su propio CSRF (iris_portal_csrf), y la cookie del panel no cuenta (una
@@ -116,7 +117,8 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 					nucleo.EscribirProblema(w, nucleo.ErrorInterno())
 					return
 				default:
-					if metodoConEstado(r.Method) && (r.Method != http.MethodPost || r.URL.Path != rutaIniciar) {
+					// El login y el canje del autologin no exigen CSRF: abren una sesión nueva.
+					if metodoConEstado(r.Method) && (r.Method != http.MethodPost || (r.URL.Path != rutaIniciar && r.URL.Path != rutaCanjearSSO)) {
 						if !csrfValido(r, fila.NucleoSesione.CsrfHash) {
 							nucleo.EscribirProblema(w, nucleo.NuevoProblema(http.StatusForbidden, "csrf_invalido",
 								"CSRF inválido", "Falta la cabecera X-CSRF-Token o no coincide con la sesión"))

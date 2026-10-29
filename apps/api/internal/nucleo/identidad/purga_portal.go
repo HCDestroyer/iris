@@ -22,6 +22,8 @@ const RetencionPortal = 30 * 24 * time.Hour
 type PurgaPortal struct {
 	Sesiones int64
 	Accesos  int64
+	// TicketsSSO: tickets de autologin desde Argos (sso.go).
+	TicketsSSO int64
 }
 
 // PurgarPortal borra por lotes las sesiones del portal vencidas o revocadas antes de
@@ -40,6 +42,12 @@ func PurgarPortal(ctx context.Context, bd nucleo.BD, ahora time.Time, retencion 
 	}
 	res.Accesos, err = porLotes(ctx, lote, func(lote int32) (int64, error) {
 		return q.PurgarAccesosPortal(ctx, identidadbd.PurgarAccesosPortalParams{Hasta: hasta, Lote: lote})
+	})
+	if err != nil {
+		return res, err
+	}
+	res.TicketsSSO, err = porLotes(ctx, lote, func(lote int32) (int64, error) {
+		return q.PurgarTicketsSSO(ctx, identidadbd.PurgarTicketsSSOParams{Hasta: hasta, Lote: lote})
 	})
 	return res, err
 }
@@ -62,8 +70,9 @@ type trabajadorPurgaPortal struct {
 
 func (w *trabajadorPurgaPortal) Work(ctx context.Context, _ *river.Job[ArgsPurgaPortal]) error {
 	res, err := PurgarPortal(ctx, w.bd, time.Now(), RetencionPortal, LotePurga)
-	if res.Sesiones > 0 || res.Accesos > 0 {
-		slog.InfoContext(ctx, "identidad: sesiones y accesos del portal vencidos purgados", "sesiones", res.Sesiones, "accesos", res.Accesos)
+	if res.Sesiones > 0 || res.Accesos > 0 || res.TicketsSSO > 0 {
+		slog.InfoContext(ctx, "identidad: sesiones y accesos del portal y tickets de autologin vencidos purgados",
+			"sesiones", res.Sesiones, "accesos", res.Accesos, "tickets_sso", res.TicketsSSO)
 	}
 	return err
 }

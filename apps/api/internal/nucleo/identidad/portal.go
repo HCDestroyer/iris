@@ -376,7 +376,7 @@ func (m *Modulo) auditarRechazoPortal(err error) bool {
 		return true
 	}
 	if n := m.rechazosPortal.Add(1); n == 1 || n%100 == 0 {
-		slog.Warn("identidad: canjes del portal rechazados sin auditar", "codigo", p.Codigo(), "total", n)
+		slog.Warn("identidad: canjes del portal o del autologin rechazados sin auditar", "codigo", p.Codigo(), "total", n)
 	}
 	return false
 }

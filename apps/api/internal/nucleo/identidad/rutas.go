@@ -286,6 +286,9 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	// Portal de soporte (actor cliente) -------------------------------------------------
 	m.registrarPortal(api)
+
+	// Autologin desde Argos -------------------------------------------------------------
+	m.registrarSSO(api)
 }
 
 // descAdminPorEmpresa y descPorEmpresa documentan la regla de empresas en la administración.
