@@ -712,6 +712,19 @@ func TestDatosIncompletosYReintentoManual(t *testing.T) {
 	if len(pag.Data) == 0 {
 		t.Fatal("lista por estado")
 	}
+	// estadoDistintoDe=hecho: lo que aún no llegó a Argos, en una lectura.
+	pag, err = e.m.Listar.Ejecutar(sup, pendientes.EntradaListar{Entidad: "orden", EstadoDistintoDe: "hecho"})
+	if err != nil || len(pag.Data) == 0 {
+		t.Fatalf("lista sin hechos: %+v %v", pag, err)
+	}
+	for _, p := range pag.Data {
+		if p.Estado == "hecho" {
+			t.Fatalf("estadoDistintoDe=hecho trajo un hecho: %+v", p)
+		}
+	}
+	if pag, _ = e.m.Listar.Ejecutar(sup, pendientes.EntradaListar{Estado: "hecho", EstadoDistintoDe: "hecho"}); len(pag.Data) != 0 {
+		t.Fatalf("estado y estadoDistintoDe se combinan: %+v", pag.Data)
+	}
 	pag, _ = e.m.Listar.Ejecutar(otraEmpresa, pendientes.EntradaListar{})
 	if len(pag.Data) != 0 {
 		t.Fatalf("otra empresa no ve: %+v", pag.Data)
