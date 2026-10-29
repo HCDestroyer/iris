@@ -12,7 +12,8 @@ export function erroresACampos<T extends FieldValues>(error: unknown, campos: re
     }
     let alguno = false;
     for (const e of error.errores) {
-        const campo = e.field.replace(/^body\./, "") as Path<T>;
+        // `body.lineas[0].precio` (API) → `lineas.0.precio` (react-hook-form).
+        const campo = e.field.replace(/^body\./, "").replace(/\[(\d+)\]/g, ".$1") as Path<T>;
         if (campos.includes(campo)) {
             setError(campo, { type: "servidor", message: e.message });
             alguno = true;

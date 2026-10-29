@@ -3,15 +3,14 @@ import { ADMIN, LECTOR, PAGINA_1, PAGINA_2, conSesion, simularApi } from "./api-
 import { abrirMenu, avisoError, menu } from "./ayudas";
 
 test.describe("menú por permisos", () => {
-    test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.* ni agenda.ver no aparecen Usuarios, Administración, Tickets, Órdenes, Agenda ni Despacho", async ({ page, context, baseURL }) => {
+    test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.*, agenda.ver ni prospectos.ver no aparecen Usuarios, Administración, Tickets, Órdenes, Agenda, Despacho ni Comercial", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
         await page.goto("/");
         await abrirMenu(page);
         const nav = menu(page);
-        for (const etiqueta of ["Inicio", "Comercial"]) {
-            await expect(nav.getByRole("link", { name: new RegExp(`^${etiqueta}`) })).toBeVisible();
-        }
+        await expect(nav.getByRole("link", { name: /^Inicio/ })).toBeVisible();
+        await expect(nav.getByRole("link", { name: /^Comercial/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /^Agenda/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /^Despacho/ })).toHaveCount(0);
         await expect(nav.getByRole("link", { name: /^Tickets/ })).toHaveCount(0);
@@ -27,14 +26,15 @@ test.describe("menú por permisos", () => {
         await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
     });
 
-    test("un módulo sin pantalla muestra «Próximamente»", async ({ page, context, baseURL }) => {
+    test("Comercial ya tiene pantalla (sin «Pronto»)", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
         await abrirMenu(page);
         await menu(page).getByRole("link", { name: /^Comercial/ }).click();
         await expect(page).toHaveURL(/\/comercial$/);
-        await expect(page.getByRole("heading", { name: "Próximamente" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Comercial" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Próximamente" })).toHaveCount(0);
     });
 
     test("si /yo falla no se dibuja el menú y «Reintentar» lo recupera", async ({ page, context, baseURL }) => {

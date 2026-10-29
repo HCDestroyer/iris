@@ -16,10 +16,17 @@ describe("menú por permisos", () => {
         }
     });
 
-    it("sin permisos: solo Inicio y los módulos «Próximamente» sin permiso", () => {
+    it("sin permisos: solo Inicio", () => {
         const visibles = menuVisible([]).map((e) => e.etiqueta);
-        expect(visibles).toEqual(["Inicio", "Comercial"]);
+        expect(visibles).toEqual(["Inicio"]);
         expect(menuVisible(null)).toEqual(menuVisible([]));
+    });
+
+    it("prospectos.ver muestra Comercial, con pantalla", () => {
+        const comercial = menuVisible(["prospectos.ver"]).find((e) => e.href === "/comercial");
+        expect(comercial).toBeDefined();
+        expect(comercial?.proximamente).toBeUndefined();
+        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/comercial");
     });
 
     it("ordenes.ver u ordenes.ver_propias muestran Órdenes (con tablero)", () => {
