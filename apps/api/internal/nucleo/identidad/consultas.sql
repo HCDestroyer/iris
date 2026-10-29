@@ -400,3 +400,8 @@ DELETE FROM nucleo.portal_accesos WHERE id IN (
     ORDER BY a.id
     LIMIT @lote::integer
     FOR UPDATE SKIP LOCKED);
+
+-- name: ConfirmarTokenEntregado :execrows
+-- El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).
+UPDATE nucleo.tokens_api SET expira_en = NULL
+WHERE id = @id AND revocado_en IS NULL AND (expira_en IS NULL OR expira_en > now());

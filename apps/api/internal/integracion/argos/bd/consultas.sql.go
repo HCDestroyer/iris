@@ -212,7 +212,7 @@ WHERE integracion.argos_routers.sincronizado_en <= excluded.sincronizado_en
 
 type GuardarRouterParams struct {
 	ID             int64
-	EmpresaID      int64
+	EmpresaID      *int64
 	Nombre         string
 	ZonaID         *int64
 	Lat            *float64
@@ -302,7 +302,7 @@ WHERE integracion.argos_zonas.sincronizado_en <= excluded.sincronizado_en
 
 type GuardarZonaParams struct {
 	ID             int64
-	EmpresaID      int64
+	EmpresaID      *int64
 	Nombre         string
 	SincronizadoEn time.Time
 }

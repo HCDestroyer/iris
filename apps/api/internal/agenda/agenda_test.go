@@ -275,6 +275,32 @@ func TestEspejoDeZonasDeArgos(t *testing.T) {
 	if err := agenda.ValidarZona(ctx, pool, "zonaId", 503, ptr(int64(8))); err == nil {
 		t.Fatal("ValidarZona con otra empresa")
 	}
+
+	// Argos 1.3.0: una zona sin empresa sugerida (empresa_id NULL; antes 0, que nadie veía) la
+	// usan todas las empresas, también con empresas registradas.
+	var creada int64
+	if err := pool.QueryRow(ctx, "INSERT INTO nucleo.empresas (id, nombre) VALUES (7, 'Empresa 7') ON CONFLICT (id) DO NOTHING RETURNING id").Scan(&creada); err == nil {
+		t.Cleanup(func() { exec("DELETE FROM nucleo.empresas WHERE id = 7") })
+	}
+	exec("INSERT INTO integracion.argos_zonas (id, empresa_id, nombre, sincronizado_en) VALUES (504, NULL, 'Compartida', now()), (505, NULL, 'Otra compartida', now())")
+	deber(e.ag.SincronizarZonas.Ejecutar(sistema(t), struct{}{}))(t)
+	if n := contar(t, "SELECT count(*) FROM agenda.zonas WHERE id IN (504, 505) AND empresa_id IS NULL AND activa"); n != 2 {
+		t.Fatalf("zonas sin empresa en el espejo: %d", n)
+	}
+	if err := agenda.ValidarZona(ctx, pool, "zonaId", 504, ptr(int64(8))); err != nil {
+		t.Fatalf("una zona de Argos sin empresa sirve a cualquiera: %v", err)
+	}
+	// Una que desaparece del catálogo se desactiva aunque no tenga empresa.
+	exec("DELETE FROM integracion.argos_zonas WHERE id = 504")
+	if r := deber(e.ag.SincronizarZonas.Ejecutar(sistema(t), struct{}{}))(t); r.Desactivadas != 1 {
+		t.Fatalf("desactivar una zona sin empresa: %+v", r)
+	}
+	// El espejo al vuelo de una zona sin empresa queda sin empresa (no de la del dato).
+	exec("INSERT INTO integracion.argos_zonas (id, empresa_id, nombre, sincronizado_en) VALUES (506, NULL, 'Nueva compartida', now())")
+	if id, err := agenda.ZonaDeArgos(ctx, pool, ptr(int64(506)), ptr(int64(8))); err != nil || id == nil ||
+		contar(t, "SELECT count(*) FROM agenda.zonas WHERE id = 506 AND empresa_id IS NULL") != 1 {
+		t.Fatalf("espejo al vuelo sin empresa: %v %v", id, err)
+	}
 }
 
 func TestFichaTurnosAusenciasYAlcance(t *testing.T) {

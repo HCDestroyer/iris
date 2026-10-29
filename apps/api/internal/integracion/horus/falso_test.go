@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -71,7 +72,7 @@ func (h *horusFalso) canjear(w http.ResponseWriter, r *http.Request) {
 		problema(w, 400, "urn:horus:token_no_esperado", "El canje no lleva token")
 		return
 	}
-	if p["codigo"] != h.codigo || p["sistema"] != "iris" || p["webhook_secreto"] == "" || p["webhook_url"] == "" {
+	if p["codigo"] != h.codigo || !canjeCanonico(p) {
 		problema(w, 422, "urn:horus:codigo_invalido", "El código venció o ya se usó (texto que no debe llegar al panel)")
 		return
 	}
@@ -141,4 +142,16 @@ func (a *argosFalso) con(fn func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	fn()
+}
+
+// canjeCanonico valida el cuerpo del canje como el contrato Argos ↔ Horus §1.4 (y Argos 1.3.0):
+// sistema "iris", base_url, el token iris_pat_ que Iris emite para el otro sistema y su receptor de
+// webhooks con el secreto.
+func canjeCanonico(p map[string]any) bool {
+	token, _ := p["token"].(string)
+	base, _ := p["base_url"].(string)
+	wh, _ := p["webhook"].(map[string]any)
+	url, _ := wh["url"].(string)
+	secreto, _ := wh["secreto"].(string)
+	return p["sistema"] == "iris" && base != "" && strings.HasPrefix(token, "iris_pat_") && url != "" && len(secreto) >= 16
 }

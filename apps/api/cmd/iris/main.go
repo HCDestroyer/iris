@@ -161,13 +161,14 @@ func configArgos(cfg config.Config) (argos.Config, error) {
 	return argos.Config{
 		Cifrador: c, BaseURL: cfg.BaseURL, Timeout: cfg.ArgosTimeout, VentanaWebhook: cfg.WebhookVentana,
 		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: cfg.Version, RedesPermitidas: cfg.ArgosRedesPermitidas,
+		Origenes: cfg.ArgosOrigenes,
 	}, nil
 }
 
 // configHorus arma la configuración del conector Horus (se agrega al núcleo de conectores de
 // Argos).
 func configHorus(cfg config.Config, a *argos.Modulo) horus.Config {
-	return horus.Config{Argos: a, RedesPermitidas: cfg.HorusRedesPermitidas, Timeout: cfg.HorusTimeout}
+	return horus.Config{Argos: a, RedesPermitidas: cfg.HorusRedesPermitidas, Timeout: cfg.HorusTimeout, Origenes: cfg.HorusOrigenes}
 }
 
 func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
@@ -200,6 +201,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Al conectar con un enlace de Argos u Horus, Iris les entrega un iris_pat_ de su usuario de
+	// integración (contratos §1.2).
+	conectorArgos.Nucleo().FijarTokens(id)
 	ccfg, err := soporte.ConfigCorreoDesdeEntorno()
 	if err != nil {
 		return err

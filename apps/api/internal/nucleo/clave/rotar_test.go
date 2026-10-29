@@ -272,8 +272,8 @@ func TestRotarClave(t *testing.T) {
 	// Datos cifrados con la clave vieja, por los mismos módulos que los escriben en producción.
 	_, modViejo := api(t, cViejo)
 	_, correoMFA, secretoMFA := usuarioConMFA(t, modViejo, t0)
-	argosViejo := argos.Nuevo(argos.Config{Cifrador: cViejo, BaseURL: "https://iris.ejemplo.gt"})
-	horusViejo := horus.Nuevo(horus.Config{Argos: argosViejo})
+	argosViejo := argos.Nuevo(argos.Config{Cifrador: cViejo, BaseURL: "https://iris.ejemplo.gt", Origenes: []string{"https://argosisp.ejemplo.gt"}})
+	horusViejo := horus.Nuevo(horus.Config{Argos: argosViejo, Origenes: []string{"https://horus.ejemplo.gt"}})
 	tokenArgos, tokenHorus := "atk_"+pruebas.Unico()+"-token-de-argos", "hf_pat_"+pruebas.Unico()+"-token-de-horus"
 	cA := conectorCon(t, argosViejo.GenerarEnlace, argosViejo.CanjearConexion, "argosisp", tokenArgos)
 	cH := conectorCon(t, horusViejo.GenerarEnlace, horusViejo.CanjearConexion, "horus", tokenHorus)

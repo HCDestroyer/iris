@@ -819,7 +819,7 @@ export interface paths {
         put?: never;
         /**
          * Conectar con Argos usando un enlace generado en Argos
-         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Argos un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_ARGOS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).
          */
         post: operations["conectarArgos"];
         delete?: never;
@@ -862,6 +862,26 @@ export interface paths {
          * @description Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Argos lo canjea en `POST /api/v1/integraciones/argosisp/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["generarEnlaceArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/conexion/previsualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ver a qué origen irá el token antes de conectar con Argos
+         * @description Permiso: `integraciones.conectar`. No llama a Argos ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_ARGOS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.
+         */
+        post: operations["previsualizarConexionArgos"];
         delete?: never;
         options?: never;
         head?: never;
@@ -999,7 +1019,7 @@ export interface paths {
         put?: never;
         /**
          * Conectar con Horus usando un enlace generado en Horus
-         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Horus un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_HORUS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).
          */
         post: operations["conectarHorus"];
         delete?: never;
@@ -1042,6 +1062,26 @@ export interface paths {
          * @description Permiso: `integraciones.conectar`. Válido 15 min y de un solo uso. Horus lo canjea en `POST /api/v1/integraciones/horus/conexion/canjear`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["generarEnlaceHorus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/horus/conexion/previsualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ver a qué origen irá el token antes de conectar con Horus
+         * @description Permiso: `integraciones.conectar`. No llama a Horus ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_HORUS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.
+         */
+        post: operations["previsualizarConexionHorus"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7051,6 +7091,17 @@ export interface components {
              */
             velocidad: number | null;
         };
+        Previsualizacion: {
+            /** @description Ya hay un conector de este sistema con ese origen */
+            conectorExistente: boolean;
+            /** @description Si no se permite: origenes_no_configurados u origen_no_permitido */
+            motivo: string | null;
+            /** @description esquema://host[:puerto] del enlace: adónde irá el token de Iris */
+            origen: string;
+            /** @description El origen está en la lista o ya hay un conector con él */
+            permitido: boolean;
+            sistema: string;
+        };
         Problema: {
             /** @description Explicación de este caso */
             detail?: string;
@@ -11796,6 +11847,66 @@ export interface operations {
             };
         };
     };
+    previsualizarConexionArgos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConectar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Previsualizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     webhookArgos: {
         parameters: {
             query?: never;
@@ -12413,6 +12524,66 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    previsualizarConexionHorus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConectar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Previsualizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

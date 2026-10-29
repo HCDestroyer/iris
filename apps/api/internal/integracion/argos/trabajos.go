@@ -30,15 +30,23 @@ func (ArgsProcesarEntrante) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 12, UniqueOpts: river.UniqueOpts{ByArgs: true}}
 }
 
-// ArgsSincronizarCatalogos refresca las instantáneas de zonas y routers.
-type ArgsSincronizarCatalogos struct{}
+// ArgsSincronizarCatalogos refresca las instantáneas de zonas y routers. Motivo separa la carga
+// al activar el conector del periódico: el periódico corre también al arrancar el worker (con el
+// conector aún apagado no hace nada) y, si la activación caía en el mismo minuto, la unicidad la
+// descartaba y el catálogo quedaba vacío hasta el siguiente periódico (6 h; prueba e2e con Argos).
+type ArgsSincronizarCatalogos struct {
+	Motivo string `json:"motivo,omitempty"`
+}
+
+// MotivoActivacion es el de la carga que encola la activación del conector.
+const MotivoActivacion = "activacion"
 
 // Kind implementa river.JobArgs.
 func (ArgsSincronizarCatalogos) Kind() string { return "integracion.argos_sincronizar_catalogos" }
 
-// InsertOpts: único por minuto.
+// InsertOpts: único por minuto y por motivo (la activación no choca con el periódico).
 func (ArgsSincronizarCatalogos) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
+	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByArgs: true, ByPeriod: time.Minute}}
 }
 
 type trabajadorEntrante struct {

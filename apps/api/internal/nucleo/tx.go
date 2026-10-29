@@ -45,6 +45,25 @@ func TxDe(ctx context.Context) pgx.Tx {
 	return tx
 }
 
+// Ejecutor es lo que necesitan las consultas de sqlc: una transacción o el pool.
+type Ejecutor interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// DBDe devuelve la transacción en curso del contexto o, si no hay, el pool (nil si tampoco).
+// Para un ayudante que puede correr dentro de un caso de uso (en su transacción) o fuera.
+func DBDe(ctx context.Context) Ejecutor {
+	if tx := TxDe(ctx); tx != nil {
+		return tx
+	}
+	if bd := BDDe(ctx); bd != nil {
+		return bd
+	}
+	return nil
+}
+
 // ErrSinBD: el contexto no trae pool (falta ConBD al arrancar).
 var ErrSinBD = errors.New("nucleo: el contexto no tiene base de datos (falta nucleo.ConBD)")
 

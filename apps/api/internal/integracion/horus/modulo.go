@@ -28,7 +28,7 @@ import (
 const Sistema = "horus"
 
 // Remoto identifica a Horus en los errores (horus_no_disponible, horus_rechazo…).
-var Remoto = conector.Remoto{Codigo: "horus", Nombre: "Horus", VariableRedes: "IRIS_HORUS_REDES_PERMITIDAS"}
+var Remoto = conector.Remoto{Codigo: "horus", Nombre: "Horus", VariableRedes: "IRIS_HORUS_REDES_PERMITIDAS", VariableOrigenes: "IRIS_HORUS_ORIGENES"}
 
 // Rutas de la API de Horus que usa Iris (bajo /api/v1). Supuesto, a confirmar con el equipo de
 // Horus: el prefijo del conector Iris en Horus es /api/v1/integrations/iris (contrato §0) y el
@@ -46,6 +46,8 @@ type Config struct {
 	Argos *argos.Modulo
 	// RedesPermitidas (IRIS_HORUS_REDES_PERMITIDAS): redes internas a las que sí se puede
 	// conectar (Horus en la red local de dev o lab).
+	// Origenes de los que se acepta un enlace de conexión (IRIS_*_ORIGENES, normalizados).
+	Origenes        []string
 	RedesPermitidas []netip.Prefix
 	// Timeout de cada llamada a Horus (5 s), reintentos de las lecturas (3) y espera base.
 	Timeout  time.Duration
@@ -60,6 +62,7 @@ type Modulo struct {
 	conexion *conector.Conexion
 
 	Conectar               *conector.Conectar
+	Previsualizar          *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
 	GenerarEnlace          *auditoria.Caso[struct{}, conector.EnlaceGenerado]
 	CanjearConexion        *auditoria.Caso[conector.EntradaCanjear, conector.ConexionCanjeada]
 	RecibirWebhook         *auditoria.Caso[conector.EntradaWebhook, conector.WebhookRecibido]
@@ -76,10 +79,11 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, argos: cfg.Argos}
 	m.conexion = cfg.Argos.Nucleo().Agregar(conector.Sistema{
 		Nombre: Sistema, Remoto: Remoto, PrefijoToken: "hf_pat_", RutaCanje: RutaCanje, Etiqueta: "Horus",
-		RedesPermitidas: cfg.RedesPermitidas, Timeout: cfg.Timeout, Intentos: cfg.Intentos, Espera: cfg.Espera,
+		RedesPermitidas: cfg.RedesPermitidas, Origenes: cfg.Origenes, Timeout: cfg.Timeout, Intentos: cfg.Intentos, Espera: cfg.Espera,
 		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar
+	m.Previsualizar = m.conexion.Previsualizar
 	m.GenerarEnlace = m.conexion.GenerarEnlace
 	m.CanjearConexion = m.conexion.CanjearConexion
 	m.RecibirWebhook = m.conexion.RecibirWebhook

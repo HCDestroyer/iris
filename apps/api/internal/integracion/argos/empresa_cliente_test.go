@@ -160,7 +160,9 @@ func TestFichaPorEmpresaYSinServicios(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE cliente_id = 97 AND empresa_id = 0`); n != 1 {
 		t.Fatal("el servicio sin empresa no hereda la del cliente")
 	}
-	e.argos.con(func() { e.argos.ips["10.0.0.95"] = map[string]any{"cliente_id": 95, "servicio_id": 950, "empresa_id": 0} })
+	e.argos.con(func() {
+		e.argos.ips["10.0.0.95"] = map[string]any{"cliente_id": 95, "servicio_id": 950, "empresa_id": 0}
+	})
 	uno.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.95", nil).problema(t, 404, "no_encontrado")
 }
 

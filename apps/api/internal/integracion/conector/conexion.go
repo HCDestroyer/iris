@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Enlace de conexión (contrato Argos ↔ Horus §1.4, reutilizado con Argos y Horus):
@@ -100,6 +102,11 @@ func (c *Conexion) exigirConfiguracion() error {
 
 // insertarConector cifra token y secreto atados a la fila (id reservado) e inserta (apagado).
 func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64) (conectorbd.IntegracionConectore, error) {
+	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, empresas, nil)
+}
+
+// insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil).
+func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64, entregado *int64) (conectorbd.IntegracionConectore, error) {
 	q := conectorbd.New(t)
 	tokenCifrado, err := c.n.cifrar(id, "token", token)
 	if err != nil {
@@ -119,6 +126,7 @@ func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int
 	f, err := q.InsertarConector(ctx, conectorbd.InsertarConectorParams{
 		ID: id, Sistema: c.s.Nombre, BaseUrl: base, Origen: origen, TokenCifrado: tokenCifrado,
 		SecretoWebhookCifrado: secretoCifrado, RemotoID: remotoID, Empresas: empresas, CreadoPor: creadoPor,
+		TokenEntregadoID: entregado,
 	})
 	if err != nil {
 		return f, err
@@ -143,13 +151,20 @@ func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int
 type entradaGuardarConector struct {
 	Base       string `json:"base_url"`
 	ConectorID int64  `json:"conector_id"`
-	secreto    string
-	respuesta  RespuestaCanje
-	errRemoto  error
+	// tokenEntregado: id del iris_pat_ entregado al otro sistema (queda en la fila y la auditoría).
+	tokenEntregado int64
+	secreto        string
+	respuesta      RespuestaCanje
+	errRemoto      error
 }
 
 // Conectar canjea un enlace generado en el otro sistema (sentido enlace_remoto). La llamada va
 // fuera de transacción, entre un caso que reserva el id y otro que guarda el conector.
+//
+// Seguridad: Iris entrega un iris_pat_ al origen del enlace, así que solo acepta orígenes de
+// Sistema.Origenes (o el de un conector que ya existe), exige empresas.todas global y el token nace
+// con vencimiento (VigenciaTokenCanje): solo queda sin vencimiento al activar el conector. Si el
+// canje no se completa (rechazo, respuesta inválida, error o pánico), se revoca.
 //
 // Riesgo: si el otro sistema canjea el código pero Iris no logra guardar el conector (caída
 // entre las dos fases), el código queda usado y hay que generar otro enlace.
@@ -168,17 +183,30 @@ func nuevoConectar(c *Conexion) *Conectar {
 			if err := c.exigirConfiguracion(); err != nil {
 				return 0, err
 			}
-			if _, _, err := c.parsearEnlace(in.Enlace); err != nil {
+			base, _, err := c.parsearEnlace(in.Enlace)
+			if err != nil {
 				return 0, err
 			}
-			return conectorbd.New(t).SiguienteIDConector(ctx)
+			if c.n.tokensFijados() == nil {
+				return 0, errSinTokens
+			}
+			// El token que se entrega es de un usuario de integración con todas las empresas: solo
+			// lo emite quien opera en todas.
+			if !contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermEmpresasTodas)) {
+				return 0, nucleo.Prohibido("Conectar con " + c.s.Remoto.Nombre + " exige operar en todas las empresas (empresas.todas sin límite de alcance)")
+			}
+			q := conectorbd.New(t)
+			if err := c.exigirOrigen(ctx, q, base); err != nil {
+				return 0, err
+			}
+			return q.SiguienteIDConector(ctx)
 		},
 	})
 	k.guardar = auditoria.Nuevo(auditoria.Caso[entradaGuardarConector, Conector]{
 		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarConector) (Conector, error) {
 			t.FijarEntidad("conector", in.ConectorID)
-			t.Anotar(map[string]any{"sistema": c.s.Nombre})
+			t.Anotar(map[string]any{"sistema": c.s.Nombre, "token_entregado_id": in.tokenEntregado})
 			if in.errRemoto != nil {
 				return Conector{}, Problema(in.errRemoto)
 			}
@@ -186,10 +214,29 @@ func nuevoConectar(c *Conexion) *Conectar {
 			if !strings.HasPrefix(token, c.s.PrefijoToken) || len(token) < len(c.s.PrefijoToken)+8 {
 				return Conector{}, Rechazo(c.s.Remoto, "El canje de "+c.s.Remoto.Nombre+" no devolvió un token "+c.s.PrefijoToken+"…")
 			}
-			f, err := c.insertarConector(ctx, t, in.ConectorID, "enlace_remoto", in.Base, token, in.secreto,
-				in.respuesta.IDConexion(), in.respuesta.IDsEmpresas())
+			remotoID, err := in.respuesta.ConectorIDValido()
+			if err != nil {
+				return Conector{}, Rechazo(c.s.Remoto, "El canje de "+c.s.Remoto.Nombre+" devolvió un conector_id inválido")
+			}
+			var entregado *int64
+			if in.tokenEntregado != 0 {
+				entregado = &in.tokenEntregado
+			}
+			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, "enlace_remoto", in.Base, token, in.secreto,
+				remotoID, in.respuesta.IDsEmpresas(), entregado)
 			if err != nil {
 				return Conector{}, err
+			}
+			// Los tokens entregados por los conectores anteriores de este sistema ya no sirven.
+			anteriores, err := conectorbd.New(t).TokensEntregadosDeOtros(ctx, conectorbd.TokensEntregadosDeOtrosParams{Sistema: c.s.Nombre, Excepto: f.ID})
+			if err != nil {
+				return Conector{}, err
+			}
+			for _, id := range anteriores {
+				c.n.revocarEntregado(ctx, t.Tx, id, "conector_reemplazado")
+			}
+			if len(anteriores) > 0 {
+				t.Anotar(map[string]any{"tokens_revocados": anteriores})
 			}
 			return c.n.AConector(f), nil
 		},
@@ -197,9 +244,9 @@ func nuevoConectar(c *Conexion) *Conectar {
 	return k
 }
 
-// Ejecutar valida el enlace, reserva el id, canjea en el otro sistema y guarda el conector
-// apagado.
-func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (Conector, error) {
+// Ejecutar valida el enlace, reserva el id, emite el token, canjea en el otro sistema y guarda el
+// conector apagado.
+func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (con Conector, err error) {
 	id, err := k.reservar.Ejecutar(ctx, in)
 	if err != nil {
 		return Conector{}, err
@@ -209,13 +256,103 @@ func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (Conector, 
 	if err != nil {
 		return Conector{}, err
 	}
-	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto}
+	// El iris_pat_ con el que el otro sistema leerá de Iris (§1.2): va en la petición, nace con
+	// vencimiento y se revoca si el canje no termina bien (también ante un pánico).
+	tokenID, valor, err := k.c.n.tokensFijados().EmitirTokenCanje(ctx, k.c.s.Nombre, time.Now().Add(VigenciaTokenCanje))
+	if err != nil {
+		return Conector{}, err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			k.c.n.revocarEntregado(context.WithoutCancel(ctx), nil, tokenID, "canje_no_completado")
+		}
+	}()
+	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto, tokenEntregado: tokenID}
 	cli := k.c.clienteHacia(base, "")
 	// Sin reintentos (el código es de un solo uso) y sin token.
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, k.c.s.RutaCanje, nil, PeticionCanje{
-		Codigo: codigo, Sistema: "iris", URL: k.c.n.cfg.BaseURL, WebhookURL: k.c.n.URLWebhook(k.c.s.Nombre, id), WebhookSecreto: secreto,
+		Codigo: codigo, Sistema: "iris", BaseURL: k.c.n.cfg.BaseURL, Token: valor,
+		Webhook: WebhookCanje{URL: k.c.n.URLWebhook(k.c.s.Nombre, id), Secreto: secreto},
 	}, false, &Recurso{Destino: &g.respuesta})
-	return k.guardar.Ejecutar(ctx, g)
+	antesDeGuardar()
+	con, err = k.guardar.Ejecutar(ctx, g)
+	ok = err == nil
+	return con, err
+}
+
+// antesDeGuardar es un punto de prueba (pánico entre el canje y el guardado); no hace nada.
+var antesDeGuardar = func() {}
+
+// exigirOrigen: el origen (esquema://host[:puerto]) de un enlace debe estar en Sistema.Origenes o
+// ser el de un conector que ya existe para el sistema. Sin lista, solo en desarrollo
+// (IRIS_CONECTORES_PERMITIR_HTTP). Así un enlace de phishing no se lleva el token del canje.
+func (c *Conexion) exigirOrigen(ctx context.Context, q *conectorbd.Queries, base string) error {
+	origen, err := nucleo.NormalizarOrigen(base)
+	if err != nil {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "enlace", Message: "Origen inválido", Rule: "url"})
+	}
+	if slices.Contains(c.s.Origenes, origen) {
+		return nil
+	}
+	existe, err := q.ExisteConectorConBase(ctx, conectorbd.ExisteConectorConBaseParams{Sistema: c.s.Nombre, BaseUrl: base})
+	if err != nil {
+		return err
+	}
+	if existe {
+		return nil
+	}
+	if len(c.s.Origenes) == 0 {
+		if c.n.cfg.PermitirHTTP {
+			return nil
+		}
+		return nucleo.ReglaNegocio("origenes_no_configurados", "Falta "+c.s.Remoto.VariableOrigenes+": configura el origen de "+
+			c.s.Remoto.Nombre+" (https://host[:puerto]) antes de conectar; Iris solo entrega su token a orígenes conocidos")
+	}
+	return nucleo.ReglaNegocio("origen_no_permitido", "El enlace es de "+origen+", que no está en "+c.s.Remoto.VariableOrigenes+
+		": si de verdad es "+c.s.Remoto.Nombre+", agrégalo a la lista")
+}
+
+// Previsualizar un enlace (sin llamar afuera) ------------------------------------------------
+
+// Previsualizacion es lo que el panel muestra antes de canjear: a qué origen irá el token.
+type Previsualizacion struct {
+	Sistema           string  `json:"sistema"`
+	Origen            string  `json:"origen" doc:"esquema://host[:puerto] del enlace: adónde irá el token de Iris"`
+	Permitido         bool    `json:"permitido" doc:"El origen está en la lista o ya hay un conector con él"`
+	Motivo            *string `json:"motivo" nullable:"true" doc:"Si no se permite: origenes_no_configurados u origen_no_permitido"`
+	ConectorExistente bool    `json:"conectorExistente" doc:"Ya hay un conector de este sistema con ese origen"`
+}
+
+func nuevoPrevisualizar(c *Conexion) *auditoria.Caso[EntradaConectar, Previsualizacion] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaConectar, Previsualizacion]{
+		Accion: "integraciones.previsualizar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
+		AuditarExito: soloLecturas[Previsualizacion],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConectar) (Previsualizacion, error) {
+			base, _, err := c.parsearEnlace(in.Enlace)
+			if err != nil {
+				return Previsualizacion{}, err
+			}
+			origen, err := nucleo.NormalizarOrigen(base)
+			if err != nil {
+				return Previsualizacion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "enlace", Message: "Origen inválido", Rule: "url"})
+			}
+			q := conectorbd.New(t)
+			p := Previsualizacion{Sistema: c.s.Nombre, Origen: origen, Permitido: true}
+			if p.ConectorExistente, err = q.ExisteConectorConBase(ctx, conectorbd.ExisteConectorConBaseParams{Sistema: c.s.Nombre, BaseUrl: base}); err != nil {
+				return p, err
+			}
+			if err := c.exigirOrigen(ctx, q, base); err != nil {
+				pr, _ := nucleo.AProblema(err)
+				if pr == nil || pr.Status >= 500 {
+					return p, err
+				}
+				motivo := pr.Codigo()
+				p.Permitido, p.Motivo = false, &motivo
+			}
+			return p, nil
+		},
+	})
 }
 
 // Generar un enlace para el otro sistema ----------------------------------------------------
@@ -276,6 +413,9 @@ func nuevoCanjearConexion(c *Conexion) *auditoria.Caso[EntradaCanjear, ConexionC
 			if err != nil {
 				return ConexionCanjeada{}, err
 			}
+			if err := c.exigirOrigen(ctx, q, base); err != nil {
+				return ConexionCanjeada{}, err
+			}
 			token := strings.TrimSpace(in.Token)
 			if !strings.HasPrefix(token, c.s.PrefijoToken) {
 				return ConexionCanjeada{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "token",
@@ -334,6 +474,18 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			if _, err := n.Leer(antes); err != nil {
 				return Conector{}, err
 			}
+			// El token que Iris entregó en el canje deja de vencer (si ya venció o se revocó: 422,
+			// hay que volver a conectar).
+			if antes.TokenEntregadoID != nil {
+				tokens := n.tokensFijados()
+				if tokens == nil {
+					return Conector{}, errSinTokens
+				}
+				if err := tokens.ConfirmarTokenCanje(ctx, *antes.TokenEntregadoID); err != nil {
+					return Conector{}, err
+				}
+				t.Anotar(map[string]any{"token_entregado_confirmado": *antes.TokenEntregadoID})
+			}
 			var actor *int64
 			if a := t.Actor(); a.EsUsuario() {
 				actor = &a.ID
@@ -380,6 +532,12 @@ func nuevoDesactivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, C
 				return Conector{}, err
 			}
 			t.RegistrarCambios("conector", in.ID, n.AConector(antes), n.AConector(despues))
+			// Apagado, el otro sistema ya no lee de Iris con el token del canje: se revoca (volver
+			// a activarlo exige conectar de nuevo).
+			if antes.TokenEntregadoID != nil {
+				n.revocarEntregado(ctx, t.Tx, *antes.TokenEntregadoID, "conector_desactivado")
+				t.Anotar(map[string]any{"token_entregado_revocado": *antes.TokenEntregadoID})
+			}
 			return n.AConector(despues), t.Emitir("conector.desactivado", map[string]any{
 				"conector_id": in.ID, "sistema": despues.Sistema, "motivo": in.Motivo,
 			})

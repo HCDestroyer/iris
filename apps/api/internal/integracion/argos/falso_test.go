@@ -39,6 +39,7 @@ type argosFalso struct {
 	alcance map[int64]bool
 	// estadoPedido: ?empresa_id= del último estado de cuenta.
 	estadoPedido string
+	conectorID   any // lo que responde el canje en conector_id (nil = "77")
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -100,12 +101,22 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 		problema(w, 400, "urn:argos:token_no_esperado", "El canje no lleva token")
 		return
 	}
-	if p["codigo"] != a.codigo || p["sistema"] != "iris" || p["webhook_secreto"] == "" || p["webhook_url"] == "" {
+	if p["codigo"] != a.codigo || !canjeCanonico(p) {
 		problema(w, 422, "urn:argos:codigo_invalido", "El código venció o ya se usó")
 		return
 	}
 	a.codigo = "usado-" + a.codigo
-	escribir(w, map[string]any{"token": a.token, "conexionId": 77, "empresas": []any{map[string]any{"id": 1}}})
+	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
+	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
+	escribir(w, map[string]any{"token": a.token, "webhook": map[string]any{"url": "https://argos.prueba/api/v1/integraciones/iris/webhook", "secreto": "secreto-de-argos-para-iris"},
+		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}})
+}
+
+func (a *argosFalso) idDelCanje() any {
+	if a.conectorID != nil {
+		return a.conectorID
+	}
+	return "77"
 }
 
 func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
@@ -256,4 +267,16 @@ func (a *argosFalso) paginar(w http.ResponseWriter, r *http.Request, todos []map
 		siguiente = strconv.Itoa(hasta)
 	}
 	escribir(w, map[string]any{"data": todos[desde:hasta], "nextCursor": siguiente})
+}
+
+// canjeCanonico valida el cuerpo del canje como el contrato Argos ↔ Horus §1.4 (y Argos 1.3.0):
+// sistema "iris", base_url, el token iris_pat_ que Iris emite para el otro sistema y su receptor de
+// webhooks con el secreto.
+func canjeCanonico(p map[string]any) bool {
+	token, _ := p["token"].(string)
+	base, _ := p["base_url"].(string)
+	wh, _ := p["webhook"].(map[string]any)
+	url, _ := wh["url"].(string)
+	secreto, _ := wh["secreto"].(string)
+	return p["sistema"] == "iris" && base != "" && strings.HasPrefix(token, "iris_pat_") && url != "" && len(secreto) >= 16
 }

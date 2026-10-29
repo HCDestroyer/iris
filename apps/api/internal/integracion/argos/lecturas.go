@@ -559,14 +559,14 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 			}
 			q := argosbd.New(t)
 			for _, z := range in.zonas {
-				if err := q.GuardarZona(ctx, argosbd.GuardarZonaParams{ID: z.ID, EmpresaID: z.EmpresaID, Nombre: z.Nombre, SincronizadoEn: in.inicio}); err != nil {
+				if err := q.GuardarZona(ctx, argosbd.GuardarZonaParams{ID: z.ID, EmpresaID: z.Empresa(), Nombre: z.Nombre, SincronizadoEn: in.inicio}); err != nil {
 					return ResultadoCatalogos{}, err
 				}
 			}
 			for _, r := range in.routers {
 				lat, lon := r.LatLon()
 				if err := q.GuardarRouter(ctx, argosbd.GuardarRouterParams{
-					ID: r.ID, EmpresaID: r.EmpresaID, Nombre: r.Nombre, ZonaID: idDe(r.ZonaID, r.Zona), Lat: lat, Lon: lon, SincronizadoEn: in.inicio,
+					ID: r.ID, EmpresaID: r.Empresa(), Nombre: r.Nombre, ZonaID: idDe(r.ZonaID, r.Zona), Lat: lat, Lon: lon, SincronizadoEn: in.inicio,
 				}); err != nil {
 					return ResultadoCatalogos{}, err
 				}

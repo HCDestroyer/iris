@@ -126,10 +126,20 @@ func (c *Conexion) Registrar(api huma.API) {
 		"Conectar con "+nombre+" usando un enlace generado en "+nombre, nucleo.PermIntegracionesConectar, http.StatusCreated,
 		http.StatusBadGateway, http.StatusServiceUnavailable)
 	conectar.Description += " Iris canjea el código en " + nombre + " (servidor a servidor), guarda el token `" + s.PrefijoToken +
-		"…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. 502 `" + s.Remoto.Codigo +
+		"…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a " + nombre +
+		" un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `" + s.Remoto.VariableOrigenes +
+		"` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `" + s.Remoto.Codigo +
 		"_rechazo` si " + nombre + " rechaza el código (vencido o usado)."
 	huma.Register(api, conectar, func(ctx context.Context, in *conClave[EntradaConectar]) (*Cuerpo[Conector], error) {
 		return Responder(c.Conectar.Ejecutar(ctx, in.Body))
+	})
+
+	previa := Operacion(EtiquetaIntegraciones, "previsualizarConexion"+s.Etiqueta, http.MethodPost, prefijo+"/conexion/previsualizar",
+		"Ver a qué origen irá el token antes de conectar con "+nombre, nucleo.PermIntegracionesConectar, http.StatusOK)
+	previa.Description += " No llama a " + nombre + " ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`" +
+		s.Remoto.VariableOrigenes + "` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`."
+	huma.Register(api, previa, func(ctx context.Context, in *Cuerpo[EntradaConectar]) (*Cuerpo[Previsualizacion], error) {
+		return Responder(c.Previsualizar.Ejecutar(ctx, in.Body))
 	})
 
 	enlace := Operacion(EtiquetaIntegraciones, "generarEnlace"+s.Etiqueta, http.MethodPost, prefijo+"/conexion/enlaces",

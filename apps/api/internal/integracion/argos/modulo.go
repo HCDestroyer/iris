@@ -34,7 +34,7 @@ import (
 const Sistema = "argosisp"
 
 // Remoto identifica a Argos en los errores (argos_no_disponible, argos_rechazo…).
-var Remoto = conector.Remoto{Codigo: "argos", Nombre: "Argos", VariableRedes: "IRIS_ARGOS_REDES_PERMITIDAS"}
+var Remoto = conector.Remoto{Codigo: "argos", Nombre: "Argos", VariableRedes: "IRIS_ARGOS_REDES_PERMITIDAS", VariableOrigenes: "IRIS_ARGOS_ORIGENES"}
 
 // Encolador inserta un job de River dentro de la transacción del caso de uso (atómico con lo
 // que el caso escribe). En cmd/iris es river.Client.InsertTx; nil = no se encola (OpenAPI).
@@ -50,6 +50,8 @@ type Config struct {
 	// RedesPermitidas (IRIS_ARGOS_REDES_PERMITIDAS): redes internas a las que sí se puede
 	// conectar (Argos en la red local de dev o lab). Todo lo demás interno se bloquea
 	// (conector/red.go).
+	// Origenes de los que se acepta un enlace de conexión (IRIS_*_ORIGENES, normalizados).
+	Origenes        []string
 	RedesPermitidas []netip.Prefix
 	// Timeout de cada llamada a Argos (5 s).
 	Timeout time.Duration
@@ -81,6 +83,7 @@ type Modulo struct {
 	conexion     *conector.Conexion
 
 	Conectar             *conector.Conectar
+	Previsualizar        *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
 	GenerarEnlace        *auditoria.Caso[struct{}, EnlaceGenerado]
 	CanjearConexion      *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
 	ActivarConector      *auditoria.Caso[EntradaCambioConector, Conector]
@@ -119,18 +122,19 @@ func Nuevo(cfg Config) *Modulo {
 	})
 	m.conexion = m.nucleo.Agregar(conector.Sistema{
 		Nombre: Sistema, Remoto: Remoto, PrefijoToken: "atk_", RutaCanje: "/integraciones/iris/conexion/canjear",
-		RegistrarEmpresas: true, RedesPermitidas: cfg.RedesPermitidas, Etiqueta: "Argos",
+		RegistrarEmpresas: true, RedesPermitidas: cfg.RedesPermitidas, Origenes: cfg.Origenes, Etiqueta: "Argos",
 		Timeout: cfg.Timeout, Intentos: cfg.Intentos, Espera: cfg.Espera,
 		// Primera carga de zonas y routers, en la transacción de la activación.
 		AlActivar: func(ctx context.Context, tx pgx.Tx) error {
 			if cfg.Encolar == nil {
 				return nil
 			}
-			return cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{})
+			return cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion})
 		},
 		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar
+	m.Previsualizar = m.conexion.Previsualizar
 	m.GenerarEnlace = m.conexion.GenerarEnlace
 	m.CanjearConexion = m.conexion.CanjearConexion
 	m.RecibirWebhook = m.conexion.RecibirWebhook

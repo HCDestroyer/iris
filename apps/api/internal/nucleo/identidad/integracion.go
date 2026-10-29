@@ -121,6 +121,107 @@ func (m *Modulo) integracionExistente(ctx context.Context, correo, rol string) (
 }
 
 func esCodigo(err error, codigo string) bool {
+	if err == nil {
+		return false
+	}
 	p, _ := nucleo.AProblema(err)
-	return p.Codigo() == codigo
+	return p != nil && p.Codigo() == codigo
+}
+
+// Token del canje de un enlace de conexión (contratos Argos/Horus §1.2) ---------------------
+//
+// Al conectar con un enlace del otro sistema, Iris le entrega un iris_pat_ de su usuario de
+// integración. Nace con vencimiento (VigenciaTokenCanje): si el conector no se activa a tiempo
+// —p. ej. el enlace era de un sitio falso que respondió 200— muere solo. Al activar el conector
+// se confirma (sin vencimiento); al desactivarlo o reemplazarlo, se revoca.
+
+// VigenciaTokenCanje es la vida del iris_pat_ entregado en un canje mientras no se activa el
+// conector.
+const VigenciaTokenCanje = 15 * time.Minute
+
+// EmitirTokenCanje emite el iris_pat_ del canje con el actor de ctx (quien conecta, que el
+// conector exige con empresas.todas global): queda en la auditoría con su usuario y request_id.
+// Si el usuario de integración del sistema ya existe, sus empresas no se tocan; si no, se crea
+// con todas las empresas registradas (en una instalación nueva, ninguna). Devuelve el id del
+// token y su valor (se muestra una sola vez).
+func (m *Modulo) EmitirTokenCanje(ctx context.Context, sistema string, expira time.Time) (int64, string, error) {
+	rol, ok := RolesIntegracion[sistema]
+	if !ok {
+		return 0, "", nucleo.Validacion(nucleo.ErrorCampo{Field: "sistema", Message: "Debe ser argosisp u horus", Rule: "enum"})
+	}
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return 0, "", nucleo.ErrSinBD
+	}
+	correo := "integracion." + sistema + "@iris.local"
+	u, err := m.integracionExistente(ctx, correo, rol)
+	switch {
+	case err == nil:
+	case esCodigo(err, "no_encontrado"):
+		empresas, err := todasLasEmpresas(ctx, identidadbd.New(bd))
+		if err != nil {
+			return 0, "", err
+		}
+		if u, err = m.CrearUsuario.Ejecutar(ctx, EntradaCrearUsuario{
+			Nombre: nombresIntegracion[sistema], Correo: correo, Tipo: "integracion", Roles: []AsignacionRol{{Rol: rol}}, Empresas: empresas,
+		}); err != nil {
+			return 0, "", err
+		}
+	default:
+		return 0, "", err
+	}
+	t, err := m.CrearToken.Ejecutar(ctx, EntradaCrearToken{
+		UsuarioID: u.ID, Nombre: sistema + " (canje " + time.Now().UTC().Format("2006-01-02 15:04") + ")", ExpiraEn: &expira,
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	return t.Token.ID, t.Valor, nil
+}
+
+func todasLasEmpresas(ctx context.Context, q *identidadbd.Queries) ([]int64, error) {
+	var empresas []int64
+	for despues := int64(0); ; {
+		filas, err := q.ListarEmpresas(ctx, identidadbd.ListarEmpresasParams{DespuesDe: despues, Todas: true, Limite: 500})
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range filas {
+			empresas = append(empresas, f.ID)
+		}
+		if len(filas) < 500 {
+			return empresas, nil
+		}
+		despues = filas[len(filas)-1].ID
+	}
+}
+
+// ConfirmarTokenCanje quita el vencimiento del iris_pat_ de un canje al activar su conector. Corre
+// en la transacción de la activación (ctx). 422 token_entregado_vencido si ya venció o se revocó:
+// hay que volver a conectar con un enlace nuevo.
+func (m *Modulo) ConfirmarTokenCanje(ctx context.Context, id int64) error {
+	db := nucleo.DBDe(ctx)
+	if db == nil {
+		return nucleo.ErrSinBD
+	}
+	n, err := identidadbd.New(db).ConfirmarTokenEntregado(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return nucleo.ReglaNegocio("token_entregado_vencido",
+			"El token que Iris entregó en el canje venció o se revocó: vuelve a conectar con un enlace nuevo")
+	}
+	return nil
+}
+
+// RevocarTokenIntegracion revoca un token entregado en un canje (canje fallido, conector
+// desactivado o reemplazado). Con el actor de ctx (el worker usa el actor sistema). Revocar uno
+// ya revocado no es un error.
+func (m *Modulo) RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error {
+	_, err := m.RevocarToken.Ejecutar(ctx, EntradaRevocarToken{ID: id, Motivo: motivo})
+	if esCodigo(err, "token_revocado") {
+		return nil
+	}
+	return err
 }

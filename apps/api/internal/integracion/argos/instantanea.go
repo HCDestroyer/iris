@@ -3,8 +3,9 @@ package argos
 import (
 	"context"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 )
