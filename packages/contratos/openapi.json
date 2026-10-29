@@ -21893,9 +21893,34 @@
     },
     "/api/v1/plantillas": {
       "get": {
-        "description": "Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual. `{ data, nextCursor: null }`.",
+        "description": "Permiso: `plantillas.ver`. Las comunes y las de la empresa activa, con los ítems de su versión actual, por nombre. Cursor (`?cursor=\u0026limit=`, 50 por defecto): `{ data, nextCursor }`.",
         "operationId": "listarPlantillas",
         "parameters": [
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor)",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Tamaño de página",
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           {
             "description": "Las de ese tipo y las de cualquier tipo",
             "explode": false,
