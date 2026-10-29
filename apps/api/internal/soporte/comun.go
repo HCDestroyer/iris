@@ -371,5 +371,8 @@ func (m *Modulo) reactivarPorCliente(ctx context.Context, t *auditoria.Tx, q *so
 		return antes, nil, nil // nuevo o abierto: el ticket no cambia (ni su versión)
 	}
 	f, err := guardar(ctx, t, q, antes, despues, cal)
+	if err == nil && antes.Estado == EstadoResuelto {
+		err = m.anularEncuestaTicket(ctx, t, q, f.ID, "reabierto")
+	}
 	return f, motivo, err
 }

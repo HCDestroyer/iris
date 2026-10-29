@@ -728,6 +728,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/encuestas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Encuestas de satisfacción
+         * @description Permiso: `encuestas.ver`. Más recientes primero (cursor). Respeta la empresa activa y el alcance por zona o cuadrilla. `ticketId` / `ordenId` dan la encuesta del detalle del ticket o la orden. Nunca trae el enlace: con `enlaceDisponible` se pide aparte (`POST /encuestas/{id}/enlace`, permiso `encuestas.compartir`). `alerta` = calificación 1 o 2. Lectura no auditada (como las demás listas).
+         */
+        get: operations["listarEncuestas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/publica/consultar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consultar una encuesta por su token (público)
+         * @description Sin sesión (la cookie del panel no cuenta aquí). El token va en el cuerpo, nunca en la ruta. Datos mínimos (número del ticket u orden, fecha, empresa, estado `pendiente`, `respondida`, `vencida` o `anulada`); nada personal. Token inválido: 404 `encuesta_no_encontrada` (no se audita); pasados 1000 tokens inválidos por minuto (de todos), 429 `demasiados_intentos` con `Retry-After`, sin tocar la base.
+         */
+        post: operations["consultarEncuestaPublica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/publica/responder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Responder una encuesta (público)
+         * @description Sin sesión. `{ token, calificacion (1–5), comentario? (≤ 1000) }`. Un solo uso: repetir la misma respuesta devuelve 200 sin cambios; otra distinta, 409 `encuesta_respondida`. Vencida (7 días): 410 `encuesta_vencida`; anulada (el ticket se reabrió): 410 `encuesta_anulada`. Token inválido: 404 (no se audita) o 429 como en consultar. Guarda la IP y el User-Agent. Emite `encuesta.respondida` (`alerta: true` con calificación ≤ 2). El token y el comentario quedan como `***` en la auditoría.
+         */
+        post: operations["responderEncuestaPublica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/encuestas/{id}/enlace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir el enlace de una encuesta para compartirlo
+         * @description Permiso: `encuestas.compartir`. Acción auditada (quién lo pidió; el token queda como `***`). Solo una encuesta pendiente de canal `enlace`: si salió por correo, 409 `encuesta_por_correo`; respondida, 409 `encuesta_respondida`; vencida o anulada, 410 `encuesta_vencida` / `encuesta_anulada`; sin clave para derivarlo, 422 `enlace_no_disponible`. Respuesta con `Cache-Control: no-store`.
+         */
+        post: operations["compartirEncuesta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/conectar": {
         parameters: {
             query?: never;
@@ -2149,6 +2229,26 @@ export interface paths {
          * @description Tickets resueltos en el período (sin los fusionados): promedio y mediana en minutos de reloj desde la creación hasta la resolución. Total, por prioridad y por categoría. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
          */
         get: operations["reporteResolucion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reportes/satisfaccion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Satisfacción (encuestas)
+         * @description Encuestas de satisfacción creadas en el período: enviadas, respondidas, pendientes, vencidas, % respondidas, promedio, alertas (calificación 1 o 2) y distribución de 1 a 5. Total y por entidad (ticket u orden). `tecnicoId` = técnico de la orden o responsable del ticket al crear la encuesta. Permiso `reportes.ver` (con su alcance por zona o cuadrilla). Respeta la empresa activa. `desde` y `hasta` son días en la hora de Guatemala (el período va de `desde` 00:00 al final de `hasta`); como mucho 366 días (422 `rango_excedido`). JSON por defecto; CSV con encabezados en español con `?formato=csv` o `Accept: text/csv`. Si algo no se puede leer, el reporte entero falla: nunca hay totales parciales. Cada consulta tiene un tiempo máximo (15 s): si vence, 503 `reporte_demasiado_largo` (acotar el rango o los filtros).
+         */
+        get: operations["reporteSatisfaccion"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3890,6 +3990,12 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        Distribucion: {
+            /** Format: int64 */
+            calificacion: number;
+            /** Format: int64 */
+            cantidad: number;
+        };
         DocumentoPDF: {
             adjuntoId: string;
             /**
@@ -3927,6 +4033,72 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        Encuesta: {
+            /** @description Calificación 1 o 2: resaltar */
+            alerta: boolean;
+            /** Format: int64 */
+            calificacion: number | null;
+            /**
+             * @description correo: se encoló el correo al contacto; enlace: soporte comparte el enlace
+             * @enum {string}
+             */
+            canal: "correo" | "enlace";
+            comentario: string | null;
+            /** Format: date-time */
+            creadaEn: string;
+            /** @description Pendiente, canal enlace y con clave para derivarlo: se puede pedir con POST /encuestas/{id}/enlace */
+            enlaceDisponible: boolean;
+            /** @enum {string} */
+            entidad: "ticket" | "orden";
+            /**
+             * @description anulada: el ticket se reabrió o se fusionó
+             * @enum {string}
+             */
+            estado: "pendiente" | "respondida" | "vencida" | "anulada";
+            /** Format: date-time */
+            expiraEn: string;
+            /** Format: int64 */
+            id: number;
+            /** @description Número del ticket o de la orden */
+            numero: string;
+            /** Format: int64 */
+            ordenId: number | null;
+            /** Format: date-time */
+            respondidaEn: string | null;
+            /** Format: int64 */
+            ticketId: number | null;
+        };
+        EncuestaPublica: {
+            /**
+             * Format: int64
+             * @description Solo si ya se respondió
+             */
+            calificacion?: number;
+            /** @description Nombre de la empresa (null sin conector) */
+            empresa: string | null;
+            /** @enum {string} */
+            entidad: "ticket" | "orden";
+            /**
+             * @description anulada: el caso se reabrió; llegará otra encuesta al resolverlo
+             * @enum {string}
+             */
+            estado: "pendiente" | "respondida" | "vencida" | "anulada";
+            /** Format: date-time */
+            expiraEn: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se resolvió el ticket o se cerró la orden
+             */
+            fecha: string;
+            /** @description Número del ticket o de la orden */
+            numero: string;
+        };
+        EnlaceEncuesta: {
+            /** @description <IRIS_BASE_URL>/encuesta#<token> */
+            enlace: string;
+            /** Format: date-time */
+            expiraEn: string;
         };
         EnlaceExterno: {
             /** Format: int64 */
@@ -4599,6 +4771,10 @@ export interface components {
              */
             empresaId: number;
         };
+        EntradaEncuestaPublica: {
+            /** @description Lo que sigue a # en /encuesta#<token> */
+            token: string;
+        };
         EntradaEntrarPortal: {
             /** @description Lo que sigue a # en /soporte/entrar#<ticket> */
             ticket: string;
@@ -5072,6 +5248,17 @@ export interface components {
              */
             version: number;
         };
+        EntradaResponderEncuesta: {
+            /**
+             * Format: int64
+             * @description 1 (muy mal) a 5 (muy bien)
+             */
+            calificacion: number;
+            /** @description Opcional */
+            comentario?: string;
+            /** @description Lo que sigue a # en /encuesta#<token> */
+            token: string;
+        };
         EntradaResponderTicket: {
             cuerpo: string;
             /**
@@ -5512,6 +5699,47 @@ export interface components {
              * @description Tickets resueltos en el período
              */
             resueltos: number;
+        };
+        FilaSatisfaccion: {
+            /**
+             * Format: int64
+             * @description Respuestas con calificación 1 o 2
+             */
+            alertas: number;
+            /** @description Siempre las 5 calificaciones, de 1 a 5 */
+            distribucion: components["schemas"]["Distribucion"][] | null;
+            /**
+             * @description Solo en porEntidad
+             * @enum {string}
+             */
+            entidad?: "ticket" | "orden";
+            /**
+             * Format: int64
+             * @description Encuestas creadas en el período
+             */
+            enviadas: number;
+            /**
+             * Format: int64
+             * @description Sin responder y aún vigentes
+             */
+            pendientes: number;
+            /**
+             * Format: double
+             * @description respondidas / enviadas × 100; null sin base
+             */
+            porcentajeRespondidas: number | null;
+            /**
+             * Format: double
+             * @description Calificación media (1–5); null sin respuestas
+             */
+            promedio: number | null;
+            /** Format: int64 */
+            respondidas: number;
+            /**
+             * Format: int64
+             * @description Sin responder y vencidas
+             */
+            vencidas: number;
         };
         FilaTecnico: {
             /**
@@ -6282,6 +6510,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaEncuesta: {
+            data: components["schemas"]["Encuesta"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaEventoOrden: {
             data: components["schemas"]["EventoOrden"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -6646,7 +6879,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -7137,6 +7370,11 @@ export interface components {
             porCategoria: components["schemas"]["FilaSLA"][] | null;
             porPrioridad: components["schemas"]["FilaSLA"][] | null;
             total: components["schemas"]["FilaSLA"];
+        };
+        ReporteSatisfaccion: {
+            periodo: components["schemas"]["Periodo"];
+            porEntidad: components["schemas"]["FilaSatisfaccion"][] | null;
+            total: components["schemas"]["FilaSatisfaccion"];
         };
         ReporteTecnicos: {
             /** @description Un técnico por fila, más órdenes primero */
@@ -11030,6 +11268,305 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarEncuestas: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Creadas desde este día (YYYY-MM-DD, hora de Guatemala) */
+                desde?: string;
+                /** @description Creadas hasta este día, incluido */
+                hasta?: string;
+                /** @description Una o varias (calificacion=1,2) */
+                calificacion?: number[] | null;
+                entidad?: "ticket" | "orden";
+                estado?: "pendiente" | "respondida" | "vencida" | "anulada";
+                /** @description La del ticket (detalle del ticket) */
+                ticketId?: number;
+                /** @description La de la orden (detalle de la orden) */
+                ordenId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaEncuesta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    consultarEncuestaPublica: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEncuestaPublica"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncuestaPublica"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    responderEncuestaPublica: {
+        parameters: {
+            query?: never;
+            header?: {
+                "User-Agent"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaResponderEncuesta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncuestaPublica"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    compartirEncuesta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceEncuesta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16914,6 +17451,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReporteResolucion"];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reporteSatisfaccion: {
+        parameters: {
+            query: {
+                /**
+                 * @description Primer día (YYYY-MM-DD, hora de Guatemala)
+                 * @example 2026-10-01
+                 */
+                desde: string;
+                /**
+                 * @description Último día, incluido (YYYY-MM-DD, hora de Guatemala). Como mucho 366 días desde desde (422 rango_excedido)
+                 * @example 2026-10-31
+                 */
+                hasta: string;
+                /** @description Zona */
+                zonaId?: number;
+                /** @description Cuadrilla */
+                cuadrillaId?: number;
+                /** @description Usuario: el técnico de la orden o, en los reportes de tickets, el responsable asignado */
+                tecnicoId?: number;
+                /** @description csv: text/csv con encabezados en español (también con Accept: text/csv) */
+                formato?: "json" | "csv";
+                /** @description Categoría del ticket */
+                categoriaId?: number;
+                /** @description Solo las de tickets o las de órdenes */
+                entidad?: "ticket" | "orden";
+            };
+            header?: {
+                Accept?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El reporte (JSON) o su CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteSatisfaccion"];
                     "text/csv": string;
                 };
             };

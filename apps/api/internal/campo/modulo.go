@@ -19,6 +19,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
 // Tablas operativas con empresa_id que se adoptan al pasar de «sin conector» a empresas
@@ -93,6 +94,10 @@ type Inventario interface {
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
+	// Encuestas genera la encuesta de satisfacción al cerrar con éxito una instalación o una
+	// visita, en la transacción del cierre (soporte.Modulo.GenerarEncuestaOrden). nil = no se
+	// generan (OpenAPI, pruebas).
+	Encuestas func(ctx context.Context, t *auditoria.Tx, o soporte.EncuestaDeOrden) error
 	// Adjuntos verifica los adjuntos obligatorios al cerrar (SinAdjuntosObligatorios por
 	// defecto).
 	Adjuntos Adjuntos

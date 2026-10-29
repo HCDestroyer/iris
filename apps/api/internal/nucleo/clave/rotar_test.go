@@ -471,6 +471,9 @@ func TestTodasLasColumnasCifradasSeRotan(t *testing.T) {
 	noCifradas := []string{
 		"nucleo.idempotencia.respuesta", // cuerpo de la respuesta guardada (nunca un secreto: NoRepetible)
 		"nucleo.adjuntos_partes.datos",  // partes de una subida tus
+		// Semilla aleatoria del enlace de la encuesta (no cifrada: el token es HMAC con una clave
+		// derivada de IRIS_CLAVE_CIFRADO; tras rotar sin la anterior, el enlace ya no se muestra).
+		"soporte.encuestas.semilla",
 	}
 	filas, err := pruebas.Pool(t).Query(context.Background(), `
 		SELECT table_schema || '.' || table_name || '.' || column_name FROM information_schema.columns
