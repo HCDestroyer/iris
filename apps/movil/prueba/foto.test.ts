@@ -1,8 +1,16 @@
 import { base64ABytes } from "../src/campo/base64";
-import { BYTES_OBJETIVO, comprimirConTope, datosDeExif, dimensionesObjetivo, type FotoComprimida } from "../src/campo/foto";
+import { BYTES_OBJETIVO, CARPETAS_CACHE_FOTOS, comprimirConTope, datosDeExif, dimensionesObjetivo, sobrantes, vaciarCacheFotos, type FotoComprimida } from "../src/campo/foto";
+import { validarUrlApi } from "../src/entorno-nativo";
 
 jest.mock("expo-image-manipulator", () => ({ manipulateAsync: jest.fn(), SaveFormat: { JPEG: "jpeg" } }));
-jest.mock("expo-file-system", () => ({ File: jest.fn() }));
+const borrados: string[] = [];
+jest.mock("expo-file-system", () => ({
+    File: jest.fn(),
+    Paths: { cache: "cache" },
+    Directory: jest.fn().mockImplementation((_base: string, nombre: string) => ({ exists: true, delete: () => borrados.push(nombre) })),
+}));
+jest.mock("expo-secure-store", () => ({}));
+jest.mock("expo-sqlite/kv-store", () => ({}));
 jest.mock("expo-image-picker", () => ({}));
 
 const foto = (bytes: number): FotoComprimida => ({ bytes: new Uint8Array(bytes), mime: "image/jpeg", ancho: 1, alto: 1 });
@@ -69,5 +77,25 @@ describe("base64ABytes (PNG de la firma)", () => {
         expect(base64ABytes("aGVsbG8=")).toEqual(new Uint8Array([104, 101, 108, 108, 111]));
         expect(base64ABytes("data:image/png;base64,iVBORw0KGgo=")).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
         expect(() => base64ABytes("no*válido")).toThrow();
+    });
+});
+
+describe("temporales de la cámara", () => {
+    it("tras comprimir sobran todas las variantes menos la elegida", () => {
+        expect(sobrantes(["a.jpg", "b.jpg", "c.jpg"], "b.jpg")).toEqual(["a.jpg", "c.jpg"]);
+        expect(sobrantes(["a.jpg"], undefined)).toEqual(["a.jpg"]);
+    });
+    it("al cerrar sesión vacía las cachés de la cámara y del compresor", () => {
+        vaciarCacheFotos();
+        expect(borrados).toEqual([...CARPETAS_CACHE_FOTOS]);
+    });
+});
+
+describe("URL de la API", () => {
+    it("en producción exige HTTPS con un mensaje claro; en desarrollo acepta HTTP", () => {
+        expect(validarUrlApi("https://iris.isp.gt/", false)).toBe("https://iris.isp.gt");
+        expect(() => validarUrlApi("http://iris.isp.gt", false)).toThrow(/https:\/\/ en una compilación de producción/);
+        expect(() => validarUrlApi(undefined, false)).toThrow(/EXPO_PUBLIC_IRIS_API_URL/);
+        expect(validarUrlApi("http://192.168.1.10:8080", true)).toBe("http://192.168.1.10:8080");
     });
 });

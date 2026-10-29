@@ -5,9 +5,21 @@ import type { Entorno } from "./entorno";
 
 const URL_POR_DEFECTO = "http://localhost:8080";
 
+/**
+ * Origen de la API sin `/` final. Fuera de desarrollo exige HTTPS: la cookie de sesión y el CSRF
+ * nunca viajan en claro (falla al iniciar con un mensaje que dice qué configurar).
+ */
+export function validarUrlApi(url: string | undefined, desarrollo: boolean): string {
+    const limpia = (url ?? URL_POR_DEFECTO).trim().replace(/\/+$/, "");
+    if (!desarrollo && !limpia.startsWith("https://")) {
+        throw new Error(`EXPO_PUBLIC_IRIS_API_URL debe empezar con https:// en una compilación de producción (vale «${limpia}»).`);
+    }
+    return limpia;
+}
+
 export function entornoNativo(): Entorno {
     return {
-        baseUrl: (process.env.EXPO_PUBLIC_IRIS_API_URL ?? URL_POR_DEFECTO).replace(/\/+$/, ""),
+        baseUrl: validarUrlApi(process.env.EXPO_PUBLIC_IRIS_API_URL, __DEV__),
         claves: {
             leer: (clave) => Storage.getItemSync(clave),
             escribir: (clave, valor) => Storage.setItemSync(clave, valor),

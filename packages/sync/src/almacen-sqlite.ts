@@ -22,6 +22,9 @@ export interface ConexionSqlite {
     closeAsync(): Promise<void>;
 }
 
+/** Espera ante otra conexión con el archivo bloqueado (`PRAGMA busy_timeout`). */
+export const ESPERA_OCUPADA_MS = 5000;
+
 /** Versión del esquema (`PRAGMA user_version`). Un cambio de forma = otra versión con su migración. */
 export const VERSION_ESQUEMA_SQLITE = 1;
 
@@ -69,7 +72,9 @@ export class AlmacenSqlite implements Almacen, AlmacenPosiciones {
 
     /** Crea las tablas si faltan. Se llama sola antes de la primera operación. */
     preparar(): Promise<void> {
-        this.preparada ??= this.db.execAsync(`PRAGMA journal_mode = WAL;${ESQUEMA}PRAGMA user_version = ${VERSION_ESQUEMA_SQLITE};`);
+        // `busy_timeout`: con la app cerrada la tarea del GPS abre otra conexión al mismo archivo; si
+        // choca con un lote, espera hasta 5 s en vez de fallar con SQLITE_BUSY.
+        this.preparada ??= this.db.execAsync(`PRAGMA busy_timeout = ${ESPERA_OCUPADA_MS};PRAGMA journal_mode = WAL;${ESQUEMA}PRAGMA user_version = ${VERSION_ESQUEMA_SQLITE};`);
         return this.preparada;
     }
 

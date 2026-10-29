@@ -11,12 +11,22 @@
             "bundleIdentifier": "gt.horus.iris.campo",
             "supportsTablet": false,
             "infoPlist": {
-                "UIBackgroundModes": ["location"]
+                "UIBackgroundModes": [
+                    "location"
+                ]
             }
         },
         "android": {
             "package": "gt.horus.iris.campo",
-            "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "CAMERA"]
+            "allowBackup": false,
+            "permissions": [
+                "ACCESS_COARSE_LOCATION",
+                "ACCESS_FINE_LOCATION",
+                "ACCESS_BACKGROUND_LOCATION",
+                "FOREGROUND_SERVICE",
+                "FOREGROUND_SERVICE_LOCATION",
+                "CAMERA"
+            ]
         },
         "plugins": [
             "expo-sqlite",

@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { entorno } from "../src/entorno";
 import { Entrar } from "../src/pantallas/Entrar";
-import { CLAVE_CSRF, leerCsrf, verificarDueno } from "../src/sesion/sesion";
+import { cerrarSesion, CLAVE_CSRF, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, verificarDueno } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 import { ApiFalsa, problema, usuario, yo } from "./api-falsa";
 
@@ -106,5 +106,47 @@ describe("verificarDueno (antes de cada envío del motor)", () => {
         const api = new ApiFalsa().instalar();
         api.sinRed = true;
         await expect(verificarDueno(5, 1)).rejects.toMatchObject({ tipo: "red" });
+    });
+});
+
+describe("cerrar sesión sin señal (cierre pendiente)", () => {
+    it("bloquea la entrada automática y reintenta el DELETE con el CSRF de esa sesión antes de entrar", async () => {
+        const api = new ApiFalsa()
+            .en("POST", "/api/v1/sesion", () => ({ status: 200, cuerpo: sesion("csrf-vieja", false) }))
+            .en("DELETE", "/api/v1/sesion", () => ({ status: 204 }))
+            .instalar();
+        await iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" });
+        api.sinRed = true;
+        await cerrarSesion(5);
+        expect(hayCierrePendiente()).toBe(true);
+        expect(leerCsrf()).toBeNull();
+        expect(await reintentarCierrePendiente()).toBe(false);
+
+        api.sinRed = false;
+        api.peticiones.length = 0;
+        expect(await reintentarCierrePendiente()).toBe(true);
+        expect(api.peticiones[0]).toMatchObject({ metodo: "DELETE", ruta: "/api/v1/sesion" });
+        expect(api.peticiones[0]?.cabeceras.get("X-CSRF-Token")).toBe("csrf-vieja");
+        expect(hayCierrePendiente()).toBe(false);
+    });
+
+    it("con señal cierra en la API y no deja nada pendiente; un 401 cuenta como cerrada", async () => {
+        const api = new ApiFalsa().en("DELETE", "/api/v1/sesion", () => problema(401, "no_autenticado")).instalar();
+        await cerrarSesion(5);
+        expect(api.peticiones).toHaveLength(1);
+        expect(hayCierrePendiente()).toBe(false);
+    });
+
+    it("iniciar sesión cierra antes la sesión pendiente", async () => {
+        const api = new ApiFalsa()
+            .en("POST", "/api/v1/sesion", () => ({ status: 200, cuerpo: sesion("c2", false) }))
+            .en("DELETE", "/api/v1/sesion", () => ({ status: 204 }))
+            .instalar();
+        api.sinRed = true;
+        await cerrarSesion(5);
+        api.sinRed = false;
+        await iniciarSesion({ correo: "ana@isp.gt", contrasena: "x" });
+        expect(api.peticiones.map((p) => p.metodo)).toEqual(["DELETE", "DELETE", "POST"]);
+        expect(hayCierrePendiente()).toBe(false);
     });
 });

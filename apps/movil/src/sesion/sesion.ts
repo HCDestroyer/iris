@@ -30,6 +30,10 @@ export const HORAS_SIN_SENAL = Number.isFinite(horas) && horas >= 0 ? horas : 12
 
 export const CLAVE_SESION = "iris-campo-sesion";
 export const CLAVE_CSRF = "iris-campo-csrf";
+/** Se cerró sesión sin poder avisar a la API: bloquea la entrada automática hasta lograr el DELETE. */
+export const CLAVE_CIERRE_PENDIENTE = "iris-campo-cierre-pendiente";
+/** CSRF de la sesión que falta cerrar (el DELETE lo necesita). */
+const CLAVE_CSRF_CIERRE = "iris-campo-csrf-cierre";
 export const CODIGO_CAMBIO_CONTRASENA = "cambio_contrasena_requerido";
 const claveEmpresa = (usuarioId: number) => `iris-campo-empresa-${usuarioId}`;
 
@@ -121,8 +125,11 @@ export function empresaDeTrabajo(s: SesionCampo, elegida: number | null): number
 
 /** `POST /sesion`: guarda el CSRF; con MFA activo la sesión queda pendiente del código. */
 export async function iniciarSesion(datos: Schema<"EntradaIniciarSesion">): Promise<SesionIniciada> {
+    // Si quedó una sesión por cerrar en la API, se intenta antes (la nueva la reemplaza en el teléfono).
+    await reintentarCierrePendiente();
     const r = await resolver(cliente().POST("/api/v1/sesion", { body: datos }));
     await guardarCsrf(r.csrfToken);
+    await olvidarCierrePendiente();
     return r;
 }
 
@@ -191,17 +198,62 @@ export async function verificarDueno(usuarioId: number, empresaId: number | null
     }
 }
 
-/** DELETE /sesion (sin señal lanza) y olvida el CSRF, la sesión guardada y la empresa elegida. */
-export async function cerrarSesion(usuarioId: number): Promise<void> {
+/** `DELETE /sesion` con el CSRF de esa sesión. Un 401 (ya no existía) cuenta como cerrada. */
+async function borrarSesionApi(csrfSesion: string | null): Promise<void> {
+    const e = entorno();
+    const c = crearClienteMovil({ baseUrl: e.baseUrl, fetch: e.fetch, leerCsrf: () => csrfSesion });
     try {
-        await resolver(cliente().DELETE("/api/v1/sesion"));
-    } catch (e) {
-        // 401: la sesión ya no existía en la API; da igual. Sin señal: se cierra igual en el teléfono.
-        if (!(e instanceof ErrorApi) || (e.estado !== 401 && e.estado !== 0)) {
-            throw e;
+        await resolver(c.DELETE("/api/v1/sesion"));
+    } catch (error) {
+        if (!(error instanceof ErrorApi && error.estado === 401)) {
+            throw error;
         }
     }
+}
+
+async function olvidarCierrePendiente(): Promise<void> {
+    entorno().claves.borrar(CLAVE_CIERRE_PENDIENTE);
+    await entorno().secreto.borrar(CLAVE_CSRF_CIERRE);
+}
+
+/** ¿Quedó un cierre de sesión sin llegar a la API? */
+export function hayCierrePendiente(): boolean {
+    return entorno().claves.leer(CLAVE_CIERRE_PENDIENTE) === "1";
+}
+
+/**
+ * Reintenta el `DELETE /sesion` de un cierre hecho sin señal. Devuelve `true` si no queda nada por
+ * cerrar. Mientras devuelva `false`, la app no entra sola con la cookie vieja (pide la contraseña).
+ */
+export async function reintentarCierrePendiente(): Promise<boolean> {
+    if (!hayCierrePendiente()) {
+        return true;
+    }
+    try {
+        await borrarSesionApi(await entorno().secreto.leer(CLAVE_CSRF_CIERRE));
+    } catch {
+        return false;
+    }
+    await olvidarCierrePendiente();
+    return true;
+}
+
+/**
+ * Cierra la sesión: olvida en el teléfono el CSRF, la sesión guardada y la empresa elegida, y hace
+ * `DELETE /sesion`. Si no llega a la API (sin señal o error), queda un «cierre pendiente» que bloquea
+ * la entrada automática y se reintenta antes de cualquier `GET /yo` o inicio de sesión.
+ */
+export async function cerrarSesion(usuarioId: number): Promise<void> {
+    const csrfSesion = csrf;
     await guardarCsrf(null);
     entorno().claves.borrar(CLAVE_SESION);
     elegirEmpresa(usuarioId, null);
+    try {
+        await borrarSesionApi(csrfSesion);
+    } catch {
+        entorno().claves.escribir(CLAVE_CIERRE_PENDIENTE, "1");
+        if (csrfSesion) {
+            await entorno().secreto.escribir(CLAVE_CSRF_CIERRE, csrfSesion);
+        }
+    }
 }

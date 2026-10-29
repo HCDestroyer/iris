@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vitest";
-import { AlmacenSqlite, type ConexionSqlite, type ValorSqlite } from "./almacen-sqlite";
+import { AlmacenSqlite, ESPERA_OCUPADA_MS, type ConexionSqlite, type ValorSqlite } from "./almacen-sqlite";
 import type { OperacionLocal } from "./modelo";
 import { MotorSync } from "./motor";
 import { ColaPosiciones } from "./posiciones";
@@ -58,9 +58,11 @@ const op: OperacionLocal = {
 };
 
 describe("AlmacenSqlite", () => {
-    it("empieza vacío con la meta inicial", async () => {
-        const almacen = new AlmacenSqlite(conexionNode(ruta()));
+    it("empieza vacío con la meta inicial y espera ante otra conexión (busy_timeout)", async () => {
+        const conexion = conexionNode(ruta());
+        const almacen = new AlmacenSqlite(conexion);
         expect(await almacen.cargar()).toMatchObject({ operaciones: [], ordenes: [], adjuntos: [], meta: { secuencia: 0, cursor: null, avisos: [] } });
+        expect(await conexion.getAllAsync("PRAGMA busy_timeout", [])).toEqual([{ timeout: ESPERA_OCUPADA_MS }]);
         await almacen.cerrar();
     });
 

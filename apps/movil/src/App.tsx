@@ -2,26 +2,25 @@
 // usuario y la empresa → pantallas. El motor vive mientras la sesión esté abierta: bucle de envío,
 // red (expo-network), volver a la app (AppState) y GPS en segundo plano según las órdenes en curso.
 import type { Schema } from "@iris/contratos";
-import { ErrorTransporte } from "@iris/sync";
 import * as Network from "expo-network";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, AppState, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ErrorApi } from "./api/errores";
 import { Aviso, Boton, Pila } from "./componentes";
-import { ProveedorCampo, useEstadoMotor, type CerrarSesion, type ServiciosNativos } from "./campo/contexto";
-import { tomarFoto } from "./campo/foto";
+import type { ServiciosNativos } from "./campo/contexto";
+import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida } from "./campo/gps-nativo";
-import { abrirMotor, borrarBase, type MotorAbierto } from "./campo/motor";
-import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo } from "./campo/ubicacion";
+import { abrirMotor, borrarBase } from "./campo/motor";
 import { entorno } from "./entorno";
+import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
 import { Entrar } from "./pantallas/Entrar";
-import { Marco } from "./pantallas/Marco";
 import {
     cargarCsrf,
     cerrarSesion as cerrarSesionApi,
+    reintentarCierrePendiente,
     elegirEmpresa,
     empresaDeTrabajo,
     empresaElegida,
@@ -45,6 +44,42 @@ let enLinea = true;
 
 const servicios: ServiciosNativos = { tomarFoto, posicion: posicionSiPermitida, enLinea: () => enLinea };
 
+const conInternet = (s: Network.NetworkState) => s.isConnected === true && s.isInternetReachable !== false;
+
+/** Lo nativo de la sesión de campo (en pruebas se reemplaza). Se crea una vez: el motor depende de esto. */
+let depsNativas: DependenciasCampo | null = null;
+function dependenciasNativas(): DependenciasCampo {
+    depsNativas ??= {
+        async abrirMotor(clave, alSesionAjena) {
+            const m = await abrirMotor(clave, alSesionAjena);
+            return { motor: m.motor, posiciones: m.posiciones, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
+        },
+        gps: gpsNativo,
+        claves: entorno().claves,
+        servicios,
+        red: {
+            leer: async () => {
+                enLinea = conInternet(await Network.getNetworkStateAsync());
+                return enLinea;
+            },
+            escuchar: (fn) => {
+                const s = Network.addNetworkStateListener((e) => {
+                    enLinea = conInternet(e);
+                    fn(enLinea);
+                });
+                return () => s.remove();
+            },
+        },
+        alVolverAlFrente: (fn) => {
+            const s = AppState.addEventListener("change", (e) => e === "active" && fn());
+            return () => s.remove();
+        },
+        cerrarSesionApi,
+        vaciarCacheFotos,
+    };
+    return depsNativas;
+}
+
 export default function App() {
     return (
         <SafeAreaProvider>
@@ -67,6 +102,12 @@ function Raiz() {
     /** GET /yo con la sesión del teléfono; sin señal abre con la guardada si es reciente. */
     const verificar = useCallback(async () => {
         await cargarCsrf();
+        // Se cerró sesión sin señal: antes de cualquier GET /yo se cierra en la API; mientras no se
+        // pueda, nada entra solo (la cookie vieja no abre la app).
+        if (!(await reintentarCierrePendiente())) {
+            setPaso({ tipo: "entrar", motivo: "salida" });
+            return;
+        }
         const guardada = sesionGuardada();
         try {
             const yo = await leerYo(guardada ? empresaElegida(guardada.usuarioId) : null);
@@ -148,6 +189,7 @@ function Raiz() {
                     sesion={paso.sesion}
                     empresa={paso.empresa}
                     alSalir={salir}
+                    deps={dependenciasNativas()}
                     cambiarEmpresa={
                         paso.sesion.empresas.length > 1
                             ? () => {
@@ -180,159 +222,6 @@ function Formulario({ children }: { children: React.ReactNode }) {
         <ScrollView style={{ backgroundColor: colores.fondo }} contentContainerStyle={[estilos.formulario, { paddingTop: margen.top + 32 }]} keyboardShouldPersistTaps="handled">
             <Pila espacio={16}>{children}</Pila>
         </ScrollView>
-    );
-}
-
-/** Abre el motor del usuario y la empresa, y lo cierra al salir. */
-function AppCampo({
-    sesion,
-    empresa,
-    alSalir,
-    cambiarEmpresa,
-}: {
-    sesion: SesionCampo;
-    empresa: number | null;
-    alSalir: (motivo: "expirada" | "salida") => void;
-    cambiarEmpresa: (() => void) | undefined;
-}) {
-    const [abierto, setAbierto] = useState<MotorAbierto | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const actual = useRef<MotorAbierto | null>(null);
-
-    useEffect(() => {
-        let vivo = true;
-        abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, () => alSalir("expirada"))
-            .then((m) => {
-                if (!vivo) {
-                    m.motor.detener();
-                    m.posiciones.detener();
-                    void m.almacen.cerrar();
-                    return;
-                }
-                actual.current = m;
-                setAbierto(m);
-            })
-            .catch((e: unknown) => setError(e instanceof Error ? e.message : "No se pudo abrir la base del teléfono"));
-        return () => {
-            vivo = false;
-            const m = actual.current;
-            actual.current = null;
-            if (m) {
-                registrarReceptor(null);
-                m.motor.detener();
-                m.posiciones.detener();
-                void m.almacen.cerrar();
-            }
-        };
-    }, [sesion.usuarioId, empresa, alSalir]);
-
-    if (error) {
-        return (
-            <Formulario>
-                <Aviso tono="error" titulo="No se pudo abrir la base del teléfono">
-                    {error}
-                </Aviso>
-            </Formulario>
-        );
-    }
-    if (!abierto) {
-        return (
-            <Centro>
-                <ActivityIndicator accessibilityLabel="Abriendo tus órdenes" />
-            </Centro>
-        );
-    }
-    return <CampoAbierto abierto={abierto} sesion={sesion} empresa={empresa} alSalir={alSalir} cambiarEmpresa={cambiarEmpresa} />;
-}
-
-function CampoAbierto({
-    abierto,
-    sesion,
-    empresa,
-    alSalir,
-    cambiarEmpresa,
-}: {
-    abierto: MotorAbierto;
-    sesion: SesionCampo;
-    empresa: number | null;
-    alSalir: (motivo: "expirada" | "salida") => void;
-    cambiarEmpresa: (() => void) | undefined;
-}) {
-    const { motor, posiciones } = abierto;
-    const estado = useEstadoMotor(motor);
-    const [estadoRastreo, setEstadoRastreo] = useState<EstadoRastreo>({ tipo: "fuera_de_curso" });
-    const rastreo = useMemo(
-        () => new RastreoUbicacion({ gps: gpsNativo, claves: entorno().claves, usuarioId: sesion.usuarioId, base: abierto.nombre, alCambiar: setEstadoRastreo }),
-        [abierto.nombre, sesion.usuarioId],
-    );
-
-    // Bucle de envío, red y volver a la app.
-    useEffect(() => {
-        motor.iniciar();
-        posiciones.iniciar();
-        registrarReceptor((p) => posiciones.agregar(p));
-        const aplicarRed = (s: Network.NetworkState) => {
-            enLinea = s.isConnected === true && s.isInternetReachable !== false;
-            motor.establecerConexion(enLinea);
-            if (enLinea) {
-                posiciones.reintentarAhora();
-            }
-        };
-        void Network.getNetworkStateAsync().then(aplicarRed).catch(() => undefined);
-        const red = Network.addNetworkStateListener(aplicarRed);
-        const app = AppState.addEventListener("change", (s) => {
-            if (s === "active") {
-                motor.reintentarAhora();
-                posiciones.reintentarAhora();
-            }
-        });
-        return () => {
-            red.remove();
-            app.remove();
-        };
-    }, [motor, posiciones]);
-
-    // GPS en segundo plano: solo con órdenes en curso (pausada no cuenta).
-    const enCurso = ordenesEnCurso(estado.ordenes);
-    useEffect(() => {
-        void rastreo.actualizar(enCurso);
-    }, [rastreo, enCurso]);
-
-    const cerrarSesion = useCallback<CerrarSesion>(
-        async ({ conservarPendientes }) => {
-            await rastreo.detener();
-            registrarReceptor(null);
-            if (conservarPendientes) {
-                await motor.olvidarDatosDelServidor();
-            } else {
-                await borrarBase(abierto);
-            }
-            try {
-                await cerrarSesionApi(sesion.usuarioId);
-            } catch (e) {
-                // La API respondió con otro error: la sesión del teléfono se cierra igual.
-                if (!(e instanceof ErrorApi || e instanceof ErrorTransporte)) {
-                    throw e;
-                }
-            }
-            alSalir("salida");
-        },
-        [rastreo, motor, abierto, sesion.usuarioId, alSalir],
-    );
-
-    const nombreEmpresa = empresa === null ? null : (sesion.empresas.find((e) => e.id === empresa)?.nombre ?? null);
-    return (
-        <ProveedorCampo
-            motor={motor}
-            posiciones={posiciones}
-            rastreo={rastreo}
-            estadoRastreo={estadoRastreo}
-            sesion={sesion}
-            servicios={servicios}
-            cerrarSesion={cerrarSesion}
-        >
-            <Marco empresa={nombreEmpresa} alSesionVencida={() => alSalir("expirada")} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
-        </ProveedorCampo>
     );
 }
 

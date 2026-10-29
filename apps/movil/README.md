@@ -12,6 +12,10 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   vive en el llavero (`expo-secure-store`). Sin señal abre solo con una verificación de < 12 h
   (`EXPO_PUBLIC_IRIS_CAMPO_HORAS_SIN_SENAL`) y a los 7 días olvida la sesión guardada, como la PWA.
   Antes de cada envío el motor comprueba con `GET /yo` que la sesión sigue siendo del dueño de la cola.
+  Cerrar sesión sin señal deja un «cierre pendiente» (con el CSRF de esa sesión en el llavero): la app
+  no entra sola y reintenta `DELETE /sesion` antes de cualquier `GET /yo` o inicio de sesión. En
+  producción la URL de la API tiene que ser HTTPS (falla al iniciar si no). `allowBackup` apagado en
+  Android.
 - **Empresa:** con varias, se elige; la cola de cada usuario y empresa va en su propio archivo SQLite
   (`iris-campo-<usuario>-<empresa>.db`, `AlmacenSqlite` de `@iris/sync/sqlite`).
 - **Mis órdenes:** orden de ruta publicada o por hora de cita, llegada estimada, ventana acordada,
@@ -31,7 +35,12 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   orden en curso (`en_camino` o `en_sitio`; una pausada no cuenta) y con explicación antes de que el
   sistema pida el permiso. Un punto por minuto a la `ColaPosiciones` de `@iris/sync` (misma base) y de
   ahí a `POST /campo/posiciones`. Con la app cerrada, la tarea guarda los puntos en la base del usuario
-  y salen al abrir. Sin orden en curso la tarea descarta lo que llegue y apaga el GPS.
+  y salen al abrir. Topes: la marca de rastreo lleva `{ usuarioId, empresaId, base, hasta }` con
+  `hasta` = medianoche de Guatemala o +12 h (lo primero), que solo se renueva cuando la app confirma
+  con el servidor; la tarea descarta y apaga si pasó `hasta`, si la sesión guardada ya no vale sin
+  señal o es de otro usuario. Toda salida (cerrar sesión, sesión vencida o ajena, cambiar de empresa)
+  apaga el GPS y borra la marca. «Dejar de compartir ubicación» lo apaga hasta que cambie de estado
+  alguna orden.
 - **Identidad Horus:** tokens de `docs/marca/horus-tokens.css` traducidos a `src/tema/tokens.ts`
   (claro y oscuro según el teléfono), íconos de `lucide-react-native`, estados con icono + texto +
   color. Las pantallas usan `src/componentes` (no `Pressable`/`TextInput` crudos; ESLint lo exige).
@@ -55,7 +64,10 @@ pnpm --filter @iris/movil exportar   # bundle de Android en dist/ (comprobación
 dispositivo: inicio de sesión con MFA y CSRF, 429, sin señal; `verificarDueno`; cerrar una orden
 sin señal y enviarla al volver (motor real sobre memoria, API simulada); cola con rechazo
 (Rehacer, Descartar todo de la orden); pausa con motivo y reanudación; regla del GPS (en curso,
-pausada, explicación, permisos, tarea en segundo plano); EXIF de Android e iOS; compresión; base64.
+pausada, explicación, permisos, topes, «Dejar de compartir», tarea en segundo plano con marca
+vencida, sesión no vigente o de otro usuario); salidas de la sesión (vencida, ajena, cambiar de
+empresa, orden cancelada al sincronizar) apagan el GPS; cierre de sesión pendiente; EXIF de Android e
+iOS; compresión y temporales de la cámara; HTTPS obligatorio; base64.
 El adaptador SQLite se prueba en `packages/sync` con `node:sqlite`.
 
 ## Lo que necesita un dispositivo

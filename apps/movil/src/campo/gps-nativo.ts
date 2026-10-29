@@ -34,12 +34,16 @@ export const gpsNativo: GpsFondo = {
             foregroundService: {
                 notificationTitle: "Iris: orden en curso",
                 notificationBody: "Se comparte tu ubicación con despacho hasta que pauses o cierres la orden.",
+                // Sigue con la app cerrada (es el objetivo), pero la tarea se corta sola con los topes de
+                // la marca: medianoche de Guatemala, 12 h sin confirmar y sesión vigente.
                 killServiceOnDestroy: false,
             },
         });
     },
     async detener() {
-        await Location.stopLocationUpdatesAsync(TAREA_UBICACION);
+        if (await Location.hasStartedLocationUpdatesAsync(TAREA_UBICACION).catch(() => false)) {
+            await Location.stopLocationUpdatesAsync(TAREA_UBICACION);
+        }
     },
     activo: () => Location.hasStartedLocationUpdatesAsync(TAREA_UBICACION).catch(() => false),
 };

@@ -1,7 +1,7 @@
 // Fotos de la app nativa: cámara del sistema (expo-image-picker, con EXIF), compresión a lado
 // mayor ≤ 1600 px y ~300 KB en JPEG (expo-image-manipulator), como la PWA. La hora y el GPS del
 // EXIF viajan en el alta del adjunto (`tomadoEn`, `lat`, `lon`). Lo puro se prueba con Jest.
-import { File } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 
@@ -124,6 +124,41 @@ export function datosDeExif(exif: Diccionario | null | undefined): DatosExif {
     return { ...(tomadoEn ? { tomadoEn } : {}), ...(valido ? { lat, lon } : {}) };
 }
 
+/** Archivos temporales que sobran tras comprimir: todas las variantes menos la elegida. */
+export function sobrantes(variantes: readonly string[], elegida: string | undefined): string[] {
+    return variantes.filter((uri) => uri !== elegida);
+}
+
+function borrarArchivos(uris: readonly string[]): void {
+    for (const uri of uris) {
+        try {
+            const f = new File(uri);
+            if (f.exists) {
+                f.delete();
+            }
+        } catch {
+            // Un temporal que no se pudo borrar lo limpia el sistema o el cierre de sesión.
+        }
+    }
+}
+
+/** Carpetas de caché donde la cámara y el compresor dejan las fotos (se vacían al cerrar sesión). */
+export const CARPETAS_CACHE_FOTOS = ["ImagePicker", "ImageManipulator"] as const;
+
+/** Al cerrar sesión: borra las fotos temporales de la cámara y del compresor. */
+export function vaciarCacheFotos(): void {
+    for (const nombre of CARPETAS_CACHE_FOTOS) {
+        try {
+            const d = new Directory(Paths.cache, nombre);
+            if (d.exists) {
+                d.delete();
+            }
+        } catch {
+            // Sin esa carpeta o sin permiso: nada que borrar.
+        }
+    }
+}
+
 export interface FotoTomada {
     foto: FotoComprimida;
     exif: DatosExif;
@@ -141,11 +176,22 @@ export async function tomarFoto(): Promise<FotoTomada | null> {
         return null;
     }
     const lado = Math.min(LADO_MAXIMO, Math.max(original.width, original.height));
-    const foto = await comprimirConTope(async (l, calidad) => {
-        const medidas = dimensionesObjetivo(original.width, original.height, l);
-        const r2 = await manipulateAsync(original.uri, [{ resize: { width: medidas.ancho, height: medidas.alto } }], { compress: calidad, format: SaveFormat.JPEG });
-        const bytes = new Uint8Array(await new File(r2.uri).arrayBuffer());
-        return { bytes, mime: "image/jpeg", ancho: r2.width, alto: r2.height, uri: r2.uri };
-    }, lado);
-    return { foto, exif: datosDeExif(original.exif) };
+    const variantes: string[] = [];
+    try {
+        const foto = await comprimirConTope(async (l, calidad) => {
+            const medidas = dimensionesObjetivo(original.width, original.height, l);
+            const r2 = await manipulateAsync(original.uri, [{ resize: { width: medidas.ancho, height: medidas.alto } }], { compress: calidad, format: SaveFormat.JPEG });
+            variantes.push(r2.uri);
+            const bytes = new Uint8Array(await new File(r2.uri).arrayBuffer());
+            return { bytes, mime: "image/jpeg", ancho: r2.width, alto: r2.height, uri: r2.uri };
+        }, lado);
+        // Solo queda la elegida (miniatura de esta visita; los bytes ya están en la base del motor).
+        borrarArchivos(sobrantes(variantes, foto.uri));
+        return { foto, exif: datosDeExif(original.exif) };
+    } catch (e) {
+        borrarArchivos(variantes);
+        throw e;
+    } finally {
+        borrarArchivos([original.uri]);
+    }
 }
