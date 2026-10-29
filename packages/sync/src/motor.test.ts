@@ -475,6 +475,26 @@ describe("reloj", () => {
         motor.detener();
     });
 
+    it("lo pedido con el bucle detenido no suma pasadas al iniciar", async () => {
+        const { motor, transporte, reloj } = await montar({ intervaloMs: 60_000 });
+        // Antes de arrancar (al abrir la app): volver la señal y registrar algo.
+        motor.establecerConexion(true);
+        motor.reintentarAhora();
+        await motor.registrar("nota.agregar", 1, { texto: "x" });
+        motor.iniciar();
+        await vaciarPromesas();
+        const pasadas = () => transporte.llamadas.filter((l) => l.tipo === "cambios").length;
+        expect(pasadas()).toBe(1);
+        expect(transporte.lotes).toHaveLength(1);
+        // Sin otra pasada hasta el intervalo.
+        await vaciarPromesas();
+        expect(pasadas()).toBe(1);
+        await reloj.avanzar(60_000);
+        await vaciarPromesas();
+        expect(pasadas()).toBe(2);
+        motor.detener();
+    });
+
     it("al volver la señal reintenta enseguida", async () => {
         const { motor, transporte, reloj } = await montar({ espera: { baseMs: 10_000, maximoMs: 60_000, azar: () => 0 } });
         transporte.fallar(1);

@@ -99,6 +99,12 @@ describe("cierre con varios formularios", () => {
         expect(faltantesCierre(orden)).toEqual(["Falta «Router» (Inventario).", "Falta «Suelto» del checklist."]);
     });
 
+    it("formulario duplicado: solo con la misma versión pasan las respuestas; si no, revisar «Por enviar»", () => {
+        const texto = textoProblema({ type: "urn:iris:problema:formulario_duplicado", title: "x", status: 409 });
+        expect(texto).toContain("Si es la misma versión");
+        expect(texto).toContain("revisa «Por enviar» antes de descartar");
+    });
+
     it("textos de los rechazos nuevos", () => {
         for (const codigo of ["plantilla_inactiva", "formulario_duplicado", "formulario_del_tipo", "formulario_quitado", "orden_pausada", "orden_ya_pausada", "orden_no_pausada", "version_anterior", "pausa_ajustada"]) {
             expect(textoProblema({ type: `urn:iris:problema:${codigo}`, title: "x", status: 422 })).not.toBe("x");

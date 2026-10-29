@@ -658,6 +658,9 @@ export class MotorSync {
         }
         const control = new AbortController();
         this.bucle = control;
+        // La primera pasada corre ya: lo pedido antes de arrancar no suma otra.
+        this.reintentoPedido = false;
+        this.despertarPedido = false;
         void this.correrBucle(control.signal);
     }
 
@@ -684,9 +687,9 @@ export class MotorSync {
         this.enEspera = false;
         if (this.sueno) {
             this.sueno.abort();
-        } else {
+        } else if (this.bucle) {
             // Llegó mientras corría una pasada (p. ej. vuelve la señal con un envío fallando):
-            // al terminarla no se espera.
+            // al terminarla no se espera. Sin bucle no hay nada que pedir (`iniciar` ya sincroniza).
             this.reintentoPedido = true;
         }
     }
@@ -698,7 +701,7 @@ export class MotorSync {
         if (!this.enEspera) {
             if (this.sueno) {
                 this.sueno.abort();
-            } else {
+            } else if (this.bucle) {
                 this.despertarPedido = true;
             }
         }

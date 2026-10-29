@@ -104,7 +104,8 @@ const PROBLEMAS: Record<string, string> = {
     version_anterior: "El formulario tiene una versión más nueva; se usó la que viste.",
     pausa_ajustada: "El servidor ajustó la hora de inicio de la pausa.",
     plantilla_inactiva: "Ese formulario se desactivó mientras no tenías señal. Quítalo del teléfono o pide a despacho que lo active.",
-    formulario_duplicado: "Despacho ya agregó ese formulario a la orden: tus respuestas van al que ya tiene.",
+    formulario_duplicado:
+        "Despacho ya agregó ese formulario a la orden. Si es la misma versión, tus respuestas pasan al que ya tiene; si la versión es distinta, revisa «Por enviar» antes de descartar: puede haber respuestas que no se guardaron.",
     formulario_ajeno: "Ese formulario lo agregó despacho u otro técnico: no lo puedes quitar.",
     formulario_ya_quitado: "Ese formulario ya se había quitado.",
     formulario_con_respuestas: "El formulario ya tiene respuestas: no se puede quitar.",

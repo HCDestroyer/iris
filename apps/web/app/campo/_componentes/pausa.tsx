@@ -10,7 +10,7 @@ import { esquemaPausar, type DatosPausar } from "@/lib/campo/esquemas";
 import { duracionCorta, horaCorta } from "@/lib/campo/fechas";
 import { MOTIVOS_PAUSA } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
-import { useUbicacion } from "./ubicacion";
+import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
 
 /** Hora actual que se renueva cada 30 s (para el tiempo pausado). */
 function useAhora(cadaMs = 30_000): number {
@@ -50,9 +50,14 @@ function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number
     const pausa = (orden.pausas ?? []).find((p) => p.fin === null);
     const motivo = pausa ? MOTIVOS_PAUSA[pausa.motivo] : undefined;
     const reanudar = async () => {
-        const ok = await ejecutar(() => motor.registrar("orden.reanudar", orden.id, {}), "Orden reanudada");
+        // Vuelve a estar en curso: hay trabajo real (como «En camino» / «Llegué»). Si eso enciende
+        // la ubicación, se avisa en el mismo mensaje.
+        const empiezaTurno = ubicacion.turnoEmpezariaSolo();
+        const ok = await ejecutar(
+            () => motor.registrar("orden.reanudar", orden.id, {}),
+            empiezaTurno ? `Orden reanudada. ${AVISO_TURNO_INICIADO}` : "Orden reanudada",
+        );
         if (ok) {
-            // Vuelve a estar en curso: hay trabajo real (como «En camino» / «Llegué»).
             ubicacion.iniciarTurnoSolo();
         }
     };

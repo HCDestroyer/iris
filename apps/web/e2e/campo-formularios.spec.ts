@@ -218,6 +218,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador).toHaveText("Fuera de turno");
 
         await page.getByTestId("orden-pausada").getByRole("button", { name: "Reanudar" }).click();
+        await expect(notificacion(page)).toContainText("Orden reanudada. Turno iniciado: se envía tu ubicación cada minuto");
         await expect(indicador).toHaveText("Ubicación activa");
         await expect
             .poll(() => operaciones(api).map((o) => o.tipo), { timeout: 15_000 })
