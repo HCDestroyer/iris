@@ -8,6 +8,7 @@ package soporte
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,7 @@ func init() {
 	nucleo.RegistrarTablaConEmpresa("soporte.buzones")
 	nucleo.RegistrarTablaConEmpresa("soporte.correos_entrantes")
 	nucleo.RegistrarTablaConEmpresa("soporte.correos_salientes")
+	nucleo.RegistrarTablaConEmpresa("soporte.encuestas")
 }
 
 // Config del módulo.
@@ -46,6 +48,8 @@ type Config struct {
 	// Encolar inserta un job de River en la transacción del caso de uso (en cmd/worker,
 	// river.Client.InsertTx). nil = no se encola (API sin worker, OpenAPI, pruebas).
 	Encolar func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error
+	// Encuestas de satisfacción: claves del enlace, URL pública, vigencia y tope de abuso.
+	Encuestas ConfigEncuestas
 }
 
 // ConfigCorreo de la entrada y salida por correo.
@@ -128,6 +132,14 @@ type Modulo struct {
 	ResponderTicketPortal   *auditoria.Caso[EntradaResponderTicketPortal, TicketPortalConMensaje]
 	ConfirmarSolucionPortal *auditoria.Caso[EntradaConfirmarSolucion, TicketPortal]
 	ListarCategoriasPortal  *auditoria.Caso[struct{}, nucleo.Pagina[CategoriaPortal]]
+
+	// Encuestas de satisfacción: encuestas.go.
+	VerEncuestaPublica *auditoria.Caso[EntradaEncuestaPublica, EncuestaPublica]
+	ResponderEncuesta  *auditoria.Caso[EntradaResponderEncuesta, EncuestaPublica]
+	ListarEncuestas    *auditoria.Caso[EntradaListarEncuestas, nucleo.Pagina[Encuesta]]
+	CompartirEncuesta  *auditoria.Caso[EntradaCompartirEncuesta, EnlaceEncuesta]
+	topeEncuestas      topeFallidos
+	rechazosEncuesta   atomic.Int64
 }
 
 // Nuevo arma el módulo.
@@ -179,6 +191,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.ResponderTicketPortal = m.nuevoResponderTicketPortal()
 	m.ConfirmarSolucionPortal = m.nuevoConfirmarSolucionPortal()
 	m.ListarCategoriasPortal = nuevoListarCategoriasPortal()
+	m.VerEncuestaPublica = m.nuevoVerEncuestaPublica()
+	m.ResponderEncuesta = m.nuevoResponderEncuesta()
+	m.ListarEncuestas = m.nuevoListarEncuestas()
+	m.CompartirEncuesta = m.nuevoCompartirEncuesta()
 	return m
 }
 
