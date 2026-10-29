@@ -32,7 +32,7 @@ type FiltrosPeriodo struct {
 type FiltrosTickets struct {
 	FiltrosPeriodo
 	CategoriaID int64    `query:"categoriaId" minimum:"0" doc:"Categoría del ticket"`
-	Prioridad   []string `query:"prioridad" enum:"baja,media,alta,critica" doc:"Una o varias prioridades (prioridad=alta,critica)"`
+	Prioridad   []string `query:"prioridad" maxItems:"4" enum:"baja,media,alta,critica" doc:"Una o varias prioridades (prioridad=alta,critica)"`
 }
 
 // FiltrosOrdenes: los de los reportes de órdenes.

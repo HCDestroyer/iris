@@ -30,20 +30,20 @@ type EntradaReincidencias struct {
 
 // Reincidencia: un ticket resuelto que volvió.
 type Reincidencia struct {
-	TicketID          int64     `json:"ticketId"`
-	Numero            string    `json:"numero"`
-	Asunto            string    `json:"asunto"`
-	Prioridad         string    `json:"prioridad" enum:"baja,media,alta,critica"`
-	CategoriaID       *int64    `json:"categoriaId" nullable:"true"`
-	Categoria         *string   `json:"categoria" nullable:"true"`
-	ClienteID         *int64    `json:"clienteId" nullable:"true" doc:"Cliente de Argos"`
-	ServicioID        *int64    `json:"servicioId" nullable:"true" doc:"Servicio de Argos (null: se comparó por cliente)"`
-	ResueltoEn        time.Time `json:"resueltoEn"`
-	SiguienteID       int64     `json:"siguienteId" doc:"Primer ticket que se abrió después"`
-	SiguienteNumero   string    `json:"siguienteNumero"`
-	SiguienteCreadoEn time.Time `json:"siguienteCreadoEn"`
-	HorasHastaVolver  float64   `json:"horasHastaVolver" doc:"Horas de reloj entre la resolución y el siguiente ticket"`
-	NuevosEnVentana   int64     `json:"nuevosEnVentana" doc:"Tickets abiertos en la ventana por el mismo servicio o cliente"`
+	TicketID          int64      `json:"ticketId"`
+	Numero            string     `json:"numero"`
+	Asunto            string     `json:"asunto"`
+	Prioridad         string     `json:"prioridad" enum:"baja,media,alta,critica"`
+	CategoriaID       *int64     `json:"categoriaId" nullable:"true"`
+	Categoria         *string    `json:"categoria" nullable:"true"`
+	ClienteID         *int64     `json:"clienteId" nullable:"true" doc:"Cliente de Argos"`
+	ServicioID        *int64     `json:"servicioId" nullable:"true" doc:"Servicio de Argos (null: se comparó por cliente)"`
+	ResueltoEn        time.Time  `json:"resueltoEn"`
+	SiguienteID       *int64     `json:"siguienteId" nullable:"true" doc:"Primer ticket que se abrió después; null si está fuera de tu alcance (la reincidencia cuenta igual)"`
+	SiguienteNumero   *string    `json:"siguienteNumero" nullable:"true" doc:"null si el siguiente está fuera de tu alcance"`
+	SiguienteCreadoEn *time.Time `json:"siguienteCreadoEn" nullable:"true" doc:"null si el siguiente está fuera de tu alcance"`
+	HorasHastaVolver  *float64   `json:"horasHastaVolver" nullable:"true" doc:"Horas de reloj entre la resolución y el siguiente ticket; null si está fuera de tu alcance"`
+	NuevosEnVentana   int64      `json:"nuevosEnVentana" doc:"Tickets abiertos en la ventana por el mismo servicio o cliente (todos, también fuera de tu alcance)"`
 }
 
 // ReporteReincidencias: totales y una página de reincidentes.
@@ -68,7 +68,7 @@ func exportacionExcedida() *nucleo.Problema {
 }
 
 func (m *Modulo) nuevoReincidencias() *auditoria.Caso[EntradaReincidencias, ReporteReincidencias] {
-	return caso("reportes.reincidencias", func(ctx context.Context, t *auditoria.Tx, in EntradaReincidencias) (ReporteReincidencias, error) {
+	return caso(m, "reportes.reincidencias", func(ctx context.Context, t *auditoria.Tx, in EntradaReincidencias) (ReporteReincidencias, error) {
 		dias, err := diasEntre("dias", in.Dias, 30, 1, 90)
 		if err != nil {
 			return ReporteReincidencias{}, err
@@ -115,6 +115,9 @@ func (m *Modulo) nuevoReincidencias() *auditoria.Caso[EntradaReincidencias, Repo
 		if err != nil {
 			return ReporteReincidencias{}, err
 		}
+		if in.todas && len(filas) > MaxFilasCSV {
+			return ReporteReincidencias{}, exportacionExcedida() // nunca un CSV recortado
+		}
 		pagina := nucleo.Paginar(filas, limite, aReincidencia,
 			func(f reportesbd.ListarReincidenciasRow) []any { return []any{f.ResueltoEn, f.ID} })
 		return ReporteReincidencias{
@@ -128,9 +131,11 @@ func (m *Modulo) nuevoReincidencias() *auditoria.Caso[EntradaReincidencias, Repo
 func aReincidencia(f reportesbd.ListarReincidenciasRow) Reincidencia {
 	r := Reincidencia{
 		TicketID: f.ID, Numero: f.Numero, Asunto: f.Asunto, Prioridad: f.Prioridad, CategoriaID: f.CategoriaID,
-		ClienteID: f.ClienteID, ServicioID: f.ServicioID, ResueltoEn: f.ResueltoEn,
-		SiguienteID: f.SiguienteID, SiguienteNumero: f.SiguienteNumero, SiguienteCreadoEn: f.SiguienteCreadoEn,
-		HorasHastaVolver: redondear(f.SiguienteCreadoEn.Sub(f.ResueltoEn).Hours()), NuevosEnVentana: f.Nuevos,
+		ClienteID: f.ClienteID, ServicioID: f.ServicioID, ResueltoEn: f.ResueltoEn, NuevosEnVentana: f.Nuevos,
+	}
+	if f.SiguienteVisible {
+		r.SiguienteID, r.SiguienteNumero, r.SiguienteCreadoEn = &f.SiguienteID, &f.SiguienteNumero, &f.SiguienteCreadoEn
+		r.HorasHastaVolver = ptr(redondear(f.SiguienteCreadoEn.Sub(f.ResueltoEn).Hours()))
 	}
 	if f.CategoriaID != nil {
 		r.Categoria = &f.Categoria

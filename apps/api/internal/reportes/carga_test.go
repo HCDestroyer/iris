@@ -165,8 +165,8 @@ func TestCargaReportes(t *testing.T) {
 		nil, nil, nil, nil, sinPrioridades), "tickets_resueltos_idx")
 	debeUsar("ReporteTecnicos", plan(consulta("reporteTecnicos"), &mesInicio, &mesFin, false, nil, true, sinZonas, sinZonas,
 		nil, nil, nil), "ordenes_finalizadas_idx")
-	debeUsar("ListarReincidencias", plan(consulta("listarReincidencias"), &mesInicio, &mesFin, nil, nil, false, nil, true,
-		sinZonas, sinZonas, nil, nil, nil, nil, sinPrioridades, 51, 30), "tickets_resueltos_idx", "tickets_servicio_creado_idx")
+	debeUsar("ListarReincidencias", plan(consulta("listarReincidencias"), true, sinZonas, sinZonas, &mesInicio, &mesFin, nil, nil, false, nil,
+		nil, nil, nil, nil, sinPrioridades, 51, 30), "tickets_resueltos_idx", "tickets_servicio_creado_idx")
 	debeUsar("ReportePrimeraVisita", plan(consulta("reportePrimeraVisita"), 30, ahora, &mesInicio, &mesFin, false, nil, true,
 		sinZonas, sinZonas, nil, nil, nil), "ordenes_finalizadas_idx", "ordenes_servicio_creada_idx", "tickets_servicio_creado_idx")
 }

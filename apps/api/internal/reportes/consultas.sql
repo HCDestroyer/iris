@@ -181,17 +181,20 @@ WHERE t.resuelto_en IS NOT NULL AND t.fusionado_en_id IS NULL
 
 -- name: ListarReincidencias :many
 -- Los reincidentes (ver ResumenReincidencias), más recientes primero (cursor: resuelto_en, id),
--- con el primer ticket que volvió a abrir y cuántos abrió en la ventana.
+-- con el primer ticket que volvió a abrir y cuántos abrió en la ventana. La reincidencia cuenta
+-- aunque el ticket siguiente esté fuera del alcance del actor (es la métrica del servicio), pero
+-- siguiente_visible dice si se pueden mostrar sus datos (mismo alcance de zona o cuadrilla).
 WITH par AS (SELECT make_interval(0, 0, 0, @dias::int) AS ventana)
 SELECT t.id, t.numero, t.asunto, t.prioridad, t.categoria_id, coalesce(c.nombre, '')::text AS categoria,
        t.cliente_id, t.servicio_id, t.resuelto_en::timestamptz AS resuelto_en,
        s.id AS siguiente_id, s.numero AS siguiente_numero, s.created_at AS siguiente_creado_en,
-       s.nuevos::bigint AS nuevos
+       s.nuevos::bigint AS nuevos, s.visible::boolean AS siguiente_visible
 FROM soporte.tickets t
 CROSS JOIN par
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
 JOIN LATERAL (
-    SELECT t2.id, t2.numero, t2.created_at, count(*) OVER () AS nuevos
+    SELECT t2.id, t2.numero, t2.created_at, count(*) OVER () AS nuevos,
+           (@alcance_global::boolean OR t2.zona_id = ANY(@zonas::bigint[]) OR t2.cuadrilla_id = ANY(@cuadrillas::bigint[])) AS visible
     FROM soporte.tickets t2
     WHERE t2.id <> t.id AND t2.fusionado_en_id IS NULL
       AND t2.empresa_id IS NOT DISTINCT FROM t.empresa_id
