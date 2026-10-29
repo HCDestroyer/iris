@@ -72,6 +72,14 @@ empresa, orden cancelada al sincronizar) apagan el GPS; cierre de sesión pendie
 iOS; compresión y temporales de la cámara; HTTPS obligatorio; base64.
 El adaptador SQLite se prueba en `packages/sync` con `node:sqlite`.
 
+## APK
+
+El APK de Android se compila en GitHub Actions (`.github/workflows/movil-apk.yml`, sin EAS):
+a mano con la URL de la API o solo en cada versión. La versión y el `versionCode` los pone el CI por
+`app.config.js` (`IRIS_MOVIL_VERSION`, `IRIS_MOVIL_VERSION_CODE`); `android/` se genera con
+`expo prebuild` y no se commitea. Llave, instalación y cómo reconocer un APK de prueba:
+`docs/runbooks/movil-apk.md`.
+
 ## Lo que necesita un dispositivo
 
 La lógica está probada; lo nativo (permisos reales, la tarea de GPS con la app en segundo plano o
