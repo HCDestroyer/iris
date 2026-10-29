@@ -7,6 +7,7 @@ export const NOMBRES_REPORTE: Record<Reporte, { titulo: string; descripcion: str
     tecnicos: { titulo: "Órdenes por técnico", descripcion: "Órdenes finalizadas (cerradas y fallidas), su resultado y el tiempo en sitio." },
     "primera-visita": { titulo: "Primera visita resuelta", descripcion: "Instalaciones y visitas cerradas con éxito sin otra orden ni ticket del mismo servicio después." },
     reincidencias: { titulo: "Reincidencias", descripcion: "Tickets resueltos tras los que el mismo servicio (o cliente) volvió a abrir otro." },
+    satisfaccion: { titulo: "Satisfacción", descripcion: "Encuestas enviadas en el período al resolver un ticket o cerrar una instalación o visita, y cómo calificaron." },
 };
 
 /** Porcentaje de la API (0–100, dos decimales); `null` = sin base → «Sin datos», nunca 0 %. */

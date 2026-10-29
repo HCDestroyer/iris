@@ -9,6 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // El portal de soporte (/soporte) es otro actor: nunca exige `iris_sesion`. Sin la cookie del
 // portal (`iris_portal`) manda a /soporte/entrar, que pide entrar desde el portal del proveedor.
 // /soporte/entrar no pasa por aquí (lee el ticket del fragmento, que el servidor nunca ve).
+// La encuesta pública (/encuesta#<token>) tampoco: es sin sesión y el token va en el fragmento.
 const COOKIE_SESION = "iris_sesion";
 const COOKIE_PORTAL = "iris_portal";
 
@@ -38,6 +39,6 @@ export function middleware(peticion: NextRequest) {
 
 export const config = {
     matcher: [
-        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|sw\\.js|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
+        "/((?!api/|_next/|entrar(?:/|$)|campo(?:/|$)|encuesta(?:/|$)|sw\\.js|soporte/entrar(?:/|$)|icon\\.svg|favicon\\.ico|robots\\.txt|manifest\\.webmanifest).*)",
     ],
 };

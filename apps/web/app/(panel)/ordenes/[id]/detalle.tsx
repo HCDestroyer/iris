@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Contacto, FichaArgos } from "@/componentes/clientes/ficha-cliente";
 import { useEnlacesExternos } from "@/componentes/enlaces-externos";
+import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { PieLista } from "@/componentes/pie-lista";
@@ -237,6 +238,7 @@ function Detalle({ id }: { id: number }) {
                         </Tarjeta>
                     )}
                     <Gps orden={o} eventos={eventos} />
+                    {puede(["encuestas.ver"]) ? <TarjetaEncuesta key={o.estado} filtro={{ ordenId: o.id }} /> : null}
                 </aside>
             </div>
         </>

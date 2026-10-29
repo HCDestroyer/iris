@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reenviar } from "./proxy";
+import { cabecerasCliente, redesConfiables, reenviar } from "./proxy";
 
 describe("proxy /api → IRIS_API_URL", () => {
     it("reenvía método, ruta, query, cuerpo, cookies y CSRF; devuelve todas las Set-Cookie", async () => {
@@ -30,7 +30,7 @@ describe("proxy /api → IRIS_API_URL", () => {
         expect(await r.json()).toEqual({ ok: true });
     });
 
-    it("no reenvía la IP que diga el navegador (X-Forwarded-For, X-Real-IP, Forwarded)", async () => {
+    it("sin la precarga no inventa IP: no copia X-Forwarded-For, X-Real-IP ni Forwarded del navegador", async () => {
         let enviadas = new Headers();
         const fetchFalso: typeof fetch = async (_url, init) => {
             enviadas = new Headers(init?.headers);
@@ -39,6 +39,7 @@ describe("proxy /api → IRIS_API_URL", () => {
         const peticion = new Request("http://panel.test/api/v1/yo", {
             headers: {
                 "X-Forwarded-For": "10.0.0.1, 203.0.113.9",
+                "X-Forwarded-Proto": "https",
                 "X-Real-IP": "10.0.0.1",
                 Forwarded: "for=10.0.0.1",
                 "X-Iris-Empresa": "2",
@@ -46,9 +47,46 @@ describe("proxy /api → IRIS_API_URL", () => {
         });
         await reenviar(peticion, fetchFalso, "http://api");
         expect(enviadas.get("x-forwarded-for")).toBeNull();
+        expect(enviadas.get("x-forwarded-proto")).toBe("http");
         expect(enviadas.get("x-real-ip")).toBeNull();
         expect(enviadas.get("forwarded")).toBeNull();
         expect(enviadas.get("x-iris-empresa")).toBe("2");
+    });
+
+    it("con la precarga: encadena el X-Forwarded-For que llegó y agrega la IP del socket; no reenvía las anotaciones", async () => {
+        let enviadas = new Headers();
+        const fetchFalso: typeof fetch = async (_url, init) => {
+            enviadas = new Headers(init?.headers);
+            return new Response("{}", { status: 200 });
+        };
+        const peticion = new Request("http://panel.test/api/v1/encuestas/publica/responder", {
+            method: "POST",
+            body: "{}",
+            headers: {
+                "X-Forwarded-For": "1.2.3.4",
+                "X-Iris-Socket-Ip": "::ffff:198.51.100.7",
+                "X-Iris-Socket-Proto": "http",
+                "X-Iris-Xff-Entrante": "203.0.113.5, 10.0.0.2",
+                "X-Iris-Xfp-Entrante": "https",
+            },
+        });
+        await reenviar(peticion, fetchFalso, "http://api");
+        expect(enviadas.get("x-forwarded-for")).toBe("203.0.113.5, 10.0.0.2, 198.51.100.7");
+        // Quien conectó no es un proxy confiable: el protocolo es el del socket.
+        expect(enviadas.get("x-forwarded-proto")).toBe("http");
+        for (const c of ["x-iris-socket-ip", "x-iris-socket-proto", "x-iris-xff-entrante", "x-iris-xfp-entrante"]) {
+            expect(enviadas.get(c)).toBeNull();
+        }
+    });
+
+    it("X-Forwarded-Proto del proxy confiable (IRIS_WEB_PROXIES_CONFIABLES); sin XFF previo, solo el socket", () => {
+        const redes = redesConfiables("10.0.0.0/8, 2001:db8::1");
+        const h = (socket: string, xfp = "https") => new Headers({ "x-iris-socket-ip": socket, "x-iris-socket-proto": "http", "x-iris-xfp-entrante": xfp });
+        expect(cabecerasCliente(h("10.1.2.3"), redes)).toEqual({ xff: "10.1.2.3", xfp: "https" });
+        expect(cabecerasCliente(h("2001:db8::1"), redes)).toEqual({ xff: "2001:db8::1", xfp: "https" });
+        expect(cabecerasCliente(h("192.0.2.1"), redes)).toEqual({ xff: "192.0.2.1", xfp: "http" });
+        expect(cabecerasCliente(h("10.1.2.3", "gopher"), redes).xfp).toBe("http");
+        expect(cabecerasCliente(new Headers(), redes)).toEqual({ xfp: "http" });
     });
 
     it("conserva Retry-After del 429", async () => {

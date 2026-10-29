@@ -13,6 +13,7 @@ import { useLectura } from "@/lib/lectura";
 import {
     ATAJOS,
     atajoDe,
+    CON_CATEGORIA,
     DE_TICKETS,
     diasPara,
     errorDeRango,
@@ -32,6 +33,7 @@ import { ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/tickets/presentacion";
 import { ReportePrimeraVisita } from "./reporte-primera-visita";
 import { ReporteReincidencias } from "./reporte-reincidencias";
 import { ReporteResolucion } from "./reporte-resolucion";
+import { ReporteSatisfaccion } from "./reporte-satisfaccion";
 import { ReporteSla } from "./reporte-sla";
 import { ReporteTecnicos } from "./reporte-tecnicos";
 
@@ -78,6 +80,7 @@ export function Reportes() {
     const errorRango = errorDeRango(filtros.desde, filtros.hasta);
     const query = queryDe(reporte, filtros);
     const deTickets = DE_TICKETS.includes(reporte);
+    const conCategoria = CON_CATEGORIA.includes(reporte);
     const ventanas = VENTANAS[reporte];
     const dias = diasPara(reporte, filtros);
     const hayFiltros =
@@ -86,7 +89,8 @@ export function Reportes() {
         filtros.tecnicoId !== null ||
         filtros.categoriaId !== null ||
         filtros.prioridades.length > 0 ||
-        filtros.dias !== null;
+        filtros.dias !== null ||
+        filtros.entidad !== null;
 
     const sinAgenda = !puede(["agenda.ver"]);
     const ayudaCatalogo = (estado: "cargando" | "error" | "listo") =>
@@ -97,7 +101,7 @@ export function Reportes() {
             <EncabezadoPagina titulo="Reportes" descripcion="Indicadores de soporte y de campo por período, en la hora de Guatemala." />
 
             <div className="mb-4 hidden md:block">
-                <GrupoSegmentado etiqueta="Reporte" opciones={OPCIONES_REPORTE} valor={reporte} alCambiar={(r) => ir(r, filtros)} />
+                <GrupoSegmentado etiqueta="Reporte" opciones={OPCIONES_REPORTE} valor={reporte} alCambiar={(r) => ir(r, filtros)} className="flex-wrap" />
             </div>
             <CampoSelector etiqueta="Reporte" className="mb-4 md:hidden" value={reporte} onChange={(e) => ir(e.target.value as Reporte, filtros)}>
                 {OPCIONES_REPORTE.map((o) => (
@@ -132,7 +136,7 @@ export function Reportes() {
                         {opciones(cuadrillas.estado === "listo" ? cuadrillas.datos : null, filtros.cuadrillaId, (c) => c.id, (c) => c.nombre, "Cuadrilla")}
                     </CampoSelector>
                     <CampoSelector
-                        etiqueta={deTickets ? "Técnico o responsable" : "Técnico"}
+                        etiqueta={deTickets || reporte === "satisfaccion" ? "Técnico o responsable" : "Técnico"}
                         value={filtros.tecnicoId ?? ""}
                         disabled={sinAgenda}
                         ayuda={ayudaCatalogo(tecnicos.estado)}
@@ -155,7 +159,18 @@ export function Reportes() {
                             ))}
                         </CampoSelector>
                     ) : null}
-                    {deTickets ? (
+                    {reporte === "satisfaccion" ? (
+                        <CampoSelector
+                            etiqueta="Tipo"
+                            value={filtros.entidad ?? ""}
+                            onChange={(e) => cambiar({ entidad: e.target.value === "ticket" || e.target.value === "orden" ? e.target.value : null })}
+                        >
+                            <option value="">Tickets y órdenes</option>
+                            <option value="ticket">Tickets</option>
+                            <option value="orden">Órdenes</option>
+                        </CampoSelector>
+                    ) : null}
+                    {conCategoria ? (
                         <CampoSelector
                             etiqueta="Categoría"
                             value={filtros.categoriaId ?? ""}
@@ -194,7 +209,7 @@ export function Reportes() {
                         tamano="sm"
                         className="justify-self-start"
                         onClick={() =>
-                            ir(reporte, { ...filtros, zonaId: null, cuadrillaId: null, tecnicoId: null, categoriaId: null, prioridades: [], dias: null })
+                            ir(reporte, { ...filtros, zonaId: null, cuadrillaId: null, tecnicoId: null, categoriaId: null, prioridades: [], dias: null, entidad: null })
                         }
                     >
                         <FilterX />
@@ -226,6 +241,8 @@ function ReporteActivo({ reporte, query }: { reporte: Reporte; query: ReturnType
             return <ReportePrimeraVisita query={query} />;
         case "reincidencias":
             return <ReporteReincidencias query={query} />;
+        case "satisfaccion":
+            return <ReporteSatisfaccion query={query} />;
     }
 }
 

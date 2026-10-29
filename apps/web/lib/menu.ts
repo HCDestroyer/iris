@@ -6,6 +6,7 @@ import {
     Handshake,
     LayoutDashboard,
     LifeBuoy,
+    MessageSquareHeart,
     Route,
     Settings,
     Users,
@@ -51,6 +52,7 @@ export const MENU: readonly EntradaMenu[] = [
     { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
     { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
     { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
+    { href: "/encuestas", etiqueta: "Encuestas", icono: MessageSquareHeart, permisos: ["encuestas.ver"] },
     { href: "/reportes", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
     { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {

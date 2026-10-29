@@ -38,8 +38,10 @@ COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next/static
 # public/ lo genera el build (sw.js de la app de campo, Serwist); standalone no lo incluye.
 COPY --from=build --chown=node:node /repo/apps/web/public ./apps/web/public
+# Precarga que anota la IP real del socket para el proxy de /api (X-Forwarded-For hacia la API).
+COPY --from=build --chown=node:node /repo/apps/web/ip-cliente.mjs ./apps/web/ip-cliente.mjs
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
     CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/entrar').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-CMD ["node", "apps/web/server.js"]
+CMD ["node", "--import", "./apps/web/ip-cliente.mjs", "apps/web/server.js"]

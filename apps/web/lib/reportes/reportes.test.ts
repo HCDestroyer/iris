@@ -23,6 +23,7 @@ const base: Filtros = {
     categoriaId: null,
     prioridades: [],
     dias: null,
+    entidad: null,
 };
 
 describe("atajos de período (días de Guatemala)", () => {
@@ -56,9 +57,9 @@ describe("validación del período", () => {
 
 describe("filtros en la URL", () => {
     it("ida y vuelta con todos los filtros", () => {
-        const f: Filtros = { ...base, zonaId: 3, cuadrillaId: 4, tecnicoId: 31, categoriaId: 2, prioridades: ["media", "critica"], dias: 15 };
+        const f: Filtros = { ...base, zonaId: 3, cuadrillaId: 4, tecnicoId: 31, categoriaId: 2, prioridades: ["media", "critica"], dias: 15, entidad: "orden" };
         const url = urlDe("reincidencias", f);
-        expect(url).toBe("/reportes?reporte=reincidencias&desde=2026-10-01&hasta=2026-10-29&zona=3&cuadrilla=4&tecnico=31&categoria=2&prioridad=media%2Ccritica&dias=15");
+        expect(url).toBe("/reportes?reporte=reincidencias&desde=2026-10-01&hasta=2026-10-29&zona=3&cuadrilla=4&tecnico=31&categoria=2&prioridad=media%2Ccritica&dias=15&entidad=orden");
         const p = new URLSearchParams(url.split("?")[1]);
         expect(filtrosDesdeUrl(p, HOY)).toEqual(f);
     });
@@ -76,6 +77,11 @@ describe("query de cada reporte", () => {
     it("los de tickets llevan categoría y prioridad; los de campo no", () => {
         expect(queryDe("sla", f)).toEqual({ desde: "2026-10-01", hasta: "2026-10-29", zonaId: 3, tecnicoId: 31, categoriaId: 2, prioridad: ["alta"] });
         expect(queryDe("tecnicos", f)).toEqual({ desde: "2026-10-01", hasta: "2026-10-29", zonaId: 3, tecnicoId: 31 });
+    });
+
+    it("satisfacción lleva categoría y entidad, sin prioridad ni dias", () => {
+        expect(queryDe("satisfaccion", { ...f, entidad: "ticket" })).toEqual({ desde: "2026-10-01", hasta: "2026-10-29", zonaId: 3, tecnicoId: 31, categoriaId: 2, entidad: "ticket" });
+        expect(queryDe("sla", { ...f, entidad: "ticket" }).entidad).toBeUndefined();
     });
 
     it("dias solo en primera visita (7–90) y reincidencias (1–90), con el valor por omisión", () => {

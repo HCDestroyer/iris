@@ -2,6 +2,7 @@ import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiComercial, type ApiComercial } from "./api-comercial";
+import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
@@ -140,6 +141,8 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "clientes.ver",
     "empresas.adoptar",
     "empresas.todas",
+    "encuestas.compartir",
+    "encuestas.ver",
     "permisos.ver",
     "reportes.ver",
     "roles.ver",
@@ -160,7 +163,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [TEMPORAL.correo]: ["tickets.ver", "usuarios.ver"],
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
-    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "usuarios.ver", ...PERMISOS_TICKETS],
+    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
@@ -244,6 +247,8 @@ export type ApiFalsa = {
     cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
+    /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
+    encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
 };
 
 const OPERATIVAS = [
@@ -264,6 +269,7 @@ const OPERATIVAS = [
     "/api/v1/cotizaciones",
     "/api/v1/contratos",
     "/api/v1/reportes",
+    "/api/v1/encuestas",
 ];
 
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
@@ -311,6 +317,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     const comercial = apiComercial({ conector: opciones.comercialConector === true });
     const reportes = apiReportes();
+    const encuestas = apiEncuestas();
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
 
@@ -344,6 +351,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (pendientes > 0) {
             fallos.set(ruta, pendientes - 1);
             return problema(route, { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 });
+        }
+        // Rutas públicas de la encuesta: no usan la sesión del panel (ni su CSRF).
+        if (await encuestas.manejarPublica({ route, metodo, ruta, cabeceras, cuerpo })) {
+            return;
         }
         // CSRF por doble envío (salvo el inicio de sesión), como identidad/middleware.go.
         if (metodo !== "GET" && sesion && !(metodo === "POST" && ruta === "/api/v1/sesion") && csrf !== CSRF) {
@@ -624,6 +635,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await comercial.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], actual, puede })) {
             return;
         }
+        if (await encuestas.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
+            return;
+        }
         if (await reportes.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
             return;
         }
@@ -771,6 +785,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         reportes: { exportacionExcedida: reportes.exportacionExcedida },
+        encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);

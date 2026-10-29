@@ -1,5 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import type { Route } from "@playwright/test";
+import { REPORTE_SATISFACCION } from "./api-encuestas";
 import { JORGE, LUCIA, ROSA } from "./datos-agenda";
 
 /*
@@ -133,7 +134,7 @@ export function apiReportes(): ApiReportes {
         async manejar({ route, metodo, ruta, query, puede }) {
             if (!ruta.startsWith("/api/v1/reportes/") || metodo !== "GET") return false;
             const reporte = ruta.slice("/api/v1/reportes/".length);
-            if (!["sla", "resolucion", "tecnicos", "primera-visita", "reincidencias"].includes(reporte)) return false;
+            if (!["sla", "resolucion", "tecnicos", "primera-visita", "reincidencias", "satisfaccion"].includes(reporte)) return false;
             if (!puede("reportes.ver")) {
                 await problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
                 return true;
@@ -189,6 +190,9 @@ export function apiReportes(): ApiReportes {
                     return true;
                 case "primera-visita":
                     await json(route, REPORTE_PRIMERA_VISITA(desde, hasta, ventana));
+                    return true;
+                case "satisfaccion":
+                    await json(route, REPORTE_SATISFACCION(desde, hasta, query.get("entidad")));
                     return true;
                 default: {
                     const limite = Math.min(200, Math.max(1, Number(query.get("limit") ?? 50)));

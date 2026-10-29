@@ -32,8 +32,19 @@ const config: NextConfig = {
     // La API se alcanza por el proxy de app/api/[...ruta]/route.ts (IRIS_API_URL leída en
     // tiempo de ejecución, no de build), así las cookies de sesión son del mismo origen.
     async headers() {
-        // El service worker nunca se cachea en HTTP: el navegador debe ver cada versión nueva.
-        return [{ source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] }];
+        return [
+            // Nadie embebe Iris en un iframe (clickjacking): X-Frame-Options para navegadores viejos y
+            // frame-ancestors de CSP para los actuales. Va en todo, también /encuesta y /api.
+            {
+                source: "/:path*",
+                headers: [
+                    { key: "X-Frame-Options", value: "DENY" },
+                    { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+                ],
+            },
+            // El service worker nunca se cachea en HTTP: el navegador debe ver cada versión nueva.
+            { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+        ];
     },
 };
 
