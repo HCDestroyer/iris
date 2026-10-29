@@ -574,4 +574,21 @@ func TestHTTPEncuesta(t *testing.T) {
 	lectura := entrar(t, srv.URL, nil, "lectura")
 	lectura.pedir(http.MethodGet, "/api/v1/encuestas", nil).problema(t, http.StatusForbidden, "prohibido")
 	lectura.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", otra), nil).problema(t, http.StatusForbidden, "prohibido")
+
+	// Con Idempotency-Key, el enlace no queda guardado en nucleo.idempotencia: repetir la clave
+	// responde 409 idempotencia_no_repetible y ninguna respuesta guardada lleva el token.
+	_, tercera := nuevaEncuesta()
+	clave := "enlace-" + pruebas.Unico()
+	r = agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", tercera), nil, "Idempotency-Key", clave)
+	if r.status != http.StatusOK {
+		t.Fatalf("compartir con clave: %d %s", r.status, r.crudo)
+	}
+	token3 := strings.TrimPrefix(r.cuerpo["enlace"].(string), baseEncuestas+"/encuesta#")
+	agenteHTTP.pedir(http.MethodPost, fmt.Sprintf("/api/v1/encuestas/%d/enlace", tercera), nil, "Idempotency-Key", clave).
+		problema(t, http.StatusConflict, "idempotencia_no_repetible")
+	var guardadas int
+	if err := pruebas.Pool(t).QueryRow(context.Background(),
+		"SELECT count(*) FROM nucleo.idempotencia WHERE respuesta IS NOT NULL AND position(convert_to($1, 'UTF8') in respuesta) > 0", token3).Scan(&guardadas); err != nil || guardadas != 0 {
+		t.Fatalf("el token no se guarda en idempotencia: %d %v", guardadas, err)
+	}
 }
