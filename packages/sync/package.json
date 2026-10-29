@@ -14,6 +14,14 @@
             "types": "./src/almacen-dexie.ts",
             "default": "./src/almacen-dexie.ts"
         },
+        "./sqlite": {
+            "types": "./src/almacen-sqlite.ts",
+            "default": "./src/almacen-sqlite.ts"
+        },
+        "./campo": {
+            "types": "./src/campo/index.ts",
+            "default": "./src/campo/index.ts"
+        },
         "./pruebas": {
             "types": "./src/pruebas/index.ts",
             "default": "./src/pruebas/index.ts"
@@ -36,6 +44,7 @@
     },
     "dependencies": {
         "@iris/contratos": "workspace:*",
-        "dexie": "^4.4.7"
+        "dexie": "^4.4.7",
+        "zod": "^4.6.7"
     }
 }

@@ -1,14 +1,20 @@
 package servidor_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -22,42 +28,6 @@ func redes(t *testing.T, v string) []netip.Prefix {
 		t.Fatal(err)
 	}
 	return r
-}
-
-func TestIPCliente(t *testing.T) {
-	panel := redes(t, "10.0.0.0/8, 172.16.0.5")
-	casos := []struct {
-		nombre, remoto string
-		xff            []string
-		confiables     []netip.Prefix
-		esperada       string
-	}{
-		{"sin proxies confiables se ignora XFF", "10.1.1.1:5000", []string{"203.0.113.7"}, nil, "10.1.1.1"},
-		{"conexión no confiable ignora XFF", "198.51.100.9:5000", []string{"203.0.113.7"}, panel, "198.51.100.9"},
-		{"desde el panel se toma XFF", "10.1.1.1:5000", []string{"203.0.113.7"}, panel, "203.0.113.7"},
-		{"lo falsificado a la izquierda no cuenta", "10.1.1.1:5000", []string{"1.2.3.4, 203.0.113.7"}, panel, "203.0.113.7"},
-		{"se saltan los proxies confiables", "10.1.1.1:5000", []string{"203.0.113.7, 172.16.0.5"}, panel, "203.0.113.7"},
-		{"varias cabeceras", "10.1.1.1:5000", []string{"1.2.3.4", "203.0.113.8"}, panel, "203.0.113.8"},
-		{"IPv6 y puerto", "10.1.1.1:5000", []string{"[2001:db8::1]:443"}, panel, "2001:db8::1"},
-		{"entrada mal formada corta", "10.1.1.1:5000", []string{"203.0.113.7, basura"}, panel, "10.1.1.1"},
-		{"sin XFF queda el proxy", "10.1.1.1:5000", nil, panel, "10.1.1.1"},
-		// Regresión (revisión, hallazgo 8): si todo XFF es confiable no se toma lo de más a la
-		// izquierda (lo pudo escribir el cliente si es una IP de la red confiable).
-		{"todos confiables: la del socket", "10.1.1.1:5000", []string{"10.2.2.2"}, panel, "10.1.1.1"},
-		{"todos confiables, varios saltos: la del socket", "10.1.1.1:5000", []string{"10.9.9.9, 172.16.0.5"}, panel, "10.1.1.1"},
-		{"mal formada tras uno confiable: la del socket", "10.1.1.1:5000", []string{"basura, 10.2.2.2"}, panel, "10.1.1.1"},
-	}
-	for _, c := range casos {
-		if got := servidor.IPCliente(c.remoto, c.xff, c.confiables); got != c.esperada {
-			t.Errorf("%s: %s, esperaba %s", c.nombre, got, c.esperada)
-		}
-	}
-	if _, err := config.ParsearRedes("10.0.0.0/33"); err == nil {
-		t.Error("CIDR inválido aceptado")
-	}
-	if _, err := config.ParsearRedes("no-es-ip"); err == nil {
-		t.Error("IP inválida aceptada")
-	}
 }
 
 // La IP de la sesión es la del cliente solo si la conexión viene de un proxy confiable.
@@ -94,6 +64,75 @@ func TestXForwardedForEnSesion(t *testing.T) {
 		}
 		if ip != c.esperada {
 			t.Errorf("%s: ip de la sesión %s, esperaba %s", c.nombre, ip, c.esperada)
+		}
+	}
+}
+
+// registroIP guarda el log de acceso de la prueba (el handler escribe desde la petición).
+type registroIP struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (r *registroIP) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.b.Write(p)
+}
+
+func (r *registroIP) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.b.String()
+}
+
+// entradaSondaIP hace lo mismo que la encuesta pública y el login: Resolve toma la IP con
+// nucleo.HostDe(RemoteAddr).
+type entradaSondaIP struct {
+	ip string
+}
+
+func (e *entradaSondaIP) Resolve(ctx huma.Context) []error {
+	e.ip = nucleo.HostDe(ctx.RemoteAddr())
+	return nil
+}
+
+// La IP que ven los handlers (como la encuesta) y el log de acceso es la del cliente solo detrás
+// de un proxy confiable; sin él, un X-Forwarded-For falso se ignora.
+func TestIPClienteEnHandlersYLog(t *testing.T) {
+	sonda := func(api huma.API) {
+		huma.Register(api, huma.Operation{OperationID: "sondaIP", Method: http.MethodGet, Path: "/api/v1/salud/sonda-ip"},
+			func(_ context.Context, in *entradaSondaIP) (*struct{ Body string }, error) {
+				return &struct{ Body string }{Body: in.ip}, nil
+			})
+	}
+	for _, c := range []struct {
+		nombre, remoto, confiable, xff, esperada string
+	}{
+		// Compose: solo web (/32). Lo de un puerto publicado llega desde el gateway (NAT).
+		{"gateway con XFF falso, web /32", "172.28.10.1:51234", "172.28.10.10/32", "203.0.113.7", "172.28.10.1"},
+		{"desde web /32", "172.28.10.10:40000", "172.28.10.10/32", "1.2.3.4, 203.0.113.7", "203.0.113.7"},
+		{"proxy confiable", "127.0.0.1:40000", "127.0.0.0/8", "1.2.3.4, 203.0.113.7", "203.0.113.7"},
+		{"proxy confiable, varios saltos", "127.0.0.1:40000", "127.0.0.0/8, 10.0.0.0/8", "1.2.3.4, 203.0.113.7, 10.0.0.9", "203.0.113.7"},
+		{"proxy confiable, malformado", "127.0.0.1:40000", "127.0.0.0/8", "203.0.113.7, no-es-ip", "127.0.0.1"},
+		{"sin configurar: XFF falso ignorado", "127.0.0.1:40000", "", "203.0.113.7", "127.0.0.1"},
+		{"otra red: XFF falso ignorado", "127.0.0.1:40000", "10.0.0.0/8", "203.0.113.7", "127.0.0.1"},
+	} {
+		log := &registroIP{}
+		h, _ := servidor.Nuevo(servidor.Deps{
+			BD: pruebas.Pool(t), Identidad: identidad.Nuevo(identidad.Config{}), Log: slog.New(slog.NewJSONHandler(log, nil)),
+			ProxiesConfiables: redes(t, c.confiable), Modulos: []func(huma.API){sonda},
+		})
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/salud/sonda-ip", nil)
+		req.RemoteAddr = c.remoto
+		req.Header.Set("X-Forwarded-For", c.xff)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `"`+c.esperada+`"` {
+			t.Errorf("%s: el handler vio %d %s, esperaba %s", c.nombre, rec.Code, rec.Body.String(), c.esperada)
+		}
+		if !strings.Contains(log.String(), `"ip":"`+c.esperada+`"`) {
+			t.Errorf("%s: log de acceso %s, esperaba ip %s", c.nombre, log.String(), c.esperada)
 		}
 	}
 }

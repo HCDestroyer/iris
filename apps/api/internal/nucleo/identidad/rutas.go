@@ -2,7 +2,6 @@ package identidad
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"time"
 
@@ -51,11 +50,8 @@ type cliente struct {
 
 // Resolve toma la IP remota y el User-Agent (huma.Resolver).
 func (c *cliente) Resolve(ctx huma.Context) []error {
-	host, _, err := net.SplitHostPort(ctx.RemoteAddr())
-	if err != nil {
-		host = ctx.RemoteAddr()
-	}
-	c.ip = host
+	// RemoteAddr ya viene corregido por el servidor con los proxies confiables.
+	c.ip = nucleo.HostDe(ctx.RemoteAddr())
 	c.userAgent = ctx.Header("User-Agent")
 	return nil
 }

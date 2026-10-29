@@ -1,5 +1,6 @@
 // Firma a mano alzada: trazos en coordenadas CSS del lienzo → SVG (texto, para la API) y PNG
-// (adjunto). Lo puro (SVG) se prueba en Node; el PNG necesita un canvas del navegador.
+// (adjunto). Lo puro (SVG) se prueba en Node y lo usa también la app nativa (`@iris/ui/firma`);
+// el PNG de aquí necesita un canvas del navegador (Expo lo saca de react-native-svg).
 
 export interface Punto {
     x: number;

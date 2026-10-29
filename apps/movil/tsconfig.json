@@ -1,0 +1,12 @@
+{
+    "extends": "expo/tsconfig.base",
+    "compilerOptions": {
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "allowJs": false,
+        "isolatedModules": true,
+        "types": ["jest"]
+    },
+    "include": ["index.ts", "src/**/*.ts", "src/**/*.tsx", "prueba/**/*.ts", "prueba/**/*.tsx", "expo-env.d.ts"]
+}

@@ -4,7 +4,10 @@
 #    sale de los Conventional Commits y el CHANGELOG.md en español (secciones en
 #    release-please-config.json). La primera es 0.1.0 (release-as en la config).
 # 2. Al mergear esa PR, release-please crea la etiqueta vX.Y.Z y la GitHub Release.
-# 3. Con la versión creada, el job `imagenes` publica en GHCR ghcr.io/<dueño>/iris-api,
+# 3. Con la versión creada, el job `apk` compila el APK de Android de la app de campo
+#    (movil-apk.yml, reutilizable) y lo adjunta a la release como iris-campo-X.Y.Z.apk; la URL de la
+#    API sale de la variable del repo IRIS_MOVIL_API_URL (docs/runbooks/movil-apk.md).
+# 4. Con la versión creada, el job `imagenes` publica en GHCR ghcr.io/<dueño>/iris-api,
 #    iris-worker e iris-web con las etiquetas X.Y.Z y latest (las mismas que construye y prueba
 #    imagenes.yml en cada PR; VERSION queda en main.version de api y worker).
 #
@@ -34,9 +37,10 @@ jobs:
     outputs:
       creada: ${{ steps.rp.outputs.release_created }}
       version: ${{ steps.rp.outputs.version }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
       - id: rp
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -53,7 +57,7 @@ jobs:
     env:
       VERSION: ${{ needs.release-please.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Entrar a GHCR
         env:
@@ -75,3 +79,21 @@ jobs:
             docker push "$base/$i:latest"
             echo "$base/$i:$VERSION" >>"$GITHUB_STEP_SUMMARY"
           done
+
+  # La release la crea GITHUB_TOKEN y eso no dispara `release: published`: se llama aquí.
+  apk:
+    name: APK de Android
+    needs: release-please
+    if: needs.release-please.outputs.creada == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/movil-apk.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    # Solo los de la firma (sin `inherit`). Si viven en el environment android-firma, el job que
+    # firma los toma de ahí.
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}

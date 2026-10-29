@@ -3,7 +3,6 @@ package servidor
 import (
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"regexp"
 	"runtime/debug"
@@ -74,7 +73,7 @@ func middlewareLog(log *slog.Logger) func(http.Handler) http.Handler {
 				// Ruta escapada (un %2F dentro de un token no parte el segmento) y con los
 				// secretos de las rutas públicas como *** (nucleo.EnmascararRuta).
 				slog.String("ruta", nucleo.EnmascararRuta(r.URL.EscapedPath())),
-				slog.String("ip", ipDe(r.RemoteAddr)),
+				slog.String("ip", nucleo.HostDe(r.RemoteAddr)),
 				slog.Int("status", reg.status),
 				slog.Int("bytes", reg.bytes),
 				slog.Duration("duracion", time.Since(inicio)),
@@ -90,13 +89,6 @@ func middlewareLog(log *slog.Logger) func(http.Handler) http.Handler {
 			log.LogAttrs(r.Context(), nivel, "http", attrs...)
 		})
 	}
-}
-
-func ipDe(remoteAddr string) string {
-	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
-		return h
-	}
-	return remoteAddr
 }
 
 func middlewarePanico(log *slog.Logger) func(http.Handler) http.Handler {
