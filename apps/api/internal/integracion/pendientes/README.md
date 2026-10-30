@@ -26,7 +26,7 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 - **Job** `integracion.pendientes_procesar` (River, cola `integracion`, cada minuto y al encolar):
   procesa todo lo vencido cuyas dependencias estén hechas, por el cliente anti-SSRF del conector y
   con `Idempotency-Key: iris:<operacion>:<id>`. 2xx → `hecho` (guarda la respuesta); 4xx de
-  negocio → `fallido_negocio` (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409
+  negocio (cualquier 409 salvo `idempotencia_en_curso`) → `fallido_negocio` (detail de Argos sin credenciales); red, 5xx, 401/403, 408, 409
   `idempotencia_en_curso`, 425, 429 → reintento a 1 min,
   5 min, 30 min, 2 h y 12 h; el 6.º fallo → `agotado`. Un `en_curso` de más de 15 min (worker
   caído) se retoma. Reloj inyectable (`Config.Reloj`).
@@ -61,9 +61,16 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   el worker **antes** de `iris migrar`. Candado por si no: un pendiente por resolver nunca vence
   (`NuncaVence`), así que un worker de antes (cuyo `TomarVencido` no mira `por_resolver`) no lo
   toma ni manda el marcador crudo a Argos; el worker nuevo lo resuelve y lo pone al día.
-- **409 por type:** `idempotencia_en_curso` (y un 409 sin type o con `about:blank`) se reintenta; los demás 409
-  (`user_ppp_duplicado`…) y el 422 `idempotency_key_reutilizada` son de negocio
-  (`pendientes.EsNegocio`, que también usa comercial).
+- **409 por type (contrato 0.3.1 §3.1):** de los 409, solo `idempotencia_en_curso` se reintenta;
+  los demás (`servicio_no_pendiente`, `user_ppp_duplicado`…, también sin type o con
+  `about:blank`) y el 422 `idempotency_key_reutilizada` son de negocio (`pendientes.EsNegocio`,
+  que también usa comercial).
+- **`activar-instalacion` (§3.1):** el cuerpo no lleva `version` (una leída al encolar quedaría
+  vieja y el reintento nunca avanzaría); solo `origen_tipo` y `origen_id`. Si el servicio ya no
+  está `pendiente_instalacion`, Argos responde `409 servicio_no_pendiente`: `fallido_negocio`
+  sin reintento, `integracion.pendiente_fallido` (aviso al supervisor con el `detail`, que trae
+  el estado actual) y la orden queda «cerrada con pendiente en Argos»; sus comodatos dependientes
+  no se tocan (no dependen de la activación).
 - `GET /api/v1/integraciones/pendientes?entidad=&entidadId=&estado=&estadoDistintoDe=&conflicto=` (`integraciones.ver_pendientes`;
   `estadoDistintoDe=hecho` trae lo que aún no llegó a Argos en una lectura)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,

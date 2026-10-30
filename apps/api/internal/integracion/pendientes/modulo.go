@@ -5,9 +5,10 @@
 //
 //   - con la Idempotency-Key del contrato (iris:<operacion>:<id>), por el cliente del conector
 //     (protección contra SSRF);
-//   - 2xx → hecho; 4xx de negocio → fallido_negocio sin reintento (guarda el detail de Argos,
-//     sin credenciales) y avisa (integracion.pendiente_fallido); red, timeout, 401/403, 408, 409 idempotencia_en_curso,
-//     425, 429 o 5xx → reintento a 1 min, 5 min, 30 min, 2 h y 12 h (Esperas); después agotado y
+//   - 2xx → hecho; 4xx de negocio (cualquier 409 que no sea idempotencia_en_curso, como
+//     servicio_no_pendiente) → fallido_negocio sin reintento (guarda el detail de Argos, sin
+//     credenciales) y avisa (integracion.pendiente_fallido); red, timeout, 401/403, 408, 409
+//     idempotencia_en_curso, 425, 429 o 5xx → reintento a 1 min, 5 min, 30 min, 2 h y 12 h (Esperas); después agotado y
 //     alerta (integracion.pendiente_agotado);
 //   - dependencias: un pendiente espera a que sus depende_de estén hechos (cambio de equipo:
 //     la asignación del nuevo espera a la devolución del viejo);
