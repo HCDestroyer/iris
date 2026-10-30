@@ -14,7 +14,7 @@ const Mascara = "***"
 
 // Un campo es sensible si su nombre (en snake_case) contiene una de estas palabras, o si el
 // campo del struct lleva la etiqueta `auditoria:"sensible"`. Los ids (`token_id`) no se ocultan.
-var patronSensible = regexp.MustCompile(`(^|_)(contrasena|contrasenas|password|passwd|secreto|secret|token|hash|totp|firma|csrf|credencial|credenciales|api_key)($|_|[0-9])`)
+var patronSensible = regexp.MustCompile(`(^|_)(contrasena|contrasenas|password|passwd|secreto|secret|token|hash|totp|firma|csrf|credencial|credenciales|api_key|ticket)($|_|[0-9])`)
 
 // EsCampoSensible indica si el nombre (camelCase o snake_case) es sensible por patrón.
 func EsCampoSensible(nombre string) bool {

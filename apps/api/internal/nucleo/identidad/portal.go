@@ -344,6 +344,7 @@ func nuevoEntrarPortal(m *Modulo) *auditoria.Caso[EntradaEntrarPortal, SesionPor
 // topeVentana cuenta eventos en una ventana fija (en memoria, por proceso): el freno global
 // de canjes fallidos del portal.
 type topeVentana struct {
+	nombre  string
 	mu      sync.Mutex
 	fin     time.Time
 	cuenta  int64
@@ -367,7 +368,7 @@ func (v *topeVentana) excedido(ahora time.Time, tope int64) (time.Time, bool) {
 	if ahora.Before(v.fin) && v.cuenta > tope {
 		if !v.avisado {
 			v.avisado = true
-			slog.Warn("identidad: tope global de canjes fallidos del portal alcanzado", "tope", tope, "hasta", v.fin)
+			slog.Warn("identidad: tope global de canjes fallidos alcanzado", "de", v.nombre, "tope", tope, "hasta", v.fin)
 		}
 		return v.fin, true
 	}

@@ -969,19 +969,50 @@ type NucleoRolesPermiso struct {
 }
 
 type NucleoSesione struct {
-	ID           int64
-	UsuarioID    int64
-	TokenHash    []byte
-	CsrfHash     []byte
-	MfaPendiente bool
-	Ip           string
-	UserAgent    string
-	ExpiraEn     time.Time
-	UltimoUso    time.Time
-	RevocadaEn   *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	MfaFallos    int32
+	ID              int64
+	UsuarioID       int64
+	TokenHash       []byte
+	CsrfHash        []byte
+	MfaPendiente    bool
+	Ip              string
+	UserAgent       string
+	ExpiraEn        time.Time
+	UltimoUso       time.Time
+	RevocadaEn      *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	MfaFallos       int32
+	Origen          string
+	ReautenticadaEn *time.Time
+}
+
+type NucleoSsoTicket struct {
+	ID                  int64
+	ConectorID          int64
+	TicketHash          []byte
+	UsuarioExterno      string
+	Correo              string
+	Nombre              string
+	DestinoTipo         string
+	DestinoID           int64
+	EmitidoTokenID      *int64
+	ExpiraEn            time.Time
+	CanjeadoEn          *time.Time
+	VinculacionHash     []byte
+	VinculacionExpiraEn *time.Time
+	VinculadoEn         *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	CorreoVerificado    bool
+}
+
+type NucleoSsoVinculo struct {
+	ID             int64
+	ConectorID     int64
+	UsuarioExterno string
+	UsuarioID      int64
+	TicketID       *int64
+	CreatedAt      time.Time
 }
 
 type NucleoTokensApi struct {

@@ -888,6 +888,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/sso/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Emitir un ticket de autologin para un usuario de Argos («Ver en Iris»)
+         * @description Permiso: `sso.emitir`. Lo llama el servidor de Argos (contrato §1.3 → §1.5) con el `iris_pat_` que Iris le entregó al conectar: cualquier otro token o una sesión, 403. Cuerpo en snake_case: `{ usuario: { id_externo, correo?, nombre? }, destino: { tipo: ticket|orden|prospecto, id_externo } }` (ids de Iris). Devuelve `{ url: <IRIS_BASE_URL>/sso/entrar#<ticket>, expira_en }`: 60 s, un solo uso, atado al conector. Sin conector activo con Argos, 409 `conector_apagado`. No comprueba que el destino exista: al entrar, el usuario ve el recurso con sus propios permisos (o el error de acceso de siempre). La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         */
+        post: operations["emitirTicketSSO"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
         parameters: {
             query?: never;
@@ -2495,6 +2515,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sesion/reautenticar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar la contraseña dentro de la sesión
+         * @description Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (las de los permisos de administración de `nucleo.PermisosSensibles`, el MFA propio y los vínculos de autologin), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`); desde una sesión sso con un contador propio, que no bloquea el login con contraseña.
+         */
+        post: operations["reautenticar"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/slas": {
         parameters: {
             query?: never;
@@ -2509,6 +2549,46 @@ export interface paths {
         get: operations["listarSLAs"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/canjear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Entrar con el ticket de autologin de Argos
+         * @description Lo llama la página `/sso/entrar#<ticket>` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre una sesión de origen `sso` del usuario de Iris (cookies `iris_sesion` e `iris_csrf`; dura a lo más 8 h y las acciones sensibles piden `POST /api/v1/sesion/reautenticar`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`). Barreras del login: cuenta inactiva, de integración o sin contraseña, 403; bloqueada por fallos, 429 `demasiados_intentos`; con permisos de administración y sin MFA, 403 `sso_requiere_mfa`. Si el navegador ya tiene la sesión completa de **otro** usuario, responde `estado: confirmar_cambio` con `entrarComo` (nombre en Iris, id y nombre en Argos) sin consumir el ticket: repetir con `confirmar: true` cierra esa sesión y entra; si es del mismo usuario, la reutiliza (`estado: sesion`, `sesionReutilizada: true`, sin `sesion`). Sin vínculo: `estado: vincular` con `externo` (id, correo y nombre en Argos) y la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min). `destino.ruta` es la ruta del panel (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global propio: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_canjes`.
+         */
+        post: operations["canjearSSO"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/vincular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Vincular tu usuario con el de Argos del último autologin
+         * @description Solo tras la confirmación explícita del usuario (nunca automático): con la sesión completa del panel (después del MFA), `X-CSRF-Token`, la cookie `iris_sso_vincular` del canje y `{ id_externo }` igual al `externo.idExterno` que se le mostró (si no, o sin vinculación pendiente vigente, 422 `vinculacion_invalida`). La sesión debe haberse abierto después del canje (422 `sesion_anterior_al_canje`). Además, Argos debe mandar el correo verificado (`usuario.correo_verificado: true` al emitir) y debe ser el de la cuenta de Iris (sin distinguir mayúsculas); si no, 409 `vinculo_requiere_admin` (lo vincula un administrador con `POST /api/v1/usuarios/{id}/vinculos-sso`). Nunca se vincula solo por correo. 409 `vinculo_existente` (tu usuario ya tiene un vínculo con ese Argos), `cuenta_externa_vinculada` o `conector_apagado`. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.
+         */
+        post: operations["vincularSSO"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3231,6 +3311,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usuarios/{id}/vinculos-sso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vínculos de autologin de un usuario
+         * @description Los propios, sin permiso; los de otro usuario, con `usuarios.ver` y el mismo alcance que `GET /usuarios/{id}` (fuera de él, 404).
+         */
+        get: operations["listarVinculosSSO"];
+        put?: never;
+        /**
+         * Vincular un usuario con una cuenta de Argos (administrador)
+         * @description Permiso: `usuarios.editar`. Solo con la sesión del panel. Para cuando el correo de Argos no es el de la cuenta (409 `vinculo_requiere_admin` en `POST /sso/vincular`). Cuerpo `{ conector_id, id_externo }` (el conector de Argos; si no, 422 `conector_invalido`). Mismo alcance que editar el usuario (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). 409 `vinculo_existente` / `cuenta_externa_vinculada`. Emite `usuario.sso_vinculado` con `origen: admin`.
+         */
+        post: operations["crearVinculoSSO"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/vinculos-sso/{vinculoId}/borrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar un vínculo de autologin
+         * @description Solo con la sesión del panel (no con un token). Los propios, sin permiso; los de otro usuario, con `usuarios.editar` y la regla de la administración de usuarios (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). Con el vínculo quitado, el próximo «Ver en Iris» vuelve a pedir iniciar sesión y vincular. Emite `usuario.sso_desvinculado`.
+         */
+        post: operations["borrarVinculoSSO"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/yo": {
         parameters: {
             query?: never;
@@ -3671,6 +3795,20 @@ export interface components {
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
         };
+        CanjeSSO: {
+            destino: components["schemas"]["DestinoSSOResuelto"];
+            entrarComo?: components["schemas"]["EntrarComoSSO"];
+            /**
+             * @description sesion: entró (o se reutilizó la sesión del mismo usuario); mfa: falta POST /api/v1/sesion/mfa; vincular: inicia sesión, confirma y POST /api/v1/sso/vincular; confirmar_cambio: el navegador tiene la sesión de otro usuario (repetir con confirmar: true)
+             * @enum {string}
+             */
+            estado: "sesion" | "mfa" | "vincular" | "confirmar_cambio";
+            externo?: components["schemas"]["UsuarioExternoVisto"];
+            sesion?: components["schemas"]["SesionIniciada"];
+            sesionReutilizada?: boolean;
+            /** Format: date-time */
+            vinculacionExpiraEn?: string;
+        };
         Capacidad: {
             /**
              * Format: int32
@@ -4032,6 +4170,20 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        DestinoSSO: {
+            /** @description Id de Iris del ticket, la orden o el prospecto */
+            id_externo: string;
+            /** @enum {string} */
+            tipo: "ticket" | "orden" | "prospecto";
+        };
+        DestinoSSOResuelto: {
+            /** Format: int64 */
+            id: number;
+            /** @description Ruta del panel: /tickets/{id}, /ordenes/{id} o /comercial/{id} */
+            ruta: string;
+            /** @enum {string} */
+            tipo: "ticket" | "orden" | "prospecto";
+        };
         Distribucion: {
             /** Format: int64 */
             calificacion: number;
@@ -4278,6 +4430,9 @@ export interface components {
              */
             version: number;
         };
+        EntradaBorrarVinculoSSO: {
+            motivo?: string;
+        };
         EntradaCambiarBuzon: {
             /** Format: int32 */
             version: number;
@@ -4312,6 +4467,11 @@ export interface components {
             token: string;
             /** @description Origen del otro sistema (https://…), sin /api/v1 */
             url: string;
+        };
+        EntradaCanjearSSO: {
+            /** @description true tras estado confirmar_cambio: cerrar la sesión del otro usuario y entrar */
+            confirmar?: boolean;
+            ticket: string;
         };
         EntradaCapturarFirma: {
             /** @description PNG de la firma (adjunto) */
@@ -4651,6 +4811,11 @@ export interface components {
              */
             tipo: "persona" | "integracion";
         };
+        EntradaCrearVinculoSSO: {
+            /** Format: int64 */
+            conector_id: number;
+            id_externo: string;
+        };
         EntradaCrearZona: {
             nombre: string;
             /** @description GeoJSON Polygon o MultiPolygon ([lon, lat]), hasta 5000 vértices */
@@ -4805,6 +4970,10 @@ export interface components {
             empresaId: number;
             /** @description Nombre a mostrar en el portal */
             nombre?: string;
+        };
+        EntradaEmitirTicketSSO: {
+            destino: components["schemas"]["DestinoSSO"];
+            usuario: components["schemas"]["UsuarioExternoSSO"];
         };
         EntradaEmpresaUsuario: {
             /**
@@ -5203,6 +5372,9 @@ export interface components {
              */
             version: number;
         };
+        EntradaReautenticar: {
+            contrasena: string;
+        };
         EntradaRegistrar: {
             /** @description Ítem del checklist que respalda */
             claveChecklist?: string;
@@ -5400,6 +5572,15 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaVincularSSO: {
+            /** @description El id de Argos que se mostró al usuario (externo.idExterno del canje) */
+            id_externo: string;
+        };
+        EntrarComoSSO: {
+            idExterno: string;
+            nombreExterno: string;
+            nombreIris: string;
         };
         EquipoComodato: {
             mac: string | null;
@@ -6647,6 +6828,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaVinculoSSO: {
+            data: components["schemas"]["VinculoSSO"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaZona: {
             data: components["schemas"]["Zona"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -6921,7 +7107,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -7285,6 +7471,10 @@ export interface components {
             lon: number;
             /** Format: date-time */
             registradaEn: string;
+        };
+        Reautenticado: {
+            /** Format: date-time */
+            validaHasta: string;
         };
         RecorridoReal: {
             /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
@@ -8062,6 +8252,12 @@ export interface components {
             mensaje: components["schemas"]["MensajePortal"];
             ticket: components["schemas"]["TicketPortal"];
         };
+        TicketSSOEmitido: {
+            /** Format: date-time */
+            expira_en: string;
+            /** @description <IRIS_BASE_URL>/sso/entrar#<ticket>, 60 s, un solo uso */
+            url: string;
+        };
         TipoOrden: {
             /** @enum {string} */
             codigo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
@@ -8203,6 +8399,22 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        UsuarioExternoSSO: {
+            /** @description Para mostrarlo al vincular y como condición extra de la autovinculación */
+            correo?: string | null;
+            /** @description true si Argos verificó el correo; sin él la vinculación la hace un administrador */
+            correo_verificado?: boolean | null;
+            /** @description Id del usuario en Argos (u-<id>) */
+            id_externo: string;
+            nombre?: string | null;
+        };
+        UsuarioExternoVisto: {
+            correo: string;
+            /** @description Argos dice que verificó el correo; sin eso, vincula un administrador */
+            correoVerificado: boolean;
+            idExterno: string;
+            nombre: string;
+        };
         VersionPlantilla: {
             /** Format: date-time */
             creadaEn: string;
@@ -8219,6 +8431,21 @@ export interface components {
             /** Format: int32 */
             numero: number;
             requiereFirma: boolean;
+        };
+        VinculoSSO: {
+            /** Format: int64 */
+            conectorId: number;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            id: number;
+            sistema: string;
+            /** @description Id del usuario en el otro sistema */
+            usuarioExterno: string;
+        };
+        VinculoSSOCreado: {
+            destino: components["schemas"]["DestinoSSOResuelto"];
+            vinculo: components["schemas"]["VinculoSSO"];
         };
         WebhookRecibido: {
             /** @description true: ese id de webhook ya se había recibido; no se vuelve a procesar */
@@ -11880,6 +12107,78 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    emitirTicketSSO: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEmitirTicketSSO"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketSSOEmitido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18490,6 +18789,78 @@ export interface operations {
             };
         };
     };
+    reautenticar: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReautenticar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reautenticado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarSLAs: {
         parameters: {
             query?: never;
@@ -18519,6 +18890,161 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    canjearSSO: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCanjearSSO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CanjeSSO"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    vincularSSO: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: {
+                /** @description La deja POST /api/v1/sso/canjear (HttpOnly); el navegador la manda solo */
+                iris_sso_vincular?: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVincularSSO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoSSOCreado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21486,6 +22012,231 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarVinculosSSO: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaVinculoSSO"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearVinculoSSO: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearVinculoSSO"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoSSO"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    borrarVinculoSSO: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                vinculoId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaBorrarVinculoSSO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoSSO"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

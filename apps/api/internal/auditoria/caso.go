@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
@@ -129,6 +130,10 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 		t = &Tx{Tx: tx}
 		ctx = context.WithValue(ctx, claveTxCaso, t)
 		t.ctx = ctx
+		if s := contexto.SesionDe(ctx); s.EsSSO() {
+			// Las acciones de una sesión abierta por el autologin desde Argos quedan marcadas.
+			t.Anotar(map[string]any{"sesion_origen": s.Origen})
+		}
 		if err := c.autorizar(ctx); err != nil {
 			return err
 		}
@@ -175,6 +180,10 @@ func (c *Caso[In, Out]) autorizar(ctx context.Context) error {
 	if actor.Tipo == contexto.ActorCliente {
 		// El actor cliente solo usa los casos del portal (Acceso Cliente).
 		return nucleo.Prohibido("El cliente del portal no puede usar esta acción")
+	}
+	if s := contexto.SesionDe(ctx); s.EsSSO() && !s.Reautenticada && RequiereReautenticacion(c.Accion, c.Permiso) {
+		return nucleo.NuevoProblema(http.StatusForbidden, "reautenticacion_requerida", "Re-autenticación requerida",
+			"Entraste desde Argos: confirma tu contraseña (POST /api/v1/sesion/reautenticar) antes de esta acción")
 	}
 	if c.Acceso == ConPermiso && !contexto.PermisosDe(ctx).Tiene(string(c.Permiso)) {
 		return nucleo.Prohibido(fmt.Sprintf("Falta el permiso %s", c.Permiso))

@@ -142,6 +142,8 @@ func moduloConArgos(cfg config.Config, a *argos.Modulo) (*identidad.Modulo, erro
 	icfg := identidad.Config{
 		DuracionSesion: cfg.DuracionSesion, CookieSegura: cfg.CookieSegura, Cifrador: c,
 		BaseURL: cfg.BaseURL, DuracionSesionPortal: cfg.DuracionSesionPortal,
+		DuracionSesionSSO: cfg.DuracionSesionSSO, SSOTopeEmision: cfg.SSOTopeEmision,
+		SSOAlertaExternos: cfg.SSOAlertaExternos, SSOVentanaAlerta: cfg.SSOVentanaAlerta,
 	}
 	if a != nil {
 		icfg.ValidarCliente = func(ctx context.Context, clienteID int64) (identidad.ValidacionCliente, error) {

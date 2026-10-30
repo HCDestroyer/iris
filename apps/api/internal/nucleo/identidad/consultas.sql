@@ -145,12 +145,14 @@ ON CONFLICT DO NOTHING;
 -- Sesiones -------------------------------------------------------------------
 
 -- name: CrearSesion :one
-INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en)
-VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en)
+INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen)
+VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en, @origen)
 RETURNING *;
 
 -- name: SesionVigentePorHash :one
-SELECT sqlc.embed(s), sqlc.embed(u)
+-- reautenticada: confirmó la contraseña hace menos de @ventana_reautenticacion_seg (reloj de la base).
+SELECT sqlc.embed(s), sqlc.embed(u),
+       (s.reautenticada_en IS NOT NULL AND s.reautenticada_en > now() - make_interval(secs => @ventana_reautenticacion_seg::integer))::boolean AS reautenticada
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
 WHERE s.token_hash = @token_hash AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo;
@@ -405,3 +407,100 @@ DELETE FROM nucleo.portal_accesos WHERE id IN (
 -- El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).
 UPDATE nucleo.tokens_api SET expira_en = NULL
 WHERE id = @id AND revocado_en IS NULL AND (expira_en IS NULL OR expira_en > now());
+
+-- Autologin desde Argos (SSO, sso.go) -----------------------------------------------------
+
+-- name: ConectorActivoDeSistema :one
+-- El conector activo del sistema y el iris_pat_ que Iris le entregó en el canje.
+SELECT id, token_entregado_id FROM integracion.conectores WHERE sistema = @sistema AND estado = 'activo';
+
+-- name: ConectorSigueActivo :one
+SELECT (estado = 'activo')::boolean AS activo FROM integracion.conectores WHERE id = @id;
+
+-- name: CrearTicketSSO :one
+INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, correo_verificado, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
+VALUES (@conector_id, @ticket_hash, @usuario_externo, @correo, @correo_verificado, @nombre, @destino_tipo, @destino_id, @emitido_token_id,
+        now() + make_interval(secs => @vigencia_seg::integer))
+RETURNING *;
+
+-- name: TomarTicketSSO :one
+-- Un solo uso: lo marca canjeado solo si estaba vigente.
+UPDATE nucleo.sso_tickets SET canjeado_en = now(), updated_at = now()
+WHERE ticket_hash = @ticket_hash AND canjeado_en IS NULL AND expira_en > now()
+RETURNING *;
+
+-- name: VinculoSSO :one
+SELECT v.id, v.usuario_id, u.activo, u.tipo
+FROM nucleo.sso_vinculos v JOIN nucleo.usuarios u ON u.id = v.usuario_id
+WHERE v.conector_id = @conector_id AND v.usuario_externo = @usuario_externo;
+
+-- name: PrepararVinculacionSSO :one
+UPDATE nucleo.sso_tickets SET vinculacion_hash = @vinculacion_hash,
+    vinculacion_expira_en = now() + make_interval(secs => @vigencia_seg::integer), updated_at = now()
+WHERE id = @id
+RETURNING vinculacion_expira_en::timestamptz;
+
+-- name: VerTicketSSO :one
+SELECT id, conector_id, usuario_externo, nombre, destino_tipo, destino_id FROM nucleo.sso_tickets
+WHERE ticket_hash = @ticket_hash AND canjeado_en IS NULL AND expira_en > now();
+
+-- name: BloquearEmisionSSO :exec
+-- Serializa la emisión por conector (el tope se cuenta después, sin carreras).
+SELECT pg_advisory_xact_lock(1937011567, @conector_id::integer);
+
+-- name: TicketsSSORecientes :one
+-- Tickets emitidos por el conector en la ventana, id_externo distintos y edad del más viejo.
+SELECT count(id)::integer AS emitidos,
+       count(DISTINCT usuario_externo)::integer AS externos,
+       coalesce(floor(extract(epoch FROM (now() - min(created_at)))), 0)::integer AS edad_seg
+FROM nucleo.sso_tickets
+WHERE conector_id = @conector_id AND created_at > now() - make_interval(secs => @ventana_seg::integer);
+
+-- name: MarcarSesionReautenticada :execrows
+UPDATE nucleo.sesiones SET reautenticada_en = now(), updated_at = now()
+WHERE id = @id AND revocada_en IS NULL AND NOT mfa_pendiente;
+
+-- name: BorrarVinculosSSODeUsuario :many
+DELETE FROM nucleo.sso_vinculos WHERE usuario_id = @usuario_id RETURNING *;
+
+-- name: SistemaDeConector :one
+SELECT sistema FROM integracion.conectores WHERE id = @id;
+
+-- name: TomarVinculacionSSO :one
+-- La vinculación pendiente se usa una sola vez y dentro de su plazo.
+UPDATE nucleo.sso_tickets SET vinculado_en = now(), updated_at = now()
+WHERE vinculacion_hash = @vinculacion_hash AND vinculado_en IS NULL AND vinculacion_expira_en > now()
+RETURNING *;
+
+-- name: SesionCreadaEn :one
+SELECT created_at FROM nucleo.sesiones WHERE id = @id;
+
+-- name: VinculoSSODeUsuarioEnConector :one
+SELECT id, usuario_externo FROM nucleo.sso_vinculos WHERE conector_id = @conector_id AND usuario_id = @usuario_id;
+
+-- name: CrearVinculoSSO :one
+INSERT INTO nucleo.sso_vinculos (conector_id, usuario_externo, usuario_id, ticket_id)
+VALUES (@conector_id, @usuario_externo, @usuario_id, @ticket_id)
+RETURNING *;
+
+-- name: VinculosSSODeUsuario :many
+SELECT v.id, v.conector_id, c.sistema, v.usuario_externo, v.created_at
+FROM nucleo.sso_vinculos v JOIN integracion.conectores c ON c.id = v.conector_id
+WHERE v.usuario_id = @usuario_id ORDER BY v.id;
+
+-- name: VinculoSSOParaBorrar :one
+SELECT * FROM nucleo.sso_vinculos WHERE id = @id AND usuario_id = @usuario_id FOR UPDATE;
+
+-- name: BorrarVinculoSSO :exec
+DELETE FROM nucleo.sso_vinculos WHERE id = @id;
+
+-- name: PurgarTicketsSSO :execrows
+-- Purga (job nucleo.portal_purga): tickets de autologin vencidos antes de @hasta (y su
+-- vinculación pendiente, si la hubo), por lotes.
+DELETE FROM nucleo.sso_tickets WHERE id IN (
+    SELECT t.id FROM nucleo.sso_tickets t
+    WHERE t.expira_en < @hasta::timestamptz
+      AND (t.vinculacion_expira_en IS NULL OR t.vinculacion_expira_en < @hasta::timestamptz)
+    ORDER BY t.id
+    LIMIT @lote::integer
+    FOR UPDATE SKIP LOCKED);

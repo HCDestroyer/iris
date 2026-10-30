@@ -173,7 +173,29 @@ const (
 // Portal de soporte (/soporte).
 const (
 	PermPortalEmitir Permiso = "portal.emitir"
+	// PermSSOEmitir: pedir un ticket de autologin («Ver en Iris»; contrato argosisp.md §1.2–§1.3).
+	PermSSOEmitir Permiso = "sso.emitir"
 )
+
+// PermisosSensibles son los de administración (usuarios, tokens, empresas, buzones,
+// integraciones, plantillas, configuración comercial y emisión de accesos), no los de ver ni los
+// operativos. Una sola fuente para el autologin desde Argos: quien tiene alguno (o
+// empresas.todas) solo entra con TOTP, y en una sesión abierta por el autologin toda acción con
+// uno de estos permisos exige re-autenticarse con la contraseña. Un permiso nuevo de esta clase
+// debe agregarse aquí (lo verifica TestPermisosSensiblesCubrenLaAdministracion).
+var PermisosSensibles = map[Permiso]bool{
+	PermUsuariosCrear: true, PermUsuariosEditar: true, PermUsuariosDesactivar: true, PermUsuariosReiniciarMFA: true,
+	PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
+	PermTokensCrear: true, PermTokensRevocar: true,
+	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
+	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
+	PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+}
+
+// EsSensible indica si el permiso es de administración (PermisosSensibles).
+func EsSensible(p Permiso) bool { return PermisosSensibles[p] }
 
 // DefPermiso es una entrada del catálogo.
 type DefPermiso struct {
@@ -269,6 +291,7 @@ var Catalogo = []DefPermiso{
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
 	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
 	{PermRutasVer, "Ver las rutas del día: propuesta, publicada y el recorrido real (según el alcance)"},
+	{PermSSOEmitir, "Pedir un ticket de autologin («Ver en Iris») para abrir un ticket, una orden o un prospecto (lo usa Argos con el token del canje)"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
 	{PermTicketsCrear, "Crear tickets de soporte"},
@@ -375,13 +398,13 @@ var RolesBase = []DefRol{
 			PermReportesVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
-	//  - Argos: tickets.ver, tickets.crear y ordenes.ver (contratos/argosisp.md §1.2); sso.emitir
-	//    (también §1.2) se agrega cuando exista ese permiso. portal.emitir NO es
+	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).
+	//    portal.emitir NO es
 	//    del §1.2: es el pedido A9 (botón «Soporte» del portal de Argos), propuesto por Iris y
 	//    pendiente de acordar con Argos; se deja por decisión del líder.
 	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
-		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir}},
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

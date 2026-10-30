@@ -848,6 +848,45 @@
         ],
         "type": "object"
       },
+      "CanjeSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "destino": {
+            "$ref": "#/components/schemas/DestinoSSOResuelto"
+          },
+          "entrarComo": {
+            "$ref": "#/components/schemas/EntrarComoSSO"
+          },
+          "estado": {
+            "description": "sesion: entró (o se reutilizó la sesión del mismo usuario); mfa: falta POST /api/v1/sesion/mfa; vincular: inicia sesión, confirma y POST /api/v1/sso/vincular; confirmar_cambio: el navegador tiene la sesión de otro usuario (repetir con confirmar: true)",
+            "enum": [
+              "sesion",
+              "mfa",
+              "vincular",
+              "confirmar_cambio"
+            ],
+            "type": "string"
+          },
+          "externo": {
+            "$ref": "#/components/schemas/UsuarioExternoVisto"
+          },
+          "sesion": {
+            "$ref": "#/components/schemas/SesionIniciada"
+          },
+          "sesionReutilizada": {
+            "type": "boolean"
+          },
+          "vinculacionExpiraEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "destino"
+        ],
+        "type": "object"
+      },
       "Capacidad": {
         "additionalProperties": false,
         "properties": {
@@ -1947,6 +1986,56 @@
         ],
         "type": "object"
       },
+      "DestinoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "id_externo": {
+            "description": "Id de Iris del ticket, la orden o el prospecto",
+            "pattern": "^[1-9][0-9]{0,17}$",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "ticket",
+              "orden",
+              "prospecto"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "id_externo"
+        ],
+        "type": "object"
+      },
+      "DestinoSSOResuelto": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ruta": {
+            "description": "Ruta del panel: /tickets/{id}, /ordenes/{id} o /comercial/{id}",
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "ticket",
+              "orden",
+              "prospecto"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "id",
+          "ruta"
+        ],
+        "type": "object"
+      },
       "Distribucion": {
         "additionalProperties": false,
         "properties": {
@@ -2542,6 +2631,16 @@
         ],
         "type": "object"
       },
+      "EntradaBorrarVinculoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "EntradaCambiarBuzon": {
         "additionalProperties": false,
         "properties": {
@@ -2647,6 +2746,24 @@
           "sistema",
           "url",
           "token"
+        ],
+        "type": "object"
+      },
+      "EntradaCanjearSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmar": {
+            "description": "true tras estado confirmar_cambio: cerrar la sesión del otro usuario y entrar",
+            "type": "boolean"
+          },
+          "ticket": {
+            "maxLength": 512,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
         ],
         "type": "object"
       },
@@ -3463,6 +3580,26 @@
         ],
         "type": "object"
       },
+      "EntradaCrearVinculoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "conector_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id_externo": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "conector_id",
+          "id_externo"
+        ],
+        "type": "object"
+      },
       "EntradaCrearZona": {
         "additionalProperties": false,
         "properties": {
@@ -3879,6 +4016,22 @@
         "required": [
           "clienteId",
           "empresaId"
+        ],
+        "type": "object"
+      },
+      "EntradaEmitirTicketSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "destino": {
+            "$ref": "#/components/schemas/DestinoSSO"
+          },
+          "usuario": {
+            "$ref": "#/components/schemas/UsuarioExternoSSO"
+          }
+        },
+        "required": [
+          "usuario",
+          "destino"
         ],
         "type": "object"
       },
@@ -4869,6 +5022,20 @@
         ],
         "type": "object"
       },
+      "EntradaReautenticar": {
+        "additionalProperties": false,
+        "properties": {
+          "contrasena": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "contrasena"
+        ],
+        "type": "object"
+      },
       "EntradaRegistrar": {
         "additionalProperties": false,
         "properties": {
@@ -5360,6 +5527,41 @@
         },
         "required": [
           "version"
+        ],
+        "type": "object"
+      },
+      "EntradaVincularSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "id_externo": {
+            "description": "El id de Argos que se mostró al usuario (externo.idExterno del canje)",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id_externo"
+        ],
+        "type": "object"
+      },
+      "EntrarComoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "idExterno": {
+            "type": "string"
+          },
+          "nombreExterno": {
+            "type": "string"
+          },
+          "nombreIris": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombreIris",
+          "idExterno",
+          "nombreExterno"
         ],
         "type": "object"
       },
@@ -9073,6 +9275,32 @@
         ],
         "type": "object"
       },
+      "PaginaVinculoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VinculoSSO"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaZona": {
         "additionalProperties": false,
         "properties": {
@@ -9824,6 +10052,7 @@
           "rutas.proponer",
           "rutas.publicar",
           "rutas.ver",
+          "sso.emitir",
           "tickets.asignar",
           "tickets.cerrar",
           "tickets.crear",
@@ -10897,6 +11126,19 @@
           "lat",
           "lon",
           "registradaEn"
+        ],
+        "type": "object"
+      },
+      "Reautenticado": {
+        "additionalProperties": false,
+        "properties": {
+          "validaHasta": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "validaHasta"
         ],
         "type": "object"
       },
@@ -13164,6 +13406,24 @@
         ],
         "type": "object"
       },
+      "TicketSSOEmitido": {
+        "additionalProperties": false,
+        "properties": {
+          "expira_en": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "description": "\u003cIRIS_BASE_URL\u003e/sso/entrar#\u003cticket\u003e, 60 s, un solo uso",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expira_en"
+        ],
+        "type": "object"
+      },
       "TipoOrden": {
         "additionalProperties": false,
         "properties": {
@@ -13587,6 +13847,68 @@
         ],
         "type": "object"
       },
+      "UsuarioExternoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "correo": {
+            "description": "Para mostrarlo al vincular y como condición extra de la autovinculación",
+            "maxLength": 254,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correo_verificado": {
+            "description": "true si Argos verificó el correo; sin él la vinculación la hace un administrador",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "id_externo": {
+            "description": "Id del usuario en Argos (u-\u003cid\u003e)",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id_externo"
+        ],
+        "type": "object"
+      },
+      "UsuarioExternoVisto": {
+        "additionalProperties": false,
+        "properties": {
+          "correo": {
+            "type": "string"
+          },
+          "correoVerificado": {
+            "description": "Argos dice que verificó el correo; sin eso, vincula un administrador",
+            "type": "boolean"
+          },
+          "idExterno": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "idExterno",
+          "correo",
+          "correoVerificado",
+          "nombre"
+        ],
+        "type": "object"
+      },
       "VersionPlantilla": {
         "additionalProperties": false,
         "properties": {
@@ -13629,6 +13951,54 @@
           "creadaPor",
           "creadaEn",
           "formularios"
+        ],
+        "type": "object"
+      },
+      "VinculoSSO": {
+        "additionalProperties": false,
+        "properties": {
+          "conectorId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sistema": {
+            "type": "string"
+          },
+          "usuarioExterno": {
+            "description": "Id del usuario en el otro sistema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "conectorId",
+          "sistema",
+          "usuarioExterno",
+          "creadoEn"
+        ],
+        "type": "object"
+      },
+      "VinculoSSOCreado": {
+        "additionalProperties": false,
+        "properties": {
+          "destino": {
+            "$ref": "#/components/schemas/DestinoSSOResuelto"
+          },
+          "vinculo": {
+            "$ref": "#/components/schemas/VinculoSSO"
+          }
+        },
+        "required": [
+          "vinculo",
+          "destino"
         ],
         "type": "object"
       },
@@ -19139,6 +19509,106 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.conectar"
+      }
+    },
+    "/api/v1/integraciones/argosisp/sso/tickets": {
+      "post": {
+        "description": "Permiso: `sso.emitir`. Lo llama el servidor de Argos (contrato §1.3 → §1.5) con el `iris_pat_` que Iris le entregó al conectar: cualquier otro token o una sesión, 403. Cuerpo en snake_case: `{ usuario: { id_externo, correo?, nombre? }, destino: { tipo: ticket|orden|prospecto, id_externo } }` (ids de Iris). Devuelve `{ url: \u003cIRIS_BASE_URL\u003e/sso/entrar#\u003cticket\u003e, expira_en }`: 60 s, un solo uso, atado al conector. Sin conector activo con Argos, 409 `conector_apagado`. No comprueba que el destino exista: al entrar, el usuario ve el recurso con sus propios permisos (o el error de acceso de siempre). La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
+        "operationId": "emitirTicketSSO",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmitirTicketSSO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSSOEmitido"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Emitir un ticket de autologin para un usuario de Argos («Ver en Iris»)",
+        "tags": [
+          "sso"
+        ],
+        "x-permiso": "sso.emitir"
       }
     },
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
@@ -29508,6 +29978,105 @@
         ]
       }
     },
+    "/api/v1/sesion/reautenticar": {
+      "post": {
+        "description": "Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (las de los permisos de administración de `nucleo.PermisosSensibles`, el MFA propio y los vínculos de autologin), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`); desde una sesión sso con un contador propio, que no bloquea el login con contraseña.",
+        "operationId": "reautenticar",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaReautenticar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reautenticado"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Confirmar la contraseña dentro de la sesión",
+        "tags": [
+          "identidad"
+        ]
+      }
+    },
     "/api/v1/slas": {
       "get": {
         "description": "Permiso: `tickets.ver`.",
@@ -29577,6 +30146,220 @@
           "soporte"
         ],
         "x-permiso": "tickets.ver"
+      }
+    },
+    "/api/v1/sso/canjear": {
+      "post": {
+        "description": "Lo llama la página `/sso/entrar#\u003cticket\u003e` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre una sesión de origen `sso` del usuario de Iris (cookies `iris_sesion` e `iris_csrf`; dura a lo más 8 h y las acciones sensibles piden `POST /api/v1/sesion/reautenticar`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`). Barreras del login: cuenta inactiva, de integración o sin contraseña, 403; bloqueada por fallos, 429 `demasiados_intentos`; con permisos de administración y sin MFA, 403 `sso_requiere_mfa`. Si el navegador ya tiene la sesión completa de **otro** usuario, responde `estado: confirmar_cambio` con `entrarComo` (nombre en Iris, id y nombre en Argos) sin consumir el ticket: repetir con `confirmar: true` cierra esa sesión y entra; si es del mismo usuario, la reutiliza (`estado: sesion`, `sesionReutilizada: true`, sin `sesion`). Sin vínculo: `estado: vincular` con `externo` (id, correo y nombre en Argos) y la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min). `destino.ruta` es la ruta del panel (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global propio: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_canjes`.",
+        "operationId": "canjearSSO",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCanjearSSO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanjeSSO"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Entrar con el ticket de autologin de Argos",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/sso/vincular": {
+      "post": {
+        "description": "Solo tras la confirmación explícita del usuario (nunca automático): con la sesión completa del panel (después del MFA), `X-CSRF-Token`, la cookie `iris_sso_vincular` del canje y `{ id_externo }` igual al `externo.idExterno` que se le mostró (si no, o sin vinculación pendiente vigente, 422 `vinculacion_invalida`). La sesión debe haberse abierto después del canje (422 `sesion_anterior_al_canje`). Además, Argos debe mandar el correo verificado (`usuario.correo_verificado: true` al emitir) y debe ser el de la cuenta de Iris (sin distinguir mayúsculas); si no, 409 `vinculo_requiere_admin` (lo vincula un administrador con `POST /api/v1/usuarios/{id}/vinculos-sso`). Nunca se vincula solo por correo. 409 `vinculo_existente` (tu usuario ya tiene un vínculo con ese Argos), `cuenta_externa_vinculada` o `conector_apagado`. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.",
+        "operationId": "vincularSSO",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "description": "La deja POST /api/v1/sso/canjear (HttpOnly); el navegador la manda solo",
+            "in": "cookie",
+            "name": "iris_sso_vincular",
+            "schema": {
+              "description": "La deja POST /api/v1/sso/canjear (HttpOnly); el navegador la manda solo",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVincularSSO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VinculoSSOCreado"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Vincular tu usuario con el de Argos del último autologin",
+        "tags": [
+          "sso"
+        ]
       }
     },
     "/api/v1/sync/lote": {
@@ -34241,6 +35024,335 @@
           "identidad"
         ],
         "x-permiso": "usuarios.reiniciar_mfa"
+      }
+    },
+    "/api/v1/usuarios/{id}/vinculos-sso": {
+      "get": {
+        "description": "Los propios, sin permiso; los de otro usuario, con `usuarios.ver` y el mismo alcance que `GET /usuarios/{id}` (fuera de él, 404).",
+        "operationId": "listarVinculosSSO",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaVinculoSSO"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vínculos de autologin de un usuario",
+        "tags": [
+          "sso"
+        ]
+      },
+      "post": {
+        "description": "Permiso: `usuarios.editar`. Solo con la sesión del panel. Para cuando el correo de Argos no es el de la cuenta (409 `vinculo_requiere_admin` en `POST /sso/vincular`). Cuerpo `{ conector_id, id_externo }` (el conector de Argos; si no, 422 `conector_invalido`). Mismo alcance que editar el usuario (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). 409 `vinculo_existente` / `cuenta_externa_vinculada`. Emite `usuario.sso_vinculado` con `origen: admin`.",
+        "operationId": "crearVinculoSSO",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearVinculoSSO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VinculoSSO"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Vincular un usuario con una cuenta de Argos (administrador)",
+        "tags": [
+          "sso"
+        ],
+        "x-permiso": "usuarios.editar"
+      }
+    },
+    "/api/v1/usuarios/{id}/vinculos-sso/{vinculoId}/borrar": {
+      "post": {
+        "description": "Solo con la sesión del panel (no con un token). Los propios, sin permiso; los de otro usuario, con `usuarios.editar` y la regla de la administración de usuarios (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). Con el vínculo quitado, el próximo «Ver en Iris» vuelve a pedir iniciar sesión y vincular. Emite `usuario.sso_desvinculado`.",
+        "operationId": "borrarVinculoSSO",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "vinculoId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaBorrarVinculoSSO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VinculoSSO"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "summary": "Quitar un vínculo de autologin",
+        "tags": [
+          "sso"
+        ]
       }
     },
     "/api/v1/yo": {

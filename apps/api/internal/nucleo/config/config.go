@@ -63,6 +63,14 @@ type Config struct {
 	HorusOrigenes []string
 	// IRIS_DURACION_SESION_PORTAL: vida de una sesión del portal de soporte (2h).
 	DuracionSesionPortal time.Duration
+	// Autologin desde Argos: IRIS_DURACION_SESION_SSO (vida de una sesión abierta por el
+	// autologin, 8h), IRIS_SSO_TOPE_EMISION (tickets por conector y minuto, 120) e
+	// IRIS_SSO_ALERTA_EXTERNOS / IRIS_SSO_VENTANA_ALERTA (alerta si un conector pide tickets para más
+	// de N id_externo distintos en la ventana; 20 en 10m).
+	DuracionSesionSSO time.Duration
+	SSOTopeEmision    int
+	SSOAlertaExternos int
+	SSOVentanaAlerta  time.Duration
 	// IRIS_WEBHOOK_VENTANA: desfase máximo aceptado en X-Webhook-Timestamp (5m).
 	WebhookVentana time.Duration
 	// IRIS_CONECTORES_PERMITIR_HTTP: acepta conectores con base_url http:// (solo desarrollo;
@@ -126,6 +134,10 @@ func Cargar() (Config, error) {
 		HorusTimeout:        5 * time.Second,
 
 		DuracionSesionPortal: 2 * time.Hour,
+		DuracionSesionSSO:    8 * time.Hour,
+		SSOTopeEmision:       120,
+		SSOAlertaExternos:    20,
+		SSOVentanaAlerta:     10 * time.Minute,
 		WebhookVentana:       5 * time.Minute,
 
 		AdjuntosDir:       "./datos/adjuntos",
@@ -202,6 +214,7 @@ func Cargar() (Config, error) {
 		"IRIS_IDEMPOTENCIA_RECLAMO": &c.IdempotenciaReclamo,
 		"IRIS_ARGOS_TIMEOUT":        &c.ArgosTimeout, "IRIS_WEBHOOK_VENTANA": &c.WebhookVentana,
 		"IRIS_HORUS_TIMEOUT": &c.HorusTimeout, "IRIS_DURACION_SESION_PORTAL": &c.DuracionSesionPortal,
+		"IRIS_DURACION_SESION_SSO": &c.DuracionSesionSSO, "IRIS_SSO_VENTANA_ALERTA": &c.SSOVentanaAlerta,
 	} {
 		if v := os.Getenv(nombre); v != "" {
 			d, err := time.ParseDuration(v)
@@ -209,6 +222,15 @@ func Cargar() (Config, error) {
 				errs = append(errs, nombre+" inválido: "+v)
 			}
 			*destino = d
+		}
+	}
+	for nombre, destino := range map[string]*int{"IRIS_SSO_TOPE_EMISION": &c.SSOTopeEmision, "IRIS_SSO_ALERTA_EXTERNOS": &c.SSOAlertaExternos} {
+		if v := os.Getenv(nombre); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				errs = append(errs, nombre+" inválido: "+v)
+			}
+			*destino = n
 		}
 	}
 	errs = append(errs, c.cargarAdjuntos()...)

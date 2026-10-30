@@ -79,7 +79,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermAgendaVer, nucleo.PermClientesVer, nucleo.PermOrdenesVer, nucleo.PermPermisosVer, nucleo.PermProspectosVer, nucleo.PermReportesVer, nucleo.PermRolesVer, nucleo.PermRutasVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
-	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermOrdenesVer, nucleo.PermPortalEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
+	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermOrdenesVer, nucleo.PermPortalEmitir, nucleo.PermSSOEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
 		t.Fatalf("integracion_argos: %v", porCodigo["integracion_argos"].Permisos)
 	}
 	if !slices.Equal(porCodigo["integracion_horus"].Permisos, []nucleo.Permiso{nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {

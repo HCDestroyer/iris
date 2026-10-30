@@ -74,6 +74,9 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			if err != nil {
 				return MFAReiniciado{}, err
 			}
+			if err := borrarVinculosSSO(ctx, t, q, in.ID, "mfa_reiniciado"); err != nil {
+				return MFAReiniciado{}, err
+			}
 			revocados := []int64{}
 			if in.RevocarTokens == nil || *in.RevocarTokens {
 				if revocados, err = q.RevocarTokensDeUsuario(ctx, in.ID); err != nil {

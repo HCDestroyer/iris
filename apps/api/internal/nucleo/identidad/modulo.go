@@ -51,6 +51,16 @@ type Config struct {
 	// 60 s, un solo uso) no se puede adivinar.
 	PortalTope        int64
 	PortalVentanaTope time.Duration
+
+	// Autologin desde Argos (sso.go).
+	// DuracionSesionSSO: vida absoluta de una sesión abierta por el autologin (8 h).
+	DuracionSesionSSO time.Duration
+	// SSOTopeEmision: tickets por conector y minuto (120); pasado, 429 con Retry-After.
+	SSOTopeEmision int
+	// SSOAlertaExternos y SSOVentanaAlerta: si un conector emite tickets para más de N
+	// id_externo distintos en la ventana (20 en 10 min), log warn y anotación en la auditoría.
+	SSOAlertaExternos int
+	SSOVentanaAlerta  time.Duration
 }
 
 // Modulo reúne los casos de uso de identidad.
@@ -60,6 +70,9 @@ type Modulo struct {
 	rechazosPortal atomic.Int64
 	// topePortal cuenta los canjes fallidos de la ventana en curso (freno global).
 	topePortal topeVentana
+	// rechazosSSO y topeSSO: lo mismo para el canje del autologin (contadores aparte).
+	rechazosSSO atomic.Int64
+	topeSSO     topeVentana
 
 	CrearUsuario      *auditoria.Caso[EntradaCrearUsuario, Usuario]
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
@@ -95,6 +108,16 @@ type Modulo struct {
 	EntrarPortal        *auditoria.Caso[EntradaEntrarPortal, SesionPortal]
 	ObtenerSesionPortal *auditoria.Caso[struct{}, SesionPortalActual]
 	CerrarSesionPortal  *auditoria.Caso[struct{}, struct{}]
+
+	// Autologin desde Argos (sso.go).
+	EmitirTicketSSO   *auditoria.Caso[EntradaEmitirTicketSSO, TicketSSOEmitido]
+	CanjearSSO        *auditoria.Caso[EntradaCanjearSSO, CanjeSSO]
+	VincularSSO       *auditoria.Caso[EntradaVincularSSO, VinculoSSOCreado]
+	ListarVinculosSSO *auditoria.Caso[EntradaVinculosSSO, nucleo.Pagina[VinculoSSO]]
+	BorrarVinculoSSO  *auditoria.Caso[EntradaBorrarVinculoSSO, VinculoSSO]
+	CrearVinculoSSO   *auditoria.Caso[EntradaCrearVinculoSSO, VinculoSSO]
+	// Reautenticar: confirmar la contraseña dentro de la sesión (la exige una sesión sso).
+	Reautenticar *auditoria.Caso[EntradaReautenticar, Reautenticado]
 }
 
 // Nuevo arma el módulo.
@@ -129,7 +152,19 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.PortalVentanaTope <= 0 {
 		cfg.PortalVentanaTope = time.Minute
 	}
-	m := &Modulo{cfg: cfg}
+	if cfg.DuracionSesionSSO <= 0 {
+		cfg.DuracionSesionSSO = 8 * time.Hour
+	}
+	if cfg.SSOTopeEmision <= 0 {
+		cfg.SSOTopeEmision = 120
+	}
+	if cfg.SSOAlertaExternos <= 0 {
+		cfg.SSOAlertaExternos = 20
+	}
+	if cfg.SSOVentanaAlerta <= 0 {
+		cfg.SSOVentanaAlerta = 10 * time.Minute
+	}
+	m := &Modulo{cfg: cfg, topePortal: topeVentana{nombre: "portal"}, topeSSO: topeVentana{nombre: "autologin"}}
 	m.CrearUsuario = nuevoCrearUsuario()
 	m.EditarUsuario = nuevoEditarUsuario()
 	m.DesactivarUsuario = nuevoDesactivarUsuario()
@@ -158,6 +193,13 @@ func Nuevo(cfg Config) *Modulo {
 	m.EntrarPortal = nuevoEntrarPortal(m)
 	m.ObtenerSesionPortal = nuevoObtenerSesionPortal()
 	m.CerrarSesionPortal = nuevoCerrarSesionPortal()
+	m.EmitirTicketSSO = nuevoEmitirTicketSSO(cfg)
+	m.CanjearSSO = nuevoCanjearSSO(m)
+	m.VincularSSO = nuevoVincularSSO()
+	m.ListarVinculosSSO = nuevoListarVinculosSSO()
+	m.BorrarVinculoSSO = nuevoBorrarVinculoSSO()
+	m.CrearVinculoSSO = nuevoCrearVinculoSSO()
+	m.Reautenticar = nuevoReautenticar(cfg)
 	return m
 }
 
