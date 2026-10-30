@@ -531,6 +531,38 @@ func TestPortalValidaClienteEnArgos(t *testing.T) {
 	if v := validacion(); v != "false:conector_argos_apagado" {
 		t.Fatalf("sin validar: %s", v)
 	}
+	// Un usuario del panel (rol propio con portal.emitir, sin empresas.todas) no emite si Argos
+	// no pudo confirmar el cliente: no sabemos si es de su empresa. Argos sí (arriba).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `WITH r AS (
+		INSERT INTO nucleo.roles (codigo, nombre) VALUES ('emisor_portal_prueba', 'Emisor de portal') RETURNING id)
+		INSERT INTO nucleo.roles_permisos (rol_id, permiso) SELECT id, p FROM r, unnest(ARRAY['portal.emitir', 'tokens.crear']) AS p`); err != nil {
+		t.Fatal(err)
+	}
+	// El rol es solo de esta prueba: otras cuentan los roles base del paquete.
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), `WITH r AS (SELECT id FROM nucleo.roles WHERE codigo = 'emisor_portal_prueba'),
+			ur AS (DELETE FROM nucleo.usuarios_roles WHERE rol_id IN (SELECT id FROM r))
+			DELETE FROM nucleo.roles WHERE id IN (SELECT id FROM r)`)
+	})
+	ctxSis := pruebas.ContextoSistema(pruebas.Pool(t))
+	correoEmisor := pruebas.Correo("emisor")
+	if _, err := e.mod.CrearUsuario.Ejecutar(ctxSis, identidad.EntradaCrearUsuario{
+		Nombre: "Emisor", Correo: correoEmisor, Contrasena: contrasena,
+		Roles: []identidad.AsignacionRol{{Rol: "emisor_portal_prueba"}}, Empresas: []int64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	panel := e.cliente()
+	if r := entrarCon(panel, correoEmisor, contrasena); r.status != http.StatusOK {
+		t.Fatalf("entrar: %d %s", r.status, r.crudo)
+	}
+	rt := panel.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "emisor", "permisos": []string{"portal.emitir"}})
+	if rt.status != http.StatusCreated {
+		t.Fatalf("token propio: %d %s", rt.status, rt.crudo)
+	}
+	conToken := e.cliente()
+	conToken.bearer, _ = rt.cuerpo["valor"].(string)
+	conToken.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 93, "empresaId": 1}).problema(t, 422, "cliente_no_verificado")
 	// Con instantánea: no se pregunta a Argos.
 	if _, err := pruebas.Pool(t).Exec(context.Background(),
 		`INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (88, 1, 'Conocido', now())`); err != nil {

@@ -97,5 +97,7 @@ SELECT * FROM integracion.argos_routers WHERE id = @id;
 -- empresa del prospecto es la pista local hasta que exista el servicio.
 SELECT empresa_id::bigint AS empresa_id FROM integracion.pendientes
 WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND empresa_id IS NOT NULL
-  AND respuesta->'id' = to_jsonb(@cliente_id::bigint)
+  -- La respuesta guardada conserva la envoltura de Argos ({"data":{"id":N}}); el id puede venir
+  -- como número o como texto.
+  AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = (@cliente_id::bigint)::text
 ORDER BY id DESC LIMIT 1;
