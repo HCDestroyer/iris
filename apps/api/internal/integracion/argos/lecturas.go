@@ -312,7 +312,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			stale := false
 			switch {
 			case in.leida != nil:
-				if err := guardarFicha(ctx, q, *in.leida); err != nil {
+				if err := guardarFicha(ctx, t, q, *in.leida); err != nil {
 					return Ficha{}, err
 				}
 			case in.errArgos != nil && EsCaido(in.errArgos) && in.previa.cliente != nil:
@@ -335,8 +335,14 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				return Ficha{}, nucleo.NoEncontrado("El cliente no existe")
 			}
 			// Los servicios de otras empresas no se muestran (salvo con empresas.todas global).
+			filtro := int64(0)
 			if e != 0 && !todasGlobal(ctx) {
+				filtro = e
 				servicios = slices.DeleteFunc(servicios, func(s argosbd.IntegracionArgosServicio) bool { return s.EmpresaID != e })
+			}
+			eliminados, err := q.ServiciosEliminadosDeCliente(ctx, argosbd.ServiciosEliminadosDeClienteParams{ClienteID: &in.ClienteID, EmpresaID: filtro})
+			if err != nil {
+				return Ficha{}, err
 			}
 			if e == 0 {
 				e = cliente.EmpresaID
@@ -344,7 +350,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			t.FijarEmpresa(e)
 			t.Anotar(map[string]any{"stale": stale, "estado_cuenta": in.estado != nil})
 			return Ficha{
-				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), EstadoCuenta: in.estado,
+				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
 				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn,
 			}, nil
 		},
@@ -361,7 +367,7 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
 	if p.cliente == nil || time.Since(p.cliente.SincronizadoEn) > o.m.cfg.VigenciaInstantanea {
-		leida, err := leerFichaArgos(ctx, cli, in.ID)
+		leida, err := leerFichaArgos(ctx, nucleo.BDDe(ctx), cli, in.ID)
 		switch {
 		case err == nil:
 			f.leida = &leida
@@ -538,6 +544,7 @@ type entradaCatalogos struct {
 	zonas    []ZonaArgos
 	routers  []RouterArgos
 	inicio   time.Time
+	vivos    map[int64]time.Time
 	errArgos error
 }
 
@@ -563,11 +570,19 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 					return ResultadoCatalogos{}, err
 				}
 			}
+			ids := make([]int64, 0, len(in.routers))
+			for _, r := range in.routers {
+				ids = append(ids, r.ID)
+			}
+			// Candados en orden de id antes de guardar ninguno (sin interbloqueos).
+			if err := bloquear(ctx, q, eliminadoRouter, ids); err != nil {
+				return ResultadoCatalogos{}, err
+			}
 			for _, r := range in.routers {
 				lat, lon := r.LatLon()
-				if err := q.GuardarRouter(ctx, argosbd.GuardarRouterParams{
+				if err := guardarRouter(ctx, t, q, argosbd.GuardarRouterParams{
 					ID: r.ID, EmpresaID: r.Empresa(), Nombre: r.Nombre, ZonaID: idDe(r.ZonaID, r.Zona), Lat: lat, Lon: lon, SincronizadoEn: in.inicio,
-				}); err != nil {
+				}, vivoEn(in.vivos, r.ID)); err != nil {
 					return ResultadoCatalogos{}, err
 				}
 			}
@@ -599,10 +614,26 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 	if err != nil {
 		return ResultadoCatalogos{}, err
 	}
-	in := entradaCatalogos{inicio: time.Now().UTC()}
+	in := entradaCatalogos{}
+	if in.inicio, err = argosbd.New(bd).RelojBD(ctx); err != nil {
+		return ResultadoCatalogos{}, err
+	}
 	cli := s.m.clienteDe(c)
 	if in.zonas, in.errArgos = cli.Zonas(ctx); in.errArgos == nil {
 		in.routers, in.errArgos = cli.Routers(ctx)
+	}
+	if in.errArgos == nil {
+		ids := make([]int64, 0, len(in.routers))
+		for _, r := range in.routers {
+			ids = append(ids, r.ID)
+		}
+		// Routers de la lista con lápida: solo resucitan con un GET /routers/:id con 200.
+		if in.vivos, err = confirmarVivos(ctx, bd, eliminadoRouter, ids, func(ctx context.Context, id int64) error {
+			_, err := cli.obtenerRouterUnaVez(ctx, id)
+			return err
+		}); err != nil {
+			return ResultadoCatalogos{}, err
+		}
 	}
 	return s.guardar.Ejecutar(ctx, in)
 }

@@ -703,6 +703,21 @@ type IntegracionArgosCliente struct {
 	SinServicios   bool
 }
 
+type IntegracionArgosEliminado struct {
+	Tipo          string
+	ID            int64
+	EmpresaID     *int64
+	ClienteID     *int64
+	Codigo        string
+	Nombre        string
+	DeInstantanea bool
+	ConectorID    int64
+	EntranteID    *int64
+	EliminadoEn   time.Time
+	ConfirmadoEn  time.Time
+	CreatedAt     time.Time
+}
+
 type IntegracionArgosRouter struct {
 	ID             int64
 	EmpresaID      *int64
@@ -776,6 +791,7 @@ type IntegracionConectore struct {
 	UpdatedAt             time.Time
 	UrlPublica            *string
 	TokenEntregadoID      *int64
+	AlcanceGlobal         *bool
 }
 
 type IntegracionEntrante struct {

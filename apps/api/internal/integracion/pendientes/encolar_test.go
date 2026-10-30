@@ -172,8 +172,9 @@ func TestResolucionSinDatoYRespuestaGrande(t *testing.T) {
 	}
 }
 
-// Los 409 se distinguen por type: idempotencia_en_curso se reintenta; user_ppp_duplicado (y
-// los demás de negocio) y el 422 idempotency_key_reutilizada fallan sin reintento.
+// Los 409 se distinguen por type: solo idempotencia_en_curso se reintenta (contrato 0.3.1 §3.1);
+// user_ppp_duplicado, servicio_no_pendiente, cualquier otro 409 (también sin type o con
+// about:blank) y el 422 idempotency_key_reutilizada fallan sin reintento.
 func TestConflictosPorTipo(t *testing.T) {
 	e := nuevoEntorno(t)
 	casos := []struct {
@@ -185,8 +186,9 @@ func TestConflictosPorTipo(t *testing.T) {
 		{"/servicios/ppp", "urn:argos:user_ppp_duplicado", 409, "fallido_negocio"},
 		{"/servicios/otro-409", "router_sin_capacidad", 409, "fallido_negocio"},
 		{"/servicios/reutilizada", "https://argos.example/problemas/idempotency_key_reutilizada", 422, "fallido_negocio"},
-		{"/servicios/sin-tipo", "", 409, "pendiente"},
-		{"/servicios/about-blank", "about:blank", 409, "pendiente"},
+		{"/servicios/no-pendiente", "urn:argosisp:problema:servicio_no_pendiente", 409, "fallido_negocio"},
+		{"/servicios/sin-tipo", "", 409, "fallido_negocio"},
+		{"/servicios/about-blank", "about:blank", 409, "fallido_negocio"},
 	}
 	for i, c := range casos {
 		e.argos.responder(c.ruta, c.status)

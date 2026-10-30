@@ -7,10 +7,10 @@ SELECT nextval(pg_get_serial_sequence('integracion.conectores', 'id'))::bigint A
 -- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id
+    token_entregado_id, alcance_global
 ) VALUES (
     @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por,
-    sqlc.narg(token_entregado_id)
+    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global)
 )
 RETURNING *;
 
@@ -113,9 +113,24 @@ WHERE id = @id;
 
 -- Empresas ------------------------------------------------------------------
 
--- name: RegistrarEmpresaConector :exec
--- Empresa que cubre el token del conector (canje). Si ya existe solo se marca sincronizada: el
--- nombre lo pone el administrador (Argos no lo manda en el canje).
-INSERT INTO nucleo.empresas (id, nombre, origen, sincronizado_en)
-VALUES (@id, @nombre, 'argos', now())
-ON CONFLICT (id) DO UPDATE SET sincronizado_en = now(), updated_at = now();
+-- name: EmpresaCanjeParaActualizar :one
+-- Empresa que informa el canje (bloqueada para completarla en la misma transacción).
+SELECT * FROM nucleo.empresas WHERE id = @id FOR UPDATE;
+
+-- name: CrearEmpresaCanje :one
+-- Empresa nueva que cubre el token del conector (canje). Sin filas si otra transacción la creó.
+INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
+VALUES (@id, @nombre, @nit, 'argos', now())
+ON CONFLICT (id) DO NOTHING
+RETURNING *;
+
+-- name: CompletarEmpresaCanje :one
+-- Completa nombre o NIT de una empresa de origen argos (lo decide el código: solo el marcador
+-- «Empresa <id>» y el NIT vacío).
+UPDATE nucleo.empresas
+SET nombre = @nombre, nit = @nit, version = version + 1, sincronizado_en = now(), updated_at = now()
+WHERE id = @id AND origen = 'argos'
+RETURNING *;
+
+-- name: MarcarEmpresaSincronizada :exec
+UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id = @id AND origen = 'argos';

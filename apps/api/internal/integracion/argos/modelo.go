@@ -52,11 +52,26 @@ type EstadoCuenta struct {
 	MontoVencido     *string `json:"montoVencido" nullable:"true" doc:"Monto vencido en texto decimal, si Argos lo informa"`
 }
 
+// ServicioEliminado es un servicio que Argos eliminó (webhook servicio.eliminado, contrato 0.3.1):
+// ya no está en la instantánea, pero órdenes y tickets que lo referencian lo muestran «eliminado
+// en Argos». Código y plan son la última copia que tenía Iris (vacíos si nunca la tuvo).
+type ServicioEliminado struct {
+	ID          int64     `json:"id" doc:"Id del servicio en Argos (ya no existe allá)"`
+	EmpresaID   *int64    `json:"empresaId" nullable:"true"`
+	ClienteID   *int64    `json:"clienteId" nullable:"true"`
+	Codigo      string    `json:"codigo" doc:"Último código conocido; vacío si Iris no tenía la instantánea"`
+	PlanNombre  string    `json:"planNombre" doc:"Último plan conocido; vacío si Iris no tenía la instantánea"`
+	EliminadoEn time.Time `json:"eliminadoEn" doc:"Cuándo lo eliminó Argos (ocurrido_en del webhook)"`
+}
+
 // Ficha de un cliente: datos, servicios y estado de cuenta.
 type Ficha struct {
-	Cliente      ClienteResumen `json:"cliente"`
-	Servicios    []Servicio     `json:"servicios"`
-	EstadoCuenta *EstadoCuenta  `json:"estadoCuenta,omitempty" doc:"Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron"`
+	Cliente   ClienteResumen `json:"cliente"`
+	Servicios []Servicio     `json:"servicios"`
+	// ServiciosEliminados: los que Argos eliminó; un ticket u orden con uno de estos servicioId lo
+	// muestra «eliminado en Argos».
+	ServiciosEliminados []ServicioEliminado `json:"serviciosEliminados" required:"false" doc:"Servicios del cliente que Argos eliminó (servicio.eliminado, contrato 0.3.1): ya no están en servicios. Un ticket u orden cuyo servicioId está aquí lo muestra «eliminado en Argos». Filtrados por la empresa activa, como servicios"`
+	EstadoCuenta        *EstadoCuenta       `json:"estadoCuenta,omitempty" doc:"Ausente si no se pudo leer (ver estadoCuentaError); nunca se muestran totales calculados sobre datos que no se leyeron"`
 	// EstadoCuentaError explica por qué no hay estado de cuenta.
 	EstadoCuentaError *string   `json:"estadoCuentaError" nullable:"true" enum:"sin_permiso,argos_no_disponible,argos_rechazo" doc:"sin_permiso: falta clientes.estado_cuenta; argos_no_disponible: Argos no respondió; argos_rechazo: Argos lo negó"`
 	Stale             bool      `json:"stale" doc:"true: Argos no respondió y se muestra la última instantánea"`

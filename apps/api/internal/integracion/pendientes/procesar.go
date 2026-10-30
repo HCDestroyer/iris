@@ -159,12 +159,17 @@ func escalar(v []byte) string {
 // TipoEnCurso: 409 de Argos mientras procesa la misma Idempotency-Key (se reintenta).
 const TipoEnCurso = "idempotencia_en_curso"
 
+// TipoServicioNoPendiente: 409 de activar-instalacion sobre un servicio que ya no está
+// pendiente_instalacion (contrato 0.3.1 §3.1; antes 422). De negocio: la orden queda «cerrada con
+// pendiente en Argos» y se avisa al supervisor (integracion.pendiente_fallido).
+const TipoServicioNoPendiente = "servicio_no_pendiente"
+
 // EsNegocio: un 4xx que reintentar no arregla (datos, estado del servicio, existencias,
-// user_ppp_duplicado, 422 idempotency_key_reutilizada). No lo son 401/403 (credencial o permiso
-// del token: se arregla en Argos y el reintento pasa), 408, 425, 429 ni el 409
-// idempotencia_en_curso (Argos procesando la misma Idempotency-Key); los demás 409 de Argos
-// (user_ppp_duplicado y otros conflictos de datos) sí son de negocio. Un 409 sin type (o con
-// about:blank) se reintenta (no se sabe cuál es).
+// user_ppp_duplicado, 409 servicio_no_pendiente, 422 idempotency_key_reutilizada). No lo son
+// 401/403 (credencial o permiso del token: se arregla en Argos y el reintento pasa), 408, 425,
+// 429 ni el 409 idempotencia_en_curso (Argos procesando la misma Idempotency-Key). Contrato
+// 0.3.1 §3.1: de los 409, solo idempotencia_en_curso se reintenta; cualquier otro (con otro
+// type, sin type o con about:blank) es de negocio.
 func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
@@ -174,8 +179,7 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 		http.StatusTooEarly, http.StatusTooManyRequests:
 		return false
 	case http.StatusConflict:
-		t := TipoDe(er)
-		return t != "" && t != TipoEnCurso
+		return TipoDe(er) != TipoEnCurso
 	}
 	return true
 }

@@ -1451,6 +1451,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "alcanceGlobal": {
+            "description": "Lo que informó el canje de Argos (0.3.1): true = Iris ve también las empresas que se creen después en Argos; false = solo las de empresas (vacía = ninguna). Ausente si no lo informó (Argos anterior a 0.3.1, Horus o un enlace generado en Iris)",
+            "type": "boolean"
+          },
           "baseUrl": {
             "description": "Origen del otro sistema",
             "type": "string"
@@ -6244,6 +6248,16 @@
           "servicios": {
             "items": {
               "$ref": "#/components/schemas/Servicio"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "serviciosEliminados": {
+            "description": "Servicios del cliente que Argos eliminó (servicio.eliminado, contrato 0.3.1): ya no están en servicios. Un ticket u orden cuyo servicioId está aquí lo muestra «eliminado en Argos». Filtrados por la empresa activa, como servicios",
+            "items": {
+              "$ref": "#/components/schemas/ServicioEliminado"
             },
             "type": [
               "array",
@@ -12704,6 +12718,52 @@
           "lon",
           "estado",
           "sincronizadoEn"
+        ],
+        "type": "object"
+      },
+      "ServicioEliminado": {
+        "additionalProperties": false,
+        "properties": {
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "codigo": {
+            "description": "Último código conocido; vacío si Iris no tenía la instantánea",
+            "type": "string"
+          },
+          "eliminadoEn": {
+            "description": "Cuándo lo eliminó Argos (ocurrido_en del webhook)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Id del servicio en Argos (ya no existe allá)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "planNombre": {
+            "description": "Último plan conocido; vacío si Iris no tenía la instantánea",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "clienteId",
+          "codigo",
+          "planNombre",
+          "eliminadoEn"
         ],
         "type": "object"
       },

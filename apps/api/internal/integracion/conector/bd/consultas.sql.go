@@ -18,7 +18,7 @@ SET estado       = $1,
     version      = version + 1,
     updated_at   = now()
 WHERE id = $3 AND version = $4
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
 `
 
 type CambiarEstadoConectorParams struct {
@@ -55,6 +55,7 @@ func (q *Queries) CambiarEstadoConector(ctx context.Context, arg CambiarEstadoCo
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
@@ -63,7 +64,7 @@ const cambiarURLPublicaConector = `-- name: CambiarURLPublicaConector :one
 UPDATE integracion.conectores
 SET url_publica = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
 `
 
 type CambiarURLPublicaConectorParams struct {
@@ -94,12 +95,44 @@ func (q *Queries) CambiarURLPublicaConector(ctx context.Context, arg CambiarURLP
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
+	)
+	return i, err
+}
+
+const completarEmpresaCanje = `-- name: CompletarEmpresaCanje :one
+UPDATE nucleo.empresas
+SET nombre = $1, nit = $2, version = version + 1, sincronizado_en = now(), updated_at = now()
+WHERE id = $3 AND origen = 'argos'
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type CompletarEmpresaCanjeParams struct {
+	Nombre string
+	Nit    string
+	ID     int64
+}
+
+// Completa nombre o NIT de una empresa de origen argos (lo decide el código: solo el marcador
+// «Empresa <id>» y el NIT vacío).
+func (q *Queries) CompletarEmpresaCanje(ctx context.Context, arg CompletarEmpresaCanjeParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, completarEmpresaCanje, arg.Nombre, arg.Nit, arg.ID)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const conectorActivo = `-- name: ConectorActivo :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 `
 
 func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (IntegracionConectore, error) {
@@ -124,12 +157,13 @@ func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (Integraci
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
 
 const conectorPorID = `-- name: ConectorPorID :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id FROM integracion.conectores WHERE id = $1
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE id = $1
 `
 
 func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -154,12 +188,13 @@ func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConec
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
 
 const conectorPorIDParaActualizar = `-- name: ConectorPorIDParaActualizar :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id FROM integracion.conectores WHERE id = $1 FOR UPDATE
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -184,12 +219,13 @@ func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (In
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
 
 const conectoresActivos = `-- name: ConectoresActivos :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
 `
 
 func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore, error) {
@@ -220,6 +256,7 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 			&i.UpdatedAt,
 			&i.UrlPublica,
 			&i.TokenEntregadoID,
+			&i.AlcanceGlobal,
 		); err != nil {
 			return nil, err
 		}
@@ -229,6 +266,59 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 		return nil, err
 	}
 	return items, nil
+}
+
+const crearEmpresaCanje = `-- name: CrearEmpresaCanje :one
+INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
+VALUES ($1, $2, $3, 'argos', now())
+ON CONFLICT (id) DO NOTHING
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type CrearEmpresaCanjeParams struct {
+	ID     int64
+	Nombre string
+	Nit    string
+}
+
+// Empresa nueva que cubre el token del conector (canje). Sin filas si otra transacción la creó.
+func (q *Queries) CrearEmpresaCanje(ctx context.Context, arg CrearEmpresaCanjeParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, crearEmpresaCanje, arg.ID, arg.Nombre, arg.Nit)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const empresaCanjeParaActualizar = `-- name: EmpresaCanjeParaActualizar :one
+
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = $1 FOR UPDATE
+`
+
+// Empresas ------------------------------------------------------------------
+// Empresa que informa el canje (bloqueada para completarla en la misma transacción).
+func (q *Queries) EmpresaCanjeParaActualizar(ctx context.Context, id int64) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, empresaCanjeParaActualizar, id)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const entranteParaProcesar = `-- name: EntranteParaProcesar :one
@@ -374,12 +464,12 @@ func (q *Queries) InsertarCodigoConexion(ctx context.Context, arg InsertarCodigo
 const insertarConector = `-- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id
+    token_entregado_id, alcance_global
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10
+    $10, $11
 )
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
 `
 
 type InsertarConectorParams struct {
@@ -393,6 +483,7 @@ type InsertarConectorParams struct {
 	Empresas              []int64
 	CreadoPor             *int64
 	TokenEntregadoID      *int64
+	AlcanceGlobal         *bool
 }
 
 func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorParams) (IntegracionConectore, error) {
@@ -407,6 +498,7 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		arg.Empresas,
 		arg.CreadoPor,
 		arg.TokenEntregadoID,
+		arg.AlcanceGlobal,
 	)
 	var i IntegracionConectore
 	err := row.Scan(
@@ -428,6 +520,7 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		&i.UpdatedAt,
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
@@ -484,7 +577,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 }
 
 const listarConectores = `-- name: ListarConectores :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id FROM integracion.conectores
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores
 WHERE id > $1
 ORDER BY id
 LIMIT $2
@@ -523,6 +616,7 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 			&i.UpdatedAt,
 			&i.UrlPublica,
 			&i.TokenEntregadoID,
+			&i.AlcanceGlobal,
 		); err != nil {
 			return nil, err
 		}
@@ -532,6 +626,15 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const marcarEmpresaSincronizada = `-- name: MarcarEmpresaSincronizada :exec
+UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id = $1 AND origen = 'argos'
+`
+
+func (q *Queries) MarcarEmpresaSincronizada(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, marcarEmpresaSincronizada, id)
+	return err
 }
 
 const marcarEntranteError = `-- name: MarcarEntranteError :exec
@@ -565,26 +668,6 @@ type MarcarEntranteProcesadoParams struct {
 // nota: por qué se ignoró (payload inválido…); null si se aplicó.
 func (q *Queries) MarcarEntranteProcesado(ctx context.Context, arg MarcarEntranteProcesadoParams) error {
 	_, err := q.db.Exec(ctx, marcarEntranteProcesado, arg.Resultado, arg.Nota, arg.ID)
-	return err
-}
-
-const registrarEmpresaConector = `-- name: RegistrarEmpresaConector :exec
-
-INSERT INTO nucleo.empresas (id, nombre, origen, sincronizado_en)
-VALUES ($1, $2, 'argos', now())
-ON CONFLICT (id) DO UPDATE SET sincronizado_en = now(), updated_at = now()
-`
-
-type RegistrarEmpresaConectorParams struct {
-	ID     int64
-	Nombre string
-}
-
-// Empresas ------------------------------------------------------------------
-// Empresa que cubre el token del conector (canje). Si ya existe solo se marca sincronizada: el
-// nombre lo pone el administrador (Argos no lo manda en el canje).
-func (q *Queries) RegistrarEmpresaConector(ctx context.Context, arg RegistrarEmpresaConectorParams) error {
-	_, err := q.db.Exec(ctx, registrarEmpresaConector, arg.ID, arg.Nombre)
 	return err
 }
 

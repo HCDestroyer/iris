@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
@@ -23,6 +24,7 @@ type Conector struct {
 	Estado          string     `json:"estado" enum:"apagado,activo"`
 	RemotoID        *string    `json:"remotoId" nullable:"true" doc:"Id de la conexión en el otro sistema, si lo informó"`
 	Empresas        []int64    `json:"empresas" doc:"Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó)"`
+	AlcanceGlobal   *bool      `json:"alcanceGlobal,omitempty" doc:"Lo que informó el canje de Argos (0.3.1): true = Iris ve también las empresas que se creen después en Argos; false = solo las de empresas (vacía = ninguna). Ausente si no lo informó (Argos anterior a 0.3.1, Horus o un enlace generado en Iris)"`
 	WebhookURL      string     `json:"webhookUrl" doc:"URL a la que el otro sistema envía los webhooks"`
 	ActivadoEn      *time.Time `json:"activadoEn" nullable:"true"`
 	UltimoWebhookEn *time.Time `json:"ultimoWebhookEn" nullable:"true"`
@@ -39,7 +41,7 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 	}
 	return Conector{
 		ID: f.ID, Sistema: f.Sistema, BaseURL: f.BaseUrl, URLPublica: urlPublica(f), Origen: f.Origen, Estado: f.Estado,
-		RemotoID: f.RemotoID, Empresas: empresas, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
+		RemotoID: f.RemotoID, Empresas: empresas, AlcanceGlobal: f.AlcanceGlobal, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
 		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 	}
 }
@@ -134,13 +136,23 @@ type WebhookCanje struct {
 
 // RespuestaCanje es lo que devuelve el otro sistema al canjear (§1.4): su token para Iris, su
 // receptor de webhooks (Iris aún no envía eventos: no se guarda) y el id del conector allá.
-// conexion_id y empresas son opcionales (versiones anteriores del supuesto).
+// conexion_id y empresas son opcionales (versiones anteriores del supuesto). Argos 0.3.1 agrega
+// alcance_global y empresas[] como { id, nombre, nit } (§1.3).
 type RespuestaCanje struct {
-	Token      string            `json:"token"`
-	Webhook    *WebhookCanje     `json:"webhook"`
-	ConectorID json.RawMessage   `json:"conector_id"`
-	ConexionID json.RawMessage   `json:"conexion_id"`
-	Empresas   []json.RawMessage `json:"empresas"`
+	Token         string            `json:"token"`
+	Webhook       *WebhookCanje     `json:"webhook"`
+	ConectorID    json.RawMessage   `json:"conector_id"`
+	ConexionID    json.RawMessage   `json:"conexion_id"`
+	Empresas      []json.RawMessage `json:"empresas"`
+	AlcanceGlobal *bool             `json:"alcance_global"`
+}
+
+// EmpresaCanje es una empresa del alcance que informa el canje: nombre comercial y NIT sin
+// guiones (vacíos si no vinieron).
+type EmpresaCanje struct {
+	ID     int64  `json:"id"`
+	Nombre string `json:"nombre,omitempty"`
+	NIT    string `json:"nit,omitempty"`
 }
 
 var (
@@ -174,21 +186,52 @@ func (r RespuestaCanje) ConectorIDValido() (*string, error) {
 	return &texto, nil
 }
 
-// IDsEmpresas acepta [1, 2] o [{ id: 1 }, …].
-func (r RespuestaCanje) IDsEmpresas() []int64 {
-	salida := []int64{}
+// EmpresasCanje acepta [1, 2] o [{ id: 1, nombre, nit }, …] (Argos 0.3.1; nit puede ser null).
+// Ids no positivos se descartan; nombre y nit se recortan (200 y 30 caracteres, como
+// nucleo.empresas).
+func (r RespuestaCanje) EmpresasCanje() []EmpresaCanje {
+	salida := []EmpresaCanje{}
 	for _, c := range r.Empresas {
 		var n int64
 		if json.Unmarshal(c, &n) == nil {
-			salida = append(salida, n)
+			if n > 0 {
+				salida = append(salida, EmpresaCanje{ID: n})
+			}
 			continue
 		}
 		var ref struct {
-			ID *int64 `json:"id"`
+			ID     *int64  `json:"id"`
+			Nombre *string `json:"nombre"`
+			NIT    *string `json:"nit"`
 		}
-		if json.Unmarshal(c, &ref) == nil && ref.ID != nil {
-			salida = append(salida, *ref.ID)
+		if json.Unmarshal(c, &ref) != nil || ref.ID == nil || *ref.ID <= 0 {
+			continue
 		}
+		e := EmpresaCanje{ID: *ref.ID}
+		if ref.Nombre != nil {
+			e.Nombre = recortar(strings.TrimSpace(*ref.Nombre), 200)
+		}
+		if ref.NIT != nil {
+			e.NIT = recortar(strings.TrimSpace(*ref.NIT), 30)
+		}
+		salida = append(salida, e)
 	}
 	return salida
+}
+
+// IDsEmpresas son los ids de EmpresasCanje.
+func (r RespuestaCanje) IDsEmpresas() []int64 {
+	salida := []int64{}
+	for _, e := range r.EmpresasCanje() {
+		salida = append(salida, e.ID)
+	}
+	return salida
+}
+
+func recortar(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }

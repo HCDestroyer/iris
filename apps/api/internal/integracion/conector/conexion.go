@@ -102,11 +102,16 @@ func (c *Conexion) exigirConfiguracion() error {
 
 // insertarConector cifra token y secreto atados a la fila (id reservado) e inserta (apagado).
 func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64) (conectorbd.IntegracionConectore, error) {
-	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, empresas, nil)
+	lista := make([]EmpresaCanje, 0, len(empresas))
+	for _, e := range empresas {
+		lista = append(lista, EmpresaCanje{ID: e})
+	}
+	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil)
 }
 
-// insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil).
-func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64, entregado *int64) (conectorbd.IntegracionConectore, error) {
+// insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil) y
+// lo que informó el canje de Argos (0.3.1): empresas con nombre y nit, y alcance_global (o nil).
+func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64) (conectorbd.IntegracionConectore, error) {
 	q := conectorbd.New(t)
 	tokenCifrado, err := c.n.cifrar(id, "token", token)
 	if err != nil {
@@ -120,30 +125,99 @@ func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id 
 	if a := t.Actor(); a.EsUsuario() {
 		creadoPor = &a.ID
 	}
-	if empresas == nil || !c.s.RegistrarEmpresas {
-		empresas = []int64{}
+	if !c.s.RegistrarEmpresas {
+		lista, alcanceGlobal = nil, nil
+	}
+	empresas := make([]int64, 0, len(lista))
+	for _, e := range lista {
+		if e.ID > 0 && !slices.Contains(empresas, e.ID) {
+			empresas = append(empresas, e.ID)
+		}
 	}
 	f, err := q.InsertarConector(ctx, conectorbd.InsertarConectorParams{
 		ID: id, Sistema: c.s.Nombre, BaseUrl: base, Origen: origen, TokenCifrado: tokenCifrado,
 		SecretoWebhookCifrado: secretoCifrado, RemotoID: remotoID, Empresas: empresas, CreadoPor: creadoPor,
-		TokenEntregadoID: entregado,
+		TokenEntregadoID: entregado, AlcanceGlobal: alcanceGlobal,
 	})
 	if err != nil {
 		return f, err
 	}
 	// Las empresas que cubre el token quedan registradas (multiempresa): un administrador les
 	// pone nombre y las asigna a los usuarios.
-	for _, e := range empresas {
-		if e <= 0 {
+	registradas := map[int64]bool{}
+	for _, e := range lista {
+		if e.ID <= 0 || registradas[e.ID] {
 			continue
 		}
-		if err := q.RegistrarEmpresaConector(ctx, conectorbd.RegistrarEmpresaConectorParams{ID: e, Nombre: "Empresa " + itoa(e)}); err != nil {
+		registradas[e.ID] = true
+		if err := registrarEmpresaCanje(ctx, t, q, e); err != nil {
 			return f, err
 		}
 	}
 	t.FijarEmpresa(0)
 	t.RegistrarCambios("conector", f.ID, nil, c.n.AConector(f))
 	return f, t.Emitir("conector.creado", map[string]any{"conector_id": f.ID, "sistema": f.Sistema, "origen": f.Origen})
+}
+
+// empresaAuditable: lo que se audita de una empresa (como identidad.empresas).
+type empresaAuditable struct {
+	Nombre string `json:"nombre"`
+	NIT    string `json:"nit"`
+}
+
+// registrarEmpresaCanje registra o completa una empresa que informa el canje, auditada y con su
+// evento (empresa.creada / empresa.actualizada con campos[]), como identidad/empresas.go. Una
+// empresa existente solo se completa si es de origen argos: el nombre si sigue siendo el marcador
+// «Empresa <id>» y el NIT si está vacío. Lo de un administrador (origen manual, o un nombre ya
+// puesto) no se toca.
+func registrarEmpresaCanje(ctx context.Context, t *auditoria.Tx, q *conectorbd.Queries, e EmpresaCanje) error {
+	marcador := "Empresa " + itoa(e.ID)
+	nombre := e.Nombre
+	if nombre == "" {
+		nombre = marcador
+	}
+	defer t.FijarEmpresa(0)
+	antes, err := q.EmpresaCanjeParaActualizar(ctx, e.ID)
+	if esSinFilas(err) {
+		f, errCrear := q.CrearEmpresaCanje(ctx, conectorbd.CrearEmpresaCanjeParams{ID: e.ID, Nombre: nombre, Nit: e.NIT})
+		switch {
+		case errCrear == nil:
+			t.FijarEmpresa(f.ID)
+			t.RegistrarCambios("empresa", f.ID, nil, empresaAuditable{Nombre: f.Nombre, NIT: f.Nit})
+			return t.Emitir("empresa.creada", map[string]any{"empresa_id": f.ID, "origen": f.Origen})
+		case !esSinFilas(errCrear):
+			return errCrear
+		}
+		// Otra transacción la creó entretanto: se completa como existente.
+		antes, err = q.EmpresaCanjeParaActualizar(ctx, e.ID)
+	}
+	if err != nil {
+		return err
+	}
+	if antes.Origen != "argos" {
+		return nil
+	}
+	nuevoNombre, nuevoNIT := antes.Nombre, antes.Nit
+	if antes.Nombre == marcador && e.Nombre != "" {
+		nuevoNombre = e.Nombre
+	}
+	if antes.Nit == "" && e.NIT != "" {
+		nuevoNIT = e.NIT
+	}
+	if nuevoNombre == antes.Nombre && nuevoNIT == antes.Nit {
+		return q.MarcarEmpresaSincronizada(ctx, e.ID)
+	}
+	despues, err := q.CompletarEmpresaCanje(ctx, conectorbd.CompletarEmpresaCanjeParams{ID: e.ID, Nombre: nuevoNombre, Nit: nuevoNIT})
+	if err != nil {
+		return err
+	}
+	t.FijarEmpresa(e.ID)
+	campos := t.RegistrarCambios("empresa", e.ID, empresaAuditable{Nombre: antes.Nombre, NIT: antes.Nit},
+		empresaAuditable{Nombre: despues.Nombre, NIT: despues.Nit})
+	if campos == nil {
+		campos = []string{}
+	}
+	return t.Emitir("empresa.actualizada", map[string]any{"empresa_id": e.ID, "campos": campos})
 }
 
 // Conectar con un enlace del otro sistema --------------------------------------------------
@@ -223,7 +297,7 @@ func nuevoConectar(c *Conexion) *Conectar {
 				entregado = &in.tokenEntregado
 			}
 			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, "enlace_remoto", in.Base, token, in.secreto,
-				remotoID, in.respuesta.IDsEmpresas(), entregado)
+				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado)
 			if err != nil {
 				return Conector{}, err
 			}
