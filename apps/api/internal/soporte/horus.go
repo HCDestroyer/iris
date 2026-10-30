@@ -194,7 +194,9 @@ func (m *Modulo) proponer(ctx context.Context, t *auditoria.Tx, q *soportebd.Que
 	if _, err := mensajeSistema(ctx, q, antes, false, motivo+" Propuesta: "+accion+" el ticket (un agente lo confirma)."); err != nil {
 		return antes, err
 	}
-	if antes.Propuesta != nil && *antes.Propuesta == accion {
+	// La misma propuesta de Horus ya estaba: solo la nota. Una del cierre de una orden se
+	// reemplaza: Horus manda (la suya no se pierde).
+	if antes.Propuesta != nil && *antes.Propuesta == accion && origenPropuesta(antes) == PropuestaDeHorus {
 		return antes, nil
 	}
 	cal, err := cargarCalendario(ctx, q, antes.CalendarioID)

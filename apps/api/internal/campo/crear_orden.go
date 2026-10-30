@@ -322,6 +322,10 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				if err := soporte.NotaDeOrden(ctx, t, ticket.ID, nota); err != nil {
 					return Orden{}, err
 				}
+				// Vuelve a haber una orden abierta: la propuesta de resolver por un cierre ya no vale.
+				if err := soporte.DescartarPropuestaDeOrden(ctx, t, ticket.ID, f.Numero); err != nil {
+					return Orden{}, err
+				}
 			}
 			return aOrden(f, tipo.Codigo), nil
 		},

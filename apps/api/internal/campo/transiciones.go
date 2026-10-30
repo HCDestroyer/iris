@@ -222,7 +222,15 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return f, "", err
 			}
-			return f, "", cambioDeEstado(ctx, t, q, antes, f, &motivo, nil, ahora)
+			if err := cambioDeEstado(ctx, t, q, antes, f, &motivo, nil, ahora); err != nil {
+				return f, "", err
+			}
+			// La orden vuelve a estar abierta: una propuesta de resolver del ticket por el cierre de
+			// otra orden ya no vale.
+			if f.TicketID != nil {
+				return f, "", soporte.DescartarPropuestaDeOrden(ctx, t, *f.TicketID, f.Numero)
+			}
+			return f, "", nil
 		})
 }
 

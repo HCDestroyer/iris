@@ -306,7 +306,7 @@ func (m *Modulo) registrarTicketOrden(api huma.API) {
 		nucleo.PermTicketsCrearOrden, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
 	crear.Description += " Exige además `ordenes.crear`, `ordenes.asignar` y, con `inicio`, `ordenes.programar`. En un paso y en una transacción: crea la orden ligada al ticket " +
 		"(visita por defecto; hereda cliente, servicio, zona, dirección y contacto; el ticket recibe una nota interna), la asigna al técnico y/o la cuadrilla " +
-		"(al menos uno: 422 `validacion` con regla `asignacion_requerida`) y, con `inicio`, la programa (422 de agenda como programar). Ticket cerrado: 422 `ticket_cerrado`. " +
+		"(al menos uno: 422 `validacion` con regla `asignacion_requerida`) y, con `inicio`, la programa (422 de agenda como programar). Ticket cerrado: 422 `ticket_cerrado`. La misma Idempotency-Key con otro ticket: 422 `idempotencia_reutilizada`. " +
 		"Emite `orden.creada` (con `ticket_id`), `orden.asignada` y, con fecha, `orden.programada` y `orden.estado_cambiada`."
 	huma.Register(api, crear, func(ctx context.Context, in *conID[EntradaCrearOrdenDeTicket]) (*cuerpo[Orden], error) {
 		e := in.Body

@@ -132,12 +132,14 @@ func proponerEnTicket(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, 
 	if f.TicketID == nil {
 		return nil
 	}
-	abiertas, err := q.OrdenesAbiertasDeTicket(ctx, campobd.OrdenesAbiertasDeTicketParams{TicketID: f.TicketID, Excluir: f.ID})
-	if err != nil {
-		return err
-	}
+	// Las otras órdenes abiertas se cuentan con el ticket ya bloqueado (soporte lo toma con FOR
+	// UPDATE antes de llamar): si dos órdenes del ticket se cierran a la vez, la segunda espera y
+	// ve cerrada la primera, así que una de las dos propone.
 	propuso, err := soporte.ProponerPorOrden(ctx, t, soporte.CierreDeOrden{
-		TicketID: *f.TicketID, OrdenID: f.ID, Numero: f.Numero, Resultado: resultado, Abiertas: abiertas, Ahora: ahora,
+		TicketID: *f.TicketID, OrdenID: f.ID, Numero: f.Numero, Resultado: resultado, Ahora: ahora,
+		OtrasAbiertas: func(ctx context.Context) ([]string, error) {
+			return q.OrdenesAbiertasDeTicket(ctx, campobd.OrdenesAbiertasDeTicketParams{TicketID: f.TicketID, Excluir: f.ID})
+		},
 	})
 	if err == nil {
 		t.Anotar(map[string]any{"ticket_resolucion_propuesta": propuso})

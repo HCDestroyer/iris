@@ -3,9 +3,11 @@ package campo_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -338,4 +340,235 @@ func TestHTTPTicketYOrdenDeLaMano(t *testing.T) {
 	if !strings.Contains(string(r.crudo), "usuarioId") {
 		t.Fatalf("igualar: %s", r.crudo)
 	}
+}
+
+// lista: la orden programada del técnico, en sitio con checklist y firma, lista para cerrar.
+func lista(t *testing.T, e entorno, cd, ct context.Context, o campo.Orden) campo.Orden {
+	t.Helper()
+	o = deber(e.m.Llegar.Ejecutar(ct, campo.EntradaPosicion{ID: o.ID, Version: o.Version}))(t)
+	completarChecklist(t, e, ct, o.ID)
+	firma := uuid.Must(uuid.NewV7())
+	deber(e.m.CapturarFirma.Ejecutar(ct, campo.EntradaCapturarFirma{ID: o.ID, Nombre: "Cliente",
+		SVG: `<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10"/></svg>`, AdjuntoID: &firma}))(t)
+	return deber(e.m.VerOrden.Ejecutar(cd, campo.EntradaVerOrden{ID: o.ID}))(t).Orden
+}
+
+// conTicketBloqueado tiene el ticket con FOR UPDATE en otra transacción mientras corren las dos
+// acciones: espera a que las dos queden esperando ese bloqueo y lo suelta. Así se reproduce el
+// peor caso (las dos ya hicieron todo lo anterior al ticket) sin sleeps en el código.
+func conTicketBloqueado(t *testing.T, ticketID int64, acciones ...func() error) []error {
+	t.Helper()
+	ctx := context.Background()
+	pool := pruebas.Pool(t)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM soporte.tickets WHERE id = $1 FOR UPDATE", ticketID); err != nil {
+		t.Fatal(err)
+	}
+	errores := make([]error, len(acciones))
+	var wg sync.WaitGroup
+	for i, a := range acciones {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errores[i] = a()
+		}()
+	}
+	limite := time.Now().Add(15 * time.Second)
+	for {
+		var n int
+		// Esperando el bloqueo del ticket: la primera, detrás de esta transacción; la segunda,
+		// detrás de la primera.
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+			AND cardinality(pg_blocking_pids(pid)) > 0 AND query ILIKE '%soporte.tickets%'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n >= len(acciones) {
+			break
+		}
+		if time.Now().After(limite) {
+			filas, _ := pool.Query(ctx, `SELECT query FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0`)
+			for filas.Next() {
+				var q string
+				_ = filas.Scan(&q)
+				t.Log(q)
+			}
+			filas.Close()
+			t.Fatalf("solo %d de %d acciones llegaron al bloqueo del ticket", n, len(acciones))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	return errores
+}
+
+// Dos órdenes del mismo ticket que se cierran a la vez: una de las dos propone resolver (antes
+// las dos contaban la otra como abierta y el ticket se quedaba sin propuesta).
+func TestCierresSimultaneosDelTicketProponenUnaVez(t *testing.T) {
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	// Dos técnicos: los cierres de un mismo técnico ya se serializan (candado del feed de cambios).
+	d, tecs := despacho(t), []int64{tecnico(t), tecnico(t)}
+	cd := como(t, d, "despacho")
+	tk := ticketDePrueba(t, sop, cd)
+	var ordenes []campo.Orden
+	for _, tec := range tecs {
+		o := deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec,
+			Direccion: ptr("Colonia Las Flores"), Inicio: ptr(inicio.Add(time.Hour))}))(t)
+		ordenes = append(ordenes, lista(t, e, cd, como(t, tec, "tecnico"), o))
+	}
+	errores := conTicketBloqueado(t, tk.ID,
+		func() error {
+			_, err := e.m.CerrarOrden.Ejecutar(como(t, tecs[0], "tecnico"), campo.EntradaCerrarOrden{ID: ordenes[0].ID, Version: ordenes[0].Version})
+			return err
+		},
+		func() error {
+			_, err := e.m.CerrarOrden.Ejecutar(como(t, tecs[1], "tecnico"), campo.EntradaCerrarOrden{ID: ordenes[1].ID, Version: ordenes[1].Version})
+			return err
+		})
+	for _, err := range errores {
+		if err != nil {
+			t.Fatalf("cierres: %v", errores)
+		}
+	}
+	v := deber(sop.VerTicket.Ejecutar(cd, soporte.EntradaVerTicket{ID: tk.ID}))(t)
+	if v.Propuesta == nil || v.Propuesta.Origen != soporte.PropuestaDeOrden {
+		t.Fatalf("el último cierre propone: %+v", v.Propuesta)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'ticket.resolucion_propuesta' AND (payload->>'ticket_id')::bigint = $1", tk.ID); n != 1 {
+		t.Fatalf("propuestas: %d", n)
+	}
+}
+
+// Dos igualaciones a la vez sobre el mismo ticket (dos de sus órdenes): ni deadlock ni 500; la
+// segunda ve la versión nueva del ticket y responde 409.
+func TestIgualarSimultaneoSobreElMismoTicket(t *testing.T) {
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	d, tec := despacho(t), tecnicoConTickets(t)
+	cd := como(t, d, "despacho")
+	cuadrilla := nuevaCuadrilla(t)
+	tk := ticketDePrueba(t, sop, cd)
+	o1 := deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec, Direccion: ptr("x")}))(t)
+	o2 := deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, CuadrillaID: &cuadrilla, Direccion: ptr("x")}))(t)
+	igualar := func(o campo.Orden) func() error {
+		return func() error {
+			_, err := e.m.IgualarAsignacion.Ejecutar(como(t, d, "despacho"), campo.EntradaIgualarAsignacion{ID: o.ID, Desde: "orden", Version: o.Version, VersionTicket: tk.Version})
+			return err
+		}
+	}
+	errores := conTicketBloqueado(t, tk.ID, igualar(o1), igualar(o2))
+	ok, conflictos := 0, 0
+	for _, err := range errores {
+		var p *nucleo.Problema
+		switch {
+		case err == nil:
+			ok++
+		case errors.As(err, &p) && p.Status == 409:
+			conflictos++
+		default:
+			t.Fatalf("igualar a la vez: %v", errores)
+		}
+	}
+	if ok != 1 || conflictos != 1 {
+		t.Fatalf("una gana y la otra 409: %v", errores)
+	}
+}
+
+// La propuesta por cierre no pisa la de Horus, y se descarta cuando el ticket vuelve a tener una
+// orden abierta (nueva o reabierta).
+func TestPropuestaDeOrdenConHorusYOrdenesNuevas(t *testing.T) {
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	tk := ticketDePrueba(t, sop, cd)
+	hora := 0
+	nueva := func() campo.Orden {
+		t.Helper()
+		hora += 2
+		return deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec,
+			Direccion: ptr("x"), Inicio: ptr(inicio.Add(time.Duration(hora) * time.Hour))}))(t)
+	}
+	cerrar := func(o campo.Orden) {
+		t.Helper()
+		o = lista(t, e, cd, ct, o)
+		deber(e.m.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: o.ID, Version: o.Version}))(t)
+	}
+	ver := func() soporte.Ticket {
+		return deber(sop.VerTicket.Ejecutar(cd, soporte.EntradaVerTicket{ID: tk.ID}))(t)
+	}
+	propuestas := func() int {
+		return contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'ticket.resolucion_propuesta' AND (payload->>'ticket_id')::bigint = $1", tk.ID)
+	}
+
+	// Una propuesta de Horus escrita por la versión anterior (sin origen; la restricción lo tolera
+	// durante el despliegue): el cierre deja la nota y no la pisa.
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		"UPDATE soporte.tickets SET propuesta = 'resolver', propuesta_en = now(), propuesta_motivo = 'El router volvió' WHERE id = $1", tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	cerrar(nueva())
+	if v := ver(); v.Propuesta == nil || v.Propuesta.Origen != soporte.PropuestaDeHorus || *v.Propuesta.Motivo != "El router volvió" || propuestas() != 0 {
+		t.Fatalf("la de Horus sigue: %+v (%d eventos)", v.Propuesta, propuestas())
+	}
+	if n := contar(t, "SELECT count(*) FROM soporte.ticket_mensajes WHERE ticket_id = $1 AND cuerpo LIKE '%Ya hay una propuesta de Horus%'", tk.ID); n != 1 {
+		t.Fatalf("nota: %d", n)
+	}
+	// Sin la de Horus, el cierre propone; una orden nueva del ticket la descarta.
+	if _, err := pruebas.Pool(t).Exec(context.Background(),
+		"UPDATE soporte.tickets SET propuesta = NULL, propuesta_en = NULL, propuesta_motivo = NULL WHERE id = $1", tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	cerrar(nueva())
+	if v := ver(); v.Propuesta == nil || v.Propuesta.Origen != soporte.PropuestaDeOrden {
+		t.Fatalf("propuesta por cierre: %+v", v.Propuesta)
+	}
+	otra := deber(e.m.CrearOrden.Ejecutar(cd, campo.EntradaCrearOrden{Tipo: "visita", TicketID: &tk.ID, Direccion: ptr("x")}))(t)
+	if v := ver(); v.Propuesta != nil {
+		t.Fatalf("una orden nueva descarta la propuesta: %+v", v.Propuesta)
+	}
+	if n := contar(t, "SELECT count(*) FROM soporte.ticket_mensajes WHERE ticket_id = $1 AND cuerpo LIKE '%Se descarta la propuesta de resolver: la orden '||$2||'%'", tk.ID, otra.Numero); n != 1 {
+		t.Fatalf("nota de descarte: %d", n)
+	}
+	// La cancela, cierra otra (propone) y reabre la cancelada: se descarta otra vez.
+	otra = deber(e.m.CancelarOrden.Ejecutar(cd, campo.EntradaMotivo{ID: otra.ID, Version: otra.Version, Motivo: "Duplicada"}))(t)
+	cerrar(nueva())
+	if v := ver(); v.Propuesta == nil {
+		t.Fatal("la cancelada no cuenta como abierta")
+	}
+	deber(e.m.ReabrirOrden.Ejecutar(cd, campo.EntradaMotivo{ID: otra.ID, Version: otra.Version, Motivo: "El cliente sigue sin señal"}))(t)
+	if v := ver(); v.Propuesta != nil {
+		t.Fatalf("reabrir una orden descarta la propuesta: %+v", v.Propuesta)
+	}
+}
+
+func TestCrearOrdenDeTicketPermisoYClave(t *testing.T) {
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	d := despacho(t)
+	cd := como(t, d, "despacho")
+	cuadrilla := nuevaCuadrilla(t)
+	tk := ticketDePrueba(t, sop, cd)
+
+	// Solo con cuadrilla también es asignar: sin ordenes.asignar, 403 y sin orden.
+	sinAsignar := pruebas.ContextoUsuario(pruebas.Pool(t), d, nucleo.PermTicketsCrearOrden, nucleo.PermTicketsVer, nucleo.PermOrdenesCrear, nucleo.PermOrdenesVer)
+	_, err := e.m.CrearOrdenDeTicket.Ejecutar(sinAsignar, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, CuadrillaID: &cuadrilla, Direccion: ptr("x")})
+	problema(t, err, 403, "prohibido")
+	if n := contar(t, "SELECT count(*) FROM campo.ordenes WHERE ticket_id = $1", tk.ID); n != 0 {
+		t.Fatalf("sin permiso no queda orden: %d", n)
+	}
+
+	// La misma clave con otro ticket no devuelve la orden del primero.
+	clave := "clave-" + pruebas.Unico()
+	deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, CuadrillaID: &cuadrilla, Direccion: ptr("x"), ClaveIdempotencia: clave}))(t)
+	otro := ticketDePrueba(t, sop, cd)
+	_, err = e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: otro.ID, CuadrillaID: &cuadrilla, Direccion: ptr("x"), ClaveIdempotencia: clave})
+	problema(t, err, 422, "idempotencia_reutilizada")
 }

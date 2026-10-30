@@ -119,11 +119,7 @@ func propuestaDe(f soportebd.SoporteTicket) *PropuestaTicket {
 	if f.Propuesta == nil || f.PropuestaEn == nil {
 		return nil
 	}
-	origen := PropuestaDeHorus
-	if f.PropuestaOrigen != nil {
-		origen = *f.PropuestaOrigen
-	}
-	return &PropuestaTicket{Accion: *f.Propuesta, En: *f.PropuestaEn, Motivo: f.PropuestaMotivo, Origen: origen, OrdenID: f.PropuestaOrdenID}
+	return &PropuestaTicket{Accion: *f.Propuesta, En: *f.PropuestaEn, Motivo: f.PropuestaMotivo, Origen: origenPropuesta(f), OrdenID: f.PropuestaOrdenID}
 }
 
 func aTicket(f soportebd.SoporteTicket, ahora time.Time) Ticket {

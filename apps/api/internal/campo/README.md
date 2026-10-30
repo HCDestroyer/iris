@@ -100,10 +100,17 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
     `versionTicket` (409 si cualquiera cambió). 422 `sin_ticket`, `ticket_sin_asignar`,
     `orden_sin_asignar`, `sin_cambios`. Responde `{ orden, ticket }`. Ojo: el rol base `tecnico`
     no tiene `tickets.ver`, así que soporte rechaza asignarle un ticket (422 en `usuarioId`).
-  - **Al cerrar** una orden con ticket: nota interna en el ticket y, si sigue abierto y no le
-    quedan otras órdenes abiertas (ni cerradas ni canceladas), **propuesta de resolver** con
-    `origen = orden` (soporte emite `ticket.resolucion_propuesta`). El ticket nunca se resuelve
-    solo.
+  - **Al cerrar** una orden con ticket: nota interna en el ticket y, si sigue abierto, no le
+    quedan otras órdenes abiertas (ni cerradas ni canceladas) y no tiene ya una propuesta de
+    Horus, **propuesta de resolver** con `origen = orden` (soporte emite
+    `ticket.resolucion_propuesta`). Las otras órdenes se cuentan con el ticket ya bloqueado
+    (`FOR UPDATE`): dos cierres a la vez se serializan y el último propone. El ticket nunca se
+    resuelve solo. Si después se crea o se reabre una orden del ticket, la propuesta de origen
+    `orden` se descarta (con nota).
+  - **Bloqueos:** campo toma primero la orden y después el ticket, siempre con `FOR UPDATE`
+    (`soporte.TicketParaOrden`); un 40P01/40001 en igualar responde 409 `concurrencia`.
+  - `crear-orden` solo con cuadrilla también exige `ordenes.asignar` (403). Una
+    `Idempotency-Key` que ya creó la orden de otro ticket: 422 `idempotencia_reutilizada`.
 - **Zona y cuadrilla:** del catálogo de agenda (llaves foráneas). La indicada debe existir, estar
   activa y ser de la empresa (422 en `zonaId`/`cuadrillaId`); la de la instantánea de Argos se
   copia al catálogo si falta.
