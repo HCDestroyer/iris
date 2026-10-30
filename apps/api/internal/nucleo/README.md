@@ -41,6 +41,29 @@ Subpaquetes:
   vencidos sin sesiones 30 días después. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y
   `iris integracion crear --sistema argosisp|horus --empresa …` (usuario + token).
+- `identidad` · **historial de accesos** (`accesos.go`, tabla `nucleo.accesos`): una fila por
+  inicio de sesión (éxito al quedar la sesión completa, también tras el MFA; `contrasena_erronea`,
+  `mfa_fallido`, `bloqueado`, `inactivo`) y por uso de un token (como mucho una por token y hora),
+  con canal (`panel`, `campo_pwa`, `campo_nativa`, `sso`, `token`), IP, dispositivo resumido y la
+  cabecera `X-Iris-App`. Un correo que no existe queda sin usuario y **sin el correo** (no sirve
+  para enumerar cuentas; la respuesta del login es la misma). Retención:
+  `IRIS_ACCESOS_RETENCION_DIAS` (180, mínimo 7), job `nucleo.accesos_purga` del worker cada hora.
+  `GET /accesos`, `GET /usuarios/{id}/accesos` (`accesos.ver`), `GET /usuarios/{id}/sesiones`
+  y `POST /usuarios/{id}/sesiones/{sesionId}/cerrar` | `/cerrar-sesiones`
+  (`usuarios.cerrar_sesiones`, exige superar al usuario salvo el propio).
+  **Actividad de la app de campo** (`actividad_campo.go`): el middleware guarda en
+  `nucleo.conexiones_app` la última conexión por usuario y plataforma con `X-Iris-App:
+  campo/<versión> (<plataforma>)` y `X-Iris-Pendientes: <n>` (a lo más cada 30 s);
+  `GET /actividad-campo` (`campo.ver_actividad`, operativo: empresa activa y alcance) junta eso con
+  `campo.dispositivos` (último lote), `campo.operaciones_sync` (rechazadas, 7 días) y
+  `campo.posiciones_ultimas`; estado `al_dia` / `atrasado` (pendientes y sin lote en 15 min) /
+  `sin_conexion` (nada en 30 min). **Roles propios** (`roles.go`): `POST /roles`,
+  `/roles/{id}/editar|activar|desactivar`, `POST /usuarios/{id}/asignar-rol|quitar-rol` con alcance
+  por zona o cuadrilla. Los base no se editan ni desactivan (422 `rol_base`) y ningún rol se borra;
+  un rol inactivo no da permisos. Dar un permiso sensible (`nucleo.PermisosSensibles`, también por
+  `usuarios.crear` y `usuarios.editar`) exige `POST /sesion/reautenticar` en los últimos 15 min
+  (403 `reautenticacion_requerida`; desde un token, 403 `requiere_sesion`), salvo el usuario de
+  integración con su rol de contrato. `GET /permisos` trae `modulo`, `moduloNombre` y `sensible`.
 - `clave`: rotación de `IRIS_CLAVE_CIFRADO` (`iris clave rotar [--simular] [--ignorar-ilegibles]`):
   re-cifra TOTP, conectores y buzones con la clave nueva en una transacción auditada (`clave.rotar`,
   actor sistema). `Cifrador` acepta la anterior (`IRIS_CLAVE_CIFRADO_ANTERIOR`) para descifrar
@@ -63,6 +86,8 @@ solo admin, nunca el propio: borra el TOTP, pone una contraseña temporal que ha
 `POST /yo/contrasena` antes de cualquier otra cosa, cierra sesiones y revoca tokens; responde el `Usuario` con `sesionesCerradas` y `tokensRevocados`), `token.creado`, `token.revocado`; y, con la
 empresa afectada, `empresa.creada`, `empresa.actualizada`, `usuario.empresa_asignada`,
 `usuario.empresa_quitada`, `empresa.datos_adoptados`; y, del autologin desde Argos (`sso.go`),
-`usuario.sso_vinculado` y `usuario.sso_desvinculado` (payloads en `.claude/integration/contratos/eventos.md`). El portal no
+`usuario.sso_vinculado` y `usuario.sso_desvinculado`; de accesos y roles (`accesos.go`, `roles.go`),
+`usuario.sesiones_cerradas`, `usuario.rol_asignado`, `usuario.rol_quitado`, `rol.creado`,
+`rol.actualizado`, `rol.activado` y `rol.desactivado` (payloads en `.claude/integration/contratos/eventos.md`). El portal no
 emite eventos (como el inicio de sesión del panel): sus accesos y sesiones quedan en
 `auditoria.acciones` con el actor cliente. **No consume eventos.**

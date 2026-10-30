@@ -56,6 +56,11 @@ func nuevoVerificarMFA(cfg Config) *auditoria.Caso[EntradaVerificarMFA, SesionIn
 				ok = n > 0
 			}
 			if !ok {
+				origen := s.Origen
+				if origen == "" {
+					origen = origenPassword
+				}
+				accesoFallido(t, &u.ID, AccesoMFAFallido, origen)
 				return SesionIniciada{}, contarFalloMFA(t, cfg, s.ID, fallos)
 			}
 			if n, err := q.CompletarMFASesion(ctx, s.ID); err != nil {

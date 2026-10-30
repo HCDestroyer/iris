@@ -45,6 +45,12 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 			hasta, err := q.BloqueoLogin(ctx, correo)
 			switch {
 			case err == nil:
+				// En el historial, con el usuario solo si existe (la respuesta es la misma).
+				var id *int64
+				if u, err := q.UsuarioPorCorreo(ctx, correo); err == nil {
+					id = &u.ID
+				}
+				accesoFallido(t, id, AccesoBloqueado, origenPassword)
 				return SesionIniciada{}, nucleo.DemasiadosIntentos("demasiados_intentos",
 					"Demasiados intentos fallidos con este correo; espera antes de volver a intentar", time.Until(hasta))
 			case !errors.Is(err, pgx.ErrNoRows):
@@ -53,6 +59,14 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 			u, err := q.UsuarioPorCorreo(ctx, correo)
 			if err != nil || !u.Activo || u.ContrasenaHash == nil {
 				_, _ = VerificarContrasena(in.Contrasena, hashFicticio) // mismo tiempo de respuesta
+				switch {
+				case err != nil:
+					accesoFallido(t, nil, AccesoContrasenaErronea, origenPassword)
+				case !u.Activo:
+					accesoFallido(t, &u.ID, AccesoInactivo, origenPassword)
+				default:
+					accesoFallido(t, &u.ID, AccesoContrasenaErronea, origenPassword)
+				}
 				if err == nil {
 					t.FijarEntidad("usuario", u.ID)
 				}
@@ -65,6 +79,7 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				return SesionIniciada{}, err
 			}
 			if !ok {
+				accesoFallido(t, &u.ID, AccesoContrasenaErronea, origenPassword)
 				contarFalloLogin(t, cfg, correo)
 				return SesionIniciada{}, nucleo.CredencialesInvalidas()
 			}
@@ -119,12 +134,24 @@ func abrirSesion(ctx context.Context, q *identidadbd.Queries, cfg Config, u iden
 	if mfaPendiente {
 		duracion = 10 * time.Minute // tiempo para escribir el código
 	}
+	cliente := ClienteHTTPDe(ctx)
+	var app *string
+	if cliente.App != "" {
+		app = &cliente.App
+	}
 	s, err := q.CrearSesion(ctx, identidadbd.CrearSesionParams{
 		UsuarioID: u.ID, TokenHash: Hash256(token), CsrfHash: Hash256(csrf), MfaPendiente: mfaPendiente,
 		Ip: recortar(ip, 64), UserAgent: recortar(agente, 400), ExpiraEn: time.Now().Add(duracion), Origen: origen,
+		Canal: canalDeAcceso(cliente, origen), App: app,
 	})
 	if err != nil {
 		return SesionIniciada{}, err
+	}
+	if !mfaPendiente {
+		// El acceso queda en el historial cuando la sesión está completa (con MFA, al verificar).
+		if err := registrarAcceso(ctx, q, &u.ID, AccesoExito, origen, &s.ID); err != nil {
+			return SesionIniciada{}, err
+		}
 	}
 	salida := SesionIniciada{Token: token, CSRFToken: csrf, MFARequerido: mfaPendiente, ExpiraEn: s.ExpiraEn}
 	if !mfaPendiente {

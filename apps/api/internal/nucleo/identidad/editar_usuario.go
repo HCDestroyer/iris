@@ -92,6 +92,24 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 				if err != nil {
 					return Usuario{}, err
 				}
+				// Dar un permiso sensible (en una asignación nueva) exige re-autenticarse.
+				tenia := map[string]bool{}
+				for _, r := range rolesPrevios[in.ID] {
+					tenia[r.clave()] = true
+				}
+				var nuevas []rolResuelto
+				for _, r := range resueltos {
+					if !tenia[r.clave()] {
+						nuevas = append(nuevas, r)
+					}
+				}
+				permisos, err := permisosDeAsignaciones(ctx, q, nuevas)
+				if err != nil {
+					return Usuario{}, err
+				}
+				if err := exigirReautenticacionSensibles(ctx, permisos, "Asignar estos roles"); err != nil {
+					return Usuario{}, err
+				}
 				if err := q.QuitarRolesDeUsuario(ctx, in.ID); err != nil {
 					return Usuario{}, err
 				}

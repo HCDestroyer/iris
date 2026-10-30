@@ -92,6 +92,9 @@ type Config struct {
 	AdjuntosMaxBytesUsuario   int64
 	AdjuntosMaxEnCursoEntidad int
 	AdjuntosAbandono          time.Duration
+	// IRIS_ACCESOS_RETENCION_DIAS: días que se guarda el historial de accesos (nucleo.accesos;
+	// 180 por defecto, mínimo 7). La purga la hace el worker cada hora.
+	AccesosRetencion time.Duration
 	// IRIS_S3_*: almacenamiento S3 compatible (MinIO en dev), el mismo del docker-compose.
 	S3Endpoint, S3Region, S3Bucket, S3AccessKey, S3SecretKey string
 	S3EstiloRuta                                             bool
@@ -298,6 +301,14 @@ func (c *Config) cargarAdjuntos() []string {
 			errs = append(errs, "IRIS_ADJUNTOS_ABANDONO inválido: "+v)
 		}
 		c.AdjuntosAbandono = d
+	}
+	c.AccesosRetencion = 180 * 24 * time.Hour
+	if v := os.Getenv("IRIS_ACCESOS_RETENCION_DIAS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 7 {
+			errs = append(errs, "IRIS_ACCESOS_RETENCION_DIAS inválido (entero ≥ 7): "+v)
+		}
+		c.AccesosRetencion = time.Duration(n) * 24 * time.Hour
 	}
 	if v := os.Getenv("IRIS_S3_PATH_STYLE"); v != "" {
 		b, err := strconv.ParseBool(v)

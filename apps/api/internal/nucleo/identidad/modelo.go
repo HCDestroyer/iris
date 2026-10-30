@@ -53,15 +53,20 @@ type Rol struct {
 	Codigo      string           `json:"codigo"`
 	Nombre      string           `json:"nombre"`
 	Descripcion string           `json:"descripcion"`
-	Sistema     bool             `json:"sistema" doc:"Rol base: lo mantiene el seed"`
+	Sistema     bool             `json:"sistema" doc:"Rol base: lo mantiene el seed (no se edita ni se desactiva)"`
+	Activo      bool             `json:"activo" doc:"Un rol desactivado no da permisos ni se puede asignar"`
 	Permisos    []nucleo.Permiso `json:"permisos"`
+	Usuarios    int32            `json:"usuarios" doc:"Usuarios que lo tienen asignado (con cualquier alcance)"`
 	Version     int32            `json:"version"`
 }
 
 // PermisoInfo es una entrada del catálogo.
 type PermisoInfo struct {
-	Codigo      nucleo.Permiso `json:"codigo"`
-	Descripcion string         `json:"descripcion"`
+	Codigo       nucleo.Permiso `json:"codigo"`
+	Descripcion  string         `json:"descripcion"`
+	Modulo       string         `json:"modulo" doc:"Módulo al que pertenece (para agrupar en pantalla)"`
+	ModuloNombre string         `json:"moduloNombre" doc:"Nombre legible del módulo"`
+	Sensible     bool           `json:"sensible" doc:"Permiso de administración: darlo exige confirmar la contraseña"`
 }
 
 // TokenAPI es un token sin su valor (el valor solo se ve al crearlo).
