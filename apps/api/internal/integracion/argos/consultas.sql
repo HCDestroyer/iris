@@ -15,7 +15,7 @@ ON CONFLICT (id) DO UPDATE SET
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
     movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
-    version_datos = excluded.version_datos, updated_at = now()
+    version_datos = excluded.version_datos, fallo_en = NULL, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ClientePorID :one
@@ -64,7 +64,7 @@ SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER B
 -- La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
 SELECT * FROM integracion.argos_servicios
 -- Un servicio sin empresa (0) no se atribuye a nadie.
-WHERE ip = @ip AND empresa_id <> 0 AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+WHERE ip = @ip AND empresa_id <> 0 AND estado <> 'retirado' AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1;
 
 -- name: BorrarServicio :exec
@@ -200,9 +200,21 @@ SELECT nombre FROM integracion.argos_zonas WHERE id = @id;
 
 -- name: GuardarCopia :exec
 -- Solo inserción: la copia es la de cuando se creó el ticket o la orden.
-INSERT INTO integracion.argos_copias (entidad, entidad_id, cliente_id, servicio_id, datos, sincronizado_en)
-VALUES (@entidad, @entidad_id, @cliente_id, @servicio_id, @datos, @sincronizado_en)
+INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
+VALUES (@entidad, @entidad_id, @empresa_id, @cliente_id, @servicio_id, @datos, @sincronizado_en)
 ON CONFLICT (entidad, entidad_id) DO NOTHING;
 
 -- name: CopiaDe :one
 SELECT * FROM integracion.argos_copias WHERE entidad = @entidad AND entidad_id = @entidad_id;
+
+-- name: AnonimizarCopiasDeCliente :exec
+-- Argos eliminó al cliente: sus copias quedan solo con los ids (sin nombre, dirección, teléfono
+-- ni IP).
+UPDATE integracion.argos_copias
+SET datos = jsonb_build_object('cliente', jsonb_build_object('id', cliente_id), 'anonimizada', true),
+    anonimizada_en = now()
+WHERE cliente_id = @cliente_id AND anonimizada_en IS NULL;
+
+-- name: MarcarFalloCliente :exec
+-- Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
+UPDATE integracion.argos_clientes SET fallo_en = @fallo_en WHERE id = @id;

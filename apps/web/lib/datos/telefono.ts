@@ -10,15 +10,21 @@ import type { Schema } from "@iris/contratos";
 export type Telefono = Schema<"Telefono">;
 export type TipoTelefono = Telefono["tipo"];
 
-const SEPARADORES = /\s*(?:[/,;|]|\s+y\s+|\s+o\s+)\s*/;
-const PERMITIDOS = /^[\d\s+\-().]+$/;
+// Solo espacio y tabulador ASCII (y salto de línea como separador), igual que en Go: `\s` de JS
+// incluye espacios Unicode y daría otro resultado que la API.
+const SEPARADORES = /[ \t]*(?:[/,;|\r\n]|[ \t]+y[ \t]+|[ \t]+o[ \t]+)[ \t]*/;
+const PERMITIDOS = /^[0-9 +\-().]+$/;
+const ESPACIOS = /[ \t]+/g;
+
+function recortar(s: string): string {
+    return s.replace(/^[ \t]+|[ \t]+$/g, "");
+}
 
 /** Parte un campo de texto libre en sus números (puede traer varios) y normaliza cada uno. */
 export function telefonos(tipo: TipoTelefono, texto: string | null | undefined): Telefono[] {
-    return (texto ?? "")
-        .trim()
+    return recortar(texto ?? "")
         .split(SEPARADORES)
-        .map((parte) => parte.trim().replace(/\s+/g, " "))
+        .map((parte) => recortar(parte).replace(ESPACIOS, " "))
         .filter((parte) => parte !== "")
         .map((original) => {
             const n = normalizarTelefono(original);
@@ -32,10 +38,10 @@ export function telefonos(tipo: TipoTelefono, texto: string | null | undefined):
  * Cualquier otra cosa: null.
  */
 export function normalizarTelefono(texto: string): { e164: string; mostrar: string } | null {
-    const t = texto.trim();
+    const t = recortar(texto);
     if (t === "" || !PERMITIDOS.test(t)) return null;
     let internacional = t.startsWith("+");
-    let digitos = t.replace(/\D/g, "");
+    let digitos = t.replace(/[^0-9]/g, "");
     if (!internacional && digitos.startsWith("00")) {
         internacional = true;
         digitos = digitos.slice(2);
@@ -48,7 +54,7 @@ export function normalizarTelefono(texto: string): { e164: string; mostrar: stri
     } else if (digitos.length === 11 && digitos.startsWith("502")) {
         local = digitos.slice(3);
     } else if (internacional && !digitos.startsWith("502") && digitos.length >= 8 && digitos.length <= 15 && !digitos.startsWith("0")) {
-        return { e164: `+${digitos}`, mostrar: t.replace(/\s+/g, " ") };
+        return { e164: `+${digitos}`, mostrar: t.replace(ESPACIOS, " ") };
     } else {
         return null;
     }
@@ -68,7 +74,8 @@ export function principal(lista: readonly Telefono[]): Telefono | null {
 
 /** Documento fiscal para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF; lo demás tal cual. */
 export function documento(tipo: string, numero: string | null | undefined): string {
-    const n = (numero ?? "").trim().toUpperCase();
+    // Solo a–z, como en Go (toUpperCase convierte «ß» en «SS»; strings.ToUpper no).
+    const n = recortar(numero ?? "").replace(/[a-z]/g, (c) => c.toUpperCase());
     if (n === "") return "";
     if (tipo === "cf" || n === "CF") return "CF";
     if (tipo === "cui" && /^\d{13}$/.test(n)) return `${n.slice(0, 4)} ${n.slice(4, 9)} ${n.slice(9)}`;

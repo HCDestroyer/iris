@@ -43,7 +43,7 @@ func TestDatosArgosDeTicketYOrden(t *testing.T) {
 	tk := deber(sop.CrearTicket.Ejecutar(ctx, soporte.EntradaCrearTicket{Asunto: "Sin señal", ClienteID: ptr(int64(7811)), ServicioID: ptr(int64(78110))}))(t)
 	vt := deber(sop.VerTicket.Ejecutar(ctx, soporte.EntradaVerTicket{ID: tk.ID}))(t)
 	if c := vt.DatosArgos; c == nil || c.Direccion != "Lote 9, aldea Las Flores" || c.Telefono == nil || c.Telefono.Mostrar != "+502 5512 3344" ||
-		c.Servicio == nil || c.Servicio.IP != "100.64.1.9" || c.Cliente.Direccion != "Casa de Rosa, zona 3" || c.Cliente.NitCuiMostrar != "1234567-8" {
+		c.Servicio == nil || c.Servicio.IP != "100.64.1.9" || c.Cliente.Direccion != "Casa de Rosa, zona 3" || c.Cliente.Nombre != "Rosa Ajú" {
 		t.Fatalf("copia del ticket: %+v", vt.DatosArgos)
 	}
 
@@ -97,4 +97,34 @@ func deref[T any](p *T) any {
 		return nil
 	}
 	return *p
+}
+
+// B2: CrearOrden asegura la instantánea del cliente y del servicio en Argos antes de su
+// transacción (para usuarios con el permiso; nunca para el sistema) y un fallo corta la orden.
+func TestCrearOrdenAseguraInstantanea(t *testing.T) {
+	var llamadas []int64
+	falla := error(nil)
+	e := nuevoEntorno(func(c *campo.Config) {
+		c.AsegurarArgos = func(_ context.Context, cliente int64, servicio *int64) error {
+			llamadas = append(llamadas, cliente)
+			return falla
+		}
+	})
+	d := despacho(t)
+	cd := como(t, d, "despacho")
+	falla = nucleo.ReglaNegocio("argos_no_disponible", "Argos no respondió")
+	_, err := e.m.CrearOrden.Ejecutar(cd, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("x"), ClienteID: ptr(int64(8801)), ServicioID: ptr(int64(88011))})
+	if err != falla || len(llamadas) != 1 || llamadas[0] != 8801 {
+		t.Fatalf("debía asegurar y cortar: %v %v", err, llamadas)
+	}
+	// Sin el permiso, no se consulta Argos (el caso responde 403).
+	sinPermiso := pruebas.ContextoUsuario(pruebas.Pool(t), d, nucleo.PermOrdenesVer)
+	_, err = e.m.CrearOrden.Ejecutar(sinPermiso, campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("x"), ClienteID: ptr(int64(8801))})
+	problema(t, err, 403, "prohibido")
+	// El sistema (retiro, alta comercial) no consulta.
+	falla = nil
+	deber(e.m.CrearOrden.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), campo.EntradaCrearOrden{Tipo: "visita", Direccion: ptr("x"), ClienteID: ptr(int64(8801))}))(t)
+	if len(llamadas) != 1 {
+		t.Fatalf("sin permiso o como sistema no debía consultar: %v", llamadas)
+	}
 }

@@ -10,16 +10,20 @@ import (
 
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
 // Copias de los datos de Argos en tickets y órdenes (datos coherentes, pedido 5 del PM).
 //
 // Al crear un ticket o una orden con cliente de Argos, el caso de uso que lo crea llama a
-// CopiarDatos en su misma transacción: se guarda lo que la instantánea tiene del cliente y del
-// servicio, en la forma de la ficha (ClienteResumen y Servicio). La copia no se actualiza: es lo
-// que se sabía al crear. El detalle del ticket y de la orden la devuelve (CopiaDe) para que el
-// panel muestre siempre la dirección y el teléfono con los que se creó, aunque la ficha no se pueda
+// CopiarDatos en su misma transacción: se guarda lo operativo que la instantánea tiene del cliente
+// y del servicio (CopiaArgos). La copia no se actualiza: es lo que se sabía al crear; si Argos
+// elimina al cliente, se anonimiza. El detalle del ticket y de la orden la devuelve (CopiaDe) para
+// que el panel muestre la dirección y el teléfono con los que se creó, aunque la ficha no se pueda
 // leer o el servicio se haya eliminado en Argos.
+//
+// Multiempresa: la copia es de la empresa de la entidad. No se copia un cliente que la instantánea
+// pone en otra empresa, y al leer se descarta si la empresa ya no coincide.
 
 // Entidades con copia.
 const (
@@ -27,9 +31,59 @@ const (
 	CopiaOrden  = "orden"
 )
 
+func errOtraEmpresa() error {
+	return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente o el servicio es de otra empresa en Argos")
+}
+
+// EsOtraEmpresa indica si err es el 422 empresa_no_coincide de ValidarClienteEnEmpresa.
+func EsOtraEmpresa(err error) bool {
+	var p *nucleo.Problema
+	return errors.As(err, &p) && p.Codigo() == "empresa_no_coincide"
+}
+
+// ValidarClienteEnEmpresa comprueba, contra la instantánea (si Iris la tiene), que el cliente sea
+// de la empresa (alguno de sus servicios lo es, o no tiene servicios: como en Argos) y que el
+// servicio sea de ese cliente y de esa empresa. Sin instantánea no se puede validar y se acepta
+// (como al crear órdenes); entonces tampoco hay copia. empresa nil o 0 (sin conector): solo se
+// valida que el servicio sea del cliente. 422 empresa_no_coincide o 422 de validación.
+func ValidarClienteEnEmpresa(ctx context.Context, db argosbd.DBTX, clienteID int64, servicioID, empresa *int64) error {
+	q := argosbd.New(db)
+	e := valor(empresa)
+	c, err := q.ClientePorID(ctx, clienteID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return err
+	case e != 0 && !enEmpresa(empresasDeFila(c), c.SinServicios, e):
+		return errOtraEmpresa()
+	}
+	if servicioID == nil {
+		return nil
+	}
+	s, err := q.ServicioPorID(ctx, *servicioID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	case s.ClienteID != clienteID:
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "servicioId", Message: "El servicio no es de ese cliente según Argos", Rule: "servicio"})
+	case e != 0 && s.EmpresaID != e:
+		return errOtraEmpresa()
+	}
+	return nil
+}
+
+func valor(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
 // DatosParaCopia arma la copia desde la instantánea (sin guardarla). nil si Iris no tiene la
-// instantánea del cliente. El servicio cuenta solo si es de ese cliente; con empresa (≠ nil), el
-// resumen del estado del cliente usa solo los servicios de esa empresa (como la ficha).
+// instantánea del cliente o si el cliente no es de la empresa (≠ 0). El servicio cuenta solo si
+// es de ese cliente y de esa empresa; el resumen del estado usa solo los servicios de la empresa.
 func DatosParaCopia(ctx context.Context, db argosbd.DBTX, clienteID int64, servicioID, empresa *int64) (*CopiaArgos, error) {
 	q := argosbd.New(db)
 	c, err := q.ClientePorID(ctx, clienteID)
@@ -39,20 +93,32 @@ func DatosParaCopia(ctx context.Context, db argosbd.DBTX, clienteID int64, servi
 	if err != nil {
 		return nil, err
 	}
+	e := valor(empresa)
+	if e != 0 && !enEmpresa(empresasDeFila(c), c.SinServicios, e) {
+		return nil, nil
+	}
 	filas, err := q.ServiciosDeCliente(ctx, clienteID)
 	if err != nil {
 		return nil, err
 	}
-	copia := CopiaArgos{Cliente: aClienteResumen(c), SincronizadoEn: c.SincronizadoEn}
+	copia := CopiaArgos{
+		Cliente: CopiaCliente{
+			ID: c.ID, Codigo: c.Codigo, Nombre: c.Nombre, Direccion: c.Direccion, Lat: c.Lat, Lon: c.Lon,
+			ZonaNombre: c.ZonaNombre, Estado: c.Estado,
+		},
+		Completa: c.VersionDatos >= VersionDatos, SincronizadoEn: c.SincronizadoEn,
+	}
 	estados := []string{}
 	for _, s := range filas {
-		if empresa != nil && *empresa != 0 && s.EmpresaID != *empresa {
+		if e != 0 && s.EmpresaID != e {
 			continue
 		}
 		estados = append(estados, s.Estado)
 		if servicioID != nil && s.ID == *servicioID {
-			srv := aServicio(s)
-			copia.Servicio = &srv
+			copia.Servicio = &CopiaServicio{
+				ID: s.ID, PlanNombre: s.PlanNombre, Estado: s.Estado, Direccion: s.Direccion, Lat: s.Lat, Lon: s.Lon,
+				IP: s.Ip, RouterNombre: s.RouterNombre, ZonaNombre: s.ZonaNombre,
+			}
 		}
 	}
 	if copia.Cliente.Estado == "" {
@@ -62,7 +128,7 @@ func DatosParaCopia(ctx context.Context, db argosbd.DBTX, clienteID int64, servi
 	if copia.Servicio != nil && copia.Servicio.Direccion != "" {
 		copia.Direccion = copia.Servicio.Direccion
 	}
-	if p := formato.Principal(copia.Cliente.Telefonos); p != nil {
+	if p := formato.Principal(telefonosDe(c.Telefono, c.Movil)); p != nil {
 		tel := *p
 		copia.Telefono = &tel
 	}
@@ -70,9 +136,9 @@ func DatosParaCopia(ctx context.Context, db argosbd.DBTX, clienteID int64, servi
 }
 
 // CopiarDatos guarda la copia del ticket u orden recién creado (en la transacción del caso de uso
-// que lo crea). Devuelve la copia, o nil si Iris no tiene la instantánea del cliente (sin conector,
-// o un cliente que nunca se abrió): entonces no hay nada que copiar. Si ya había una copia para la
-// entidad (un reintento), no se cambia.
+// que lo crea), con la empresa de la entidad. nil si no hay nada que copiar (sin instantánea del
+// cliente, o el cliente es de otra empresa). Si ya había una copia para la entidad (un
+// reintento), no se cambia.
 func CopiarDatos(ctx context.Context, db argosbd.DBTX, entidad string, entidadID, clienteID int64, servicioID, empresa *int64, ahora time.Time) (*CopiaArgos, error) {
 	copia, err := DatosParaCopia(ctx, db, clienteID, servicioID, empresa)
 	if err != nil || copia == nil {
@@ -88,34 +154,46 @@ func CopiarDatos(ctx context.Context, db argosbd.DBTX, entidad string, entidadID
 		srv = &copia.Servicio.ID
 	}
 	err = argosbd.New(db).GuardarCopia(ctx, argosbd.GuardarCopiaParams{
-		Entidad: entidad, EntidadID: entidadID, ClienteID: clienteID, ServicioID: srv, Datos: datos, SincronizadoEn: copia.SincronizadoEn,
+		Entidad: entidad, EntidadID: entidadID, EmpresaID: empresa, ClienteID: clienteID, ServicioID: srv, Datos: datos,
+		SincronizadoEn: copia.SincronizadoEn,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return CopiaDe(ctx, db, entidad, entidadID)
+	return CopiaDe(ctx, db, entidad, entidadID, empresa)
 }
 
-// CopiaDe lee la copia de un ticket u orden; nil si no tiene (se creó sin cliente de Argos, sin
-// instantánea o antes de que existieran las copias).
-func CopiaDe(ctx context.Context, db argosbd.DBTX, entidad string, entidadID int64) (*CopiaArgos, error) {
-	f, err := argosbd.New(db).CopiaDe(ctx, argosbd.CopiaDeParams{Entidad: entidad, EntidadID: entidadID})
+// CopiaDe lee la copia de un ticket u orden de la empresa dada (la de la entidad); nil si no
+// tiene (se creó sin cliente de Argos, sin instantánea o antes de las copias), si se guardó con
+// otra empresa o si la instantánea actual pone al cliente en otra empresa.
+func CopiaDe(ctx context.Context, db argosbd.DBTX, entidad string, entidadID int64, empresa *int64) (*CopiaArgos, error) {
+	q := argosbd.New(db)
+	f, err := q.CopiaDe(ctx, argosbd.CopiaDeParams{Entidad: entidad, EntidadID: entidadID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	e := valor(empresa)
+	if valor(f.EmpresaID) != e {
+		return nil, nil
+	}
+	if e != 0 {
+		c, err := q.ClientePorID(ctx, f.ClienteID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return nil, err
+		case !enEmpresa(empresasDeFila(c), c.SinServicios, e):
+			return nil, nil
+		}
+	}
 	var copia CopiaArgos
 	if err := json.Unmarshal(f.Datos, &copia); err != nil {
 		return nil, err
 	}
 	copia.CopiadoEn, copia.SincronizadoEn = f.CopiadoEn, f.SincronizadoEn
-	if copia.Cliente.Telefonos == nil {
-		copia.Cliente.Telefonos = []formato.Telefono{}
-	}
-	if copia.Cliente.Empresas == nil {
-		copia.Cliente.Empresas = []int64{}
-	}
+	copia.Anonimizada = f.AnonimizadaEn != nil
 	return &copia, nil
 }

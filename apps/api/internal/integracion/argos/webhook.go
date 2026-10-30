@@ -169,6 +169,10 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	switch {
 	case in.borrar && in.ClienteID != nil:
+		// Argos ya no tiene al cliente: sus copias en tickets y órdenes se anonimizan.
+		if err := q.AnonimizarCopiasDeCliente(ctx, *in.ClienteID); err != nil {
+			return r, err
+		}
 		if err := q.BorrarCliente(ctx, *in.ClienteID); err != nil {
 			return r, err
 		}

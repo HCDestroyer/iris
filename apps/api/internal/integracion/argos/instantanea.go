@@ -135,20 +135,12 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 			continue
 		}
 		// Un servicio sin empresa no hereda la del cliente: queda en 0 y no se atribuye a nadie.
-		slat, slon := s.LatLon()
-		// En Argos la zona del servicio es la de su cliente (zona_nombre sale de core.clientes):
-		// sin zona_id propio, el servicio toma la del cliente.
-		zona := idDe(s.ZonaID, s.Zona)
-		if zona == nil {
-			zona = c.IDZona()
-		}
+		v := AServicio(s, c.IDZona())
 		if err := guardarServicio(ctx, t, q, argosbd.GuardarServicioParams{
-			ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
-			PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
-			RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
-			ZonaID: zona, ZonaNombre: nombreDe(s.ZonaNombre, s.Zona),
-			Ip: s.IPVigente(), Direccion: s.Direccion, Lat: slat, Lon: slon, Estado: s.Estado, SincronizadoEn: f.leidoEn,
-			UserPpp: s.UserPPP, TipoConexion: s.TipoConexion,
+			ID: v.ID, EmpresaID: v.EmpresaID, ClienteID: v.ClienteID, Codigo: v.Codigo,
+			PlanID: v.PlanID, PlanNombre: v.PlanNombre, RouterID: v.RouterID, RouterNombre: v.RouterNombre,
+			ZonaID: v.ZonaID, ZonaNombre: v.ZonaNombre, Ip: v.IP, Direccion: v.Direccion, Lat: v.Lat, Lon: v.Lon,
+			Estado: v.Estado, SincronizadoEn: f.leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
 		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
@@ -240,6 +232,26 @@ func clienteArgosAResumen(c ClienteArgos) ClienteResumen {
 		Tipo: c.Tipo, TipoDocumentoFiscal: c.TipoDocumentoFiscal, NitCui: c.NitCui,
 		NitCuiMostrar: formato.Documento(c.TipoDocumentoFiscal, c.NitCui), Movil: c.Movil, Correo: c.CorreoCliente(),
 		Telefonos: telefonosDe(c.Telefono, c.Movil), ZonaNombre: zona,
+	}
+}
+
+// AServicio es el único convertidor de un servicio leído de Argos (ServicioArgos) al Servicio que
+// expone Iris: lo usan la instantánea y cualquier lectura en vivo (p. ej. el selector de cliente).
+// La IP sale de ipv4, las coordenadas se normalizan y, sin zona propia, el servicio toma la de su
+// cliente (zonaCliente; en Argos la zona del servicio es la del cliente). SincronizadoEn queda en
+// cero: lo pone quien guarda o lee.
+func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
+	lat, lon := s.LatLon()
+	zona := idDe(s.ZonaID, s.Zona)
+	if zona == nil {
+		zona = zonaCliente
+	}
+	return Servicio{
+		ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
+		PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
+		RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
+		ZonaID: zona, ZonaNombre: nombreDe(s.ZonaNombre, s.Zona), IP: s.IPVigente(), Direccion: s.Direccion,
+		Lat: lat, Lon: lon, Estado: s.Estado, UserPPP: s.UserPPP, TipoConexion: s.TipoConexion,
 	}
 }
 

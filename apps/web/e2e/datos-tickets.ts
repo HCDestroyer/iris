@@ -105,12 +105,18 @@ export function ficha(clienteId: number, stale: boolean, sincronizadoEn = "2026-
 export function copiaArgos(clienteId: number, servicioId: number | null): Schema<"CopiaArgos"> | undefined {
     const f = ficha(clienteId, false);
     if (!f) return undefined;
-    const servicio = f.servicios?.find((s) => s.id === servicioId);
+    const s = f.servicios?.find((x) => x.id === servicioId);
+    const c = f.cliente;
     return {
-        cliente: f.cliente,
-        servicio,
-        direccion: servicio?.direccion || f.cliente.direccion,
-        telefono: f.cliente.telefonos?.find((t) => t.tipo === "movil") ?? f.cliente.telefonos?.[0],
+        // Solo lo operativo: ni documento fiscal, ni correo, ni empresas.
+        cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre, direccion: c.direccion, lat: c.lat, lon: c.lon, zonaNombre: c.zonaNombre, estado: c.estado },
+        servicio: s
+            ? { id: s.id, planNombre: s.planNombre, estado: s.estado, direccion: s.direccion, lat: s.lat, lon: s.lon, ip: s.ip, routerNombre: s.routerNombre, zonaNombre: s.zonaNombre }
+            : undefined,
+        direccion: s?.direccion || c.direccion,
+        telefono: c.telefonos?.find((t) => t.tipo === "movil") ?? c.telefonos?.[0],
+        completa: true,
+        anonimizada: false,
         sincronizadoEn: "2026-10-27T20:15:00Z",
         copiadoEn: "2026-10-27T20:20:00Z",
     };

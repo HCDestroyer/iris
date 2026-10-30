@@ -10,6 +10,20 @@ import (
 	"time"
 )
 
+const anonimizarCopiasDeCliente = `-- name: AnonimizarCopiasDeCliente :exec
+UPDATE integracion.argos_copias
+SET datos = jsonb_build_object('cliente', jsonb_build_object('id', cliente_id), 'anonimizada', true),
+    anonimizada_en = now()
+WHERE cliente_id = $1 AND anonimizada_en IS NULL
+`
+
+// Argos eliminó al cliente: sus copias quedan solo con los ids (sin nombre, dirección, teléfono
+// ni IP).
+func (q *Queries) AnonimizarCopiasDeCliente(ctx context.Context, clienteID int64) error {
+	_, err := q.db.Exec(ctx, anonimizarCopiasDeCliente, clienteID)
+	return err
+}
+
 const bloquearArgos = `-- name: BloquearArgos :exec
 
 SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || ($2::bigint)::text, 0))
@@ -97,7 +111,7 @@ func (q *Queries) BorrarZonasAnteriores(ctx context.Context, antes time.Time) (i
 }
 
 const buscarClientesLocal = `-- name: BuscarClientesLocal :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos FROM integracion.argos_clientes
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes
 WHERE (nombre ILIKE '%' || $1::text || '%' OR codigo ILIKE '%' || $1::text || '%' OR telefono ILIKE '%' || $1::text || '%'
        OR movil ILIKE '%' || $1::text || '%' OR nit_cui ILIKE '%' || $1::text || '%')
   -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
@@ -146,6 +160,7 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 			&i.Correo,
 			&i.ZonaNombre,
 			&i.VersionDatos,
+			&i.FalloEn,
 		); err != nil {
 			return nil, err
 		}
@@ -158,7 +173,7 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 }
 
 const clientePorID = `-- name: ClientePorID :one
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = $1
 `
 
 func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosCliente, error) {
@@ -187,12 +202,13 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 		&i.Correo,
 		&i.ZonaNombre,
 		&i.VersionDatos,
+		&i.FalloEn,
 	)
 	return i, err
 }
 
 const copiaDe = `-- name: CopiaDe :one
-SELECT entidad, entidad_id, cliente_id, servicio_id, datos, sincronizado_en, copiado_en FROM integracion.argos_copias WHERE entidad = $1 AND entidad_id = $2
+SELECT entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en, copiado_en, anonimizada_en FROM integracion.argos_copias WHERE entidad = $1 AND entidad_id = $2
 `
 
 type CopiaDeParams struct {
@@ -206,11 +222,13 @@ func (q *Queries) CopiaDe(ctx context.Context, arg CopiaDeParams) (IntegracionAr
 	err := row.Scan(
 		&i.Entidad,
 		&i.EntidadID,
+		&i.EmpresaID,
 		&i.ClienteID,
 		&i.ServicioID,
 		&i.Datos,
 		&i.SincronizadoEn,
 		&i.CopiadoEn,
+		&i.AnonimizadaEn,
 	)
 	return i, err
 }
@@ -320,7 +338,7 @@ ON CONFLICT (id) DO UPDATE SET
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
     movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
-    version_datos = excluded.version_datos, updated_at = now()
+    version_datos = excluded.version_datos, fallo_en = NULL, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en
 `
 
@@ -376,14 +394,15 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 
 const guardarCopia = `-- name: GuardarCopia :exec
 
-INSERT INTO integracion.argos_copias (entidad, entidad_id, cliente_id, servicio_id, datos, sincronizado_en)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (entidad, entidad_id) DO NOTHING
 `
 
 type GuardarCopiaParams struct {
 	Entidad        string
 	EntidadID      int64
+	EmpresaID      *int64
 	ClienteID      int64
 	ServicioID     *int64
 	Datos          []byte
@@ -396,6 +415,7 @@ func (q *Queries) GuardarCopia(ctx context.Context, arg GuardarCopiaParams) erro
 	_, err := q.db.Exec(ctx, guardarCopia,
 		arg.Entidad,
 		arg.EntidadID,
+		arg.EmpresaID,
 		arg.ClienteID,
 		arg.ServicioID,
 		arg.Datos,
@@ -527,6 +547,21 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 		arg.Nombre,
 		arg.SincronizadoEn,
 	)
+	return err
+}
+
+const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
+UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
+`
+
+type MarcarFalloClienteParams struct {
+	FalloEn *time.Time
+	ID      int64
+}
+
+// Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
+func (q *Queries) MarcarFalloCliente(ctx context.Context, arg MarcarFalloClienteParams) error {
+	_, err := q.db.Exec(ctx, marcarFalloCliente, arg.FalloEn, arg.ID)
 	return err
 }
 
@@ -718,7 +753,7 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 
 const servicioPorIP = `-- name: ServicioPorIP :one
 SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios
-WHERE ip = $1 AND empresa_id <> 0 AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+WHERE ip = $1 AND empresa_id <> 0 AND estado <> 'retirado' AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
 

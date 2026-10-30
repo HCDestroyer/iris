@@ -4142,7 +4142,11 @@ export interface components {
             version: number;
         };
         CopiaArgos: {
-            cliente: components["schemas"]["ClienteResumen"];
+            /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
+            anonimizada: boolean;
+            cliente: components["schemas"]["CopiaCliente"];
+            /** @description false: se copió de una instantánea anterior a los datos coherentes (puede faltar la IP o el teléfono móvil) */
+            completa: boolean;
             /**
              * Format: date-time
              * @description Cuándo se copió (al crear el ticket o la orden)
@@ -4150,8 +4154,8 @@ export interface components {
             copiadoEn: string;
             /** @description La que aplica: la de instalación del servicio o, si no tiene, la del cliente */
             direccion: string;
-            /** @description El servicio del ticket o la orden; ausente si no tenía o Iris no lo conocía */
-            servicio?: components["schemas"]["Servicio"];
+            /** @description El servicio del ticket o la orden; ausente si no tenía, Iris no lo conocía o la copia está anonimizada */
+            servicio?: components["schemas"]["CopiaServicio"];
             /**
              * Format: date-time
              * @description Cuándo se había leído de Argos lo copiado
@@ -4159,6 +4163,36 @@ export interface components {
             sincronizadoEn: string;
             /** @description El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos */
             telefono?: components["schemas"]["Telefono"];
+        };
+        CopiaCliente: {
+            codigo: string;
+            /** @description Dirección del cliente (no la de instalación) */
+            direccion: string;
+            /** @description Resumen del estado de sus servicios al copiar */
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            nombre: string;
+            zonaNombre: string;
+        };
+        CopiaServicio: {
+            /** @description Dirección de instalación; vacía si Argos no tenía una propia */
+            direccion: string;
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            ip: string;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            planNombre: string;
+            routerNombre: string;
+            zonaNombre: string;
         };
         Cotizacion: {
             /** Format: date-time */

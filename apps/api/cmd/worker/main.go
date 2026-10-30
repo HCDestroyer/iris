@@ -99,7 +99,7 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg,
+	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg,
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
@@ -129,7 +129,7 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,

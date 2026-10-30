@@ -1810,8 +1810,16 @@
       "CopiaArgos": {
         "additionalProperties": false,
         "properties": {
+          "anonimizada": {
+            "description": "true: Argos eliminó al cliente y la copia quedó solo con los ids",
+            "type": "boolean"
+          },
           "cliente": {
-            "$ref": "#/components/schemas/ClienteResumen"
+            "$ref": "#/components/schemas/CopiaCliente"
+          },
+          "completa": {
+            "description": "false: se copió de una instantánea anterior a los datos coherentes (puede faltar la IP o el teléfono móvil)",
+            "type": "boolean"
           },
           "copiadoEn": {
             "description": "Cuándo se copió (al crear el ticket o la orden)",
@@ -1823,8 +1831,8 @@
             "type": "string"
           },
           "servicio": {
-            "$ref": "#/components/schemas/Servicio",
-            "description": "El servicio del ticket o la orden; ausente si no tenía o Iris no lo conocía"
+            "$ref": "#/components/schemas/CopiaServicio",
+            "description": "El servicio del ticket o la orden; ausente si no tenía, Iris no lo conocía o la copia está anonimizada"
           },
           "sincronizadoEn": {
             "description": "Cuándo se había leído de Argos lo copiado",
@@ -1839,8 +1847,115 @@
         "required": [
           "cliente",
           "direccion",
+          "completa",
+          "anonimizada",
           "sincronizadoEn",
           "copiadoEn"
+        ],
+        "type": "object"
+      },
+      "CopiaCliente": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "description": "Dirección del cliente (no la de instalación)",
+            "type": "string"
+          },
+          "estado": {
+            "description": "Resumen del estado de sus servicios al copiar",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "zonaNombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "direccion",
+          "lat",
+          "lon",
+          "zonaNombre",
+          "estado"
+        ],
+        "type": "object"
+      },
+      "CopiaServicio": {
+        "additionalProperties": false,
+        "properties": {
+          "direccion": {
+            "description": "Dirección de instalación; vacía si Argos no tenía una propia",
+            "type": "string"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "planNombre": {
+            "type": "string"
+          },
+          "routerNombre": {
+            "type": "string"
+          },
+          "zonaNombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "planNombre",
+          "estado",
+          "direccion",
+          "lat",
+          "lon",
+          "ip",
+          "routerNombre",
+          "zonaNombre"
         ],
         "type": "object"
       },

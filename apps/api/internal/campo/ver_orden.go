@@ -107,7 +107,7 @@ func (m *Modulo) nuevoVerOrden(permiso nucleo.Permiso) *auditoria.Caso[EntradaVe
 			// La copia trae datos personales del cliente (documento, correo, teléfonos): solo con
 			// clientes.ver, como la ficha.
 			if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
-				if d[0].DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaOrden, f.ID); err != nil {
+				if d[0].DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaOrden, f.ID, f.EmpresaID); err != nil {
 					return OrdenDetalle{}, err
 				}
 			}

@@ -7,14 +7,12 @@ import { ADMIN, conSesion, simularApi } from "./api-falsa";
  * teléfono (390 px), claro y oscuro (playwright.config.ts).
  */
 
-async function datosDeMaria(ficha: Locator) {
+/** Lo operativo, igual en la ficha y en la copia guardada. */
+async function operativoDeMaria(ficha: Locator) {
     await expect(ficha).toContainText("María Castillo");
     await expect(ficha).toContainText("CL-0501");
-    await expect(ficha).toContainText("NIT 1234567-8");
-    // Teléfonos de Argos con formato +502 y enlace para llamar en E.164.
+    // Teléfono principal de Argos con formato +502 y enlace para llamar en E.164.
     await expect(ficha.getByRole("link", { name: "+502 4455 6677" })).toHaveAttribute("href", "tel:+50244556677");
-    await expect(ficha.getByRole("link", { name: "+502 5555 0101" })).toHaveAttribute("href", "tel:+50255550101");
-    await expect(ficha.getByRole("link", { name: "maria@ejemplo.gt" })).toHaveAttribute("href", "mailto:maria@ejemplo.gt");
     // La dirección del cliente y la de instalación del servicio, separadas.
     await expect(ficha).toContainText("Dirección del cliente4a calle 3-21, zona 1");
     await expect(ficha.getByTestId("datos-servicio")).toContainText("Dirección de instalaciónInstalación: 4a calle 3-21, zona 1");
@@ -23,6 +21,14 @@ async function datosDeMaria(ficha: Locator) {
     await expect(ficha.getByTestId("datos-servicio")).toContainText("RB-Norte-01");
     await expect(ficha.getByTestId("datos-servicio")).toContainText("Activo");
     await expect(ficha).toContainText("Zona Zona norte");
+}
+
+/** La ficha completa: además, documento fiscal, el otro teléfono y el correo. */
+async function datosDeMaria(ficha: Locator) {
+    await operativoDeMaria(ficha);
+    await expect(ficha).toContainText("NIT 1234567-8");
+    await expect(ficha.getByRole("link", { name: "+502 5555 0101" })).toHaveAttribute("href", "tel:+50255550101");
+    await expect(ficha.getByRole("link", { name: "maria@ejemplo.gt" })).toHaveAttribute("href", "mailto:maria%40ejemplo.gt");
 }
 
 test.describe("datos del cliente y del servicio", () => {
@@ -53,7 +59,10 @@ test.describe("datos del cliente y del servicio", () => {
         const ficha = page.getByTestId("ficha-cliente");
         await expect(ficha).toContainText("Conector con Argos apagado");
         await expect(ficha).toContainText("Se muestran los datos que se copiaron al crear el ticket.");
-        await datosDeMaria(ficha);
+        await operativoDeMaria(ficha);
+        // La copia no guarda documento fiscal ni correo.
+        await expect(ficha).not.toContainText("1234567-8");
+        await expect(ficha).not.toContainText("maria@ejemplo.gt");
         await expect(ficha.getByTestId("sincronizado")).toContainText("Copia guardada al crear el ticket (27/10/2026 14:20)");
         await expect(ficha.getByRole("button", { name: "Refrescar" })).toHaveCount(0);
     });

@@ -516,7 +516,8 @@ func TestFichaInstantaneaYStale(t *testing.T) {
 	// Sin instantánea y sin Argos: 503, nunca una ficha vacía.
 	lectura.pedir(http.MethodGet, "/api/v1/clientes/99", nil).problema(t, 503, "argos_no_disponible")
 
-	// Argos vuelve: se refresca y deja de ser stale.
+	// Argos vuelve y pasó la espera tras el fallo (EsperaTrasFallo): se refresca y deja de ser stale.
+	e.exec(`UPDATE integracion.argos_clientes SET fallo_en = now() - interval '2 minutes' WHERE id = 41`)
 	e.argos.con(func() {
 		e.argos.caido = false
 		e.argos.clientes[41]["nombre"] = "Ana López de Pérez"

@@ -2,6 +2,7 @@ package argos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"slices"
@@ -71,6 +72,40 @@ type EntradaBuscarClientes struct {
 	Q      string `json:"q" query:"q" minLength:"2" maxLength:"100" required:"true" doc:"Nombre, código, teléfono, NIT o dirección (lo que Argos admita en su búsqueda)"`
 	Limit  int    `json:"limit" query:"limit" minimum:"1" maximum:"50" default:"20" doc:"Tamaño de página"`
 	Cursor string `json:"cursor,omitempty" query:"cursor" maxLength:"500" doc:"nextCursor de la página anterior (de Argos)"`
+}
+
+// MarshalJSON es lo que queda en auditoria.acciones.entrada: una búsqueda por teléfono, NIT o CUI
+// (4 dígitos o más) se guarda con los dígitos ocultos salvo los dos últimos (5512-3344 →
+// ****-**44); por nombre, tal cual.
+func (e EntradaBuscarClientes) MarshalJSON() ([]byte, error) {
+	type plano EntradaBuscarClientes
+	p := plano(e)
+	p.Q = enmascararDigitos(p.Q)
+	return json.Marshal(p)
+}
+
+func enmascararDigitos(q string) string {
+	total := 0
+	for _, r := range q {
+		if r >= '0' && r <= '9' {
+			total++
+		}
+	}
+	if total < 4 {
+		return q
+	}
+	var b strings.Builder
+	visto := 0
+	for _, r := range q {
+		if r >= '0' && r <= '9' {
+			visto++
+			if visto <= total-2 {
+				r = '*'
+			}
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 type entradaBusquedaFinal struct {
@@ -266,6 +301,8 @@ type entradaFichaFinal struct {
 	leida     *fichaArgos
 	noExiste  bool
 	errArgos  error
+	// enEspera: no se llamó a Argos por un fallo reciente (no se vuelve a marcar el fallo).
+	enEspera  bool
 	estado    *EstadoCuenta
 	errEstado *string
 }
@@ -311,7 +348,11 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			if in.noExiste {
 				// Argos ya no lo tiene: se borra la instantánea aunque la acción termine en 404.
 				t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-					return argosbd.New(tx).BorrarCliente(ctx, in.ClienteID)
+					q := argosbd.New(tx)
+					if err := q.AnonimizarCopiasDeCliente(ctx, in.ClienteID); err != nil {
+						return err
+					}
+					return q.BorrarCliente(ctx, in.ClienteID)
 				})
 				return Ficha{}, nucleo.NoEncontrado("El cliente no existe en Argos")
 			}
@@ -323,6 +364,12 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				}
 			case in.errArgos != nil && EsCaido(in.errArgos) && in.previa.cliente != nil:
 				stale = true
+				if !in.enEspera {
+					ahora := time.Now()
+					if err := q.MarcarFalloCliente(ctx, argosbd.MarcarFalloClienteParams{ID: in.ClienteID, FalloEn: &ahora}); err != nil {
+						return Ficha{}, err
+					}
+				}
 			case in.errArgos != nil:
 				return Ficha{}, Problema(in.errArgos)
 			}
@@ -380,8 +427,23 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	}
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
-	if debeRefrescar(p.cliente, in.Refrescar, o.m.cfg.VigenciaInstantanea) {
-		leida, err := leerFichaArgos(ctx, nucleo.BDDe(ctx), cli, in.ID)
+	refrescar := in.Refrescar
+	if refrescar && p.cliente != nil {
+		// «Refrescar» solo para un cliente que la instantánea pone en la empresa activa (otro dará
+		// 404 sin llamar a Argos) y dentro de la cuota del conector.
+		e := contexto.EmpresaDe(ctx)
+		refrescar = (e == 0 || enEmpresa(empresasDeFila(*p.cliente), p.cliente.SinServicios, e)) &&
+			o.m.refrescos.tomarCuota(p.conector.ID, time.Now())
+	}
+	switch {
+	case !debeRefrescar(p.cliente, refrescar, o.m.cfg.VigenciaInstantanea):
+	case enEspera(p.cliente, time.Now()):
+		// Argos se cayó hace poco al leer este cliente: no se insiste; la instantánea, stale.
+		f.errArgos, f.enEspera = errEnEspera(), true
+	default:
+		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, func(c context.Context) (fichaArgos, error) {
+			return leerFichaArgos(c, nucleo.BDDe(ctx), cli, in.ID)
+		})
 		switch {
 		case err == nil:
 			f.leida = &leida
@@ -419,6 +481,17 @@ func debeRefrescar(f *argosbd.IntegracionArgosCliente, refrescar bool, vigencia 
 	}
 	edad := time.Since(f.SincronizadoEn)
 	return edad > vigencia || (refrescar && edad > RefrescoMinimo)
+}
+
+// enEspera: la última lectura de este cliente falló por caída hace menos de EsperaTrasFallo.
+// Solo con instantánea (sin ella no hay qué servir y se intenta).
+func enEspera(f *argosbd.IntegracionArgosCliente, ahora time.Time) bool {
+	return f != nil && f.FalloEn != nil && ahora.Sub(*f.FalloEn) < EsperaTrasFallo
+}
+
+// errEnEspera: Argos no se consultó por un fallo reciente; cuenta como caído (stale).
+func errEnEspera() error {
+	return conector.NuevoErrorRemoto(Remoto, 0, "Argos falló hace poco; se reintenta en un momento", nil)
 }
 
 // estadoCuentaPermitido: el estado de cuenta se pide si el cliente tiene un servicio en la empresa

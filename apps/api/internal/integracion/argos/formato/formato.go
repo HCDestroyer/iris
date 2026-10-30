@@ -22,17 +22,23 @@ type Telefono struct {
 	Mostrar  string  `json:"mostrar" doc:"Cómo se muestra: +502 5512 3344 para Guatemala; el original (sin espacios de más) si es de otro país o no se pudo interpretar"`
 }
 
-// separadores de un campo con varios números: «5512-3344 / 2233-4455», «…, …», «… y …».
-var separadores = regexp.MustCompile(`\s*(?:[/,;|]|\s+y\s+|\s+o\s+)\s*`)
+// Solo espacios y tabuladores ASCII cuentan como espacio (y saltos de línea como separador): el
+// espejo en TS usa las mismas clases, así un espacio Unicode (no separable, ancho fijo) da lo mismo
+// en los dos lados (no se interpreta y se muestra tal cual).
+//
+// separadores de un campo con varios números: «5512-3344 / 2233-4455», «…, …», «… y …», líneas.
+var separadores = regexp.MustCompile(`[ \t]*(?:[/,;|\r\n]|[ \t]+y[ \t]+|[ \t]+o[ \t]+)[ \t]*`)
 
-var espacios = regexp.MustCompile(`\s+`)
+var espacios = regexp.MustCompile(`[ \t]+`)
+
+func recortar(s string) string { return strings.Trim(s, " \t") }
 
 // Telefonos parte el texto de un campo de Argos en sus números (puede traer varios) y normaliza
 // cada uno. Un campo vacío no da ninguno.
 func Telefonos(tipo, texto string) []Telefono {
 	salida := []Telefono{}
-	for _, parte := range separadores.Split(strings.TrimSpace(texto), -1) {
-		parte = espacios.ReplaceAllString(strings.TrimSpace(parte), " ")
+	for _, parte := range separadores.Split(recortar(texto), -1) {
+		parte = espacios.ReplaceAllString(recortar(parte), " ")
 		if parte == "" {
 			continue
 		}
@@ -50,7 +56,7 @@ func Telefonos(tipo, texto string) []Telefono {
 // país: solo si viene con + o 00 y tiene de 8 a 15 dígitos; se muestra como vino. Cualquier otra
 // cosa (extensiones, números cortos, letras) no se interpreta: ok = false.
 func NormalizarTelefono(texto string) (e164, mostrar string, ok bool) {
-	t := strings.TrimSpace(texto)
+	t := recortar(texto)
 	if t == "" || strings.ContainsFunc(t, func(r rune) bool {
 		return (r < '0' || r > '9') && !strings.ContainsRune(" +-().", r)
 	}) {
@@ -112,7 +118,7 @@ func Principal(telefonos []Telefono) *Telefono {
 // dígito verificador separado (1234567-8, 123456-K), CUI en 4-5-4 (1234 56789 0101) y CF como
 // «CF». El pasaporte, o un número que no tiene la forma esperada, se muestra tal cual.
 func Documento(tipo, numero string) string {
-	n := strings.ToUpper(strings.TrimSpace(numero))
+	n := mayusculasASCII(recortar(numero))
 	switch {
 	case n == "":
 		return ""
@@ -151,4 +157,14 @@ func Coordenadas(lat, lon *float64) (*float64, *float64) {
 func redondear(v float64) float64 {
 	f := math.Pow(10, DecimalesCoordenadas)
 	return math.Round(v*f) / f
+}
+
+// mayusculasASCII: solo a–z (strings.ToUpper y toUpperCase de JS difieren fuera de ASCII, p. ej. ß).
+func mayusculasASCII(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' {
+			return r - 'a' + 'A'
+		}
+		return r
+	}, s)
 }

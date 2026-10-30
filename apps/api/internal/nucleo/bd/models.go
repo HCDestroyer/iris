@@ -708,16 +708,19 @@ type IntegracionArgosCliente struct {
 	Correo              string
 	ZonaNombre          string
 	VersionDatos        int16
+	FalloEn             *time.Time
 }
 
 type IntegracionArgosCopia struct {
 	Entidad        string
 	EntidadID      int64
+	EmpresaID      *int64
 	ClienteID      int64
 	ServicioID     *int64
 	Datos          []byte
 	SincronizadoEn time.Time
 	CopiadoEn      time.Time
+	AnonimizadaEn  *time.Time
 }
 
 type IntegracionArgosEliminado struct {

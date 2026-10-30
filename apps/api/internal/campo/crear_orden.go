@@ -245,6 +245,13 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 					return Orden{}, err
 				}
 			}
+			// Cliente y servicio de la empresa de la orden (y el servicio del cliente) según la
+			// instantánea de Argos, que CrearOrden aseguró antes de la transacción.
+			if datos.ClienteID != nil {
+				if err := argos.ValidarClienteEnEmpresa(ctx, t, *datos.ClienteID, datos.ServicioID, empresa); err != nil {
+					return Orden{}, err
+				}
+			}
 			if err := completarDesdeArgos(ctx, q, &datos, empresa, in.Contacto == nil || contactoDeTicket); err != nil {
 				return Orden{}, err
 			}
@@ -378,9 +385,6 @@ func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCre
 		case err != nil:
 			return err
 		default:
-			if otraEmpresa(c.EmpresaID) {
-				return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente es de otra empresa en Argos")
-			}
 			if in.Direccion == nil && c.Direccion != "" {
 				in.Direccion = &c.Direccion
 			}

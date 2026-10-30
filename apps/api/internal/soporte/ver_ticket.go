@@ -45,7 +45,7 @@ func (m *Modulo) nuevoVerTicket() *auditoria.Caso[EntradaVerTicket, Ticket] {
 			// La copia trae datos personales del cliente (documento, correo, teléfonos): solo con
 			// clientes.ver, como la ficha.
 			if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
-				if tk.DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaTicket, f.ID); err != nil {
+				if tk.DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaTicket, f.ID, f.EmpresaID); err != nil {
 					return Ticket{}, err
 				}
 			}

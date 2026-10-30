@@ -167,7 +167,7 @@ partes (ficha, ticket, orden, comercial y app de campo).
 - **Estado del cliente:** Argos no tiene estado de cliente. `cliente.estado` es el resumen de sus
   servicios visibles (el más grave: suspendido > limitado > activo > pendiente_instalacion >
   retirado), el mismo criterio que Argos en `GET /clientes/:id/dependientes`.
-- **Formato para mostrar** (`formato/`, funciones puras con su espejo en
+- **Formato para mostrar** (`formato/`, funciones puras, solo espacios y tabuladores ASCII y mayúsculas a–z para dar lo mismo que su espejo en
   `apps/web/lib/datos/telefono.ts`; los dos prueban `formato/testdata/telefonos.json`):
   - teléfonos: un campo de Argos puede traer varios números («5512-3344 / 2233-4455»); cada uno sale
     en `telefonos[]` con `original`, `e164` (+50255123344, null si no se pudo interpretar) y
@@ -179,13 +179,33 @@ partes (ficha, ticket, orden, comercial y app de campo).
   cliente; Iris no la inventa).
 - **Copias en tickets y órdenes** (`copias.go`, `integracion.argos_copias`, solo inserción): al
   crear un ticket o una orden con cliente de Argos, el caso de uso que lo crea guarda en su
-  transacción lo que la instantánea tiene del cliente y del servicio (`CopiarDatos`). El detalle
+  transacción **solo lo operativo** (nombre, código, dirección del cliente y de instalación,
+  teléfono principal, servicio, plan, IP, router, zona; nunca documento fiscal, correo ni
+  empresas) con la empresa de la entidad (`CopiarDatos`). No se copia un cliente que la instantánea
+  pone en otra empresa, y al leer (`CopiaDe`) se descarta si la empresa ya no coincide. El detalle
   (`GET /tickets/{id}`, `GET /ordenes/{id}`) la devuelve en `datosArgos` solo a quien tiene
-  `clientes.ver`; el panel la muestra si la ficha no se puede leer o el servicio se eliminó en
-  Argos. La orden toma la dirección y las coordenadas de instalación del servicio (o las del
-  cliente) y, si nadie indicó el contacto, el nombre del cliente y su teléfono principal (móvil
-  válido primero) en formato +502; un ticket sin contacto ya no deja la orden sin teléfono.
-  Tickets y órdenes anteriores a la migración no tienen copia.
+  `clientes.ver`. Si Argos elimina al cliente (404 al leerlo o webhook), sus copias se anonimizan
+  (solo ids, `anonimizada: true`). Una copia de una fila anterior a los datos coherentes va con
+  `completa: false`. Tickets y órdenes anteriores a la migración no tienen copia.
+- **Cliente y servicio de la empresa** (revisión de seguridad): `ValidarClienteEnEmpresa` en
+  `crearTicket` (panel, API, portal, correo, Horus) y `CrearOrden`: con instantánea, el cliente
+  debe ser de la empresa (`enEmpresa`) y el servicio, de ese cliente y de esa empresa (422
+  `empresa_no_coincide` o 422 `servicioId`). Horus con un cliente de otra empresa abre el ticket
+  sin cliente (`otra_empresa`). Antes de la transacción, `ConInstantanea` (envoltura de
+  `CrearTicket` y `CrearOrden` para usuarios, tokens e integraciones con el permiso) llama a
+  `AsegurarInstantanea`: si falta el cliente o el servicio en la instantánea, lee la ficha de Argos
+  y la guarda (`clientes.sincronizar`, auditada); un servicio que no es del cliente es 422 y, con
+  Argos caído, 503 `argos_no_disponible` (nunca se acepta un servicio sin verificar). El sistema
+  (retiro automático, alta comercial) no consulta.
+- **Convertidor único:** `AServicio(ServicioArgos, zonaCliente)` → `Servicio` (instantánea y
+  lecturas en vivo).
+- **Protección de Argos** (`refrescos.go`): una sola lectura de ficha en curso por (conector,
+  cliente) (`singleflight`), cuota de 60 «Refrescar» por minuto y conector, y tras una caída
+  (`fallo_en`) 1 min sin volver a llamar (instantánea `stale`). «Refrescar» de un cliente que la
+  instantánea pone en otra empresa no llama a Argos (404).
+- **Auditoría de la búsqueda:** una búsqueda con 4 dígitos o más (teléfono, NIT, CUI) queda con los
+  dígitos ocultos salvo los dos últimos (`****-**44`).
+- **Resolución local por IP:** ignora servicios retirados.
 - **Refresco:** por webhook (`cliente.actualizado` con cualquier `campos[]`,
   `servicio.creado`, `servicio.config_cambiada`, `asignacion.cambiada`,
   `servicio.estado_cambiado`), al abrir la ficha si tiene más de 24 h o es de una versión anterior

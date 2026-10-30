@@ -2,11 +2,14 @@ package argos_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -164,7 +167,7 @@ func TestCopiaDeDatos(t *testing.T) {
 		t.Fatalf("copia: %v %v", c, err)
 	}
 	if c.Direccion != "Lote 5, aldea El Durazno" || c.Servicio == nil || c.Servicio.IP != "100.64.10.5" ||
-		c.Telefono == nil || c.Telefono.Mostrar != "+502 5512 3344" || c.Cliente.NitCuiMostrar != "1234567-8" || c.Cliente.Estado != "suspendido" {
+		c.Telefono == nil || c.Telefono.Mostrar != "+502 5512 3344" || c.Cliente.Estado != "suspendido" || !c.Completa {
 		t.Fatalf("copia con servicio: %+v", c)
 	}
 	sinDir := int64(4571)
@@ -179,7 +182,7 @@ func TestCopiaDeDatos(t *testing.T) {
 	if _, err := argos.CopiarDatos(ctx, e.pool, argos.CopiaTicket, 900001, 457, &srv, &empresa, ahora.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	leida, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900001)
+	leida, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900001, &empresa)
 	if err != nil || leida == nil || leida.Direccion != "Lote 5, aldea El Durazno" || leida.Telefono.Mostrar != "+502 5512 3344" ||
 		leida.CopiadoEn.IsZero() || leida.SincronizadoEn.IsZero() {
 		t.Fatalf("copia conservada: %+v %v", leida, err)
@@ -188,8 +191,166 @@ func TestCopiaDeDatos(t *testing.T) {
 	if c, err := argos.CopiarDatos(ctx, e.pool, argos.CopiaTicket, 900002, 999999, nil, nil, ahora); err != nil || c != nil {
 		t.Fatalf("sin instantánea: %+v %v", c, err)
 	}
-	if c, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900002); err != nil || c != nil {
+	if c, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900002, &empresa); err != nil || c != nil {
 		t.Fatalf("sin copia: %+v %v", c, err)
 	}
-	e.exec(`DELETE FROM integracion.argos_copias WHERE entidad_id IN (900001, 900002)`)
+	// La copia no lleva documento fiscal, correo ni empresas (solo lo operativo).
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_copias WHERE entidad_id = 900001
+		AND (datos::text LIKE '%12345678%' OR datos::text LIKE '%hilda@%' OR datos->'cliente' ? 'empresas' OR datos->'cliente' ? 'nitCui')`); n != 0 {
+		t.Fatal("la copia guarda datos personales que no hacen falta")
+	}
+	// Leída desde otra empresa, no sale.
+	otra := int64(2)
+	if c, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900001, &otra); err != nil || c != nil {
+		t.Fatalf("copia leída desde otra empresa: %+v %v", c, err)
+	}
+	// Ni se copia un cliente que la instantánea pone en otra empresa.
+	if c, err := argos.CopiarDatos(ctx, e.pool, argos.CopiaTicket, 900003, 457, &srv, &otra, ahora); err != nil || c != nil {
+		t.Fatalf("copia de un cliente de otra empresa: %+v %v", c, err)
+	}
+	// De una fila anterior a los datos coherentes, la copia queda marcada incompleta.
+	e.exec(`UPDATE integracion.argos_clientes SET version_datos = 1 WHERE id = 457`)
+	if c, err := argos.CopiarDatos(ctx, e.pool, argos.CopiaOrden, 900004, 457, &srv, &empresa, ahora); err != nil || c == nil || c.Completa {
+		t.Fatalf("copia de una fila vieja: %+v %v", c, err)
+	}
+	// Argos elimina al cliente: sus copias se anonimizan (solo ids).
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '25 hours' WHERE id = 457`)
+	e.argos.con(func() { delete(e.argos.clientes, 457) })
+	e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/457", nil).problema(t, 404, "no_encontrado")
+	an, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900001, &empresa)
+	if err != nil || an == nil || !an.Anonimizada || an.Cliente.Nombre != "" || an.Direccion != "" || an.Telefono != nil || an.Servicio != nil || an.Cliente.ID != 457 {
+		t.Fatalf("copia anonimizada: %+v %v", an, err)
+	}
+	e.exec(`DELETE FROM integracion.argos_copias WHERE entidad_id IN (900001, 900002, 900003, 900004)`)
+}
+
+// B2 (revisión de #73): antes de crear un ticket u orden con servicio, la instantánea se asegura
+// en Argos; un servicio que no es del cliente es 422 y, con Argos caído, 503 (nunca se acepta un
+// servicio sin verificar).
+func TestAsegurarInstantanea(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := pruebas.ContextoSistema(e.pool)
+	srv := func(id int64) *int64 { return &id }
+	// Sin conector activo: nada que verificar.
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4600)); err != nil {
+		t.Fatalf("sin conector: %v", err)
+	}
+	_, _, _ = e.conectado()
+	e.sembrarComoArgos14(460)
+	e.sembrarComoArgos14(461)
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4600)); err != nil {
+		t.Fatalf("servicio del cliente: %v", err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 4600 AND cliente_id = 460`); n != 1 {
+		t.Fatal("la instantánea no quedó guardada")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.sincronizar' AND entidad_id = '460'`); n != 1 {
+		t.Fatal("la lectura no quedó auditada")
+	}
+	antes := e.argos.llamadasA("/api/v1/clientes/460")
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4601)); err != nil || e.argos.llamadasA("/api/v1/clientes/460") != antes {
+		t.Fatalf("con la instantánea no debía llamar a Argos: %v", err)
+	}
+	// Servicio de otro cliente: 422 servicioId.
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4610)); !esProblemaStatus(err, 422, "validacion") {
+		t.Fatalf("servicio de otro cliente: %v", err)
+	}
+	// Cliente que Argos no tiene: 422.
+	if err := e.mod.AsegurarInstantanea(ctx, 999999, srv(1)); !esProblemaStatus(err, 422, "validacion") {
+		t.Fatalf("cliente inexistente: %v", err)
+	}
+	// Argos caído: con servicio, 503; solo con cliente, se sigue.
+	e.sembrarComoArgos14(462)
+	e.argos.con(func() { e.argos.caido = true })
+	if err := e.mod.AsegurarInstantanea(ctx, 462, srv(4620)); !esProblemaStatus(err, 503, "argos_no_disponible") {
+		t.Fatalf("Argos caído con servicio: %v", err)
+	}
+	if err := e.mod.AsegurarInstantanea(ctx, 462, nil); err != nil {
+		t.Fatalf("Argos caído sin servicio: %v", err)
+	}
+}
+
+func esProblemaStatus(err error, status int, codigo string) bool {
+	var p *nucleo.Problema
+	return errors.As(err, &p) && p.Status == status && p.Codigo() == codigo
+}
+
+// MEDIUM-1: tras una caída de Argos no se vuelve a llamar durante EsperaTrasFallo (stale), y
+// «Refrescar» de un cliente que la instantánea pone en otra empresa no llama a Argos.
+func TestFichaEsperaTrasFalloYEmpresa(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	e.sembrarComoArgos14(463)
+	lectura := e.usuario("lectura")
+	if f := lectura.pedir(http.MethodGet, "/api/v1/clientes/463", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	llamadas := func() int { return e.argos.llamadasA("/api/v1/clientes/463") }
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '25 hours' WHERE id = 463`)
+	e.argos.con(func() { e.argos.caido = true })
+	if s := lectura.pedir(http.MethodGet, "/api/v1/clientes/463", nil); s.status != 200 || s.cuerpo["stale"] != true {
+		t.Fatalf("caído: %s", s.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 463 AND fallo_en IS NOT NULL`); n != 1 {
+		t.Fatal("no quedó marcado el fallo")
+	}
+	e.argos.con(func() { e.argos.caido = false })
+	antes := llamadas()
+	for range 3 {
+		if s := lectura.pedir(http.MethodGet, "/api/v1/clientes/463?refrescar=true", nil); s.status != 200 || s.cuerpo["stale"] != true {
+			t.Fatalf("en espera: %s", s.crudo)
+		}
+	}
+	if llamadas() != antes {
+		t.Fatal("en espera tras el fallo no debía llamar a Argos")
+	}
+	e.exec(`UPDATE integracion.argos_clientes SET fallo_en = now() - interval '2 minutes' WHERE id = 463`)
+	if s := lectura.pedir(http.MethodGet, "/api/v1/clientes/463", nil); s.status != 200 || s.cuerpo["stale"] != false || llamadas() != antes+1 {
+		t.Fatalf("pasada la espera: %s", s.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 463 AND fallo_en IS NULL`); n != 1 {
+		t.Fatal("una lectura buena limpia el fallo")
+	}
+	// La instantánea pone al cliente en otra empresa: «Refrescar» no llama; 404.
+	e.exec(`UPDATE integracion.argos_clientes SET empresas = '{2}', empresa_id = 2, sin_servicios = false,
+		sincronizado_en = now() - interval '1 minute' WHERE id = 463`)
+	antes = llamadas()
+	lectura.pedir(http.MethodGet, "/api/v1/clientes/463?refrescar=true", nil).problema(t, 404, "no_encontrado")
+	if llamadas() != antes {
+		t.Fatal("refrescar un cliente de otra empresa no debía llamar a Argos")
+	}
+}
+
+// LOW-5: una búsqueda por teléfono o NIT queda enmascarada en la auditoría.
+func TestBusquedaEnmascaradaEnAuditoria(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	if b := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes?q=5512-3344", nil); b.status != 200 {
+		t.Fatalf("buscar: %s", b.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.buscar' AND entrada->>'q' = '****-**44'`); n != 1 {
+		t.Fatal("la búsqueda por teléfono no quedó enmascarada")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.buscar' AND entrada::text LIKE '%5512%'`); n != 0 {
+		t.Fatal("el teléfono buscado quedó en la auditoría")
+	}
+}
+
+// LOW-2: un servicio retirado no resuelve su IP desde la instantánea (la IP ya puede ser de otro).
+func TestServicioPorIPSinRetirados(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	e.sembrarComoArgos14(464)
+	if f := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/464", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	ctx := context.Background()
+	q := argosbd.New(e.pool)
+	if _, err := q.ServicioPorIP(ctx, argosbd.ServicioPorIPParams{Ip: "100.64.10.5", EmpresaID: 1}); err != nil {
+		t.Fatalf("activo: %v", err)
+	}
+	e.exec(`UPDATE integracion.argos_servicios SET estado = 'retirado' WHERE id = 4640`)
+	if _, err := q.ServicioPorIP(ctx, argosbd.ServicioPorIPParams{Ip: "100.64.10.5", EmpresaID: 1}); err == nil {
+		t.Fatal("un servicio retirado no debía resolver la IP")
+	}
 }

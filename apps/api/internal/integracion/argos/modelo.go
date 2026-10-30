@@ -58,15 +58,44 @@ type Servicio struct {
 }
 
 // CopiaArgos es lo que Iris sabía del cliente y del servicio al crear un ticket o una orden. Se
-// conserva tal cual (integracion.argos_copias): si la ficha no se puede leer (conector apagado,
-// Argos caído) o el servicio se eliminó en Argos, el ticket y la orden la muestran.
+// conserva (integracion.argos_copias): si la ficha no se puede leer (conector apagado, Argos
+// caído) o el servicio se eliminó en Argos, el ticket y la orden la muestran. Solo lleva lo
+// operativo (nombre, dirección, teléfono principal, servicio, plan, IP): ni documento fiscal, ni
+// correo, ni empresas. Si Argos elimina al cliente, queda anonimizada (solo los ids).
 type CopiaArgos struct {
-	Cliente        ClienteResumen    `json:"cliente"`
-	Servicio       *Servicio         `json:"servicio,omitempty" doc:"El servicio del ticket o la orden; ausente si no tenía o Iris no lo conocía"`
+	Cliente        CopiaCliente      `json:"cliente"`
+	Servicio       *CopiaServicio    `json:"servicio,omitempty" doc:"El servicio del ticket o la orden; ausente si no tenía, Iris no lo conocía o la copia está anonimizada"`
 	Direccion      string            `json:"direccion" doc:"La que aplica: la de instalación del servicio o, si no tiene, la del cliente"`
 	Telefono       *formato.Telefono `json:"telefono,omitempty" doc:"El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos"`
+	Completa       bool              `json:"completa" doc:"false: se copió de una instantánea anterior a los datos coherentes (puede faltar la IP o el teléfono móvil)"`
+	Anonimizada    bool              `json:"anonimizada" doc:"true: Argos eliminó al cliente y la copia quedó solo con los ids"`
 	SincronizadoEn time.Time         `json:"sincronizadoEn" doc:"Cuándo se había leído de Argos lo copiado"`
 	CopiadoEn      time.Time         `json:"copiadoEn" doc:"Cuándo se copió (al crear el ticket o la orden)"`
+}
+
+// CopiaCliente: lo operativo del cliente en una copia.
+type CopiaCliente struct {
+	ID         int64    `json:"id"`
+	Codigo     string   `json:"codigo"`
+	Nombre     string   `json:"nombre"`
+	Direccion  string   `json:"direccion" doc:"Dirección del cliente (no la de instalación)"`
+	Lat        *float64 `json:"lat" nullable:"true"`
+	Lon        *float64 `json:"lon" nullable:"true"`
+	ZonaNombre string   `json:"zonaNombre"`
+	Estado     string   `json:"estado" doc:"Resumen del estado de sus servicios al copiar"`
+}
+
+// CopiaServicio: lo operativo del servicio en una copia.
+type CopiaServicio struct {
+	ID           int64    `json:"id"`
+	PlanNombre   string   `json:"planNombre"`
+	Estado       string   `json:"estado"`
+	Direccion    string   `json:"direccion" doc:"Dirección de instalación; vacía si Argos no tenía una propia"`
+	Lat          *float64 `json:"lat" nullable:"true"`
+	Lon          *float64 `json:"lon" nullable:"true"`
+	IP           string   `json:"ip"`
+	RouterNombre string   `json:"routerNombre"`
+	ZonaNombre   string   `json:"zonaNombre"`
 }
 
 // EstadoCuenta resumido (§2.1): solo el saldo y las facturas vencidas. Nunca se guarda: se lee

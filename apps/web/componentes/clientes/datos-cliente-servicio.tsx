@@ -34,6 +34,20 @@ type ClienteArgos = Schema<"ClienteResumen">;
 type ServicioArgos = Schema<"Servicio">;
 export type CopiaArgos = Schema<"CopiaArgos">;
 
+/** Lo mínimo que se muestra de un cliente: la ficha trae todo; la copia, solo lo operativo. */
+type ClienteVista = Pick<ClienteArgos, "id" | "codigo" | "nombre" | "direccion" | "lat" | "lon" | "zonaNombre" | "estado"> &
+    Partial<Pick<ClienteArgos, "tipo" | "tipoDocumentoFiscal" | "nitCuiMostrar" | "correo" | "telefonos">>;
+type ServicioVista = Pick<ServicioArgos, "id" | "planNombre" | "estado" | "direccion" | "lat" | "lon" | "ip" | "routerNombre"> &
+    Partial<Pick<ServicioArgos, "userPpp" | "tipoConexion">>;
+
+/** El cliente de una copia, con su teléfono principal (la copia no guarda los demás). */
+function clienteDeCopia(copia: CopiaArgos): ClienteVista {
+    return { ...copia.cliente, telefonos: copia.telefono ? [copia.telefono] : [] };
+}
+
+/** Correo con forma de correo (para no armar un `mailto:` con lo que venga). */
+const CORREO = /^[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[^\s@<>()"',;:]+$/;
+
 /** Contacto capturado a mano (ticket u orden): sin correo en las órdenes. */
 export type ContactoCapturado = { nombre: string | null; telefono: string | null; correo?: string | null };
 
@@ -119,9 +133,11 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
                     ) : (
                         <ErrorLectura error={ficha.error} que="la ficha del cliente" reintentar={ficha.reintentar} />
                     )}
-                    {copia ? (
+                    {copia?.anonimizada ? (
+                        <p className="text-muted-foreground">Argos eliminó a este cliente: la copia guardada al crear {del.el} ya no tiene sus datos.</p>
+                    ) : copia ? (
                         <VistaDatos
-                            cliente={copia.cliente}
+                            cliente={clienteDeCopia(copia)}
                             servicios={copia.servicio ? [copia.servicio] : []}
                             tituloServicio={del.servicio}
                             pie={<PieCopia copia={copia} el={del.el} />}
@@ -140,7 +156,7 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
     const eliminado = servicioId !== null && !delServicio ? (serviciosEliminados ?? []).find((s) => s.id === servicioId) : undefined;
     // El servicio eliminado en Argos se muestra con la copia (si la hay) y marcado.
     const copiaEliminado = eliminado && copia?.servicio?.id === servicioId ? copia.servicio : undefined;
-    const mostrados = delServicio ? [delServicio] : copiaEliminado ? [copiaEliminado] : eliminado ? [] : lista;
+    const mostrados: readonly ServicioVista[] = delServicio ? [delServicio] : copiaEliminado ? [copiaEliminado] : eliminado ? [] : lista;
     const viejo = desactualizado(sincronizadoEn, ahora);
     return (
         <Tarjeta data-testid="ficha-cliente">
@@ -222,14 +238,15 @@ function PieCopia({ copia, el }: { copia: CopiaArgos; el: string }) {
         <p className="inline-flex items-center gap-1.5 border-t pt-3 text-muted-foreground" data-testid="sincronizado">
             <History aria-hidden className="size-4 shrink-0" />
             Copia guardada al crear {el} ({formatearFecha(copia.copiadoEn) ?? "—"}); Argos la había enviado el {formatearFecha(copia.sincronizadoEn) ?? "—"}.
+            {copia.completa ? "" : " Es de antes de los datos completos: puede faltar la IP o el móvil."}
         </p>
     );
 }
 
 /** Lo que se muestra de un cliente y sus servicios, venga de la ficha o de una copia: siempre igual. */
-export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { cliente: ClienteArgos; servicios: readonly ServicioArgos[]; tituloServicio: string; pie?: ReactNode }) {
+export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { cliente: ClienteVista; servicios: readonly ServicioVista[]; tituloServicio: string; pie?: ReactNode }) {
     const estado = presentacionEstado(cliente.estado);
-    const tipo = TIPOS_CLIENTE[cliente.tipo];
+    const tipo = cliente.tipo ? TIPOS_CLIENTE[cliente.tipo] : undefined;
     const tels = cliente.telefonos ?? [];
     return (
         <div className="grid gap-3" data-testid="datos-cliente">
@@ -245,9 +262,9 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
             </div>
             <dl className="grid gap-2">
                 {cliente.nitCuiMostrar ? (
-                    <Fila icono={IdCard} etiqueta={etiquetaDocumento(cliente.tipoDocumentoFiscal)}>
+                    <Fila icono={IdCard} etiqueta={etiquetaDocumento(cliente.tipoDocumentoFiscal ?? "")}>
                         <span className="tabular-nums">
-                            {etiquetaDocumento(cliente.tipoDocumentoFiscal)} {cliente.nitCuiMostrar}
+                            {etiquetaDocumento(cliente.tipoDocumentoFiscal ?? "")} {cliente.nitCuiMostrar}
                         </span>
                     </Fila>
                 ) : null}
@@ -258,9 +275,13 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
                 ) : null}
                 {cliente.correo ? (
                     <Fila icono={Mail} etiqueta="Correo">
-                        <a href={`mailto:${cliente.correo}`} className="break-all text-primary hover:underline">
-                            {cliente.correo}
-                        </a>
+                        {CORREO.test(cliente.correo) ? (
+                            <a href={`mailto:${encodeURIComponent(cliente.correo)}`} className="break-all text-primary hover:underline">
+                                {cliente.correo}
+                            </a>
+                        ) : (
+                            <span className="break-all">{cliente.correo}</span>
+                        )}
                     </Fila>
                 ) : null}
                 <Fila icono={MapPin} etiqueta="Dirección del cliente">
@@ -293,7 +314,7 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
     );
 }
 
-function VistaServicio({ servicio: s }: { servicio: ServicioArgos }) {
+function VistaServicio({ servicio: s }: { servicio: ServicioVista }) {
     const estado = presentacionEstado(s.estado);
     return (
         <div className="grid gap-1.5" data-testid="datos-servicio">
@@ -316,7 +337,7 @@ function VistaServicio({ servicio: s }: { servicio: ServicioArgos }) {
                         <span className="flex flex-wrap gap-x-3">
                             {s.ip ? <span className="font-mono">{s.ip}</span> : null}
                             {s.userPpp ? <span className="font-mono">{s.userPpp}</span> : null}
-                            {TIPOS_CONEXION[s.tipoConexion] ? <span className="text-muted-foreground">{TIPOS_CONEXION[s.tipoConexion]}</span> : null}
+                            {TIPOS_CONEXION[s.tipoConexion ?? ""] ? <span className="text-muted-foreground">{TIPOS_CONEXION[s.tipoConexion ?? ""]}</span> : null}
                         </span>
                     </Fila>
                 ) : null}
