@@ -275,6 +275,9 @@ jobs:
       - name: docker compose config
         run: docker compose -f infra/docker-compose.yml --env-file .env.example --profile app config --quiet
 
+      - name: Compose y paquete de producción
+        run: infra/produccion/verificar.sh
+
       - name: bash -n y shellcheck
         run: |
           for s in scripts/*.sh infra/*/*.sh; do bash -n "$s"; done
