@@ -160,6 +160,16 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.editar",
     "usuarios.reiniciar_mfa",
     "usuarios.ver",
+    // Pedido 10: accesos, actividad de la app y roles propios (e2e/api-accesos.ts).
+    "accesos.ver",
+    "campo.ver_actividad",
+    "roles.activar",
+    "roles.crear",
+    "roles.desactivar",
+    "roles.editar",
+    "usuarios.asignar_rol",
+    "usuarios.cerrar_sesiones",
+    "usuarios.quitar_rol",
 ];
 
 const permisosPorCorreo: Record<string, Permiso[]> = {
