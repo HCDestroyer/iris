@@ -156,7 +156,7 @@ func (q *Queries) AgregarZonasACuadrilla(ctx context.Context, arg AgregarZonasAC
 const alcancesDePermisoDeUsuario = `-- name: AlcancesDePermisoDeUsuario :many
 SELECT ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
-JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = $1 AND rp.permiso = ANY($2::text[])
 `
 
@@ -368,7 +368,8 @@ FROM nucleo.usuarios u
 WHERE u.tipo = 'persona' AND u.activo
   AND ($1::bigint IS NULL OR u.id > $1)
   AND NOT EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = u.id)
-  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+              JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
               WHERE ur.usuario_id = u.id AND rp.permiso = 'ordenes.ver_propias'
                 AND ($2::boolean
                      OR ur.zona_id = ANY($3::bigint[])
@@ -376,7 +377,8 @@ WHERE u.tipo = 'persona' AND u.activo
   AND ($5::boolean
        OR $6::bigint IS NULL
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $6)
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                   WHERE ur.usuario_id = u.id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
   AND ($7::text IS NULL OR u.nombre ILIKE '%' || $7 || '%' OR u.correo ILIKE '%' || $7 || '%')
@@ -1474,7 +1476,7 @@ WHERE ($1::bigint IS NULL OR t.id > $1)
   AND ($2::boolean
        OR $3::bigint IS NULL
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = $3)
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
   AND ($4::boolean

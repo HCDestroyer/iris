@@ -1,7 +1,7 @@
 import { crearCliente, type Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
 import { ErrorTransporte } from "./errores";
-import { crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi } from "./http";
+import { cabecerasApp, crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi, valorCabeceraApp } from "./http";
 
 interface Pedido {
     url: string;
@@ -221,5 +221,45 @@ describe("crearTransportePosicionesApi", () => {
             .enviarPosiciones(entrada)
             .catch((e: unknown) => e);
         expect(e403).toMatchObject({ status: 403, codigo: "requiere_sesion_campo", esDeSesion: true });
+    });
+});
+
+describe("X-Iris-App", () => {
+    it("arma campo/<versión> (<plataforma>) con valores limpios", () => {
+        expect(valorCabeceraApp("1.4.0", "android")).toBe("campo/1.4.0 (android)");
+        expect(valorCabeceraApp(" v1.4.0 beta ", "PWA")).toBe("campo/v1.4.0beta (pwa)");
+        expect(valorCabeceraApp("", "")).toBe("campo/0 (desconocida)");
+        expect(valorCabeceraApp("-1", "i/os")).toBe("campo/1 (ios)");
+    });
+
+    it("informa los pendientes solo si son un entero válido", () => {
+        expect(cabecerasApp()).toEqual({});
+        expect(cabecerasApp({ version: "1", plataforma: "pwa", pendientes: () => 4 })).toEqual({
+            "X-Iris-App": "campo/1 (pwa)",
+            "X-Iris-Pendientes": "4",
+        });
+        expect(cabecerasApp({ version: "1", plataforma: "pwa", pendientes: () => null })).toEqual({ "X-Iris-App": "campo/1 (pwa)" });
+        expect(cabecerasApp({ version: "1", plataforma: "pwa", pendientes: () => -1 })).toEqual({ "X-Iris-App": "campo/1 (pwa)" });
+    });
+
+    it("el lote, el paquete, las posiciones y las subidas llevan la app y los pendientes del momento", async () => {
+        const { fetch, pedidos } = fetchFalso(() => json(respuestaLote));
+        let pendientes = 3;
+        const app = { version: "2.1.0", plataforma: "android", pendientes: () => pendientes };
+        const cliente = clienteCon(fetch);
+        await crearTransporteApi(cliente, app).enviarLote({ dispositivoId: "d1", operaciones: [] });
+        pendientes = 0;
+        await crearTransporteApi(cliente, app).obtenerPaquete("2026-10-28").catch(() => undefined);
+        await crearTransportePosicionesApi(cliente, app).enviarPosiciones({ puntos: [] }).catch(() => undefined);
+        await crearSubidorApi(cliente, app).consultarOffset("0190f000-0000-7000-8000-000000000001").catch(() => undefined);
+        expect(pedidos.map((p) => p.cabeceras.get("X-Iris-App"))).toEqual(Array(4).fill("campo/2.1.0 (android)"));
+        expect(pedidos.map((p) => p.cabeceras.get("X-Iris-Pendientes"))).toEqual(["3", "0", "0", "0"]);
+        expect(pedidos.every((p) => p.cabeceras.get("X-Iris-Canal") === "campo")).toBe(true);
+    });
+
+    it("sin app no manda la cabecera", async () => {
+        const { fetch, pedidos } = fetchFalso(() => json(respuestaLote));
+        await crearTransporteApi(clienteCon(fetch)).enviarLote({ dispositivoId: "d1", operaciones: [] });
+        expect(pedidos[0]?.cabeceras.get("X-Iris-App")).toBeNull();
     });
 });

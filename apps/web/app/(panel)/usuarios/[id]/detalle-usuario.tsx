@@ -4,7 +4,10 @@ import { Boton, EstadoVacio, Esqueleto, Tarjeta, TarjetaContenido } from "@iris/
 import { ArrowLeft, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { AccesosUsuario } from "@/componentes/accesos/accesos-usuario";
+import { SesionesUsuario } from "@/componentes/accesos/sesiones-usuario";
 import { VinculosSSO } from "@/componentes/cuenta/vinculos-sso";
+import { RolesUsuario } from "@/componentes/roles/roles-usuario";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
@@ -17,7 +20,7 @@ import { Activo, Mfa, textoRoles, Tipo } from "../lista-usuarios";
 export function DetalleUsuario() {
     const { id: crudo } = useParams<{ id: string }>();
     const id = Number(crudo);
-    const { yo } = useSesion();
+    const { yo, puede } = useSesion();
     const valido = Number.isSafeInteger(id) && id > 0;
     const lectura = useLectura(async (signal) => (valido ? resolver(api().GET("/api/v1/usuarios/{id}", { params: { path: { id } }, signal })) : null));
 
@@ -78,6 +81,10 @@ export function DetalleUsuario() {
                     </TarjetaContenido>
                 </Tarjeta>
                 {u.tipo === "persona" ? <VinculosSSO usuarioId={u.id} propio={u.id === yo.usuario.id} /> : null}
+                {/* Pedido 10: roles con alcance, sesiones activas y accesos (cada sección según su permiso). */}
+                {puede(["usuarios.asignar_rol", "usuarios.quitar_rol"]) ? <RolesUsuario usuario={u} alCambiar={lectura.reemplazar} /> : null}
+                {puede(["accesos.ver"]) ? <SesionesUsuario usuarioId={u.id} propio={u.id === yo.usuario.id} /> : null}
+                {puede(["accesos.ver"]) ? <AccesosUsuario usuarioId={u.id} /> : null}
             </div>
         </>
     );

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { cabecerasCampo } from "@/lib/campo/app";
 import { esRutaCampo, requiereCambio, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import {
     esquemaCodigoMFA,
@@ -114,7 +115,8 @@ export function FormularioEntrar() {
     async function enviarCredenciales(datos: DatosInicioSesion) {
         setAviso(null);
         try {
-            const sesion = await resolver(api().POST("/api/v1/sesion", { body: datos }));
+            // Entrar a la app de campo: la API registra el acceso como de la PWA (X-Iris-App).
+            const sesion = await resolver(api().POST("/api/v1/sesion", { body: datos, headers: esRutaCampo(siguiente) ? cabecerasCampo() : {} }));
             bloqueo.liberar();
             if (sesion.mfaRequerido) {
                 mfa.reset({ codigo: "" });
@@ -142,7 +144,7 @@ export function FormularioEntrar() {
     async function enviarCodigo(datos: DatosCodigoMFA) {
         setAviso(null);
         try {
-            const sesion = await resolver(api().POST("/api/v1/sesion/mfa", { body: datos }));
+            const sesion = await resolver(api().POST("/api/v1/sesion/mfa", { body: datos, headers: esRutaCampo(siguiente) ? cabecerasCampo() : {} }));
             entrar(sesion.usuario);
         } catch (error) {
             if (error instanceof ErrorApi && error.codigo === "codigo_invalido") {

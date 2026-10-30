@@ -493,7 +493,15 @@ func TestPaginacion(t *testing.T) {
 	if r := c.pedir(http.MethodGet, "/api/v1/permisos", nil); r.status != 200 || r.cuerpo["nextCursor"] != nil || len(r.cuerpo["data"].([]any)) != len(nucleo.Catalogo) {
 		t.Fatalf("permisos: %d %s", r.status, r.crudo)
 	}
-	if r := c.pedir(http.MethodGet, "/api/v1/roles", nil); r.status != 200 || len(r.cuerpo["data"].([]any)) != len(nucleo.RolesBase) {
+	// Los roles base; los propios que crean otras pruebas del paquete no cuentan.
+	r = c.pedir(http.MethodGet, "/api/v1/roles", nil)
+	base := 0
+	for _, x := range r.cuerpo["data"].([]any) {
+		if x.(map[string]any)["sistema"] == true {
+			base++
+		}
+	}
+	if r.status != 200 || base != len(nucleo.RolesBase) {
 		t.Fatalf("roles: %d %s", r.status, r.crudo)
 	}
 }

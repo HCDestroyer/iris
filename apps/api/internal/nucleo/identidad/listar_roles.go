@@ -32,17 +32,20 @@ func nuevoListarRoles() *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Rol]]
 			if err != nil {
 				return nucleo.Pagina[Rol]{}, err
 			}
-			porRol := map[int64][]nucleo.Permiso{}
+			porRol := map[int64][]string{}
 			for _, p := range permisos {
-				porRol[p.RolID] = append(porRol[p.RolID], nucleo.Permiso(p.Permiso))
+				porRol[p.RolID] = append(porRol[p.RolID], p.Permiso)
+			}
+			usos, err := q.UsuariosPorRol(ctx, ids)
+			if err != nil {
+				return nucleo.Pagina[Rol]{}, err
+			}
+			usuarios := map[int64]int32{}
+			for _, u := range usos {
+				usuarios[u.RolID] = u.Usuarios
 			}
 			return nucleo.Paginar(filas, in.Limite(), func(r identidadbd.NucleoRole) Rol {
-				ps := porRol[r.ID]
-				if ps == nil {
-					ps = []nucleo.Permiso{}
-				}
-				return Rol{ID: r.ID, Codigo: r.Codigo, Nombre: r.Nombre, Descripcion: r.Descripcion,
-					Sistema: r.Sistema, Permisos: ps, Version: r.Version}
+				return aRol(r, porRol[r.ID], usuarios[r.ID])
 			}, func(r identidadbd.NucleoRole) []any { return []any{r.ID} }), nil
 		},
 	})
