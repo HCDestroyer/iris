@@ -2,7 +2,10 @@
 #
 # Uses the images published on GHCR for IRIS_VERSION: nothing is built on the server, and there is
 # no Mailpit (production sends mail through a real SMTP server, configured per mailbox in the panel).
-# Every port is published on 127.0.0.1 only: put a reverse proxy with HTTPS in front of the panel.
+# Only the panel and the API are published, on 127.0.0.1: put a reverse proxy with HTTPS in front of
+# the panel. Postgres, MinIO and OSRM are reachable only inside the compose network; to reach them
+# from the host, IRIS_PUERTOS_ADMIN=true adds docker-compose.admin-ports.yml (also 127.0.0.1 only).
+# Third-party images are pinned by digest; package.sh pins the iris-* images of the release too.
 #
 #   docker compose --env-file /opt/iris/.env -f /opt/iris/current/docker-compose.yml [--profile osrm] up -d
 #
@@ -58,7 +61,7 @@ x-api-depende: &api-depende
 
 services:
   postgres:
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     restart: unless-stopped
     logging: *logging
     stop_grace_period: 60s
@@ -69,8 +72,6 @@ services:
       TZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - 127.0.0.1:${IRIS_PG_PUERTO:-5432}:5432
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
@@ -79,7 +80,7 @@ services:
 
   # Cache only (invalidated by events). No persistence and no published port.
   redis:
-    image: redis:7.4.11-alpine
+    image: redis:7.4.11-alpine@sha256:d9436322172a5b482c187bf1f363d3c4fea086fcca6b9c8a94de8f0f39ed3193
     restart: unless-stopped
     logging: *logging
     command: [redis-server, --save, '', --appendonly, 'no']
@@ -91,7 +92,7 @@ services:
 
   # Attachments (photos, signatures, documents) in S3-compatible storage.
   minio:
-    image: ${IRIS_MINIO_IMAGEN:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
+    image: ${IRIS_MINIO_IMAGEN:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372}
     restart: unless-stopped
     logging: *logging
     command: [server, /data, --console-address, ':9001']
@@ -100,9 +101,6 @@ services:
       MINIO_ROOT_PASSWORD: ${IRIS_S3_SECRET_KEY:?IRIS_S3_SECRET_KEY is required}
     volumes:
       - minio:/data
-    ports:
-      - 127.0.0.1:${IRIS_MINIO_PUERTO:-9000}:9000
-      - 127.0.0.1:${IRIS_MINIO_CONSOLA_PUERTO:-9001}:9001
     healthcheck:
       test: [CMD, curl, -fsS, -o, /dev/null, http://127.0.0.1:9000/minio/health/live]
       interval: 10s
@@ -112,14 +110,14 @@ services:
 
   # Creates the private attachments bucket (idempotent) and exits.
   minio-init:
-    image: ${IRIS_MC_IMAGEN:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z}
+    image: ${IRIS_MC_IMAGEN:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd}
     logging: *logging
     depends_on:
       minio:
         condition: service_healthy
+    # Credentials through MC_HOST_local (environment), never on the command line.
     environment:
-      IRIS_S3_ACCESS_KEY: ${IRIS_S3_ACCESS_KEY:-iris}
-      IRIS_S3_SECRET_KEY: ${IRIS_S3_SECRET_KEY:?IRIS_S3_SECRET_KEY is required}
+      MC_HOST_local: http://${IRIS_S3_ACCESS_KEY:-iris}:${IRIS_S3_SECRET_KEY:?IRIS_S3_SECRET_KEY is required}@minio:9000
       IRIS_S3_BUCKET: ${IRIS_S3_BUCKET:-iris-adjuntos}
     entrypoint:
       - /bin/sh
@@ -127,7 +125,7 @@ services:
       - |
         set -eu
         n=0
-        until mc alias set local http://minio:9000 "$$IRIS_S3_ACCESS_KEY" "$$IRIS_S3_SECRET_KEY" >/dev/null 2>&1; do
+        until mc ls local >/dev/null 2>&1; do
           n=$$((n + 1))
           if [ "$$n" -ge 30 ]; then echo "MinIO did not answer at http://minio:9000" >&2; exit 1; fi
           sleep 2
@@ -212,7 +210,7 @@ services:
   # lines and say so.
   osrm:
     profiles: [osrm]
-    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0@sha256:729461bcc9ae9e6aafa92c0f93db9b060a32e85d5e72092c01ae4a4a9f1eb564
     restart: on-failure:3
     logging: *logging
     volumes:
@@ -226,8 +224,6 @@ services:
           exit 1
         fi
         exec osrm-routed --algorithm mld --max-table-size 1000 /data/iris.osrm
-    ports:
-      - 127.0.0.1:${IRIS_OSRM_PUERTO:-5000}:5000
 
 networks:
   default:

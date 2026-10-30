@@ -10,8 +10,8 @@
 # It never builds anything: it downloads the release package (production docker-compose.yml and
 # scripts), verifies its sha256, writes <dir>/.env (mode 600) with generated secrets, pulls the
 # images from ghcr.io, runs the migrations, starts Iris and waits until it is healthy. Running it
-# again is safe: existing settings and secrets are kept. After the install, the same script is
-# available as `irisctl`.
+# again is safe: existing settings and secrets are kept, and an interrupted install or lab migration
+# resumes where it stopped. After the install, the same script is available as `irisctl`.
 #
 # Usage: install.sh [command] [options]
 #
@@ -22,7 +22,7 @@
 #   logs [service]   follow the logs (api, worker, web, postgres, minio...)
 #   stop             stop every container (data is kept)
 #   start            start everything again and wait until it is healthy
-#   backup           encrypted database backup now (infra/respaldo/respaldar.sh)
+#   backup           database backup now (encrypted with age; infra/respaldo/respaldar.sh)
 #   create-admin     create an administrator; the password is printed once
 #   compose ARGS     run docker compose on the installation (e.g. irisctl compose ps)
 #   version          print the installed version
@@ -33,23 +33,25 @@
 #   --horus-origin URL     Horus origin(s) allowed to connect, comma separated (IRIS_HORUS_ORIGENES)
 #   --web-port N           panel port on 127.0.0.1, the reverse proxy target (IRIS_WEB_PUERTO; 3000)
 #   --api-port N           API port on 127.0.0.1, for local checks (IRIS_API_PUERTO; 8080)
-#   --version X.Y.Z        version to install (default: latest release)
+#   --version X.Y.Z        version to install (default: latest release with an install package)
 #   --dir PATH             install folder (default /opt/iris)
 #   --from-lab ENV_FILE    migrate a `make dev-app` lab install: reuse its .env, database and
 #                          attachments (auto-detected when the lab containers exist)
-#   --keep-db-password     with --from-lab: keep the lab database password (default: replace the
-#                          dev default "iris" with a generated one)
+#   --keep-db-password     with a lab: keep the lab database password (default: replace the dev
+#                          default "iris" with a generated one)
 #   --with-osrm            also run the OSRM routing service (needs infra/osrm/preparar.sh data)
 #   --admin-email EMAIL    create the first administrator with this email
 #   --admin-name NAME      name of that administrator (default "Administrator")
 #   --no-admin             do not offer to create an administrator
+#   --skip-backup          with a lab: migrate without a backup first (not recommended)
 #   -y, --yes              never ask; fail if something required is missing
 #
 # Upgrade options: --version X.Y.Z, --skip-backup (not recommended), -y/--yes.
 #
 # Environment (tests and offline servers): IRIS_DIR, IRIS_REPO (HCDestroyer/iris), IRIS_SOURCE
 # (local folder with iris-<v>.tar.gz, its .sha256 and a `latest` file, instead of GitHub),
-# IRIS_SKIP_PULL=1 (images already loaded), IRIS_WAIT_S (seconds to wait for health, 300).
+# IRIS_SKIP_PULL=1 (images already loaded), IRIS_WAIT_S (seconds to wait for health, 300),
+# IRIS_AGE_URL (where to download the age binary when apt has no package).
 set -Eeuo pipefail
 
 # Everything runs inside main(), called on the last line, so bash reads the whole file before running
@@ -62,7 +64,19 @@ SOURCE="${IRIS_SOURCE:-}"
 DIR="${IRIS_DIR:-/opt/iris}"
 WAIT_S="${IRIS_WAIT_S:-300}"
 COMPOSE_MIN=2.24
+DOCKER_SAFE_LOCALHOST=28
 KEEP_RELEASES=3
+# age for encrypted backups, when the distribution has no package (Ubuntu 20.04): official release
+# binaries, pinned by sha256.
+AGE_VERSION=v1.2.1
+age_sha256() {
+    case "$1" in
+        amd64) echo 7df45a6cc87d4da11cc03a539a7470c15b1041ab2b396af088fe9990f7c79d50 ;;
+        arm64) echo 57fd79a7ece5fe501f351b9dd51a82fbee1ea8db65a8839db17f5c080245e99f ;;
+    esac
+}
+AGE_URL="${IRIS_AGE_URL:-https://github.com/FiloSottile/age/releases/download/$AGE_VERSION}"
+CURL=(curl -fsSL --proto '=https' --tlsv1.2 --retry 3)
 
 log() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -110,10 +124,17 @@ while [ $# -gt 0 ]; do
 done
 case "$DIR" in /*) ;; *) DIR="$(pwd)/$DIR" ;; esac
 DIR="${DIR%/}"
+[ "$DIR" != "" ] || die "--dir cannot be /"
 ENV_FILE="$DIR/.env"
+# Marker of an install or lab migration that has not finished: "fresh" or "lab <lab .env>".
+PENDING="$DIR/.install-pending"
+# age installed by this script (when the distribution has no package) lives here.
+PATH="$DIR/bin:$PATH"
 
 # --- helpers -----------------------------------------------------------------------------------
 has_tty() { ! $YES && { : < /dev/tty; } 2> /dev/null; }
+# Where secrets shown once go: the terminal if there is one (not logs or pipes), else stdout.
+to_user() { if { : > /dev/tty; } 2> /dev/null; then cat > /dev/tty; else cat; fi; }
 
 ask() { # ask "question" [default] → answer on stdout
     local q="$1" def="${2:-}" a=""
@@ -180,32 +201,45 @@ env_add_missing() {
     done < <(grep -oE '^[A-Z][A-Z0-9_]*=' "$template" | tr -d '=')
 }
 
-compose() {
-    local profiles=()
-    [ "$(env_get IRIS_OSRM)" = true ] && profiles=(--profile osrm)
-    docker compose --env-file "$ENV_FILE" -f "$DIR/current/docker-compose.yml" "${profiles[@]}" "$@"
+# docker compose on the release folder $1 (current by default), with the optional admin ports file.
+compose_at() {
+    local rel="$1" args=(--env-file "$ENV_FILE" -f "$1/docker-compose.yml")
+    shift
+    if [ "$(env_get IRIS_PUERTOS_ADMIN)" = true ] && [ -f "$rel/docker-compose.admin-ports.yml" ]; then
+        args+=(-f "$rel/docker-compose.admin-ports.yml")
+    fi
+    [ "$(env_get IRIS_OSRM)" != true ] || args+=(--profile osrm)
+    docker compose "${args[@]}" "$@"
 }
+compose() { compose_at "$DIR/current" "$@"; }
 
 require_install() {
     [ -f "$ENV_FILE" ] || die "Iris is not installed in $DIR (no .env). Install with: sudo bash install.sh"
     [ -f "$DIR/current/docker-compose.yml" ] || die "$DIR/current/docker-compose.yml is missing (broken install?)"
+    [ ! -f "$PENDING" ] || [ "$CMD" = install ] || die "the install in $DIR has not finished: run install.sh again first"
     check_docker
 }
 
 check_docker() {
     command -v docker > /dev/null || die "Docker is not installed. Install Docker Engine and the compose plugin first: https://docs.docker.com/engine/install/ubuntu/"
     docker info > /dev/null 2>&1 || die "Docker is installed but not answering (is it running? are you root or in the docker group?)"
-    local v
+    local v e
     v="$(docker compose version --short 2> /dev/null || true)"
     [ -n "$v" ] || die "Docker Compose v2 is missing (apt-get install docker-compose-plugin)"
     version_ge "${v#v}" "$COMPOSE_MIN" || die "Docker Compose $COMPOSE_MIN or newer is required (found $v)"
+    e="$(docker version --format '{{.Server.Version}}' 2> /dev/null || true)"
+    if [ -n "$e" ] && ! version_ge "$e" "$DOCKER_SAFE_LOCALHOST"; then
+        warn "Docker Engine $e: before 28.0, ports published on 127.0.0.1 can be reached by other machines on the same network segment. Upgrade Docker Engine to 28 or newer"
+    fi
 }
 
+# One lock per Docker host (the compose project is always "iris"), outside the install folder.
 lock() {
-    mkdir -p "$DIR"
     command -v flock > /dev/null || return 0
-    exec 9> "$DIR/.lock"
-    flock -n 9 || die "another install.sh/irisctl operation is running in $DIR"
+    local f="/run/lock/iris-install.lock"
+    [ -w /run/lock ] || f="${TMPDIR:-/tmp}/iris-install-$(id -u).lock"
+    exec 9> "$f"
+    flock -n 9 || die "another install.sh/irisctl operation is running on this server"
 }
 
 valid_url() { [[ "$1" =~ ^https?://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]]; }
@@ -224,9 +258,13 @@ iris_ports() {
 
 check_ports() {
     command -v ss > /dev/null || { warn "ss not found: skipping the port check"; return 0; }
-    local ours var p
+    local ours var p vars=(IRIS_WEB_PUERTO IRIS_API_PUERTO)
+    if [ "$(env_get IRIS_PUERTOS_ADMIN)" = true ]; then
+        vars+=(IRIS_PG_PUERTO IRIS_MINIO_PUERTO IRIS_MINIO_CONSOLA_PUERTO)
+        [ "$(env_get IRIS_OSRM)" != true ] || vars+=(IRIS_OSRM_PUERTO)
+    fi
     ours=" $(iris_ports | tr '\n' ' ') "
-    for var in IRIS_WEB_PUERTO IRIS_API_PUERTO IRIS_PG_PUERTO IRIS_MINIO_PUERTO IRIS_MINIO_CONSOLA_PUERTO; do
+    for var in "${vars[@]}"; do
         p="$(env_get "$var")"
         [ -n "$p" ] || continue
         case "$ours" in *" $p "*) continue ;; esac
@@ -237,14 +275,17 @@ check_ports() {
 }
 
 # --- release package -----------------------------------------------------------------------------
+# Latest version that has an install package (a release whose package is not uploaded yet, or that
+# predates the installer, is skipped).
 latest_version() {
     local v
     if [ -n "$SOURCE" ]; then
         v="$(tr -d '[:space:]' < "$SOURCE/latest" 2> /dev/null || true)"
     else
-        v="$(curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$REPO/releases/latest" < /dev/null |
-            sed -n 's/^ *"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n1 || true)"
+        v="$("${CURL[@]}" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$REPO/releases?per_page=30" < /dev/null 2> /dev/null |
+            grep -oE '"browser_download_url": *"[^"]*/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/iris-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz"' |
+            sed -E 's/.*\/iris-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz"$/\1/' | sort -V | tail -n1 || true)"
     fi
     printf '%s' "$v"
 }
@@ -262,11 +303,11 @@ fetch_release() {
         cp "$SOURCE/$pkg" "$SOURCE/$pkg.sha256" "$tmp/" 2> /dev/null || { rm -rf "$tmp"; die "$pkg is not in $SOURCE"; }
     else
         local base="https://github.com/$REPO/releases/download/v$v"
-        curl -fsSL --retry 3 -o "$tmp/$pkg" "$base/$pkg" < /dev/null || { rm -rf "$tmp"; die "could not download $base/$pkg (does release v$v have the install package?)"; }
-        curl -fsSL --retry 3 -o "$tmp/$pkg.sha256" "$base/$pkg.sha256" < /dev/null || { rm -rf "$tmp"; die "could not download $base/$pkg.sha256"; }
+        "${CURL[@]}" -o "$tmp/$pkg" "$base/$pkg" < /dev/null || { rm -rf "$tmp"; die "could not download $base/$pkg (does release v$v have the install package?)"; }
+        "${CURL[@]}" -o "$tmp/$pkg.sha256" "$base/$pkg.sha256" < /dev/null || { rm -rf "$tmp"; die "could not download $base/$pkg.sha256"; }
     fi
     (cd "$tmp" && sha256sum -c --quiet "$pkg.sha256") || { rm -rf "$tmp"; die "the sha256 of $pkg does not match: refusing to install it"; }
-    tar -xzf "$tmp/$pkg" -C "$tmp"
+    tar -xzf "$tmp/$pkg" -C "$tmp" --no-same-owner
     [ -f "$tmp/iris-$v/docker-compose.yml" ] || { rm -rf "$tmp"; die "$pkg does not contain iris-$v/docker-compose.yml"; }
     mkdir -p "$DIR/releases"
     rm -rf "${DIR:?}/releases/$v"
@@ -277,7 +318,7 @@ fetch_release() {
 
 use_release() {
     ln -sfn "releases/$1" "$DIR/current"
-    if [ "$(id -u)" = 0 ] && [ -d /usr/local/bin ] && [ "$DIR" = /opt/iris ] || [ "${IRIS_LINK_CLI:-0}" = 1 ]; then
+    if { [ "$(id -u)" = 0 ] && [ -d /usr/local/bin ] && [ "$DIR" = /opt/iris ]; } || [ "${IRIS_LINK_CLI:-0}" = 1 ]; then
         ln -sfn "$DIR/current/install.sh" /usr/local/bin/irisctl 2> /dev/null || warn "could not create /usr/local/bin/irisctl"
     fi
 }
@@ -285,14 +326,16 @@ use_release() {
 prune_releases() {
     local cur keep=0 v
     cur="$(env_get IRIS_VERSION)"
-    for v in $(find "$DIR/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null | sort -rV); do
+    while IFS= read -r v; do
+        is_semver "$v" || continue
         [ "$v" = "$cur" ] && continue
         keep=$((keep + 1))
-        [ "$keep" -le "$KEEP_RELEASES" ] || rm -rf "${DIR:?}/releases/$v"
-    done
+        [ "$keep" -le "$KEEP_RELEASES" ] || rm -rf "${DIR:?}/releases/${v:?}"
+    done < <(find "$DIR/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null | sort -rV)
 }
 
 # --- backups -------------------------------------------------------------------------------------
+# age from the distribution, or else the official binary (pinned sha256) into $DIR/bin.
 ensure_age() {
     command -v age > /dev/null && command -v age-keygen > /dev/null && return 0
     if [ "$(id -u)" = 0 ] && command -v apt-get > /dev/null; then
@@ -300,44 +343,74 @@ ensure_age() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq age < /dev/null > /dev/null 2>&1 ||
             { apt-get update -qq < /dev/null > /dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq age < /dev/null > /dev/null 2>&1; } || true
     fi
+    command -v age > /dev/null && command -v age-keygen > /dev/null && return 0
+
+    local arch tmp file
+    case "$(uname -m)" in x86_64 | amd64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; *) return 1 ;; esac
+    file="age-$AGE_VERSION-linux-$arch.tar.gz"
+    log "the distribution has no age package: downloading age $AGE_VERSION ($arch) from its GitHub release"
+    tmp="$(mktemp -d)"
+    if "${CURL[@]}" -o "$tmp/$file" "$AGE_URL/$file" < /dev/null 2> /dev/null &&
+        printf '%s  %s\n' "$(age_sha256 "$arch")" "$tmp/$file" | sha256sum -c --quiet - 2> /dev/null &&
+        tar -xzf "$tmp/$file" -C "$tmp" --no-same-owner age/age age/age-keygen; then
+        mkdir -p "$DIR/bin"
+        install -m 0755 "$tmp/age/age" "$tmp/age/age-keygen" "$DIR/bin/"
+    else
+        warn "could not download or verify $AGE_URL/$file"
+    fi
+    rm -rf "$tmp"
     command -v age > /dev/null && command -v age-keygen > /dev/null
 }
 
-# Creates the age key pair for backups if the .env has no recipients file. Prints nothing if it
-# already exists; sets NEW_BACKUP_KEY=true when it creates one.
+# Creates the age key pair for backups if the .env has no recipients file. Sets NEW_BACKUP_KEY=true
+# when it creates one. Without age, backups fall back to unencrypted dumps (do_backup).
 NEW_BACKUP_KEY=false
-LAB_MOVED=false
 ensure_backup_keys() {
     local r
     r="$(env_get IRIS_RESPALDO_DESTINATARIOS)"
     [ -n "$r" ] && [ -s "$r" ] && return 0
-    if ! ensure_age; then
-        warn "age is not installed: backups (and the backup before each upgrade) are disabled until you install it (apt-get install age) and run install.sh again"
-        return 0
-    fi
+    ensure_age || return 0
     mkdir -p "$DIR/backup-keys"
     chmod 700 "$DIR/backup-keys"
-    if [ ! -s "$DIR/backup-keys/identity.txt" ]; then
+    if [ ! -s "$DIR/backup-keys/identity.txt" ] && [ ! -s "$DIR/backup-keys/recipients.txt" ]; then
         (umask 077 && age-keygen -o "$DIR/backup-keys/identity.txt" 2> /dev/null)
+        age-keygen -y "$DIR/backup-keys/identity.txt" > "$DIR/backup-keys/recipients.txt"
         NEW_BACKUP_KEY=true
+        env_set IRIS_RESPALDO_IDENTIDAD "$DIR/backup-keys/identity.txt"
+    elif [ ! -s "$DIR/backup-keys/recipients.txt" ]; then
+        age-keygen -y "$DIR/backup-keys/identity.txt" > "$DIR/backup-keys/recipients.txt"
     fi
-    age-keygen -y "$DIR/backup-keys/identity.txt" > "$DIR/backup-keys/recipients.txt"
     env_set IRIS_RESPALDO_DESTINATARIOS "$DIR/backup-keys/recipients.txt"
-    env_set IRIS_RESPALDO_IDENTIDAD "$DIR/backup-keys/identity.txt"
 }
 
+# Database backup: encrypted with age (respaldar.sh) when possible; otherwise an unencrypted
+# pg_dump -Fc readable only by root, with a loud warning. Never silently skipped.
 do_backup() {
-    local r
+    local r dir user db ts out
+    ensure_backup_keys
+    dir="$(env_get IRIS_RESPALDO_DIR)"; dir="${dir:-$DIR/backups}"
+    mkdir -p "$dir"
+    chmod 700 "$dir"
     r="$(env_get IRIS_RESPALDO_DESTINATARIOS)"
-    if [ -z "$r" ] || [ ! -s "$r" ]; then
-        die "no backup key configured (IRIS_RESPALDO_DESTINATARIOS). Run install.sh again to create one, or use --skip-backup"
+    if [ -n "$r" ] && [ -s "$r" ] && command -v age > /dev/null; then
+        [ -x "$DIR/current/backup/respaldar.sh" ] || die "$DIR/current/backup/respaldar.sh is missing"
+        log "backing up the database (encrypted with age)"
+        ENV_FILE="$ENV_FILE" IRIS_COMPOSE_ARCHIVO="$DIR/current/docker-compose.yml" IRIS_RESPALDO_DIR="$dir" \
+            "$DIR/current/backup/respaldar.sh" --compose < /dev/null
+        return
     fi
-    command -v age > /dev/null || die "age is not installed (apt-get install age)"
-    [ -x "$DIR/current/backup/respaldar.sh" ] || die "$DIR/current/backup/respaldar.sh is missing"
-    mkdir -p "$(env_get IRIS_RESPALDO_DIR)"
-    log "backing up the database"
-    ENV_FILE="$ENV_FILE" IRIS_COMPOSE_ARCHIVO="$DIR/current/docker-compose.yml" \
-        "$DIR/current/backup/respaldar.sh" --compose < /dev/null
+    user="$(env_get IRIS_PG_USUARIO)"; db="$(env_get IRIS_PG_BASE)"
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    out="$dir/${db:-iris}-$ts.dump"
+    warn "age is not available: this backup is NOT encrypted ($out, readable only by $(id -un)). Install age and run install.sh again to encrypt the next ones"
+    (
+        umask 077
+        compose exec -T postgres pg_dump --format=custom --compress=6 --username "${user:-iris}" --dbname "${db:-iris}" \
+            < /dev/null > "$out.partial" || { rm -f "$out.partial"; exit 1; }
+        mv "$out.partial" "$out"
+        (cd "$dir" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+    ) || return 1
+    log "Backup: $out"
 }
 
 # --- start and health ----------------------------------------------------------------------------
@@ -380,7 +453,7 @@ create_admin() {
         warn "could not create the administrator $email (does it already exist?)"
         return 1
     fi
-    cat << EOF
+    to_user << EOF
 
   First administrator created. This password is shown only once: write it down now.
 
@@ -407,12 +480,13 @@ detect_lab_env() {
 }
 
 # Keys of the lab .env that never move to production: they point to Mailpit, to localhost or to the
-# build, or the production compose and installer set them.
+# build, or the production compose, its template and the installer set them.
 LAB_SKIP=" IRIS_DIR IRIS_VERSION IRIS_REGISTRY IRIS_DB_URL IRIS_REDIS_URL IRIS_S3_ENDPOINT IRIS_S3_PATH_STYLE
  IRIS_ADJUNTOS_ALMACEN IRIS_ADJUNTOS_DIR IRIS_OSRM_URL IRIS_OSRM_PBF_URL IRIS_SMTP_HOST IRIS_SMTP_PORT IRIS_SMTP_TLS
  IRIS_SMTP_USUARIO IRIS_SMTP_CONTRASENA IRIS_SMTP_REMITENTE IRIS_CORREO_CA IRIS_CORREO_REDES_PERMITIDAS
  IRIS_MAILPIT_SMTP_PUERTO IRIS_MAILPIT_UI_PUERTO IRIS_REDIS_PUERTO PORT IRIS_PUERTO IRIS_IMAGEN_TAG
- IRIS_BUILD_CA_EXTRA IRIS_API_URL IRIS_RESPALDO_DIR IRIS_RESPALDO_DESTINATARIOS IRIS_RESPALDO_IDENTIDAD "
+ IRIS_BUILD_CA_EXTRA IRIS_API_URL IRIS_RESPALDO_DIR IRIS_RESPALDO_DESTINATARIOS IRIS_RESPALDO_IDENTIDAD
+ IRIS_MINIO_IMAGEN IRIS_MC_IMAGEN IRIS_PUERTOS_ADMIN IRIS_OSRM IRIS_PG_CONTRASENA_NUEVA "
 
 import_lab_env() {
     local lab="$1" example key value root
@@ -429,8 +503,7 @@ import_lab_env() {
     for key in IRIS_PG_USUARIO:iris IRIS_PG_CONTRASENA:iris IRIS_PG_BASE:iris IRIS_S3_ACCESS_KEY:iris \
         IRIS_S3_SECRET_KEY:iris-dev-solo-local IRIS_S3_BUCKET:iris-adjuntos IRIS_S3_REGION:us-east-1 \
         IRIS_RED_COMPOSE:172.28.10.0/24 IRIS_WEB_IP:172.28.10.10 IRIS_WEB_PUERTO:3000 IRIS_API_PUERTO:8080 \
-        IRIS_PG_PUERTO:5432 IRIS_MINIO_PUERTO:9000 IRIS_MINIO_CONSOLA_PUERTO:9001 IRIS_OSRM_PUERTO:5000 \
-        IRIS_MINIO_IMAGEN:pgsty/minio:RELEASE.2026-08-04T00-00-00Z IRIS_MC_IMAGEN:pgsty/mc:RELEASE.2026-09-16T00-00-00Z; do
+        IRIS_PG_PUERTO:5432 IRIS_MINIO_PUERTO:9000 IRIS_MINIO_CONSOLA_PUERTO:9001 IRIS_OSRM_PUERTO:5000; do
         env_set "${key%%:*}" "$(lab_value "${key%%:*}" "${key#*:}")"
     done
     # Everything else the lab .env sets explicitly (encryption key, origins, networks, tuning...).
@@ -446,55 +519,121 @@ import_lab_env() {
     # Mail networks: the lab allowed the compose network for Mailpit; keep only something else.
     value="$(env_get IRIS_CORREO_REDES_PERMITIDAS "$lab")"
     [ -z "$value" ] || [ "$value" = "$(env_get IRIS_RED_COMPOSE)" ] || env_set IRIS_CORREO_REDES_PERMITIDAS "$value"
-    # Backup keys of the lab (relative paths are relative to the repo root).
-    for key in IRIS_RESPALDO_DESTINATARIOS IRIS_RESPALDO_IDENTIDAD; do
-        value="$(env_get "$key" "$lab")"
-        [ -n "$value" ] || continue
-        case "$value" in /*) ;; *) value="$root/${value#./}" ;; esac
-        [ -s "$value" ] && env_set "$key" "$value"
+    # Backup keys of the lab (relative paths are relative to the repo root): copied into the install,
+    # so nothing points into the lab checkout.
+    local src
+    for key in IRIS_RESPALDO_DESTINATARIOS:recipients.txt IRIS_RESPALDO_IDENTIDAD:identity.txt; do
+        src="$(env_get "${key%%:*}" "$lab")"
+        [ -n "$src" ] || continue
+        case "$src" in /*) ;; *) src="$root/${src#./}" ;; esac
+        [ -s "$src" ] || continue
+        mkdir -p "$DIR/backup-keys"
+        chmod 700 "$DIR/backup-keys"
+        install -m 0600 "$src" "$DIR/backup-keys/${key#*:}"
+        env_set "${key%%:*}" "$DIR/backup-keys/${key#*:}"
     done
     if docker volume inspect iris_osrm > /dev/null 2>&1 && ! $WITH_OSRM; then
         warn "the lab has an osrm volume; OSRM stays off. To use it: install.sh --with-osrm"
     fi
 }
 
-# Replaces the dev default database password ("iris") once postgres runs under the new compose.
+# Refuses to run a release whose migrations are older than the database (it would run old code on a
+# newer schema). MIGRATION in the package is the newest goose version of that release.
+check_schema() {
+    local rel db user name
+    [ -f "$DIR/current/MIGRATION" ] || { warn "this package does not declare its schema version: skipping the check"; return 0; }
+    rel="$(tr -dc '0-9' < "$DIR/current/MIGRATION")"
+    user="$(env_get IRIS_PG_USUARIO)"; name="$(env_get IRIS_PG_BASE)"
+    db="$(compose exec -T postgres psql -XAtq -U "$user" -d "$name" -c \
+        "select coalesce(max(version_id), 0) from goose_db_version" < /dev/null 2> /dev/null | tr -dc '0-9' || true)"
+    db="${db:-0}"
+    if [ "$db" -gt "${rel:-0}" ]; then
+        die "the database is at migration $db, newer than Iris $(env_get IRIS_VERSION) (up to $rel). Install a newer version: install.sh --version X.Y.Z"
+    fi
+}
+
+# SCRAM-SHA-256 verifier of a password (what Postgres stores), so the plain password never reaches
+# the server or its logs. Computed with node in the running panel's image (no extra image, no
+# network). Password on stdin.
+scram_verifier() {
+    local img
+    img="$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q web < /dev/null | head -n1)")"
+    docker run --rm -i --network none --entrypoint node "$img" -e '
+        const c = require("crypto");
+        let pw = "";
+        process.stdin.on("data", d => pw += d).on("end", () => {
+            pw = pw.replace(/\r?\n$/, "");
+            const salt = c.randomBytes(16), it = 4096;
+            const salted = c.pbkdf2Sync(pw, salt, it, 32, "sha256");
+            const hmac = (k, s) => c.createHmac("sha256", k).update(s).digest();
+            const stored = c.createHash("sha256").update(hmac(salted, "Client Key")).digest();
+            const server = hmac(salted, "Server Key");
+            process.stdout.write(`SCRAM-SHA-256$${it}:${salt.toString("base64")}$${stored.toString("base64")}:${server.toString("base64")}`);
+        });'
+}
+
+# Replaces the dev default database password ("iris"). The new password is saved in the .env
+# (IRIS_PG_CONTRASENA_NUEVA) before ALTER ROLE, so an interruption can be resumed.
 rotate_db_password() {
-    local user db new
+    local user db new verifier
     user="$(env_get IRIS_PG_USUARIO)"; db="$(env_get IRIS_PG_BASE)"
-    new="$(rand_alnum 32)"
+    new="$(env_get IRIS_PG_CONTRASENA_NUEVA)"
+    if [ -z "$new" ]; then
+        new="$(rand_alnum 32)"
+        env_set IRIS_PG_CONTRASENA_NUEVA "$new"
+    fi
     log "replacing the lab database password (dev default) with a generated one"
-    printf 'ALTER ROLE "%s" PASSWORD '\''%s'\'';\n' "$user" "$new" |
+    verifier="$(printf '%s\n' "$new" | scram_verifier)"
+    [[ "$verifier" =~ ^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$ ]] || die "could not compute the password verifier"
+    printf "SET log_statement = 'none'; SET log_min_error_statement = 'panic'; ALTER ROLE \"%s\" PASSWORD '%s';\n" "$user" "$verifier" |
         compose exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U "$user" -d "$db" > /dev/null
     env_set IRIS_PG_CONTRASENA "$new"
+    env_set IRIS_PG_CONTRASENA_NUEVA ""
+}
+
+# Replaces the lab's public default MinIO root secret. MinIO takes its root credentials from the
+# environment, so recreating minio (and the services that use it) applies the new one.
+rotate_minio_secret() {
+    log "replacing the lab MinIO secret (public dev default) with a generated one"
+    env_set IRIS_S3_SECRET_KEY "$(rand_alnum 32)"
+    compose up -d --wait minio < /dev/null
+    compose up -d minio-init api worker < /dev/null
 }
 
 # --- commands -------------------------------------------------------------------------------------
 cmd_install() {
     check_docker
     for t in curl tar sha256sum awk; do command -v "$t" > /dev/null || die "$t is required"; done
-    mkdir -p "$DIR"
-    chmod 755 "$DIR"
     lock
 
-    local mode=fresh
-    # A `make dev-app` git checkout in the install folder itself (e.g. the lab cloned in /opt/iris):
-    # move it aside to <dir>-lab and migrate from there.
-    if [ ! -e "$DIR/current" ] && { [ -d "$DIR/.git" ] || [ -f "$DIR/infra/docker-compose.yml" ]; }; then
+    # A `make dev-app` git checkout in the install folder itself (the lab cloned in /opt/iris): move
+    # it aside to <dir>-lab before creating anything in it, and migrate from there.
+    local lab_moved=false
+    if [ -d "$DIR" ] && [ ! -e "$DIR/current" ] && { [ -e "$DIR/.git" ] || [ -f "$DIR/infra/docker-compose.yml" ]; }; then
         [ ! -e "$DIR-lab" ] || die "$DIR is a git checkout and $DIR-lab already exists: use --dir to pick another install folder"
         log "$DIR is a source checkout (lab install). It will be moved to $DIR-lab and Iris installed in $DIR"
         confirm "Move $DIR to $DIR-lab and migrate it?" y || die "cancelled (use --dir to install somewhere else)"
-        exec 9>&-
         mv "$DIR" "$DIR-lab"
-        rm -f "$DIR-lab/.lock"
-        mkdir -p "$DIR"
-        lock
         [ -n "$FROM_LAB" ] || FROM_LAB="$DIR-lab/.env"
         case "$FROM_LAB" in "$DIR"/*) FROM_LAB="$DIR-lab/${FROM_LAB#"$DIR"/}" ;; esac
         [ -f "$FROM_LAB" ] || die "$FROM_LAB not found (the lab .env)"
-        LAB_MOVED=true
+        lab_moved=true
     fi
-    if [ -f "$ENV_FILE" ]; then
+    # As root, never trust a folder another user owns (it could plant files or links).
+    if [ -e "$DIR" ] && [ "$(id -u)" = 0 ] && [ "$(stat -c %u "$DIR")" != 0 ]; then
+        die "$DIR is owned by $(stat -c %U "$DIR"), not root: move it away (or chown -R root:root it) and run install.sh again"
+    fi
+    mkdir -p "$DIR"
+    chmod 755 "$DIR"
+
+    local mode=fresh resume=false
+    if [ -f "$ENV_FILE" ] && [ -f "$PENDING" ]; then
+        # An install or lab migration that stopped half way: resume it (same .env, same steps).
+        read -r mode FROM_LAB < "$PENDING" || true
+        case "$mode" in fresh | lab) ;; *) die "unreadable $PENDING" ;; esac
+        resume=true
+        log "resuming the unfinished $([ "$mode" = lab ] && echo "lab migration" || echo install) in $DIR"
+    elif [ -f "$ENV_FILE" ]; then
         mode=existing
         [ -z "$FROM_LAB" ] || die "Iris is already installed in $DIR: --from-lab is only for the first install"
     else
@@ -511,22 +650,22 @@ cmd_install() {
             mode=lab
             log "found a lab install (make dev-app) that uses $FROM_LAB"
             log "it becomes the production install: same database and attachments, images from GHCR, no Mailpit"
-            $LAB_MOVED || confirm "Migrate it now?" y || die "cancelled. To install somewhere else, remove or rename the lab first"
+            $lab_moved || confirm "Migrate it now?" y || die "cancelled. To install somewhere else, remove or rename the lab first"
         elif docker volume inspect iris_pgdata > /dev/null 2>&1; then
             die "the Docker volume iris_pgdata already exists but its .env was not found. If it is a make dev-app lab install, run: install.sh --from-lab /path/to/iris/.env"
         fi
     fi
 
-    if [ "$mode" = fresh ] && [ -z "$URL" ] && ! has_tty; then
+    if [ "$mode" = fresh ] && [ -z "$URL" ] && ! has_tty && [ -z "$(env_get IRIS_BASE_URL)" ]; then
         die "--url is required when there is no terminal to ask (e.g. --url https://iris.example.com)"
     fi
 
     # Version
-    if [ "$mode" = existing ]; then
+    if [ "$mode" = existing ] || $resume; then
         local cur
         cur="$(env_get IRIS_VERSION)"
         if [ -n "$VERSION" ] && [ "$VERSION" != "$cur" ]; then
-            die "Iris $cur is installed. To change version: irisctl upgrade --version $VERSION"
+            die "Iris $cur is $($resume && echo "being installed" || echo installed). To change version: $($resume && echo "finish it first, then ")irisctl upgrade --version $VERSION"
         fi
         VERSION="$cur"
     fi
@@ -536,10 +675,11 @@ cmd_install() {
 
     fetch_release "$VERSION"
     use_release "$VERSION"
-    mkdir -p "$DIR/certs" "$DIR/backups"
+    mkdir -p "$DIR/certs"
 
-    # .env
-    if [ "$mode" != existing ]; then
+    # .env. The pending marker goes first: until the end, a re-run resumes this install.
+    if [ "$mode" != existing ] && ! $resume; then
+        printf '%s %s\n' "$mode" "$FROM_LAB" > "$PENDING"
         (umask 077 && cp "$DIR/current/env.example" "$ENV_FILE.new")
         mv -f "$ENV_FILE.new" "$ENV_FILE"
         env_set IRIS_DIR "$DIR"
@@ -554,7 +694,8 @@ cmd_install() {
     env_set IRIS_DIR "$DIR"
 
     # Answers: flags first, then the current value, then a question.
-    local v
+    local ask_more=false
+    { [ "$mode" != existing ] && ! $resume; } && ask_more=true
     [ -n "$URL" ] || URL="$(env_get IRIS_BASE_URL)"
     [ -n "$URL" ] || URL="$(ask 'Public address of Iris (e.g. https://iris.example.com)')"
     URL="${URL%/}"
@@ -562,7 +703,7 @@ cmd_install() {
     case "$URL" in http://*) warn "$URL is not HTTPS: put a reverse proxy with a certificate in front (secure cookies need HTTPS)" ;; esac
     env_set IRIS_BASE_URL "$URL"
 
-    if ! $SET_ARGOS && [ "$mode" != existing ] && [ -z "$(env_get IRIS_ARGOS_ORIGENES)" ]; then
+    if ! $SET_ARGOS && $ask_more && [ -z "$(env_get IRIS_ARGOS_ORIGENES)" ]; then
         ARGOS="$(ask 'ArgosISP origin allowed to connect (e.g. https://api.argos.example.com; empty = none yet)')"
         SET_ARGOS=true
     fi
@@ -570,7 +711,7 @@ cmd_install() {
         valid_origins "$ARGOS" || die "invalid Argos origin(s): '$ARGOS'"
         env_set IRIS_ARGOS_ORIGENES "$ARGOS"
     fi
-    if ! $SET_HORUS && [ "$mode" != existing ] && [ -z "$(env_get IRIS_HORUS_ORIGENES)" ]; then
+    if ! $SET_HORUS && $ask_more && [ -z "$(env_get IRIS_HORUS_ORIGENES)" ]; then
         HORUS="$(ask 'Horus origin allowed to connect (empty = none yet)')"
         SET_HORUS=true
     fi
@@ -579,7 +720,7 @@ cmd_install() {
         env_set IRIS_HORUS_ORIGENES "$HORUS"
     fi
 
-    if [ -z "$WEB_PORT" ] && [ "$mode" = fresh ]; then
+    if [ -z "$WEB_PORT" ] && $ask_more && [ "$mode" = fresh ]; then
         WEB_PORT="$(ask 'Panel port on 127.0.0.1 (your reverse proxy points here)' "$(env_get IRIS_WEB_PUERTO)")"
     fi
     if [ -n "$WEB_PORT" ]; then valid_port "$WEB_PORT" || die "invalid web port: $WEB_PORT"; env_set IRIS_WEB_PUERTO "$WEB_PORT"; fi
@@ -610,27 +751,33 @@ cmd_install() {
     fi
 
     if [ "$mode" = lab ]; then
-        local r
-        r="$(env_get IRIS_RESPALDO_DESTINATARIOS)"
-        if [ -n "$r" ] && [ -s "$r" ]; then
-            compose up -d --wait postgres < /dev/null
-            do_backup || die "the backup of the lab database failed: nothing was changed in the lab containers' data"
+        compose up -d --wait postgres < /dev/null || die "the lab database did not start under the production compose"
+        check_schema
+        if $SKIP_BACKUP; then
+            warn "--skip-backup: migrating the lab database WITHOUT a backup"
         else
-            warn "no backup taken before the migration (age is missing)"
+            do_backup || die "the backup of the lab database failed. No migration has run: the database is as the lab left it. Fix the problem and run install.sh again (it resumes the migration)"
         fi
-        case "$(env_get IRIS_S3_SECRET_KEY)" in iris-dev-solo-local)
-            warn "MinIO still uses the lab default secret (only reachable from 127.0.0.1). Changing it is a manual step: docs/runbooks/install.md" ;;
-        esac
     fi
 
     log "starting Iris (migrations run first)"
-    start_all || die "Iris did not become healthy. Look at: irisctl logs   (settings: $ENV_FILE)$([ "$mode" = lab ] && echo "; to go back to the lab: docs/runbooks/install.md, \"Back to the lab\"")"
-    # Only once the migrated install is healthy (until here, going back to the lab needs no change).
-    if [ "$mode" = lab ] && [ "$(env_get IRIS_PG_CONTRASENA)" = iris ] && ! $KEEP_DB_PASSWORD; then
-        rotate_db_password
-        start_all || die "Iris did not become healthy after changing the database password. Look at: irisctl logs"
+    if ! start_all; then
+        [ "$mode" != lab ] || warn "the migrations may have run already. To go back to the lab you need the backup above: docs/runbooks/install.md, \"Back to the lab\""
+        die "Iris did not become healthy. Look at: irisctl logs   (settings: $ENV_FILE; run install.sh again to resume)"
+    fi
+    # Lab defaults that are public (in the repository): replaced once the migrated install is healthy.
+    if [ "$mode" = lab ]; then
+        if ! $KEEP_DB_PASSWORD && { [ "$(env_get IRIS_PG_CONTRASENA)" = iris ] || [ -n "$(env_get IRIS_PG_CONTRASENA_NUEVA)" ]; }; then
+            rotate_db_password
+            start_all || die "Iris did not become healthy after changing the database password. Look at: irisctl logs (run install.sh again to resume)"
+        fi
+        if [ "$(env_get IRIS_S3_SECRET_KEY)" = iris-dev-solo-local ]; then
+            rotate_minio_secret
+            start_all || die "Iris did not become healthy after changing the MinIO secret. Look at: irisctl logs (run install.sh again to resume)"
+        fi
     fi
     prune_releases
+    rm -f "$PENDING"
 
     # First administrator (not offered when migrating: the lab already has users).
     if [ -n "$ADMIN_EMAIL" ]; then
@@ -642,6 +789,32 @@ cmd_install() {
     fi
 
     print_summary "$new_key"
+    offer_identity_removal
+}
+
+# The private backup key is needed only to restore: show it once and offer to remove it from the
+# server once it is safely copied elsewhere.
+offer_identity_removal() {
+    local id
+    $NEW_BACKUP_KEY || return 0
+    id="$DIR/backup-keys/identity.txt"
+    [ -s "$id" ] || return 0
+    if ! has_tty; then
+        warn "the private backup key is in $id (mode 600). Copy it off this server; you can delete it afterwards"
+        return 0
+    fi
+    {
+        printf '\n  Private key of the backups (%s) — copy it to a password manager now:\n\n' "$id"
+        sed 's/^/    /' "$id"
+        printf '\n'
+    } > /dev/tty
+    if confirm "Have you copied it? Delete it from this server now (backups only need the public key)?" n; then
+        rm -f "$id"
+        env_set IRIS_RESPALDO_IDENTIDAD ""
+        log "deleted $id: to restore a backup, use your copy (IRIS_RESPALDO_IDENTIDAD=<file>)"
+    else
+        warn "the private backup key stays in $id (mode 600). Copy it off this server; you can delete it afterwards"
+    fi
 }
 
 print_summary() {
@@ -666,10 +839,10 @@ EOF
 
 EOF
     fi
-    if [ "$NEW_BACKUP_KEY" = true ]; then
+    if ! command -v age > /dev/null; then
         cat << EOF
-  Backups are encrypted with age. Copy the private key $DIR/backup-keys/identity.txt
-  OUTSIDE this server (password manager or offline copy): without it, backups cannot be restored.
+  WARNING: age is not installed, so backups are NOT encrypted. Install it (apt-get install age, or
+  the binary from https://github.com/FiloSottile/age/releases) and run install.sh again.
 
 EOF
     fi
@@ -720,10 +893,12 @@ cmd_upgrade() {
     confirm "Continue?" y || die "cancelled"
 
     fetch_release "$target"
+    IRIS_VERSION="$target" compose_at "$DIR/releases/$target" config --quiet < /dev/null ||
+        die "the compose file of $target is not valid with $ENV_FILE (nothing changed)"
     if [ "${IRIS_SKIP_PULL:-0}" != 1 ]; then
         log "pulling the images of Iris $target"
-        IRIS_VERSION="$target" docker compose --env-file "$ENV_FILE" -f "$DIR/releases/$target/docker-compose.yml" \
-            pull --quiet migrar api worker web < /dev/null || die "could not pull the images of $target (nothing changed)"
+        IRIS_VERSION="$target" compose_at "$DIR/releases/$target" pull --quiet < /dev/null ||
+            die "could not pull the images of $target (nothing changed)"
     fi
     if $SKIP_BACKUP; then
         warn "--skip-backup: upgrading without a backup"
@@ -762,7 +937,7 @@ cmd_status() {
     echo
     if curl -fsS --max-time 5 "http://127.0.0.1:${api:-8080}/api/v1/salud" < /dev/null; then echo; else echo "API health: NOT answering on 127.0.0.1:${api:-8080}"; fi
     local last
-    last="$(find "$(env_get IRIS_RESPALDO_DIR)" -maxdepth 1 -name '*.dump.age' -printf '%T@ %p\n' 2> /dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
+    last="$(find "$(env_get IRIS_RESPALDO_DIR)" -maxdepth 1 \( -name '*.dump.age' -o -name '*.dump' \) -printf '%T@ %p\n' 2> /dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
     echo "Last backup: ${last:-none}"
 }
 
@@ -773,7 +948,7 @@ case "$CMD" in
     logs) require_install; compose logs -f --tail 200 "${COMPOSE_ARGS[@]}" ;;
     stop) require_install; compose stop < /dev/null; log "Iris stopped (data kept). Start again with: irisctl start" ;;
     start) require_install; lock; start_all || die "Iris did not become healthy. Look at: irisctl logs" ;;
-    backup) require_install; do_backup ;;
+    backup) require_install; lock; do_backup ;;
     create-admin)
         require_install
         [ -n "$ADMIN_EMAIL" ] || ADMIN_EMAIL="$(ask 'Administrator email')"
