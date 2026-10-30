@@ -683,6 +683,18 @@ func TestBuscarClientesConServicios(t *testing.T) {
 		t.Fatalf("auditoría de la búsqueda con servicios: %d", n)
 	}
 
+	// Caché de 5 min por cliente: repetir la búsqueda no vuelve a pedir los servicios a Argos.
+	cacheados := e.argos.llamadasA("/api/v1/servicios")
+	if r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta&servicios=true", nil); r.status != 200 {
+		t.Fatalf("repetir: %d %s", r.status, r.crudo)
+	}
+	if e.argos.llamadasA("/api/v1/servicios") != cacheados {
+		t.Fatal("la búsqueda repetida debía usar la caché de servicios")
+	}
+
+	// Con servicios, q necesita 3 caracteres o más.
+	lectura.pedir(http.MethodGet, "/api/v1/clientes?q=ma&servicios=true", nil).problema(t, 422, "validacion")
+
 	// Argos caído: los servicios salen de la instantánea (la que dejó la ficha), de la empresa activa.
 	if f := lectura.pedir(http.MethodGet, "/api/v1/clientes/51", nil); f.status != 200 {
 		t.Fatalf("ficha: %d %s", f.status, f.crudo)
@@ -695,5 +707,31 @@ func TestBuscarClientesConServicios(t *testing.T) {
 	locales := local.cuerpo["data"].([]any)[0].(map[string]any)["servicios"].([]any)
 	if len(locales) != 2 || locales[1].(map[string]any)["estado"] != "suspendido" {
 		t.Fatalf("servicios de la instantánea: %s", local.crudo)
+	}
+}
+
+// Con ?servicios=true solo los primeros 8 resultados traen servicios: una búsqueda amplia no
+// multiplica las llamadas a Argos.
+func TestBuscarClientesConServiciosTope(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	for i := int64(61); i <= 70; i++ {
+		e.sembrarCliente(i, fmt.Sprintf("Tope %d", i))
+	}
+	r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=tope&servicios=true&limit=10", nil)
+	if r.status != 200 {
+		t.Fatalf("buscar: %d %s", r.status, r.crudo)
+	}
+	conServicios, sinServicios := 0, 0
+	for _, d := range r.cuerpo["data"].([]any) {
+		if d.(map[string]any)["servicios"] == nil {
+			sinServicios++
+		} else {
+			conServicios++
+		}
+	}
+	if conServicios != argos.TopeServiciosBusqueda || conServicios+sinServicios != 10 {
+		t.Fatalf("esperaba %d con servicios de 10: %d con, %d sin", argos.TopeServiciosBusqueda, conServicios, sinServicios)
 	}
 }

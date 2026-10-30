@@ -9927,7 +9927,7 @@ export interface operations {
                 limit?: number;
                 /** @description nextCursor de la página anterior (de Argos) */
                 cursor?: string;
-                /** @description true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea */
+                /** @description true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id} */
                 servicios?: boolean;
             };
             header?: never;

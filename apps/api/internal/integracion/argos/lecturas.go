@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -72,7 +73,7 @@ type EntradaBuscarClientes struct {
 	Limit  int    `json:"limit" query:"limit" minimum:"1" maximum:"50" default:"20" doc:"Tamaño de página"`
 	Cursor string `json:"cursor,omitempty" query:"cursor" maxLength:"500" doc:"nextCursor de la página anterior (de Argos)"`
 	// Servicios: el selector de cliente del panel los muestra en cada resultado.
-	Servicios bool `json:"servicios,omitempty" query:"servicios" doc:"true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea"`
+	Servicios bool `json:"servicios,omitempty" query:"servicios" doc:"true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}"`
 }
 
 type entradaBusquedaFinal struct {
@@ -87,6 +88,9 @@ type entradaBusquedaFinal struct {
 	servicios  map[int64][]ServicioArgos
 	conectorID int64
 }
+
+// MinimoBusquedaConServicios: caracteres mínimos de q con ?servicios=true.
+const MinimoBusquedaConServicios = 3
 
 // BuscarClientes busca en Argos (GET /clientes?q=). Si Argos no responde, busca en las
 // instantáneas locales (solo clientes que ya se abrieron) y marca stale. No guarda los
@@ -123,7 +127,7 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 					resumen := clienteArgosAResumen(c)
 					if in.Servicios {
 						if leidos, ok := in.servicios[c.ID]; ok {
-							resumen.Servicios = serviciosDeEmpresa(c.ID, leidos, empresa)
+							resumen.Servicios = serviciosDeEmpresa(c, leidos, empresa)
 						}
 					}
 					r.Data = append(r.Data, resumen)
@@ -175,6 +179,10 @@ func (e EntradaBuscarClientes) limite() int {
 // Ejecutar busca.
 func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes) (ResultadoBusqueda, error) {
 	in.Q = strings.TrimSpace(in.Q)
+	if in.Servicios && utf8.RuneCountInString(in.Q) < MinimoBusquedaConServicios {
+		// Cada búsqueda con servicios llama a Argos por cliente: con 1–2 letras serían muchas.
+		return ResultadoBusqueda{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "q", Message: "Con servicios, escribe al menos 3 caracteres", Rule: "minLength"})
+	}
 	c, err := b.previo.Ejecutar(ctx, in)
 	if err != nil {
 		return ResultadoBusqueda{}, err
@@ -184,39 +192,52 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	empresa := contexto.EmpresaDe(ctx)
 	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa)
 	f.conectorID = c.ID
-	if f.errArgos == nil && in.Servicios {
-		// Con servicios se leen los de todos (a lo sumo TopeVerificaciones); de paso verifican las
-		// empresas de los que Iris no conoce.
-		leidos := b.m.leerServiciosEnArgos(ctx, c.ID, cli, f.pagina.Data)
-		f.servicios = make(map[int64][]ServicioArgos, len(leidos))
-		f.verificados = make(map[int64]infoEmpresas, len(leidos))
-		for id, l := range leidos {
-			f.servicios[id] = l.servicios
-			f.verificados[id] = l.info
+	if f.errArgos == nil {
+		f.verificados = map[int64]infoEmpresas{}
+		resto := f.pagina.Data
+		if in.Servicios {
+			// Servicios solo de los primeros TopeServiciosBusqueda (caché de 5 min por cliente: una
+			// búsqueda repetida no vuelve a pedirlos); de paso verifican sus empresas.
+			n := min(len(resto), TopeServiciosBusqueda)
+			leidos := b.m.leerServiciosEnArgos(ctx, c.ID, cli, resto[:n])
+			f.servicios = make(map[int64][]ServicioArgos, len(leidos))
+			for id, l := range leidos {
+				f.servicios[id] = l.servicios
+				f.verificados[id] = l.info
+			}
+			resto = resto[n:]
 		}
-	} else if f.errArgos == nil && empresa != 0 {
-		// Los que Iris no conoce se verifican en Argos (sus servicios) fuera de la transacción.
-		desconocidos, err := b.desconocidos(ctx, c.ID, f.pagina.Data)
-		if err != nil {
-			return ResultadoBusqueda{}, err
+		if empresa != 0 {
+			// Los que Iris no conoce se verifican en Argos (sus servicios) fuera de la transacción.
+			desconocidos, err := b.desconocidos(ctx, c.ID, resto)
+			if err != nil {
+				return ResultadoBusqueda{}, err
+			}
+			for id, i := range b.m.verificarEnArgos(ctx, c.ID, cli, desconocidos) {
+				f.verificados[id] = i
+			}
 		}
-		f.verificados = b.m.verificarEnArgos(ctx, c.ID, cli, desconocidos)
 	}
 	return b.final.Ejecutar(ctx, f)
 }
 
 // serviciosDeEmpresa: los servicios leídos del cliente, solo los de la empresa activa (todos si
-// no hay); nunca null (lista vacía = sin servicios en esa empresa).
-func serviciosDeEmpresa(clienteID int64, leidos []ServicioArgos, empresa int64) []Servicio {
+// no hay); nunca null (lista vacía = sin servicios en esa empresa). Un servicio sin zona hereda
+// la del cliente, como en la instantánea.
+func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, empresa int64) []Servicio {
 	salida := make([]Servicio, 0, len(leidos))
 	for _, s := range leidos {
 		if s.ClienteID == 0 {
-			s.ClienteID = clienteID
+			s.ClienteID = c.ID
 		}
-		if s.ClienteID != clienteID || (empresa != 0 && s.EmpresaID != empresa) {
+		if s.ClienteID != c.ID || (empresa != 0 && s.EmpresaID != empresa) {
 			continue
 		}
-		salida = append(salida, servicioArgosAServicio(s))
+		srv := servicioArgosAServicio(s)
+		if srv.ZonaID == nil {
+			srv.ZonaID = c.IDZona()
+		}
+		salida = append(salida, srv)
 	}
 	return salida
 }
