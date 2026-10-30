@@ -174,3 +174,14 @@ func origenPropuesta(f soportebd.SoporteTicket) string {
 	}
 	return *f.PropuestaOrigen
 }
+
+// BloquearTicket toma el ticket con FOR UPDATE en la transacción de una acción de campo (sin
+// verificar acceso: la acción ya verificó la orden). Fija el orden de bloqueo orden → ticket →
+// técnico. Un ticket que ya no existe no bloquea nada.
+func BloquearTicket(ctx context.Context, t *auditoria.Tx, id int64) error {
+	_, err := soportebd.New(t).TicketPorIDParaActualizar(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return err
+}

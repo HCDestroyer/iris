@@ -139,7 +139,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearOrden, Orden]{
 		Accion:  "ordenes.crear",
 		Permiso: nucleo.PermOrdenesCrear,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrden) (Orden, error) {
+		Logica: sinDeadlockEn(func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrden) (Orden, error) {
 			if err := sinNulos(in); err != nil {
 				return Orden{}, err
 			}
@@ -328,7 +328,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				}
 			}
 			return aOrden(f, tipo.Codigo), nil
-		},
+		}),
 	})
 }
 

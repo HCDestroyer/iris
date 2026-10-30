@@ -76,7 +76,7 @@ func accionOrden[In any](accion string, permiso nucleo.Permiso, op func(In) *OpS
 			}
 			f, aviso, err := logica(ctx, t, q, in)
 			if err != nil {
-				return Orden{}, err
+				return Orden{}, sinDeadlock(err)
 			}
 			tipo, err := tipoDe(ctx, q, f)
 			if err != nil {

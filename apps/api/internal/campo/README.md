@@ -107,8 +107,11 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
     (`FOR UPDATE`): dos cierres a la vez se serializan y el último propone. El ticket nunca se
     resuelve solo. Si después se crea o se reabre una orden del ticket, la propuesta de origen
     `orden` se descarta (con nota).
-  - **Bloqueos:** campo toma primero la orden y después el ticket, siempre con `FOR UPDATE`
-    (`soporte.TicketParaOrden`); un 40P01/40001 en igualar responde 409 `concurrencia`.
+  - **Bloqueos:** siempre orden → ticket (`FOR UPDATE`) → candado del feed del técnico
+    (`alimentarFeed`). Cerrar, fallar, cancelar y reabrir toman el ticket de la orden justo
+    después de `tomar` (`bloquearTicket`); crear con ticket y `crear-orden` lo toman al leerlo
+    (`soporte.TicketParaOrden`). Un 40P01/40001 responde 409 `concurrencia` en las acciones de la
+    orden, al crear y al igualar.
   - `crear-orden` solo con cuadrilla también exige `ordenes.asignar` (403). Una
     `Idempotency-Key` que ya creó la orden de otro ticket: 422 `idempotencia_reutilizada`.
 - **Zona y cuadrilla:** del catálogo de agenda (llaves foráneas). La indicada debe existir, estar

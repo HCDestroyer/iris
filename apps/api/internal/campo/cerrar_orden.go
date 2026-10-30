@@ -53,6 +53,10 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// Orden de bloqueo de campo: orden → ticket → candado del técnico (guardar).
+			if err := bloquearTicket(ctx, t, antes); err != nil {
+				return antes, "", err
+			}
 			cuando := m.cuandoEn(in.Sync, antes)
 			if err := noPausada(antes, "cerrarla"); err != nil {
 				return antes, "", err

@@ -59,7 +59,7 @@ func (m *Modulo) nuevoCrearOrdenDeTicket() *auditoria.Caso[EntradaCrearOrdenDeTi
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]{
 		Accion:  "tickets.crear_orden",
 		Permiso: nucleo.PermTicketsCrearOrden,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrdenDeTicket) (Orden, error) {
+		Logica: sinDeadlockEn(func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrdenDeTicket) (Orden, error) {
 			if err := sinNulos(in); err != nil {
 				return Orden{}, err
 			}
@@ -158,7 +158,7 @@ func (m *Modulo) nuevoCrearOrdenDeTicket() *auditoria.Caso[EntradaCrearOrdenDeTi
 			}
 			t.Anotar(map[string]any{"orden_id": o.ID, "numero": o.Numero, "programada": in.Inicio != nil})
 			return o, nil
-		},
+		}),
 	})
 }
 
@@ -223,6 +223,14 @@ func sinDeadlock(err error) error {
 		return nucleo.Conflicto("concurrencia", "Otra operación cambió la orden o el ticket a la vez; vuelve a intentar")
 	}
 	return err
+}
+
+// sinDeadlockEn envuelve la lógica de un caso con sinDeadlock.
+func sinDeadlockEn[In, Out any](logica func(context.Context, *auditoria.Tx, In) (Out, error)) func(context.Context, *auditoria.Tx, In) (Out, error) {
+	return func(ctx context.Context, t *auditoria.Tx, in In) (Out, error) {
+		out, err := logica(ctx, t, in)
+		return out, sinDeadlock(err)
+	}
 }
 
 func (m *Modulo) igualar(ctx context.Context, t *auditoria.Tx, in EntradaIgualarAsignacion) (AsignacionTicketOrden, error) {

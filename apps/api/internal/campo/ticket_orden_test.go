@@ -572,3 +572,99 @@ func TestCrearOrdenDeTicketPermisoYClave(t *testing.T) {
 	_, err = e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: otro.ID, CuadrillaID: &cuadrilla, Direccion: ptr("x"), ClaveIdempotencia: clave})
 	problema(t, err, 422, "idempotencia_reutilizada")
 }
+
+// escalonadas: con el bloqueo de `sqlBloqueo` tomado en otra transacción, arranca las acciones
+// una por una (cada una cuando la anterior ya espera un bloqueo) y lo suelta. Reproduce un
+// orden de llegada exacto sin sleeps en el código.
+func escalonadas(t *testing.T, sqlBloqueo string, arg any, acciones ...func() error) []error {
+	t.Helper()
+	ctx := context.Background()
+	pool := pruebas.Pool(t)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, sqlBloqueo, arg); err != nil {
+		t.Fatal(err)
+	}
+	esperando := func(n int) {
+		t.Helper()
+		limite := time.Now().Add(15 * time.Second)
+		for {
+			var c int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+				AND cardinality(pg_blocking_pids(pid)) > 0`).Scan(&c); err != nil {
+				t.Fatal(err)
+			}
+			if c >= n {
+				return
+			}
+			if time.Now().After(limite) {
+				t.Fatalf("solo %d de %d acciones esperan un bloqueo", c, n)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	errores := make([]error, len(acciones))
+	var wg sync.WaitGroup
+	for i, a := range acciones {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errores[i] = a()
+		}()
+		esperando(i + 1)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	return errores
+}
+
+// Cerrar una orden y crear otra del mismo ticket para el mismo técnico, a la vez: el cierre
+// tomaba orden → técnico → ticket y crear-orden ticket → técnico (deadlock, 500). Ahora el cierre
+// toma el ticket antes de guardar: orden → ticket → técnico en los dos.
+func TestCerrarYCrearOrdenDelTicketSinDeadlock(t *testing.T) {
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	tk := ticketDePrueba(t, sop, cd)
+	o := deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec,
+		Direccion: ptr("x"), Inicio: ptr(inicio.Add(time.Hour))}))(t)
+	o = lista(t, e, cd, ct, o)
+	// El candado del feed del técnico, tomado por otra transacción: primero llega el cierre (ya con
+	// su orden), después crear-orden.
+	errores := escalonadas(t, "SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.cambios:', $1::bigint), 0))", tec,
+		func() error {
+			_, err := e.m.CerrarOrden.Ejecutar(como(t, tec, "tecnico"), campo.EntradaCerrarOrden{ID: o.ID, Version: o.Version})
+			return err
+		},
+		func() error {
+			_, err := e.m.CrearOrdenDeTicket.Ejecutar(como(t, d, "despacho"), campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec, Direccion: ptr("x")})
+			return err
+		})
+	if errores[0] != nil || errores[1] != nil {
+		t.Fatalf("cerrar y crear a la vez: %v", errores)
+	}
+	if n := contar(t, "SELECT count(*) FROM campo.ordenes WHERE ticket_id = $1", tk.ID); n != 2 {
+		t.Fatalf("órdenes: %d", n)
+	}
+	// Y lo mismo con reabrir: una cancelada del ticket se reabre mientras se crea otra.
+	c := deber(e.m.CrearOrdenDeTicket.Ejecutar(cd, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec, Direccion: ptr("x")}))(t)
+	c = deber(e.m.CancelarOrden.Ejecutar(cd, campo.EntradaMotivo{ID: c.ID, Version: c.Version, Motivo: "Duplicada"}))(t)
+	errores = escalonadas(t, "SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.cambios:', $1::bigint), 0))", tec,
+		func() error {
+			_, err := e.m.ReabrirOrden.Ejecutar(como(t, d, "despacho"), campo.EntradaMotivo{ID: c.ID, Version: c.Version, Motivo: "Sigue sin señal"})
+			return err
+		},
+		func() error {
+			_, err := e.m.CrearOrdenDeTicket.Ejecutar(como(t, d, "despacho"), campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, TecnicoID: &tec, Direccion: ptr("x")})
+			return err
+		})
+	if errores[0] != nil || errores[1] != nil {
+		t.Fatalf("reabrir y crear a la vez: %v", errores)
+	}
+}
