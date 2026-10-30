@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -507,5 +508,78 @@ func TestSSOReautenticarConContadorPropio(t *testing.T) {
 	sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}).problema(t, 429, "demasiados_intentos")
 	if r := e.cliente().entrar(correo); r.status != 200 {
 		t.Fatalf("el login con contraseña sigue: %d %s", r.status, r.crudo)
+	}
+}
+
+// «No fui yo»: descartar borra la cookie y deja inservible la vinculación pendiente.
+func TestSSODescartarVinculacion(t *testing.T) {
+	e := nuevoEntornoSSO(t, identidad.Config{})
+	_, correo := e.usuario("lectura")
+	// Sin cookie: 204 igual.
+	if r := e.cliente().pedir(http.MethodPost, "/api/v1/sso/descartar", nil); r.status != 204 {
+		t.Fatalf("descartar sin cookie: %d %s", r.status, r.crudo)
+	}
+	nav := e.cliente()
+	nav.entrar(correo) // con sesión: sigue sin pedir CSRF
+	nav.csrf = ""
+	if r := canjear(nav, e.ticket("u-x", correo, "ticket", "1")); r.cuerpo["estado"] != "vincular" {
+		t.Fatalf("canje: %s", r.crudo)
+	}
+	u, _ := url.Parse(e.srv.URL + "/api/v1/sso/")
+	cookieSSO := func() *http.Cookie {
+		for _, k := range nav.http.Jar.Cookies(u) {
+			if k.Name == identidad.CookieVinculacionSSO {
+				return k
+			}
+		}
+		return nil
+	}
+	cookie := cookieSSO()
+	if cookie == nil {
+		t.Fatal("falta la cookie de vinculación")
+	}
+	valor := cookie.Value
+	r := nav.pedir(http.MethodPost, "/api/v1/sso/descartar", nil)
+	if r.status != 204 || !strings.Contains(r.h.Get("Set-Cookie"), "Max-Age=0") || !strings.Contains(r.h.Get("Set-Cookie"), "Path=/api/v1/sso") ||
+		cookieSSO() != nil {
+		t.Fatalf("descartar: %d %v", r.status, r.h.Values("Set-Cookie"))
+	}
+	if e.contar(`SELECT count(*) FROM nucleo.sso_tickets WHERE usuario_externo = 'u-x' AND vinculacion_hash IS NULL AND vinculado_en IS NULL`) != 1 ||
+		e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'sso.descartar' AND actor_tipo = 'anonimo'`) != 1 {
+		t.Fatal("vinculación descartada y auditada")
+	}
+	if r := nav.pedir(http.MethodPost, "/api/v1/sso/descartar", nil); r.status != 204 {
+		t.Fatalf("descartar de nuevo: %d", r.status)
+	}
+	// Aunque se conserve el valor de la cookie, ya no vincula.
+	nav.http.Jar.SetCookies(u, []*http.Cookie{{Name: identidad.CookieVinculacionSSO, Value: valor, Path: "/api/v1/sso"}})
+	time.Sleep(10 * time.Millisecond)
+	nav.entrar(correo)
+	vincular(nav, "u-x").problema(t, 422, "vinculacion_invalida")
+}
+
+// Un rechazo de autorización (antes de ejecutar) no se guarda en la idempotencia: tras
+// re-autenticarse, la misma Idempotency-Key ejecuta la acción. Un error de la lógica sí se guarda.
+func TestIdempotenciaLiberaRechazoDeAutorizacion(t *testing.T) {
+	e := nuevoEntornoSSO(t, identidad.Config{})
+	id, _ := e.usuario("lectura")
+	e.vincularCon("u-idem", id)
+	sso := e.cliente()
+	if r := canjear(sso, e.ticket("u-idem", "", "ticket", "1")); r.cuerpo["estado"] != "sesion" {
+		t.Fatalf("canje: %s", r.crudo)
+	}
+	clave := "clave-" + pruebas.Unico()
+	sso.pedir(http.MethodPost, "/api/v1/yo/mfa", nil, nucleo.CabeceraIdempotencia, clave).problema(t, 403, "reautenticacion_requerida")
+	// La lógica que falla (contraseña mala) sí queda guardada: repetir devuelve la misma respuesta.
+	otra := "clave-" + pruebas.Unico()
+	sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": "mala-mala-mala"}, nucleo.CabeceraIdempotencia, otra).problema(t, 401, "credenciales_invalidas")
+	if r := sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": "mala-mala-mala"}, nucleo.CabeceraIdempotencia, otra); r.h.Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("un error de la lógica se guarda: %d %v", r.status, r.h)
+	}
+	if r := sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}); r.status != 200 {
+		t.Fatalf("reautenticar: %d %s", r.status, r.crudo)
+	}
+	if r := sso.pedir(http.MethodPost, "/api/v1/yo/mfa", nil, nucleo.CabeceraIdempotencia, clave); r.status != 200 || r.h.Get("Idempotent-Replayed") != "" {
+		t.Fatalf("misma clave tras reautenticar: %d %s", r.status, r.crudo)
 	}
 }

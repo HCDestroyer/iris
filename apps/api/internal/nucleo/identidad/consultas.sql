@@ -504,3 +504,9 @@ DELETE FROM nucleo.sso_tickets WHERE id IN (
     ORDER BY t.id
     LIMIT @lote::integer
     FOR UPDATE SKIP LOCKED);
+
+-- name: DescartarVinculacionSSO :one
+-- «No fui yo»: la vinculación pendiente ya no se puede usar (se borra su hash).
+UPDATE nucleo.sso_tickets SET vinculacion_hash = NULL, vinculacion_expira_en = now(), updated_at = now()
+WHERE vinculacion_hash = @vinculacion_hash AND vinculado_en IS NULL
+RETURNING id;

@@ -30,6 +30,10 @@ type entradaVincularSSO struct {
 	Body        EntradaVincularSSO
 }
 
+type entradaDescartarSSO struct {
+	Vinculacion string `cookie:"iris_sso_vincular" required:"false" doc:"La deja POST /api/v1/sso/canjear (HttpOnly); el navegador la manda solo"`
+}
+
 type entradaCrearVinculoSSO struct {
 	nucleo.ConIdempotencia
 	ID   int64 `path:"id" minimum:"1"`
@@ -103,6 +107,17 @@ func (m *Modulo) registrarSSO(api huma.API) {
 		e := in.Body
 		e.UsuarioID = in.ID
 		return responder(m.CrearVinculoSSO.Ejecutar(ctx, e))
+	})
+
+	descartar := operacion("descartarSSO", http.MethodPost, rutaDescartarSSO, "Descartar la vinculación pendiente («No fui yo»)", "", http.StatusNoContent)
+	descartar.Tags = []string{etiquetaSSO}
+	descartar.Security = nil
+	descartar.Description = "Público y sin CSRF, como el canje. Borra la cookie `iris_sso_vincular` y deja inservible la vinculación pendiente que guardaba (aunque alguien la hubiera copiado). Responde 204 siempre (idempotente: sin cookie, o ya usada o descartada, no hace nada)."
+	huma.Register(api, descartar, func(ctx context.Context, in *entradaDescartarSSO) (*salidaCookies, error) {
+		if _, err := m.DescartarSSO.Ejecutar(ctx, EntradaDescartarSSO{Vinculacion: in.Vinculacion}); err != nil {
+			return nil, err
+		}
+		return &salidaCookies{SetCookie: []http.Cookie{m.cookieVinculacion("", time.Time{})}}, nil
 	})
 
 	ver := operacion("listarVinculosSSO", http.MethodGet, "/api/v1/usuarios/{id}/vinculos-sso", "Vínculos de autologin de un usuario", "", http.StatusOK, http.StatusForbidden, http.StatusNotFound)
