@@ -150,17 +150,74 @@ func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id 
 			continue
 		}
 		registradas[e.ID] = true
-		nombre := e.Nombre
-		if nombre == "" {
-			nombre = "Empresa " + itoa(e.ID)
-		}
-		if err := q.RegistrarEmpresaConector(ctx, conectorbd.RegistrarEmpresaConectorParams{ID: e.ID, Nombre: nombre, Nit: e.NIT}); err != nil {
+		if err := registrarEmpresaCanje(ctx, t, q, e); err != nil {
 			return f, err
 		}
 	}
 	t.FijarEmpresa(0)
 	t.RegistrarCambios("conector", f.ID, nil, c.n.AConector(f))
 	return f, t.Emitir("conector.creado", map[string]any{"conector_id": f.ID, "sistema": f.Sistema, "origen": f.Origen})
+}
+
+// empresaAuditable: lo que se audita de una empresa (como identidad.empresas).
+type empresaAuditable struct {
+	Nombre string `json:"nombre"`
+	NIT    string `json:"nit"`
+}
+
+// registrarEmpresaCanje registra o completa una empresa que informa el canje, auditada y con su
+// evento (empresa.creada / empresa.actualizada con campos[]), como identidad/empresas.go. Una
+// empresa existente solo se completa si es de origen argos: el nombre si sigue siendo el marcador
+// «Empresa <id>» y el NIT si está vacío. Lo de un administrador (origen manual, o un nombre ya
+// puesto) no se toca.
+func registrarEmpresaCanje(ctx context.Context, t *auditoria.Tx, q *conectorbd.Queries, e EmpresaCanje) error {
+	marcador := "Empresa " + itoa(e.ID)
+	nombre := e.Nombre
+	if nombre == "" {
+		nombre = marcador
+	}
+	defer t.FijarEmpresa(0)
+	antes, err := q.EmpresaCanjeParaActualizar(ctx, e.ID)
+	if esSinFilas(err) {
+		f, errCrear := q.CrearEmpresaCanje(ctx, conectorbd.CrearEmpresaCanjeParams{ID: e.ID, Nombre: nombre, Nit: e.NIT})
+		switch {
+		case errCrear == nil:
+			t.FijarEmpresa(f.ID)
+			t.RegistrarCambios("empresa", f.ID, nil, empresaAuditable{Nombre: f.Nombre, NIT: f.Nit})
+			return t.Emitir("empresa.creada", map[string]any{"empresa_id": f.ID, "origen": f.Origen})
+		case !esSinFilas(errCrear):
+			return errCrear
+		}
+		// Otra transacción la creó entretanto: se completa como existente.
+		antes, err = q.EmpresaCanjeParaActualizar(ctx, e.ID)
+	}
+	if err != nil {
+		return err
+	}
+	if antes.Origen != "argos" {
+		return nil
+	}
+	nuevoNombre, nuevoNIT := antes.Nombre, antes.Nit
+	if antes.Nombre == marcador && e.Nombre != "" {
+		nuevoNombre = e.Nombre
+	}
+	if antes.Nit == "" && e.NIT != "" {
+		nuevoNIT = e.NIT
+	}
+	if nuevoNombre == antes.Nombre && nuevoNIT == antes.Nit {
+		return q.MarcarEmpresaSincronizada(ctx, e.ID)
+	}
+	despues, err := q.CompletarEmpresaCanje(ctx, conectorbd.CompletarEmpresaCanjeParams{ID: e.ID, Nombre: nuevoNombre, Nit: nuevoNIT})
+	if err != nil {
+		return err
+	}
+	t.FijarEmpresa(e.ID)
+	campos := t.RegistrarCambios("empresa", e.ID, empresaAuditable{Nombre: antes.Nombre, NIT: antes.Nit},
+		empresaAuditable{Nombre: despues.Nombre, NIT: despues.Nit})
+	if campos == nil {
+		campos = []string{}
+	}
+	return t.Emitir("empresa.actualizada", map[string]any{"empresa_id": e.ID, "campos": campos})
 }
 
 // Conectar con un enlace del otro sistema --------------------------------------------------

@@ -39,16 +39,6 @@ type payloadEntrante struct {
 	Campos []string `json:"campos"`
 }
 
-func (p payloadEntrante) router() *int64 {
-	if p.RouterID == nil && p.Router != nil {
-		return p.Router.ID
-	}
-	if p.RouterID == nil {
-		return p.ID
-	}
-	return p.RouterID
-}
-
 func leerPayload(crudo []byte) payloadEntrante {
 	var p payloadEntrante
 	_ = conector.Decodificar(crudo, &p)
@@ -164,8 +154,14 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.eliminado != nil {
 		// La lápida va antes que el refresco de la ficha: así la ficha no lo recrea.
-		if err := aplicarEliminacion(ctx, t, q, e, *in.eliminado); err != nil {
+		motivo, err := aplicarEliminacion(ctx, t, q, e, *in.eliminado)
+		if err != nil {
 			return r, err
+		}
+		if motivo != "" {
+			// La instantánea cambió entre la confirmación y la transacción: no se aplica nada.
+			t.Anotar(map[string]any{"omitido": motivo})
+			return r, conector.MarcarEntrante(ctx, t, e.ID, r.Resultado, nil)
 		}
 		r.Resultado = "aplicado"
 	}
@@ -176,7 +172,7 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		}
 		r.Resultado = "aplicado"
 	case in.ficha != nil:
-		if err := guardarFicha(ctx, q, *in.ficha); err != nil {
+		if err := guardarFicha(ctx, t, q, *in.ficha); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -226,9 +222,19 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 	switch e.Evento {
 	case EventoServicioEliminado, EventoRouterEliminado:
 		in.eliminado, in.omitido, in.errArgos = p.leerEliminacion(ctx, bd, e, datos)
-		if in.eliminado == nil || in.eliminado.Tipo == eliminadoRouter {
+		if in.eliminado == nil || in.eliminado.Tipo == eliminadoRouter || in.eliminado.ClienteID == nil {
 			return p.aplicar.Ejecutar(ctx, in)
 		}
+		// Se relee la ficha del cliente del servicio (el de la instantánea, si la había), si Iris
+		// lo tiene.
+		if _, err := q.ClientePorID(ctx, *in.eliminado.ClienteID); errors.Is(err, pgx.ErrNoRows) {
+			return p.aplicar.Ejecutar(ctx, in)
+		} else if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.ClienteID = in.eliminado.ClienteID
+		in.ficha, in.borrar, in.errArgos = p.leerDeArgos(ctx, bd, e.ConectorID, *in.ClienteID)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
 		// Un evento atrasado de un servicio que Argos eliminó no recrea la instantánea.
 		if s := datos.servicio(); s != nil {
@@ -304,8 +310,7 @@ func clienteARefrescar(ctx context.Context, q *argosbd.Queries, e conector.Entra
 		if clienteID == nil {
 			clienteID = datos.ID
 		}
-	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado,
-		EventoServicioEliminado:
+	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
 		clienteID = datos.cliente()
 		if s := datos.servicio(); clienteID == nil && s != nil {
 			srv, err := q.ServicioPorID(ctx, *s)

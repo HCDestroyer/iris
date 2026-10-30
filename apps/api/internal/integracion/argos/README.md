@@ -25,8 +25,9 @@ comunes de conectores); aquí queda lo propio de Argos.
   no las manda: se registran con `POST /api/v1/empresas`). Desde el contrato 0.3.1 el canje trae
   `alcance_global` y `empresas[] { id, nombre, nit }`: el alcance queda en el conector
   (`alcanceGlobal` en la API; ausente si Argos no lo informó) y las empresas se registran con su
-  nombre comercial y NIT; si ya existían, solo se completa el nombre que sigue siendo el marcador
-  «Empresa <id>» y el NIT vacío (lo que puso un administrador no se pisa).
+  nombre comercial y NIT (`empresa.creada`, auditada); de una existente de origen `argos` solo se
+  completa el nombre que sigue siendo el marcador «Empresa <id>» y el NIT vacío
+  (`empresa.actualizada` con `campos[]`, auditada); una de origen `manual` no se toca.
 - **Argos 1.3.0** (prueba e2e, `infra/e2e/argos.sh`): las coordenadas llegan como texto `"lat,lng"`
   y routers y zonas traen `empresa_sugerida_id` (0 = sin empresa: lo usan todas). La carga de
   catálogos al activar tiene su propia clave de unicidad (`motivo: activacion`).
@@ -69,18 +70,35 @@ comunes de conectores); aquí queda lo propio de Argos.
   cambiaron son de los que la instantánea no guarda (`tipo`, `nit_cui`, `tipo_documento_fiscal`,
   `movil`), no relee el cliente («ignorado», `omitido: campos_sin_efecto`). Sin `campos[]` o con
   uno desconocido, refresca.
-- **`servicio.eliminado` y `router.eliminado`** (`eliminados.go`): si la empresa del evento está en
-  el alcance del canje (sin empresa = router compartido, o alcance global o no informado: siempre),
-  Iris confirma con `GET /servicios/:id` o `GET /routers/:id`: el 404 es lo esperado y no se
-  reintenta; si Argos aún lo devuelve, «ignorado» (`no_confirmado`). Confirmado, en una
-  transacción: lápida en `integracion.argos_eliminados` (con la última copia: código y plan del
-  servicio, nombre del router), fuera de `argos_servicios` / `argos_routers` y, del servicio, la
-  ficha del cliente releída. Con la lápida, un evento atrasado del servicio (`servicio.*`,
-  `asignacion.cambiada`) queda «ignorado» (`servicio_eliminado`) sin leer Argos, y ni una ficha ni
-  una carga de catálogos atrasadas lo recrean (`GuardarServicio` y `GuardarRouter` la miran).
+- **`servicio.eliminado` y `router.eliminado`** (`eliminados.go`). La lápida es difícil de
+  deshacer, así que no se cree al payload:
+  - el id sale solo de `servicio_id` / `router_id` (sin ellos, «ignorado», `sin_id`);
+  - si la instantánea tiene la fila, su empresa y su cliente mandan; un payload que no coincide
+    se ignora (`empresa_no_coincide`, `cliente_no_coincide`);
+  - Iris confirma con `GET /servicios/:id` o `GET /routers/:id`: solo un 404
+    `application/problem+json` con type `…no_encontrado` confirma
+    (`conector.EsNoEncontradoConfirmado`; no se reintenta). Otro 404 (HTML de un proxy, ruta
+    inexistente) es un error y el job se reintenta. Si Argos aún lo devuelve, «ignorado»
+    (`no_confirmado`);
+  - **no** se filtra por el alcance que informó el canje: es una foto (Argos pudo ampliarlo
+    después) y Argos solo responde dentro del alcance real del token; lo que la instantánea ya
+    conoce de otra empresa lo descarta el punto anterior;
+  - confirmado, en una transacción con el candado `pg_advisory_xact_lock` por (tipo, id) que
+    también toma todo guardado de la instantánea (`guardarServicio`, `guardarRouter`): lápida en
+    `integracion.argos_eliminados` (con la última copia, `conector_id`, `eliminado_en` de Argos y
+    `confirmado_en` de Iris, tomado antes de pedir el 404), fuera de `argos_servicios` /
+    `argos_routers`, evento interno y, del servicio, la ficha del cliente releída;
+  - un evento atrasado del servicio (`servicio.*`, `asignacion.cambiada`) queda «ignorado»
+    (`servicio_eliminado`) sin leer Argos; una lectura directa (ficha, catálogos) empezada antes de
+    `confirmado_en` no lo recrea; una empezada después que lo trae con 200 lo **resucita**: borra la
+    lápida, guarda la instantánea, anota `resucitado_<tipo>_<id>` en la auditoría y deja un log de
+    advertencia;
+  - un cliente cuyos servicios se eliminaron no queda «sin servicios» (visible en todas las
+    empresas): las empresas de sus lápidas son la pista (`empresasYPista`).
 - **«Eliminado en Argos»:** la ficha (`GET /clientes/{id}`) trae `serviciosEliminados` (filtrados
   por la empresa activa como `servicios`); un ticket u orden cuyo `servicioId` esté ahí lo muestra
-  eliminado. Para otros módulos: `argos.ServiciosEliminados(ctx, q, ids, empresa)`. Órdenes y
+  eliminado. Para otros módulos: `argos.ServiciosEliminados(ctx, q, ids, empresa)` (empresa
+  obligatoria) o, solo para jobs del sistema, `argos.ServiciosEliminadosTodasLasEmpresas`. Órdenes y
   tickets conservan su propia copia (dirección, coordenadas, contacto).
 - **Routers (§2.1):** `coordenadas` `"lat,lng"` o null → `lat`/`lon` de `argos_routers`, que usa
   la factibilidad (`RoutersConCoordenadas`; sin coordenadas no cuenta).

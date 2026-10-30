@@ -312,7 +312,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			stale := false
 			switch {
 			case in.leida != nil:
-				if err := guardarFicha(ctx, q, *in.leida); err != nil {
+				if err := guardarFicha(ctx, t, q, *in.leida); err != nil {
 					return Ficha{}, err
 				}
 			case in.errArgos != nil && EsCaido(in.errArgos) && in.previa.cliente != nil:
@@ -571,7 +571,7 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 			}
 			for _, r := range in.routers {
 				lat, lon := r.LatLon()
-				if err := q.GuardarRouter(ctx, argosbd.GuardarRouterParams{
+				if err := guardarRouter(ctx, t, q, argosbd.GuardarRouterParams{
 					ID: r.ID, EmpresaID: r.Empresa(), Nombre: r.Nombre, ZonaID: idDe(r.ZonaID, r.Zona), Lat: lat, Lon: lon, SincronizadoEn: in.inicio,
 				}); err != nil {
 					return ResultadoCatalogos{}, err

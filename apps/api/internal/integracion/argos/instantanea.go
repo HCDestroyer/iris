@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 )
 
@@ -40,6 +41,9 @@ func leerFichaArgos(ctx context.Context, c *Cliente, clienteID int64) (fichaArgo
 // empresasYPista: las empresas del cliente (las de sus servicios) y si no tiene servicios de forma
 // concluyente (la lista de todas las empresas vino vacía). Un cliente recién creado por un alta
 // desde Iris, todavía sin servicio, tiene como pista la empresa del prospecto: solo se ve en ella.
+//
+// Un cliente cuyos servicios Argos eliminó (lápidas) tampoco queda «sin servicios»: las empresas
+// de esos servicios son la pista (si no, al eliminarse su único servicio lo verían todas).
 func empresasYPista(ctx context.Context, q *argosbd.Queries, c ClienteArgos, servicios []ServicioArgos, completa bool) ([]int64, bool, error) {
 	empresas := EmpresasDelCliente(c, servicios)
 	if !completa || len(servicios) > 0 {
@@ -49,15 +53,24 @@ func empresasYPista(ctx context.Context, q *argosbd.Queries, c ClienteArgos, ser
 	switch {
 	case err == nil:
 		return []int64{pista}, false, nil
-	case errors.Is(err, pgx.ErrNoRows):
-		return empresas, len(empresas) == 0, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return nil, false, err
 	}
-	return nil, false, err
+	if len(empresas) == 0 {
+		de, err := q.EmpresasDeEliminadosDeCliente(ctx, &c.ID)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(de) > 0 {
+			return de, false, nil
+		}
+	}
+	return empresas, len(empresas) == 0, nil
 }
 
 // guardarFicha escribe la instantánea del cliente y sus servicios y borra los servicios que
 // Argos ya no devuelve.
-func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
+func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fichaArgos) error {
 	c := f.cliente
 	lat, lon := c.LatLon()
 	// El cliente de Argos no tiene empresa: las suyas son las de sus servicios. empresa_id queda
@@ -86,7 +99,7 @@ func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 		}
 		// Un servicio sin empresa no hereda la del cliente: queda en 0 y no se atribuye a nadie.
 		slat, slon := s.LatLon()
-		if err := q.GuardarServicio(ctx, argosbd.GuardarServicioParams{
+		if err := guardarServicio(ctx, t, q, argosbd.GuardarServicioParams{
 			ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
 			PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
 			RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),

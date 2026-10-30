@@ -100,6 +100,37 @@ func (q *Queries) CambiarURLPublicaConector(ctx context.Context, arg CambiarURLP
 	return i, err
 }
 
+const completarEmpresaCanje = `-- name: CompletarEmpresaCanje :one
+UPDATE nucleo.empresas
+SET nombre = $1, nit = $2, version = version + 1, sincronizado_en = now(), updated_at = now()
+WHERE id = $3 AND origen = 'argos'
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type CompletarEmpresaCanjeParams struct {
+	Nombre string
+	Nit    string
+	ID     int64
+}
+
+// Completa nombre o NIT de una empresa de origen argos (lo decide el código: solo el marcador
+// «Empresa <id>» y el NIT vacío).
+func (q *Queries) CompletarEmpresaCanje(ctx context.Context, arg CompletarEmpresaCanjeParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, completarEmpresaCanje, arg.Nombre, arg.Nit, arg.ID)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const conectorActivo = `-- name: ConectorActivo :one
 SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 `
@@ -235,6 +266,59 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 		return nil, err
 	}
 	return items, nil
+}
+
+const crearEmpresaCanje = `-- name: CrearEmpresaCanje :one
+INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
+VALUES ($1, $2, $3, 'argos', now())
+ON CONFLICT (id) DO NOTHING
+RETURNING id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at
+`
+
+type CrearEmpresaCanjeParams struct {
+	ID     int64
+	Nombre string
+	Nit    string
+}
+
+// Empresa nueva que cubre el token del conector (canje). Sin filas si otra transacción la creó.
+func (q *Queries) CrearEmpresaCanje(ctx context.Context, arg CrearEmpresaCanjeParams) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, crearEmpresaCanje, arg.ID, arg.Nombre, arg.Nit)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const empresaCanjeParaActualizar = `-- name: EmpresaCanjeParaActualizar :one
+
+SELECT id, nombre, nit, origen, sincronizado_en, version, created_at, updated_at FROM nucleo.empresas WHERE id = $1 FOR UPDATE
+`
+
+// Empresas ------------------------------------------------------------------
+// Empresa que informa el canje (bloqueada para completarla en la misma transacción).
+func (q *Queries) EmpresaCanjeParaActualizar(ctx context.Context, id int64) (NucleoEmpresa, error) {
+	row := q.db.QueryRow(ctx, empresaCanjeParaActualizar, id)
+	var i NucleoEmpresa
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Nit,
+		&i.Origen,
+		&i.SincronizadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const entranteParaProcesar = `-- name: EntranteParaProcesar :one
@@ -544,6 +628,15 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 	return items, nil
 }
 
+const marcarEmpresaSincronizada = `-- name: MarcarEmpresaSincronizada :exec
+UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id = $1 AND origen = 'argos'
+`
+
+func (q *Queries) MarcarEmpresaSincronizada(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, marcarEmpresaSincronizada, id)
+	return err
+}
+
 const marcarEntranteError = `-- name: MarcarEntranteError :exec
 UPDATE integracion.entrantes
 SET intentos = intentos + 1, error = $1, updated_at = now()
@@ -575,35 +668,6 @@ type MarcarEntranteProcesadoParams struct {
 // nota: por qué se ignoró (payload inválido…); null si se aplicó.
 func (q *Queries) MarcarEntranteProcesado(ctx context.Context, arg MarcarEntranteProcesadoParams) error {
 	_, err := q.db.Exec(ctx, marcarEntranteProcesado, arg.Resultado, arg.Nota, arg.ID)
-	return err
-}
-
-const registrarEmpresaConector = `-- name: RegistrarEmpresaConector :exec
-
-INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
-VALUES ($1, $2, $3, 'argos', now())
-ON CONFLICT (id) DO UPDATE SET
-    nombre = CASE WHEN nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id THEN excluded.nombre ELSE nucleo.empresas.nombre END,
-    nit = CASE WHEN nucleo.empresas.nit = '' THEN excluded.nit ELSE nucleo.empresas.nit END,
-    version = nucleo.empresas.version + CASE
-        WHEN (nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id AND excluded.nombre <> nucleo.empresas.nombre)
-          OR (nucleo.empresas.nit = '' AND excluded.nit <> '') THEN 1 ELSE 0 END,
-    sincronizado_en = now(), updated_at = now()
-`
-
-type RegistrarEmpresaConectorParams struct {
-	ID     int64
-	Nombre string
-	Nit    string
-}
-
-// Empresas ------------------------------------------------------------------
-// Empresa que cubre el token del conector (canje). Argos 0.3.1 manda nombre y nit; antes, solo el
-// id (nombre «Empresa <id>», nit vacío). Si ya existe, se marca sincronizada y solo se completa lo
-// que nadie puso: el nombre si sigue siendo el marcador «Empresa <id>» y el nit si está vacío (lo
-// que escribió un administrador no se pisa).
-func (q *Queries) RegistrarEmpresaConector(ctx context.Context, arg RegistrarEmpresaConectorParams) error {
-	_, err := q.db.Exec(ctx, registrarEmpresaConector, arg.ID, arg.Nombre, arg.Nit)
 	return err
 }
 

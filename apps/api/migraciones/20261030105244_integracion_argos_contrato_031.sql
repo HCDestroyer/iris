@@ -7,15 +7,20 @@
 -- recrean. Del servicio queda lo mínimo para que órdenes y tickets que lo referencian lo muestren
 -- «eliminado en Argos» (código, plan, cliente y empresa, copiados de la instantánea si la había).
 -- empresa_id null: un servicio sin empresa o un router compartido (sin empresa sugerida).
+-- eliminado_en es la hora de Argos (ocurrido_en del webhook, para mostrar); confirmado_en, la de
+-- Iris antes de pedir el 404 que lo confirmó: una lectura de Argos empezada después (con el id en
+-- un 200) resucita la instantánea y borra la lápida; una empezada antes no la recrea.
 CREATE TABLE integracion.argos_eliminados (
-    tipo         text        NOT NULL CHECK (tipo IN ('servicio', 'router')),
-    id           bigint      NOT NULL,
-    empresa_id   bigint,
-    cliente_id   bigint,
-    codigo       text        NOT NULL DEFAULT '',
-    nombre       text        NOT NULL DEFAULT '',
-    entrante_id  bigint      REFERENCES integracion.entrantes (id),
-    eliminado_en timestamptz NOT NULL,
+    tipo          text        NOT NULL CHECK (tipo IN ('servicio', 'router')),
+    id            bigint      NOT NULL,
+    empresa_id    bigint,
+    cliente_id    bigint,
+    codigo        text        NOT NULL DEFAULT '',
+    nombre        text        NOT NULL DEFAULT '',
+    conector_id   bigint      NOT NULL REFERENCES integracion.conectores (id),
+    entrante_id   bigint      REFERENCES integracion.entrantes (id),
+    eliminado_en  timestamptz NOT NULL,
+    confirmado_en timestamptz NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tipo, id),
     CHECK (tipo = 'servicio' OR cliente_id IS NULL)

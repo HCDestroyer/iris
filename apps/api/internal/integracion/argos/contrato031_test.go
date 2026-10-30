@@ -1,6 +1,7 @@
 package argos_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,17 +35,24 @@ func conAlcance(global bool, empresas ...any) func(*argosFalso) {
 }
 
 // §1.3: el canje informa alcance_global y empresas[] { id, nombre, nit }. Iris guarda el alcance
-// en el conector, registra las empresas con su nombre y NIT y no pisa lo que puso un
-// administrador.
+// en el conector y registra las empresas con su nombre y NIT, auditado y con su evento; de una
+// existente de origen argos solo completa el marcador y el NIT vacío; una manual no se toca.
 func TestCanjeAlcanceGlobalYEmpresas(t *testing.T) {
 	e := nuevoEntorno(t)
-	if _, err := e.pool.Exec(t.Context(), `UPDATE nucleo.empresas SET nombre = 'Nombre del admin', nit = '' WHERE id = 1`); err != nil {
-		t.Fatal(err)
+	for _, sql := range []string{
+		`UPDATE nucleo.empresas SET nombre = 'Nombre del admin', nit = '', origen = 'argos' WHERE id = 1`,
+		`INSERT INTO nucleo.empresas (id, nombre, nit, origen) VALUES (3, 'Empresa 3', '', 'manual')`,
+	} {
+		if _, err := e.pool.Exec(t.Context(), sql); err != nil {
+			t.Fatal(err)
+		}
 	}
 	e.argos.con(func() {
 		conAlcance(false, map[string]any{"id": 1, "nombre": "Cable Norte", "nit": "1234567"},
-			map[string]any{"id": 2, "nombre": "Cable Sur", "nit": nil})(e.argos)
+			map[string]any{"id": 2, "nombre": "Cable Sur", "nit": nil},
+			map[string]any{"id": 3, "nombre": "Cable Este", "nit": "999"})(e.argos)
 	})
+	desde := e.consultarTexto(`SELECT clock_timestamp()::text`)
 	admin, id, _ := e.conectado()
 	c := admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores", nil)
 	if c.status != 200 {
@@ -56,19 +64,35 @@ func TestCanjeAlcanceGlobalYEmpresas(t *testing.T) {
 			visto = m
 		}
 	}
-	if visto == nil || visto["alcanceGlobal"] != false || fmt.Sprint(visto["empresas"]) != "[1 2]" {
+	if visto == nil || visto["alcanceGlobal"] != false || fmt.Sprint(visto["empresas"]) != "[1 2 3]" {
 		t.Fatalf("conector: %v", visto)
 	}
-	if n := e.contar(`SELECT count(*) FROM nucleo.empresas WHERE id = 1 AND nombre = 'Nombre del admin' AND nit = '1234567'`); n != 1 {
+	if n := e.contar(`SELECT count(*) FROM nucleo.empresas WHERE id = 1 AND nombre = 'Nombre del admin' AND nit = '1234567' AND version = 2`); n != 1 {
 		t.Fatal("empresa 1: el nombre del admin se respeta y el NIT vacío se completa")
 	}
 	if n := e.contar(`SELECT count(*) FROM nucleo.empresas WHERE id = 2 AND nombre = 'Cable Sur' AND nit = '' AND origen = 'argos'`); n != 1 {
 		t.Fatal("empresa 2: registrada con el nombre de Argos y sin NIT (null)")
 	}
+	if n := e.contar(`SELECT count(*) FROM nucleo.empresas WHERE id = 3 AND nombre = 'Empresa 3' AND nit = '' AND version = 1`); n != 1 {
+		t.Fatal("empresa 3 (manual): no se completa")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'empresa.actualizada' AND empresa_id = 1
+		AND payload->'campos' = '["nit"]'::jsonb AND ocurrido_en > $1::timestamptz`, desde); n != 1 {
+		t.Fatalf("empresa.actualizada de la 1: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'empresa.creada' AND empresa_id = 2 AND payload->>'origen' = 'argos' AND ocurrido_en > $1::timestamptz`, desde); n != 1 {
+		t.Fatalf("empresa.creada de la 2: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento LIKE 'empresa.%' AND empresa_id = 3 AND ocurrido_en > $1::timestamptz`, desde); n != 0 {
+		t.Fatalf("la 3 (manual) no emite: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.cambios WHERE entidad = 'empresa' AND entidad_id = '1' AND campo = 'nit'
+		AND despues = '"1234567"'::jsonb`); n != 1 {
+		t.Fatalf("cambio auditado del NIT: %d", n)
+	}
 }
 
-// Sin alcance_global (Argos anterior a 0.3.1) el conector no trae alcanceGlobal y el alcance no
-// filtra los webhooks.
+// Sin alcance_global (Argos anterior a 0.3.1) el conector no trae alcanceGlobal.
 func TestCanjeSinAlcanceGlobal(t *testing.T) {
 	e := nuevoEntorno(t)
 	admin, id, _ := e.conectado()
@@ -125,10 +149,10 @@ func TestClienteActualizadoConCampos(t *testing.T) {
 	}
 }
 
-// §2.3 servicio.eliminado: se confirma con el 404 de GET /servicios/:id (sin reintentos), se
-// quita de la instantánea y de la lista del cliente, queda la lápida con la última copia (la
-// ficha lo lista en serviciosEliminados para órdenes y tickets) y un evento o una lectura
-// atrasados no lo recrean. Respeta el alcance del canje.
+// §2.3 servicio.eliminado: se confirma con el 404 problem+json de GET /servicios/:id (sin
+// reintentos), se quita de la instantánea y de la lista del cliente, queda la lápida con la
+// última copia (la ficha lo lista en serviciosEliminados) y un evento atrasado no lo recrea; una
+// lectura directa posterior que lo devuelve con 200 lo resucita.
 func TestServicioEliminado(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos.con(func() { conAlcance(false, map[string]any{"id": 1, "nombre": "Cable Norte", "nit": "1"})(e.argos) })
@@ -148,13 +172,31 @@ func TestServicioEliminado(t *testing.T) {
 	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "no_confirmado" || e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810`) != 1 {
 		t.Fatalf("no confirmado: %+v", r)
 	}
-
-	// Argos lo eliminó: 404 (una sola llamada, sin reintentos).
-	e.argos.con(func() { e.argos.quitarServicio(810) })
+	// Sin servicio_id (solo «id»): se descarta sin preguntar a Argos.
 	antes := e.argos.llamadasA("/api/v1/servicios/810")
-	r = e.procesarWebhook(id, secreto, "servicio.eliminado", payload)
-	if r.Resultado != "aplicado" {
-		t.Fatalf("servicio.eliminado: %+v", r)
+	r = e.procesarWebhook(id, secreto, "servicio.eliminado", map[string]any{"id": 810, "empresa_id": 1})
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "sin_id" || e.argos.llamadasA("/api/v1/servicios/810") != antes {
+		t.Fatalf("sin servicio_id: %+v", r)
+	}
+
+	e.argos.con(func() { e.argos.quitarServicio(810) })
+	// Un 404 que no es de Argos (HTML de un proxy): error, el job se reintenta y no hay lápida.
+	e.argos.con(func() { e.argos.proxy404["/api/v1/servicios/810"] = true })
+	ent := e.entranteDe(e.enviar(id, secreto, "wh-031-proxy-"+pruebas.Unico(), "servicio.eliminado", payload, time.Now()))
+	if _, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent); err == nil {
+		t.Fatal("un 404 HTML no confirma la eliminación")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 810`) != 0 || e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810`) != 1 {
+		t.Fatal("un 404 HTML dejó lápida")
+	}
+	e.argos.con(func() { delete(e.argos.proxy404, "/api/v1/servicios/810") })
+
+	// El 404 de Argos lo confirma (una sola llamada, sin reintentos); el mismo entrante, al
+	// reintentarse, se aplica.
+	antes = e.argos.llamadasA("/api/v1/servicios/810")
+	r, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent)
+	if err != nil || r.Resultado != "aplicado" {
+		t.Fatalf("servicio.eliminado: %+v %v", r, err)
 	}
 	if n := e.argos.llamadasA("/api/v1/servicios/810") - antes; n != 1 {
 		t.Fatalf("GET /servicios/810: %d llamadas (el 404 no se reintenta)", n)
@@ -164,8 +206,8 @@ func TestServicioEliminado(t *testing.T) {
 		t.Fatal("instantánea del servicio")
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'servicio' AND id = 810 AND cliente_id = 81
-		AND empresa_id = 1 AND codigo = 'S-1' AND nombre = 'Fibra 100' AND entrante_id = $1`, r.EntranteID); n != 1 {
-		t.Fatal("lápida con la última copia")
+		AND empresa_id = 1 AND codigo = 'S-1' AND nombre = 'Fibra 100' AND entrante_id = $1 AND conector_id = $2`, ent, id); n != 1 {
+		t.Fatal("lápida con la última copia y el conector")
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.servicio_eliminado' AND empresa_id = 1
 		AND payload->>'servicio_id' = '810' AND payload->>'cliente_id' = '81' AND payload->>'router_id' = '4'`); n != 1 {
@@ -185,6 +227,12 @@ func TestServicioEliminado(t *testing.T) {
 	if lista, _ := argos.ServiciosEliminados(t.Context(), e.pool, []int64{810}, 2); len(lista) != 0 {
 		t.Fatal("ServiciosEliminados filtra por empresa")
 	}
+	if _, err := argos.ServiciosEliminados(t.Context(), e.pool, []int64{810}, 0); err == nil {
+		t.Fatal("ServiciosEliminados exige empresa")
+	}
+	if lista, err := argos.ServiciosEliminadosTodasLasEmpresas(t.Context(), e.pool, []int64{810}); err != nil || len(lista) != 1 {
+		t.Fatalf("ServiciosEliminadosTodasLasEmpresas: %+v %v", lista, err)
+	}
 
 	// Un evento atrasado del servicio no lo recrea (ni lee Argos).
 	antes = e.argos.llamadasA("/api/v1/clientes/81")
@@ -192,18 +240,6 @@ func TestServicioEliminado(t *testing.T) {
 	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "servicio_eliminado" || e.argos.llamadasA("/api/v1/clientes/81") != antes {
 		t.Fatalf("evento atrasado: %+v", r)
 	}
-	// Una lectura vieja (el servicio vuelve en la lista de Argos) tampoco: la lápida manda.
-	e.argos.con(func() {
-		e.argos.servicios[81] = append(e.argos.servicios[81], map[string]any{"id": int64(810), "empresa_id": 1, "cliente_id": 81, "codigo": "S-1"})
-	})
-	if r := e.procesarWebhook(id, secreto, "cliente.actualizado", map[string]any{"cliente_id": 81}); r.Resultado != "aplicado" {
-		t.Fatalf("refresco: %+v", r)
-	}
-	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810`) != 0 {
-		t.Fatal("una lectura atrasada recreó el servicio eliminado")
-	}
-	e.argos.con(func() { e.argos.quitarServicio(810) })
-
 	// Un segundo aviso (otro webhook_id) no repite el evento.
 	if r := e.procesarWebhook(id, secreto, "servicio.eliminado", payload); r.Resultado != "aplicado" {
 		t.Fatalf("segundo aviso: %+v", r)
@@ -212,18 +248,58 @@ func TestServicioEliminado(t *testing.T) {
 		t.Fatalf("el evento interno sale una vez: %d", n)
 	}
 
-	// Fuera del alcance del canje (empresa 3): se ignora sin preguntar a Argos.
+	// La instantánea manda sobre el payload: otra empresa u otro cliente → se ignora, sin
+	// preguntar a Argos.
 	e.argos.con(func() { e.argos.quitarServicio(811) })
 	antes = e.argos.llamadasA("/api/v1/servicios/811")
 	r = e.procesarWebhook(id, secreto, "servicio.eliminado", map[string]any{"servicio_id": 811, "empresa_id": 3, "cliente_id": 81})
-	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "fuera_de_alcance" || e.argos.llamadasA("/api/v1/servicios/811") != antes ||
-		e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 811`) != 1 {
-		t.Fatalf("fuera de alcance: %+v", r)
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "empresa_no_coincide" {
+		t.Fatalf("empresa distinta: %+v %s", r, e.omitidoDe(r.EntranteID))
+	}
+	r = e.procesarWebhook(id, secreto, "servicio.eliminado", map[string]any{"servicio_id": 811, "empresa_id": 1, "cliente_id": 99})
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "cliente_no_coincide" {
+		t.Fatalf("cliente distinto: %+v %s", r, e.omitidoDe(r.EntranteID))
+	}
+	if e.argos.llamadasA("/api/v1/servicios/811") != antes || e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 811`) != 1 {
+		t.Fatal("un payload que no coincide no debía tocar nada")
+	}
+	e.argos.con(func() {
+		e.argos.servicios[81] = append(e.argos.servicios[81], map[string]any{"id": int64(811), "empresa_id": 1, "cliente_id": 81, "codigo": "S-2"})
+	})
+
+	// Una lectura directa de Argos, posterior a la confirmación, que lo devuelve con 200: la lápida
+	// se borra (anotado en la auditoría) y la instantánea vuelve.
+	e.argos.con(func() {
+		e.argos.servicios[81] = append(e.argos.servicios[81], map[string]any{"id": int64(810), "empresa_id": 1, "cliente_id": 81, "codigo": "S-1"})
+	})
+	r = e.procesarWebhook(id, secreto, "cliente.actualizado", map[string]any{"cliente_id": 81})
+	if r.Resultado != "aplicado" || e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810`) != 1 ||
+		e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 810`) != 0 {
+		t.Fatalf("resucitar: %+v", r)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.procesar_webhook'
+		AND entidad_id = $1 AND entrada->'auditoria' ? 'resucitado_servicio_810'`, strconv.FormatInt(r.EntranteID, 10)); n != 1 {
+		t.Fatal("la resurrección queda en la auditoría")
+	}
+	// En cambio, una lectura empezada antes de la confirmación no la recrea: lápida confirmada
+	// «después» de cualquier lectura de ahora.
+	if _, err := e.pool.Exec(t.Context(), `DELETE FROM integracion.argos_servicios WHERE id = 810`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(t.Context(), `INSERT INTO integracion.argos_eliminados (tipo, id, empresa_id, cliente_id, conector_id, eliminado_en, confirmado_en)
+		VALUES ('servicio', 810, 1, 81, $1, now(), now() + interval '1 hour')`, id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.procesarWebhook(id, secreto, "cliente.actualizado", map[string]any{"cliente_id": 81}); r.Resultado != "aplicado" {
+		t.Fatalf("lectura vieja: %+v", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810`) != 0 || e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 810`) != 1 {
+		t.Fatal("una lectura anterior a la confirmación recreó el servicio")
 	}
 
 	// Argos caído al confirmar: error (River reintenta) y nada cambia.
-	e.argos.con(func() { e.argos.caido = true })
-	ent := e.entranteDe(e.enviar(id, secreto, "wh-031-caido-"+pruebas.Unico(), "servicio.eliminado", map[string]any{"servicio_id": 811, "empresa_id": 1}, time.Now()))
+	e.argos.con(func() { e.argos.quitarServicio(811); e.argos.caido = true })
+	ent = e.entranteDe(e.enviar(id, secreto, "wh-031-caido-"+pruebas.Unico(), "servicio.eliminado", map[string]any{"servicio_id": 811, "empresa_id": 1}, time.Now()))
 	if _, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent); err == nil {
 		t.Fatal("con Argos caído debía fallar")
 	}
@@ -231,17 +307,82 @@ func TestServicioEliminado(t *testing.T) {
 	if r, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent); err != nil || r.Resultado != "aplicado" {
 		t.Fatalf("tras volver Argos: %+v %v", r, err)
 	}
-	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE cliente_id = 81`) != 0 {
-		t.Fatal("el cliente se quedó sin servicios")
+}
+
+// Un cliente cuyo único servicio se elimina no queda «sin servicios» (visible en todas las
+// empresas): la empresa de la lápida lo sigue atando a la suya.
+func TestClienteSinServiciosTrasEliminarSigueEnSuEmpresa(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	if _, err := e.pool.Exec(t.Context(), `INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2') ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	e.sembrarCliente(85, "Ivo")
+	propia, otra := e.usuario("lectura"), e.usuarioEn([]int64{2}, "lectura")
+	if f := propia.pedir(http.MethodGet, "/api/v1/clientes/85", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	e.argos.con(func() { e.argos.quitarServicio(850) })
+	if r := e.procesarWebhook(id, secreto, "servicio.eliminado", map[string]any{"servicio_id": 850, "empresa_id": 1, "cliente_id": 85}); r.Resultado != "aplicado" {
+		t.Fatalf("servicio.eliminado: %+v", r)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 85 AND NOT sin_servicios AND empresas = '{1}'`); n != 1 {
+		t.Fatal("el cliente debía quedar en la empresa 1")
+	}
+	if f := propia.pedir(http.MethodGet, "/api/v1/clientes/85", nil); f.status != 200 {
+		t.Fatalf("su empresa lo ve: %s", f.crudo)
+	}
+	if f := otra.pedir(http.MethodGet, "/api/v1/clientes/85", nil); f.status != 404 {
+		t.Fatalf("otra empresa no lo ve: %d %s", f.status, f.crudo)
+	}
+}
+
+// La eliminación toma el candado (tipo, id) que también toma el guardado de la instantánea: no
+// avanza mientras otra transacción guarda ese servicio.
+func TestEliminacionEsperaElCandado(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(87, "Jade")
+	if f := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/87", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	e.argos.con(func() { e.argos.quitarServicio(870) })
+	tx, err := e.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(t.Context(), `SELECT pg_advisory_xact_lock(hashtextextended('servicio:870', 0))`); err != nil {
+		t.Fatal(err)
+	}
+	ent := e.entranteDe(e.enviar(id, secreto, "wh-031-candado-"+pruebas.Unico(), "servicio.eliminado", map[string]any{"servicio_id": 870, "empresa_id": 1}, time.Now()))
+	listo := make(chan error, 1)
+	go func() {
+		_, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent)
+		listo <- err
+	}()
+	select {
+	case err := <-listo:
+		t.Fatalf("no esperó el candado: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-listo; err != nil {
+		t.Fatal(err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 870`) != 1 {
+		t.Fatal("lápida tras soltar el candado")
 	}
 }
 
 // §2.1 coordenadas de routers ("lat,lng" o null) y §2.3 router.eliminado: se quita de la
-// instantánea (factibilidad ya no lo ve), queda la lápida y una carga de catálogos atrasada no lo
-// recrea. empresa_id null = router compartido (llega a cualquier alcance).
+// instantánea (factibilidad ya no lo ve), queda la lápida y una carga empezada antes de la
+// confirmación no lo recrea; una posterior que lo trae lo resucita. empresa_id null = router
+// compartido; un payload que no coincide con la instantánea se ignora.
 func TestRouterCoordenadasYEliminado(t *testing.T) {
 	e := nuevoEntorno(t)
-	e.argos.con(func() { conAlcance(false, map[string]any{"id": 1, "nombre": "Cable Norte", "nit": "1"})(e.argos) })
 	_, id, secreto := e.conectado()
 	routers := []map[string]any{
 		{"id": 9, "empresa_sugerida_id": 1, "nombre": "RT-9", "coordenadas": "14.5000,-90.5000"},
@@ -271,21 +412,33 @@ func TestRouterCoordenadasYEliminado(t *testing.T) {
 		t.Fatalf("GET /routers/9: %d llamadas (el 404 no se reintenta)", n)
 	}
 	if e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 9`) != 0 ||
-		e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'router' AND id = 9 AND nombre = 'RT-9' AND empresa_id = 1`) != 1 ||
+		e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'router' AND id = 9 AND nombre = 'RT-9' AND empresa_id = 1 AND conector_id = $1`, id) != 1 ||
 		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.router_eliminado' AND payload->>'router_id' = '9' AND empresa_id = 1`) != 1 {
 		t.Fatal("router eliminado")
 	}
-	// Una carga de catálogos atrasada (Argos aún lo listaba) no lo recrea.
+	// Una carga empezada antes de la confirmación (lápida confirmada «después») no lo recrea.
+	if _, err := e.pool.Exec(t.Context(), `UPDATE integracion.argos_eliminados SET confirmado_en = now() + interval '1 hour' WHERE tipo = 'router' AND id = 9`); err != nil {
+		t.Fatal(err)
+	}
 	e.argos.con(func() { e.argos.routers = append([]map[string]any(nil), routers...) })
 	if _, err := e.mod.SincronizarCatalogos.Ejecutar(ctx, struct{}{}); err != nil {
 		t.Fatal(err)
 	}
 	if e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 9`) != 0 {
-		t.Fatal("la carga de catálogos recreó un router eliminado")
+		t.Fatal("una carga anterior a la confirmación recreó el router")
 	}
-	e.argos.con(func() { e.argos.quitarRouter(9) })
+	// Una carga posterior que lo trae con 200 lo resucita.
+	if _, err := e.pool.Exec(t.Context(), `UPDATE integracion.argos_eliminados SET confirmado_en = now() - interval '1 minute' WHERE tipo = 'router' AND id = 9`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.mod.SincronizarCatalogos.Ejecutar(ctx, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 9`) != 1 || e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'router' AND id = 9`) != 0 {
+		t.Fatal("la carga posterior debía resucitar el router")
+	}
 
-	// Router compartido (empresa_id null): llega a cualquier alcance.
+	// Router compartido (empresa_id null): coincide con la instantánea (sin empresa).
 	e.argos.con(func() { e.argos.quitarRouter(10) })
 	if r := e.procesarWebhook(id, secreto, "router.eliminado", map[string]any{"router_id": 10, "empresa_id": nil}); r.Resultado != "aplicado" {
 		t.Fatalf("router compartido: %+v", r)
@@ -293,10 +446,16 @@ func TestRouterCoordenadasYEliminado(t *testing.T) {
 	if e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'router' AND id = 10 AND empresa_id IS NULL`) != 1 {
 		t.Fatal("lápida del router compartido")
 	}
-	// Con empresa fuera del alcance: se ignora.
+	// El payload dice una empresa y la instantánea lo tiene compartido: se ignora.
 	e.argos.con(func() { e.argos.quitarRouter(11) })
 	r = e.procesarWebhook(id, secreto, "router.eliminado", map[string]any{"router_id": 11, "empresa_id": 5})
-	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "fuera_de_alcance" || e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 11`) != 1 {
-		t.Fatalf("fuera de alcance: %+v", r)
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "empresa_no_coincide" || e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 11`) != 1 {
+		t.Fatalf("empresa distinta: %+v", r)
+	}
+	// Un 404 HTML tampoco confirma un router.
+	e.argos.con(func() { e.argos.proxy404["/api/v1/routers/11"] = true })
+	ent := e.entranteDe(e.enviar(id, secreto, "wh-031-rproxy-"+pruebas.Unico(), "router.eliminado", map[string]any{"router_id": 11, "empresa_id": nil}, time.Now()))
+	if _, err := e.mod.ProcesarEntrante.Ejecutar(ctx, ent); err == nil || e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE tipo = 'router' AND id = 11`) != 0 {
+		t.Fatalf("404 HTML de router: %v", err)
 	}
 }

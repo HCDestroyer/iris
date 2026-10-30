@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -105,6 +106,8 @@ type ErrorRemoto struct {
 	Tipo    string
 	Titulo  string
 	Detalle string
+	// ProblemJSON: la respuesta vino como application/problem+json (no el HTML de un proxy).
+	ProblemJSON bool
 
 	reintentarEn time.Duration
 	causa        error
@@ -158,6 +161,21 @@ func EsCaido(err error) bool {
 func EsNoEncontrado(err error) bool {
 	var er *ErrorRemoto
 	return errors.As(err, &er) && er.Status == http.StatusNotFound
+}
+
+// EsNoEncontradoConfirmado: un 404 que el otro sistema firmó como «no existe»: problem+json con
+// type …no_encontrado (o …not_found). Para decisiones irreversibles (una lápida): un 404 HTML de
+// un proxy o una ruta inexistente no cuentan.
+func EsNoEncontradoConfirmado(err error) bool {
+	var er *ErrorRemoto
+	if !errors.As(err, &er) || er.Status != http.StatusNotFound || !er.ProblemJSON {
+		return false
+	}
+	t := strings.TrimSpace(er.Tipo)
+	if i := strings.LastIndexAny(t, ":/"); i >= 0 {
+		t = t[i+1:]
+	}
+	return t == "no_encontrado" || t == "not_found"
 }
 
 // EsBloqueado indica si la llamada se cortó por la protección contra SSRF.
@@ -350,6 +368,9 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 	}
 	if json.Unmarshal(crudo, &p) == nil {
 		e.Tipo, e.Titulo, e.Detalle = p.Type, p.Title, p.Detail
+	}
+	if mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err == nil && mt == "application/problem+json" {
+		e.ProblemJSON = true
 	}
 	if len(e.Detalle) > 500 {
 		e.Detalle = e.Detalle[:500]

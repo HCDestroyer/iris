@@ -44,6 +44,8 @@ type argosFalso struct {
 	// (empresas [{ id: 1 }] y sin alcance_global).
 	empresasCanje []any
 	alcanceGlobal *bool
+	// proxy404: rutas a las que un proxy responde 404 en HTML (no es «no encontrado» de Argos).
+	proxy404 map[string]bool
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -53,6 +55,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		t: t, token: tokenArgos, codigo: "codigo-de-argos-0123456789",
 		clientes: map[int64]map[string]any{}, servicios: map[int64][]map[string]any{},
 		estados: map[int64]map[string]any{}, ips: map[string]map[string]any{}, llamadas: map[string]int{},
+		proxy404: map[string]bool{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", a.canjear)
@@ -140,7 +143,14 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 			a.fallarUna--
 		}
 		sinPermiso := a.sinPermiso
+		proxy := a.proxy404[r.URL.Path]
 		a.mu.Unlock()
+		if proxy {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("<html><body>404 Not Found</body></html>"))
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer "+a.token {
 			problema(w, 401, "urn:argos:no_autenticado", "Token inválido")
 			return

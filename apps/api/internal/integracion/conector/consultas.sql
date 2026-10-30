@@ -113,17 +113,24 @@ WHERE id = @id;
 
 -- Empresas ------------------------------------------------------------------
 
--- name: RegistrarEmpresaConector :exec
--- Empresa que cubre el token del conector (canje). Argos 0.3.1 manda nombre y nit; antes, solo el
--- id (nombre «Empresa <id>», nit vacío). Si ya existe, se marca sincronizada y solo se completa lo
--- que nadie puso: el nombre si sigue siendo el marcador «Empresa <id>» y el nit si está vacío (lo
--- que escribió un administrador no se pisa).
+-- name: EmpresaCanjeParaActualizar :one
+-- Empresa que informa el canje (bloqueada para completarla en la misma transacción).
+SELECT * FROM nucleo.empresas WHERE id = @id FOR UPDATE;
+
+-- name: CrearEmpresaCanje :one
+-- Empresa nueva que cubre el token del conector (canje). Sin filas si otra transacción la creó.
 INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
 VALUES (@id, @nombre, @nit, 'argos', now())
-ON CONFLICT (id) DO UPDATE SET
-    nombre = CASE WHEN nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id THEN excluded.nombre ELSE nucleo.empresas.nombre END,
-    nit = CASE WHEN nucleo.empresas.nit = '' THEN excluded.nit ELSE nucleo.empresas.nit END,
-    version = nucleo.empresas.version + CASE
-        WHEN (nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id AND excluded.nombre <> nucleo.empresas.nombre)
-          OR (nucleo.empresas.nit = '' AND excluded.nit <> '') THEN 1 ELSE 0 END,
-    sincronizado_en = now(), updated_at = now();
+ON CONFLICT (id) DO NOTHING
+RETURNING *;
+
+-- name: CompletarEmpresaCanje :one
+-- Completa nombre o NIT de una empresa de origen argos (lo decide el código: solo el marcador
+-- «Empresa <id>» y el NIT vacío).
+UPDATE nucleo.empresas
+SET nombre = @nombre, nit = @nit, version = version + 1, sincronizado_en = now(), updated_at = now()
+WHERE id = @id AND origen = 'argos'
+RETURNING *;
+
+-- name: MarcarEmpresaSincronizada :exec
+UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id = @id AND origen = 'argos';
