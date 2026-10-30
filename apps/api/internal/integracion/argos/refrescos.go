@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
+
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 )
 
 // Protección de Argos frente a lecturas repetidas de la ficha (revisión de seguridad, PR #70):
@@ -21,16 +23,22 @@ import (
 //     órdenes (CuotaVerificar*, más holgada), para que gastar una no bloquee la otra ni a las
 //     demás empresas;
 //   - tras una caída de Argos al leer un cliente con instantánea (fallo_en), durante
-//     EsperaTrasFallo no se vuelve a llamar; sin instantánea, un 404 o una caída quedan en una caché
-//     negativa en memoria (NegativoTTL) que respetan la ficha, «Refrescar» y la verificación.
+//     EsperaTrasFallo no se vuelve a llamar; sin instantánea, un 404 (NegativoNoExisteTTL, corto: el
+//     id puede ser de un cliente que otra empresa está por crear) o una caída (NegativoCaidaTTL)
+//     quedan en una caché negativa en memoria que respetan la ficha, «Refrescar» y la verificación.
+//     Una noticia del cliente (alta propia hecha en Argos, webhook cliente.creado/actualizado) la
+//     descarta (vigenteNegativo).
+//   - un mismo usuario no agota «Refrescar» de su empresa: CuotaRefrescarUsuario por minuto.
 const (
 	CuotaUsuario               = 30
+	CuotaRefrescarUsuario      = 5
 	CuotaRefrescarConector     = 60
 	CuotaRefrescarEmpresa      = 20
 	CuotaVerificarConector     = 300
 	CuotaVerificarEmpresa      = 100
 	EsperaTrasFallo            = time.Minute
-	NegativoTTL                = time.Minute
+	NegativoNoExisteTTL        = 10 * time.Second
+	NegativoCaidaTTL           = time.Minute
 	maxEntradasEnMemoria       = 10000
 	usoRefrescar           uso = "refrescar"
 	usoVerificar           uso = "verificar"
@@ -57,6 +65,7 @@ type ventanaCuota struct {
 // negativo: Argos dijo 404 o no respondió para un cliente sin instantánea.
 type negativo struct {
 	noExiste bool
+	desde    time.Time
 	hasta    time.Time
 }
 
@@ -87,6 +96,9 @@ func (r *refrescos) tomarCuota(conectorID int64, c cobro, ahora time.Time) bool 
 	}
 	switch c.uso {
 	case usoRefrescar:
+		if c.usuario != 0 {
+			limites = append(limites, limite{"ru:" + strconv.FormatInt(c.usuario, 10), CuotaRefrescarUsuario})
+		}
 		limites = append(limites, limite{"r:" + con, CuotaRefrescarConector})
 		if c.empresa != 0 {
 			limites = append(limites, limite{"r:" + con + ":" + strconv.FormatInt(c.empresa, 10), CuotaRefrescarEmpresa})
@@ -147,7 +159,11 @@ func (r *refrescos) recordarNegativo(conectorID, clienteID int64, noExiste bool,
 			}
 		}
 	}
-	r.negativos[claveCliente{conectorID, clienteID}] = negativo{noExiste: noExiste, hasta: ahora.Add(NegativoTTL)}
+	ttl := NegativoCaidaTTL
+	if noExiste {
+		ttl = NegativoNoExisteTTL
+	}
+	r.negativos[claveCliente{conectorID, clienteID}] = negativo{noExiste: noExiste, desde: ahora, hasta: ahora.Add(ttl)}
 }
 
 // olvidarNegativo: una lectura buena borra el resultado negativo.
@@ -183,4 +199,24 @@ func (r *refrescos) leerUnaVez(ctx context.Context, conectorID, clienteID int64,
 		return fichaArgos{}, err
 	}
 	return v.(fichaArgos), nil
+}
+
+// vigenteNegativo: el resultado negativo en memoria, salvo que desde entonces haya noticia del
+// cliente en la base (alta propia hecha, webhook procesado por cualquier proceso): entonces se
+// descarta y se vuelve a preguntar a Argos.
+func (r *refrescos) vigenteNegativo(ctx context.Context, q *argosbd.Queries, conectorID, clienteID int64, ahora time.Time) (negativo, bool, error) {
+	n, ok := r.negativoDe(conectorID, clienteID, ahora)
+	if !ok {
+		return n, false, nil
+	}
+	desde := n.desde
+	confirmado, err := q.ClienteConfirmadoDesde(ctx, argosbd.ClienteConfirmadoDesdeParams{Desde: &desde, ClienteID: clienteID})
+	if err != nil {
+		return n, false, err
+	}
+	if confirmado != nil && *confirmado {
+		r.olvidarNegativo(conectorID, clienteID)
+		return n, false, nil
+	}
+	return n, true, nil
 }

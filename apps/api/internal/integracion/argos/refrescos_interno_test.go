@@ -12,7 +12,7 @@ func TestCuotasSeparadas(t *testing.T) {
 	r := nuevosRefrescos()
 	ahora := time.Now()
 	for i := range CuotaRefrescarEmpresa {
-		if !r.tomarCuota(1, cobro{uso: usoRefrescar, usuario: int64(100 + i), empresa: 1}, ahora) {
+		if !r.tomarCuota(1, cobro{uso: usoRefrescar, usuario: int64(100 + i), empresa: 1}, ahora) { // un usuario distinto cada vez
 			t.Fatalf("refresco %d de la empresa 1", i)
 		}
 	}
@@ -24,6 +24,19 @@ func TestCuotasSeparadas(t *testing.T) {
 	}
 	if !r.tomarCuota(1, cobro{uso: usoVerificar, usuario: 999, empresa: 1}, ahora) {
 		t.Fatal("la verificación de altas no depende de la cuota de «Refrescar»")
+	}
+	// Un usuario no agota «Refrescar» de su empresa.
+	r = nuevosRefrescos()
+	for i := range CuotaRefrescarUsuario {
+		if !r.tomarCuota(1, cobro{uso: usoRefrescar, usuario: 8, empresa: 1}, ahora) {
+			t.Fatalf("refresco %d del usuario 8", i)
+		}
+	}
+	if r.tomarCuota(1, cobro{uso: usoRefrescar, usuario: 8, empresa: 1}, ahora) {
+		t.Fatal("agotada la cuota de «Refrescar» del usuario 8")
+	}
+	if !r.tomarCuota(1, cobro{uso: usoRefrescar, usuario: 9, empresa: 1}, ahora) || !r.tomarCuota(1, cobro{usuario: 8}, ahora) {
+		t.Fatal("otro usuario y las lecturas normales del usuario 8 siguen")
 	}
 	// Tope del conector: entre todas las empresas.
 	r = nuevosRefrescos()

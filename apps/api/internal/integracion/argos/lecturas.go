@@ -448,13 +448,16 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 			f.omitido = &motivo
 		}
 	}
-	neg, hayNeg := o.m.refrescos.negativoDe(p.conector.ID, in.ID, ahora)
+	neg, hayNeg, err := o.m.refrescos.vigenteNegativo(ctx, argosbd.New(nucleo.BDDe(ctx)), p.conector.ID, in.ID, ahora)
+	if err != nil {
+		return Ficha{}, err
+	}
 	switch {
 	case p.cliente == nil && hayNeg && neg.noExiste:
-		// Argos dijo 404 hace menos de NegativoTTL: el mismo 404 sin volver a preguntar.
+		// Argos dijo 404 hace menos de NegativoNoExisteTTL (y sin noticia del cliente desde entonces): el mismo 404 sin volver a preguntar.
 		f.noExiste = true
 	case p.cliente == nil && hayNeg:
-		// Argos no respondió hace menos de NegativoTTL y no hay instantánea: 503 sin esperar otra vez.
+		// Argos no respondió hace menos de NegativoCaidaTTL y no hay instantánea: 503 sin esperar otra vez.
 		f.errArgos, f.enEspera = errEnEspera(), true
 	case !vencida && !aPedido:
 		omitir(RefrescoReciente)

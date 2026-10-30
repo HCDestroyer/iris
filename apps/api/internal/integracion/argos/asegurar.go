@@ -68,7 +68,11 @@ func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servi
 			return Problema(errEnEspera())
 		}
 	}
-	if neg, ok := m.refrescos.negativoDe(c.ID, clienteID, ahora); previa == nil && ok {
+	neg, ok, err := m.refrescos.vigenteNegativo(ctx, q, c.ID, clienteID, ahora)
+	if err != nil {
+		return err
+	}
+	if previa == nil && ok {
 		// 404 o caída recientes de un cliente sin instantánea: no se vuelve a preguntar.
 		switch {
 		case neg.noExiste:

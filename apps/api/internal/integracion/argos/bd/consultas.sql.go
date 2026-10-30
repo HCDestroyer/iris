@@ -172,6 +172,34 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 	return items, nil
 }
 
+const clienteConfirmadoDesde = `-- name: ClienteConfirmadoDesde :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes
+    WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND hecho_en >= $1
+      AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = ($2::bigint)::text
+) OR EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE evento IN ('cliente.creado', 'cliente.actualizado') AND procesado_en >= $1
+      AND coalesce(payload->>'cliente_id', payload->'cliente'->>'id', payload->>'id') = ($2::bigint)::text
+) AS confirmado
+`
+
+type ClienteConfirmadoDesdeParams struct {
+	Desde     *time.Time
+	ClienteID int64
+}
+
+// ¿Hubo noticia del cliente desde @desde? Un alta propia hecha en Argos (pendiente crear_cliente
+// con su id en la respuesta) o un webhook cliente.creado / cliente.actualizado procesado. Con
+// esto la caché negativa en memoria (un 404 reciente) se descarta en cualquier proceso, aunque el
+// webhook o el pendiente los haya procesado el worker.
+func (q *Queries) ClienteConfirmadoDesde(ctx context.Context, arg ClienteConfirmadoDesdeParams) (*bool, error) {
+	row := q.db.QueryRow(ctx, clienteConfirmadoDesde, arg.Desde, arg.ClienteID)
+	var confirmado *bool
+	err := row.Scan(&confirmado)
+	return confirmado, err
+}
+
 const clientePorID = `-- name: ClientePorID :one
 SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = $1
 `

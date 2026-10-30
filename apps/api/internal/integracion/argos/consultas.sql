@@ -218,3 +218,18 @@ WHERE cliente_id = @cliente_id AND anonimizada_en IS NULL;
 -- name: MarcarFalloCliente :exec
 -- Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
 UPDATE integracion.argos_clientes SET fallo_en = @fallo_en WHERE id = @id;
+
+-- name: ClienteConfirmadoDesde :one
+-- ¿Hubo noticia del cliente desde @desde? Un alta propia hecha en Argos (pendiente crear_cliente
+-- con su id en la respuesta) o un webhook cliente.creado / cliente.actualizado procesado. Con
+-- esto la caché negativa en memoria (un 404 reciente) se descarta en cualquier proceso, aunque el
+-- webhook o el pendiente los haya procesado el worker.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes
+    WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND hecho_en >= @desde
+      AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = (@cliente_id::bigint)::text
+) OR EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE evento IN ('cliente.creado', 'cliente.actualizado') AND procesado_en >= @desde
+      AND coalesce(payload->>'cliente_id', payload->'cliente'->>'id', payload->>'id') = (@cliente_id::bigint)::text
+) AS confirmado;

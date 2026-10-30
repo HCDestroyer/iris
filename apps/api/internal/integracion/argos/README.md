@@ -210,9 +210,12 @@ partes (ficha, ticket, orden, comercial y app de campo).
   (conector, empresa): «Refrescar» 60/20 por minuto y verificación de altas 300/100 (agotar una no
   bloquea la otra ni a otras empresas). Pasada una cuota: «Refrescar» devuelve la instantánea con
   `refrescoOmitido: cuota`, una vencida se sirve `stale` y sin instantánea es 429 `cuota_argos`.
-  Tras una caída con instantánea (`fallo_en`), 1 min sin volver a llamar; sin instantánea, un 404 o
-  una caída quedan 1 min en una caché negativa en memoria que respetan la ficha, «Refrescar» y la
-  verificación. Las ventanas de cuota vencidas se desalojan (nunca las vigentes). Con
+  Tras una caída con instantánea (`fallo_en`), 1 min sin volver a llamar; sin instantánea, un 404
+  (10 s) o una caída (1 min) quedan en una caché negativa en memoria que respetan la ficha,
+  «Refrescar» y la verificación, y que se descarta si desde entonces hubo noticia del cliente en la
+  base (webhook `cliente.creado`/`cliente.actualizado` procesado o pendiente `crear_cliente` hecho,
+  en cualquier proceso). Un usuario tiene además 5 «Refrescar» por minuto, para no agotar los de su
+  empresa. Las ventanas de cuota vencidas se desalojan (nunca las vigentes). Con
   `?refrescar=true`, `refrescoOmitido` dice por qué no se llamó (`cuota`, `reciente`,
   `en_espera`). «Refrescar» de un cliente que la instantánea pone en otra empresa no llama a
   Argos (404).

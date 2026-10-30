@@ -431,21 +431,37 @@ func TestRefrescarCuotaYOmitido(t *testing.T) {
 		}
 	}
 	antes := llamadas()
-	for i := range argos.CuotaRefrescarEmpresa {
+	refrescar := func(c *clienteHTTP) respuesta {
 		e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
-		if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != nil {
+		return c.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil)
+	}
+	// Un usuario solo: CuotaRefrescarUsuario y después «cuota», aunque la empresa tenga margen.
+	for i := range argos.CuotaRefrescarUsuario {
+		if r := refrescar(yo); r.cuerpo["refrescoOmitido"] != nil {
 			t.Fatalf("refresco %d: %s", i, r.crudo)
+		}
+	}
+	if r := refrescar(yo); r.cuerpo["refrescoOmitido"] != "cuota" {
+		t.Fatalf("pasada la cuota de «Refrescar» del usuario: %s", r.crudo)
+	}
+	// El resto de la cuota de la empresa, repartida entre otros usuarios.
+	for hechos := argos.CuotaRefrescarUsuario; hechos < argos.CuotaRefrescarEmpresa; {
+		otro := e.usuario("lectura")
+		for range argos.CuotaRefrescarUsuario {
+			if hechos == argos.CuotaRefrescarEmpresa {
+				break
+			}
+			if r := refrescar(otro); r.cuerpo["refrescoOmitido"] != nil {
+				t.Fatalf("refresco %d: %s", hechos, r.crudo)
+			}
+			hechos++
 		}
 	}
 	if llamadas() != antes+argos.CuotaRefrescarEmpresa {
 		t.Fatalf("cada refresco dentro de la cuota llama a Argos: %d", llamadas()-antes)
 	}
-	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
-	if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.status != 200 || r.cuerpo["refrescoOmitido"] != "cuota" || r.cuerpo["stale"] != false {
-		t.Fatalf("pasada la cuota: %s", r.crudo)
-	}
-	if r := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != "cuota" {
-		t.Fatalf("la cuota de «Refrescar» es de la empresa: %s", r.crudo)
+	if r := refrescar(e.usuario("lectura")); r.status != 200 || r.cuerpo["refrescoOmitido"] != "cuota" || r.cuerpo["stale"] != false {
+		t.Fatalf("la cuota de «Refrescar» de la empresa, agotada para todos: %s", r.crudo)
 	}
 	if llamadas() != antes+argos.CuotaRefrescarEmpresa {
 		t.Fatal("pasada la cuota no debía llamar a Argos")
@@ -498,3 +514,44 @@ func TestCacheNegativaYCuotaDeUsuario(t *testing.T) {
 		t.Fatal("pasada la cuota del usuario no debía llamar a Argos")
 	}
 }
+
+// La caché negativa de un 404 es corta y se descarta con noticia del cliente: un webhook
+// cliente.creado / cliente.actualizado procesado o un alta propia (pendiente crear_cliente hecho),
+// aunque los haya procesado otro proceso (el worker).
+func TestCacheNegativaSeDescartaConNoticia(t *testing.T) {
+	if argos.NegativoNoExisteTTL > 10*time.Second || argos.NegativoCaidaTTL < argos.NegativoNoExisteTTL {
+		t.Fatal("el 404 en caché debe durar poco (10 s)")
+	}
+	e := nuevoEntorno(t)
+	_, conector, _ := e.conectado()
+	yo := e.usuario("lectura")
+	yo.pedir(http.MethodGet, "/api/v1/clientes/468", nil).problema(t, 404, "no_encontrado")
+	yo.pedir(http.MethodGet, "/api/v1/clientes/468", nil).problema(t, 404, "no_encontrado")
+	if n := e.argos.llamadasA("/api/v1/clientes/468"); n != 1 {
+		t.Fatalf("404 en caché: %d llamadas", n)
+	}
+	// Otra empresa crea el cliente en Argos y llega el webhook: se vuelve a preguntar.
+	e.sembrarComoArgos14(468)
+	e.exec(`INSERT INTO integracion.entrantes (conector_id, webhook_id, evento, payload, procesado_en, resultado)
+		VALUES ($1, 'wh-neg-' || $2::text, 'cliente.creado', jsonb_build_object('cliente_id', 468), now(), 'ignorado')`, conector, pruebas.Unico())
+	if f := yo.pedir(http.MethodGet, "/api/v1/clientes/468", nil); f.status != 200 || e.argos.llamadasA("/api/v1/clientes/468") != 2 {
+		t.Fatalf("tras el webhook: %d %s", f.status, f.crudo)
+	}
+	// Alta propia: un pendiente crear_cliente hecho con el id en la respuesta.
+	s := int64(1)
+	ctx := pruebas.ContextoUsuarioEnEmpresa(e.pool, 995, 1)
+	if err := e.mod.AsegurarInstantanea(ctx, 469, &s); !esProblemaStatus(err, 422, "empresa_no_coincide") {
+		t.Fatalf("cliente que aún no existe: %v", err)
+	}
+	e.sembrarComoArgos14(469)
+	if err := e.mod.AsegurarInstantanea(ctx, 469, ptrI(4690)); !esProblemaStatus(err, 422, "empresa_no_coincide") || e.argos.llamadasA("/api/v1/clientes/469") != 1 {
+		t.Fatalf("sin noticia, el 404 en caché manda: %v", err)
+	}
+	e.exec(`INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta, estado, hecho_en, respuesta)
+		VALUES ('crear_cliente', 'iris:cliente:neg-' || $1::text, 'prospecto', 1, 'POST', '/clientes', 'hecho', now(), '{"data":{"id":469}}')`, pruebas.Unico())
+	if err := e.mod.AsegurarInstantanea(ctx, 469, ptrI(4690)); err != nil || e.argos.llamadasA("/api/v1/clientes/469") != 2 {
+		t.Fatalf("tras el alta propia: %v", err)
+	}
+}
+
+func ptrI(v int64) *int64 { return &v }
