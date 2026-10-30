@@ -1,0 +1,242 @@
+# Iris · production compose (installed by install.sh; docs/runbooks/install.md).
+#
+# Uses the images published on GHCR for IRIS_VERSION: nothing is built on the server, and there is
+# no Mailpit (production sends mail through a real SMTP server, configured per mailbox in the panel).
+# Only the panel and the API are published, on 127.0.0.1: put a reverse proxy with HTTPS in front of
+# the panel. Postgres, MinIO and OSRM are reachable only inside the compose network; to reach them
+# from the host, IRIS_PUERTOS_ADMIN=true adds docker-compose.admin-ports.yml (also 127.0.0.1 only).
+# Third-party images are pinned by digest; package.sh pins the iris-* images of the release too.
+#
+#   docker compose --env-file /opt/iris/.env -f /opt/iris/current/docker-compose.yml [--profile osrm] up -d
+#
+# The project name (iris), the service names and the volume names (pgdata, minio, osrm) are the same
+# as in infra/docker-compose.yml on purpose: a `make dev-app` lab install becomes a production
+# install in place and keeps its database and attachments (`install.sh --from-lab`).
+
+name: iris
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
+
+# api, worker and migrar read every API variable from the install .env (the same file passed with
+# --env-file). Only what changes inside the compose network is fixed here.
+x-api-env-file: &api-env-file
+  - path: ${IRIS_DIR:-/opt/iris}/.env
+    required: true
+
+x-api-env: &api-env
+  TZ: UTC
+  PORT: '8080'
+  IRIS_PUERTO: '8080'
+  IRIS_DB_URL: postgres://${IRIS_PG_USUARIO:-iris}:${IRIS_PG_CONTRASENA:?IRIS_PG_CONTRASENA is required}@postgres:5432/${IRIS_PG_BASE:-iris}?sslmode=disable
+  IRIS_REDIS_URL: redis://redis:6379/0
+  IRIS_ADJUNTOS_ALMACEN: s3
+  IRIS_S3_ENDPOINT: http://minio:9000
+  IRIS_S3_REGION: ${IRIS_S3_REGION:-us-east-1}
+  IRIS_S3_PATH_STYLE: 'true'
+  # Empty unless OSRM is enabled (install.sh --with-osrm sets http://osrm:5000).
+  IRIS_OSRM_URL: ${IRIS_OSRM_URL:-}
+  # Only the panel's fixed IP is trusted for X-Forwarded-For unless the .env says otherwise
+  # (never the whole compose network nor its gateway: see docs/runbooks/install.md).
+  IRIS_PROXIES_CONFIABLES: ${IRIS_PROXIES_CONFIABLES:-${IRIS_WEB_IP:-172.28.10.10}/32}
+  # Optional CA (PEM) for an SMTP/IMAP server with a private certificate. Put the file in
+  # <install dir>/certs/ and set IRIS_CORREO_CA=/run/iris/certs/<file> in the .env.
+  IRIS_CORREO_CA: ${IRIS_CORREO_CA:-}
+
+x-api-volumes: &api-volumes
+  - ${IRIS_DIR:-/opt/iris}/certs:/run/iris/certs:ro
+
+x-api-depende: &api-depende
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio-init:
+    condition: service_completed_successfully
+  migrar:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+    restart: unless-stopped
+    logging: *logging
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: ${IRIS_PG_USUARIO:-iris}
+      POSTGRES_PASSWORD: ${IRIS_PG_CONTRASENA:?IRIS_PG_CONTRASENA is required}
+      POSTGRES_DB: ${IRIS_PG_BASE:-iris}
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Cache only (invalidated by events). No persistence and no published port.
+  redis:
+    image: redis:7.4.11-alpine@sha256:d9436322172a5b482c187bf1f363d3c4fea086fcca6b9c8a94de8f0f39ed3193
+    restart: unless-stopped
+    logging: *logging
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Attachments (photos, signatures, documents) in S3-compatible storage.
+  minio:
+    image: ${IRIS_MINIO_IMAGEN:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372}
+    restart: unless-stopped
+    logging: *logging
+    command: [server, /data, --console-address, ':9001']
+    environment:
+      MINIO_ROOT_USER: ${IRIS_S3_ACCESS_KEY:-iris}
+      MINIO_ROOT_PASSWORD: ${IRIS_S3_SECRET_KEY:?IRIS_S3_SECRET_KEY is required}
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: [CMD, curl, -fsS, -o, /dev/null, http://127.0.0.1:9000/minio/health/live]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Creates the private attachments bucket (idempotent) and exits.
+  minio-init:
+    image: ${IRIS_MC_IMAGEN:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd}
+    logging: *logging
+    depends_on:
+      minio:
+        condition: service_healthy
+    # Credentials through MC_HOST_local (environment), never on the command line.
+    environment:
+      MC_HOST_local: http://${IRIS_S3_ACCESS_KEY:-iris}:${IRIS_S3_SECRET_KEY:?IRIS_S3_SECRET_KEY is required}@minio:9000
+      IRIS_S3_BUCKET: ${IRIS_S3_BUCKET:-iris-adjuntos}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        n=0
+        until out="$$(mc ls local 2>&1)"; do
+          n=$$((n + 1))
+          case "$$out" in
+            *"signature we calculated"* | *"Access Key Id"* | *InvalidAccessKeyId* | *SignatureDoesNotMatch* | *"Access Denied"*)
+              echo "MinIO rejected IRIS_S3_ACCESS_KEY / IRIS_S3_SECRET_KEY (they must match the ones MinIO started with, letters and digits only): $$out" >&2
+              exit 1 ;;
+          esac
+          if [ "$$n" -ge 30 ]; then echo "MinIO did not answer at http://minio:9000 after 60 s: $$out" >&2; exit 1; fi
+          sleep 2
+        done
+        mc mb --ignore-existing "local/$$IRIS_S3_BUCKET"
+        mc anonymous set none "local/$$IRIS_S3_BUCKET" >/dev/null
+        echo "Bucket $$IRIS_S3_BUCKET ready."
+    restart: 'no'
+
+  # Migrations (goose, embedded in the binary) and permission sync. Exits; api and worker wait for
+  # it to succeed.
+  migrar:
+    image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-api:${IRIS_VERSION:?IRIS_VERSION is required}
+    command: [migrar]
+    logging: *logging
+    env_file: *api-env-file
+    environment: *api-env
+    volumes: *api-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-api:${IRIS_VERSION:?IRIS_VERSION is required}
+    command: [servir]
+    restart: unless-stopped
+    logging: *logging
+    env_file: *api-env-file
+    environment: *api-env
+    volumes: *api-volumes
+    depends_on: *api-depende
+    healthcheck:
+      test: [CMD, /usr/local/bin/iris, salud]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    ports:
+      - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
+
+  # River: outbox relay, Argos/Horus webhooks, mail, crons. Distroless and no health command: the
+  # restart policy brings it back if it exits.
+  worker:
+    image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-worker:${IRIS_VERSION:?IRIS_VERSION is required}
+    restart: unless-stopped
+    logging: *logging
+    env_file: *api-env-file
+    environment: *api-env
+    volumes: *api-volumes
+    depends_on: *api-depende
+
+  web:
+    image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-web:${IRIS_VERSION:?IRIS_VERSION is required}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      TZ: UTC
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+      IRIS_API_URL: http://api:8080
+      IRIS_BASE_URL: ${IRIS_BASE_URL:?IRIS_BASE_URL is required}
+      IRIS_WEB_PROXIES_CONFIABLES: ${IRIS_WEB_PROXIES_CONFIABLES:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/entrar').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - 127.0.0.1:${IRIS_WEB_PUERTO:-3000}:3000
+    # Fixed IP: the only one the API trusts for X-Forwarded-For (IRIS_PROXIES_CONFIABLES).
+    networks:
+      default:
+        ipv4_address: ${IRIS_WEB_IP:-172.28.10.10}
+
+  # Optional street routing (profile osrm; IRIS_OSRM=true in the .env). Needs the data that
+  # infra/osrm/preparar.sh leaves in the osrm volume; without OSRM, routes fall back to straight
+  # lines and say so.
+  osrm:
+    profiles: [osrm]
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0@sha256:729461bcc9ae9e6aafa92c0f93db9b060a32e85d5e72092c01ae4a4a9f1eb564
+    restart: on-failure:3
+    logging: *logging
+    volumes:
+      - osrm:/data
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /data/iris.osrm.mldgr ]; then
+          echo "OSRM has no data: run infra/osrm/preparar.sh and start osrm again." >&2
+          exit 1
+        fi
+        exec osrm-routed --algorithm mld --max-table-size 1000 /data/iris.osrm
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${IRIS_RED_COMPOSE:-172.28.10.0/24}
+
+volumes:
+  pgdata:
+  minio:
+  osrm:

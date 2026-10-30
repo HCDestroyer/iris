@@ -4,6 +4,11 @@ El laboratorio usa el mismo `infra/docker-compose.yml` que desarrollo, con el pe
 propio fuera de git. No es producción: Postgres, MinIO y Mailpit corren en la misma máquina y los
 puertos se publican solo en `127.0.0.1` (pon un proxy inverso con HTTPS delante del panel).
 
+**Producción:** no uses `make dev-app` (construye en el servidor y levanta Mailpit). Usa el instalador
+de cada release, que baja las imágenes de GHCR: [install.md](install.md). Un lab instalado con
+`make dev-app` se migra a esa instalación conservando la base y los adjuntos
+([install.md §6](install.md#6-migrating-a-make-dev-app-lab-install)).
+
 ## 1. Máquina
 
 - Linux con Docker Engine y Compose v2, 4 GB de RAM (8 GB si preparas OSRM ahí), 20 GB de disco.
@@ -115,6 +120,8 @@ Las migraciones solo avanzan: para volver atrás se restaura el respaldo previo
 ([respaldos](respaldos.md)) con las imágenes de la versión anterior.
 
 ## 6. Imágenes publicadas
+
+Para producción, el instalador ya usa las imágenes publicadas ([install.md](install.md)).
 
 Al crear una versión, `release.yml` publica `ghcr.io/hcdestroyer/iris-api|iris-worker|iris-web`
 con la etiqueta `X.Y.Z`. Para usarlas en lugar de construir: `IRIS_IMAGEN_TAG=X.Y.Z` y cambia
