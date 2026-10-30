@@ -63,3 +63,18 @@ Una orden pausada sigue en el paquete y conserva su cita y su lugar en la ruta; 
 - **Subida:** `POST /api/v1/adjuntos` (`{ id, entidad: "orden", entidadId, tipo, mime, tamano, sha256, claveChecklist?, lat?, lon?, tomadoEn? }`, camelCase) es idempotente por `id` y devuelve el adjunto con `urlSubida` (también en `Location`): una URL de subida en partes reanudable con el núcleo de tus 1.0 (`HEAD` → `Upload-Offset`/`Upload-Length`; `PATCH` con `Tus-Resumable: 1.0.0`, `Upload-Offset` y `Content-Type: application/offset+octet-stream` → 204 con el nuevo `Upload-Offset`). Lo recibido se guarda aunque se corte la señal. Al completar se verifican tamaño, SHA-256 y tipo; si no coinciden, el adjunto queda `rechazado` (422 `sha256_distinto`/`mime_distinto`, 413 `tamano_excedido`; `HEAD` responde 410) y hay que registrarlo con otro `id`. Errores definitivos del alta: 422 `mime_no_permitido`, 413 `tamano_excedido`, 422 `entidad_no_adjuntable`. `adjunto.registrar` referencia el `id` (se acepta aunque la subida no haya terminado); el cierre cuenta solo los adjuntos `completo`.
 - **Fotos:** se comprimen en el teléfono a un máximo de 1600 px y unos 300 KB, con EXIF de hora y GPS.
 - **Firma:** se guarda como SVG y PNG, con el nombre y el documento de quien firma.
+
+## 5. Identificación de la app
+
+Toda petición de la app de campo (PWA y nativa) lleva, además de `X-Iris-Canal: campo`:
+
+- `X-Iris-App: campo/<versión> (<plataforma>)`: versión `[0-9A-Za-z.+_-]{1,40}` y plataforma
+  `pwa`, `android` o `ios` (minúsculas). La API guarda la última conexión por usuario y plataforma
+  (`nucleo.conexiones_app`, a lo más cada 30 s) y usa la plataforma para el canal del historial
+  de accesos (`campo_pwa` o `campo_nativa`). Un valor con otro formato se ignora (no es error).
+- `X-Iris-Pendientes: <n>` (opcional): operaciones de la cola local sin enviar. Con pendientes y
+  sin un `POST /sync/lote` en 15 min, el técnico aparece «atrasado» en Administración → Actividad
+  de la app.
+
+`packages/sync` las agrega con `crearTransporteApi(cliente, app)` (y el subidor y las posiciones);
+la app nativa pone `X-Iris-App` en su cliente (`apps/movil/src/api/cliente.ts`).

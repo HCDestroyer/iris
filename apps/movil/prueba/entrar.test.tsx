@@ -48,6 +48,8 @@ describe("Entrar", () => {
         expect(mfa?.cuerpo).toEqual({ codigo: "123456" });
         expect(mfa?.cabeceras.get("X-CSRF-Token")).toBe("csrf-pendiente");
         expect(mfa?.cabeceras.get("X-Iris-Canal")).toBe("campo");
+        // La versión y la plataforma de la app (historial de accesos y actividad de la app).
+        expect(mfa?.cabeceras.get("X-Iris-App")).toMatch(/^campo\/[0-9A-Za-z.+_-]+ \((android|ios)\)$/);
         expect(leerCsrf()).toBe("csrf-final");
         expect(await entorno().secreto.leer(CLAVE_CSRF)).toBe("csrf-final");
     });
