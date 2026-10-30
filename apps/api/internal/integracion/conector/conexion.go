@@ -106,12 +106,13 @@ func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int
 	for _, e := range empresas {
 		lista = append(lista, EmpresaCanje{ID: e})
 	}
-	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil)
+	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil, nil)
 }
 
 // insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil) y
-// lo que informó el canje de Argos (0.3.1): empresas con nombre y nit, y alcance_global (o nil).
-func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64) (conectorbd.IntegracionConectore, error) {
+// lo que informó el canje de Argos: empresas con nombre y nit, y alcance_global (0.3.1, o nil), y
+// el origen de su panel (panel_url, 0.4.0, o nil).
+func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64, panel *string) (conectorbd.IntegracionConectore, error) {
 	q := conectorbd.New(t)
 	tokenCifrado, err := c.n.cifrar(id, "token", token)
 	if err != nil {
@@ -137,7 +138,7 @@ func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id 
 	f, err := q.InsertarConector(ctx, conectorbd.InsertarConectorParams{
 		ID: id, Sistema: c.s.Nombre, BaseUrl: base, Origen: origen, TokenCifrado: tokenCifrado,
 		SecretoWebhookCifrado: secretoCifrado, RemotoID: remotoID, Empresas: empresas, CreadoPor: creadoPor,
-		TokenEntregadoID: entregado, AlcanceGlobal: alcanceGlobal,
+		TokenEntregadoID: entregado, AlcanceGlobal: alcanceGlobal, PanelUrl: panel,
 	})
 	if err != nil {
 		return f, err
@@ -225,6 +226,13 @@ func registrarEmpresaCanje(ctx context.Context, t *auditoria.Tx, q *conectorbd.Q
 type entradaGuardarConector struct {
 	Base       string `json:"base_url"`
 	ConectorID int64  `json:"conector_id"`
+	// Origen: enlace_remoto (§1.3) o autorizacion (§1.4).
+	Origen string `json:"origen"`
+	// PanelSugerido: el panel que escribió el administrador en «Conectar con un botón»; vale si el
+	// canje no informa panel_url.
+	PanelSugerido string `json:"panel_sugerido,omitempty"`
+	// autorizacionID: la autorización de §1.4 que se completa (0 en §1.3).
+	autorizacionID int64
 	// tokenEntregado: id del iris_pat_ entregado al otro sistema (queda en la fila y la auditoría).
 	tokenEntregado int64
 	secreto        string
@@ -276,8 +284,15 @@ func nuevoConectar(c *Conexion) *Conectar {
 			return q.SiguienteIDConector(ctx)
 		},
 	})
-	k.guardar = auditoria.Nuevo(auditoria.Caso[entradaGuardarConector, Conector]{
-		Accion: "integraciones.conectar", Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
+	k.guardar = nuevoGuardarConector(c, "integraciones.conectar")
+	return k
+}
+
+// nuevoGuardarConector guarda el conector (apagado) con lo que respondió el canje en el otro
+// sistema. Lo comparten el enlace (§1.3) y «Conectar con un botón» (§1.4).
+func nuevoGuardarConector(c *Conexion, accion string) *auditoria.Caso[entradaGuardarConector, Conector] {
+	return auditoria.Nuevo(auditoria.Caso[entradaGuardarConector, Conector]{
+		Accion: accion, Permiso: nucleo.PermIntegracionesConectar, SinEmpresa: true,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarConector) (Conector, error) {
 			t.FijarEntidad("conector", in.ConectorID)
 			t.Anotar(map[string]any{"sistema": c.s.Nombre, "token_entregado_id": in.tokenEntregado})
@@ -296,10 +311,19 @@ func nuevoConectar(c *Conexion) *Conectar {
 			if in.tokenEntregado != 0 {
 				entregado = &in.tokenEntregado
 			}
-			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, "enlace_remoto", in.Base, token, in.secreto,
-				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado)
+			origen := in.Origen
+			if origen == "" {
+				origen = "enlace_remoto"
+			}
+			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, origen, in.Base, token, in.secreto,
+				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado, c.panelDelCanje(in.respuesta.PanelURL, in.PanelSugerido))
 			if err != nil {
 				return Conector{}, err
+			}
+			if in.autorizacionID != 0 {
+				if err := conectorbd.New(t).VincularAutorizacion(ctx, conectorbd.VincularAutorizacionParams{ConectorID: &f.ID, ID: in.autorizacionID}); err != nil {
+					return Conector{}, err
+				}
 			}
 			// Los tokens de intentos anteriores sin activar ya no sirven. El del conector activo se
 			// revoca al activar este (la integración no se corta mientras tanto).
@@ -316,44 +340,80 @@ func nuevoConectar(c *Conexion) *Conectar {
 			return c.n.AConector(f), nil
 		},
 	})
-	return k
 }
 
 // Ejecutar valida el enlace, reserva el id, emite el token, canjea en el otro sistema y guarda el
 // conector apagado.
-func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (con Conector, err error) {
+func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (Conector, error) {
 	id, err := k.reservar.Ejecutar(ctx, in)
 	if err != nil {
 		return Conector{}, err
 	}
 	base, codigo, _ := k.c.parsearEnlace(in.Enlace)
+	return k.c.canjearYGuardar(ctx, k.guardar, entradaGuardarConector{Base: base, ConectorID: id, Origen: "enlace_remoto"}, codigo, "", nil, nil)
+}
+
+// canjearYGuardar emite el iris_pat_ para el otro sistema, canjea el código en Sistema.RutaCanje
+// (con code_verifier si el código nació en §1.4) y guarda el conector apagado con guardar. mapear
+// traduce un error del canje antes de guardarlo (nil = el mapeo común, Problema). Si respuesta no
+// es nil, recibe lo que respondió el canje (para el resumen de §1.4).
+func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[entradaGuardarConector, Conector], g entradaGuardarConector, codigo, verificador string, mapear func(error) error, respuesta *RespuestaCanje) (con Conector, err error) {
 	secreto, err := NuevoSecreto()
 	if err != nil {
 		return Conector{}, err
 	}
+	tokens := c.n.tokensFijados()
+	if tokens == nil {
+		return Conector{}, errSinTokens
+	}
 	// El iris_pat_ con el que el otro sistema leerá de Iris (§1.2): va en la petición, nace con
 	// vencimiento y se revoca si el canje no termina bien (también ante un pánico).
-	tokenID, valor, err := k.c.n.tokensFijados().EmitirTokenCanje(ctx, k.c.s.Nombre, time.Now().Add(VigenciaTokenCanje))
+	tokenID, valor, err := tokens.EmitirTokenCanje(ctx, c.s.Nombre, time.Now().Add(VigenciaTokenCanje))
 	if err != nil {
 		return Conector{}, err
 	}
 	ok := false
 	defer func() {
 		if !ok {
-			k.c.n.revocarEntregado(context.WithoutCancel(ctx), nil, tokenID, "canje_no_completado")
+			c.n.revocarEntregado(context.WithoutCancel(ctx), nil, tokenID, "canje_no_completado")
 		}
 	}()
-	g := entradaGuardarConector{Base: base, ConectorID: id, secreto: secreto, tokenEntregado: tokenID}
-	cli := k.c.clienteHacia(base, "")
+	g.secreto, g.tokenEntregado = secreto, tokenID
+	cli := c.clienteHacia(g.Base, "")
 	// Sin reintentos (el código es de un solo uso) y sin token.
-	g.errRemoto = cli.Pedir(ctx, http.MethodPost, k.c.s.RutaCanje, nil, PeticionCanje{
-		Codigo: codigo, Sistema: "iris", BaseURL: k.c.n.cfg.BaseURL, Token: valor,
-		Webhook: WebhookCanje{URL: k.c.n.URLWebhook(k.c.s.Nombre, id), Secreto: secreto},
+	g.errRemoto = cli.Pedir(ctx, http.MethodPost, c.s.RutaCanje, nil, PeticionCanje{
+		Codigo: codigo, Sistema: "iris", BaseURL: c.n.cfg.BaseURL, Token: valor,
+		Webhook:      WebhookCanje{URL: c.n.URLWebhook(c.s.Nombre, g.ConectorID), Secreto: secreto},
+		CodeVerifier: verificador,
 	}, false, &Recurso{Destino: &g.respuesta})
+	if g.errRemoto != nil && mapear != nil {
+		g.errRemoto = mapear(g.errRemoto)
+	}
+	if respuesta != nil {
+		*respuesta = g.respuesta
+	}
 	antesDeGuardar()
-	con, err = k.guardar.Ejecutar(ctx, g)
+	con, err = guardar.Ejecutar(ctx, g)
 	ok = err == nil
 	return con, err
+}
+
+// panelDelCanje es el origen (esquema://host[:puerto], sin ruta) del panel que informó el canje
+// (panel_url, 0.4.0) o, si no vino o no es una URL http(s) limpia, el sugerido (el que escribió el administrador en §1.4). nil si
+// ninguno vale: los enlaces «Ver en Argos» usan entonces la API (Argos anterior a 0.4.0).
+func (c *Conexion) panelDelCanje(informado, sugerido string) *string {
+	for _, crudo := range []string{informado, sugerido} {
+		if strings.TrimSpace(crudo) == "" {
+			continue
+		}
+		// Siempre un origen (https://<panel-argos>, §1.4), igual que el que escribe el administrador.
+		if u, err := c.n.validarOrigen(crudo, "panel_url"); err == nil {
+			if o, err := nucleo.NormalizarOrigen(u.String()); err == nil {
+				return &o
+			}
+		}
+	}
+	return nil
 }
 
 // antesDeGuardar es un punto de prueba (pánico entre el canje y el guardado); no hace nada.

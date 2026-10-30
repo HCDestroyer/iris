@@ -31,3 +31,13 @@ FOR UPDATE;
 UPDATE soporte.buzones
 SET imap_contrasena = @imap_contrasena, smtp_contrasena = @smtp_contrasena
 WHERE id = @id;
+
+-- name: AutorizacionesCifradas :many
+-- code_verifier de las autorizaciones «Conectar con un botón» sin usar (al usarse queda NULL).
+SELECT id, verificador_cifrado FROM integracion.autorizaciones
+WHERE verificador_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarAutorizacion :exec
+UPDATE integracion.autorizaciones SET verificador_cifrado = @verificador_cifrado WHERE id = @id;

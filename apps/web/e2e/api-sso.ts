@@ -48,13 +48,15 @@ export const CONECTORES_INICIALES = (): Conector[] => [
         estado: "activo",
         origen: "enlace_remoto",
         baseUrl: "https://argos.fibra.test",
+        apiUrl: "https://argos.fibra.test",
+        panelUrl: "https://panel.argos.fibra.test",
         remotoId: "c-1",
         empresas: [10],
         activadoEn: "2026-10-01T15:00:00Z",
         ultimoWebhookEn: "2026-10-29T16:00:00Z",
         creadoEn: "2026-10-01T14:00:00Z",
         actualizadoEn: "2026-10-01T15:00:00Z",
-        urlPublica: "https://iris.fibra.test",
+        urlPublica: "https://panel.argos.fibra.test",
         webhookUrl: "https://iris.fibra.test/api/v1/integraciones/argosisp/webhooks",
         version: 3,
     },
@@ -64,13 +66,16 @@ export const CONECTORES_INICIALES = (): Conector[] => [
         estado: "apagado",
         origen: "enlace_local",
         baseUrl: "https://argos-nuevo.fibra.test",
+        // Conector anterior a Argos 0.4.0: sin panel informado, los enlaces usan la API.
+        apiUrl: "https://argos-nuevo.fibra.test",
+        panelUrl: null,
         remotoId: "c-2",
         empresas: [10],
         activadoEn: null,
         ultimoWebhookEn: null,
         creadoEn: "2026-10-29T14:00:00Z",
         actualizadoEn: "2026-10-29T14:00:00Z",
-        urlPublica: "https://iris.fibra.test",
+        urlPublica: "https://argos-nuevo.fibra.test",
         webhookUrl: "https://iris.fibra.test/api/v1/integraciones/argosisp/webhooks",
         version: 1,
     },
@@ -98,6 +103,12 @@ export type ApiSSO = {
     descartes: number;
     vinculos: Map<number, Vinculo[]>;
     conectores: Conector[];
+    /** «Conectar con Argos» (0.4.0 §1.4): autorizaciones iniciadas, por state. */
+    autorizaciones: Map<string, { panelUrl: string; usada: boolean }>;
+    /** Cuerpos de `POST …/autorizaciones/completar` con su Idempotency-Key. */
+    completados: { cuerpo: Schema<"EntradaCompletarAutorizacion">; idempotencia: string | undefined }[];
+    /** States cuya primera vuelta responde 409 idempotencia_en_proceso (otro envío en curso). */
+    enProceso: Set<string>;
     /** Correos con una sesión abierta por autologin (piden re-autenticarse). */
     sesionesSSO: Set<string>;
     /** Al iniciar sesión con contraseña, la sesión deja de ser `sso`. */
@@ -111,6 +122,7 @@ export type ApiSSO = {
         puede: (p: Permiso) => boolean;
         cuerpo: unknown;
         cookies: string;
+        idempotencia?: string | undefined;
     }) => Promise<boolean>;
 };
 
@@ -133,6 +145,9 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
         descartes: 0,
         vinculos,
         conectores,
+        autorizaciones: new Map(),
+        completados: [],
+        enProceso: new Set(),
         sesionesSSO,
         sesionConContrasena: (correo) => {
             sesionesSSO.delete(correo);
@@ -203,7 +218,7 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
             await err(401, "ticket_invalido", "Ticket inválido");
             return true;
         },
-        async manejar({ route, metodo, ruta, actual, puede, cuerpo, cookies }) {
+        async manejar({ route, metodo, ruta, actual, puede, cuerpo, cookies, idempotencia }) {
             const sso = sesionesSSO.has(actual.correo) && !reautenticadas.has(actual.correo);
             const pedirReautenticacion = () =>
                 problema(route, {
@@ -323,6 +338,68 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
                 await json(route, c);
                 return true;
             }
+            if (ruta === "/api/v1/integraciones/argosisp/autorizaciones" && metodo === "POST") {
+                if (!puede("integraciones.conectar")) return (await prohibido(), true);
+                if (sso) return (await pedirReautenticacion(), true);
+                const { panelUrl } = (cuerpo ?? {}) as Schema<"EntradaAutorizar">;
+                let panel = "";
+                try {
+                    panel = new URL(panelUrl).origin;
+                } catch {
+                    return (await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422 }), true);
+                }
+                const state = `st${api.autorizaciones.size + 1}`.padEnd(43, "s");
+                api.autorizaciones.set(state, { panelUrl: panel, usada: false });
+                const q = new URLSearchParams({ iris: "http://127.0.0.1", state, code_challenge: "c".repeat(43), code_challenge_method: "S256" });
+                await json(
+                    route,
+                    { url: `${panel}/integraciones/iris/autorizar?${q.toString()}`, panelUrl: panel, expiraEn: new Date(Date.now() + 600_000).toISOString() } satisfies Schema<"AutorizacionIniciada">,
+                    201,
+                );
+                return true;
+            }
+            if (ruta === "/api/v1/integraciones/argosisp/autorizaciones/completar" && metodo === "POST") {
+                if (!puede("integraciones.conectar")) return (await prohibido(), true);
+                if (sso) return (await pedirReautenticacion(), true);
+                const entrada = (cuerpo ?? {}) as Schema<"EntradaCompletarAutorizacion">;
+                api.completados.push({ cuerpo: entrada, idempotencia: idempotencia });
+                if (api.enProceso.delete(entrada.state)) {
+                    return (await problema(route, { type: "urn:iris:problema:idempotencia_en_proceso", title: "En proceso", status: 409 }), true);
+                }
+                const aut = api.autorizaciones.get(entrada.state);
+                const no = (codigo: string, title: string) => problema(route, { type: `urn:iris:problema:${codigo}`, title, status: 422 });
+                if (!aut || aut.usada) return (await no("state_invalido", "Autorización inválida"), true);
+                aut.usada = true;
+                if (entrada.error) return (await no("rechazado", "Conexión rechazada"), true);
+                if (!entrada.api || !ORIGENES_PERMITIDOS.includes(entrada.api)) return (await no("origen_no_permitido", "Origen no permitido"), true);
+                if (entrada.codigo === "codigo-malo") return (await no("codigo_invalido", "Código inválido"), true);
+                const nuevo: Conector = {
+                    ...(CONECTORES_INICIALES()[1] as Conector),
+                    id: siguienteConector++,
+                    baseUrl: entrada.api,
+                    apiUrl: entrada.api,
+                    panelUrl: aut.panelUrl,
+                    urlPublica: aut.panelUrl,
+                    origen: "autorizacion",
+                    alcanceGlobal: false,
+                    estado: "apagado",
+                    creadoEn: new Date().toISOString(),
+                    version: 1,
+                };
+                conectores.push(nuevo);
+                await json(
+                    route,
+                    {
+                        conector: nuevo,
+                        empresas: [
+                            { id: 10, nombre: "Fibra Norte", nit: "1234567" },
+                            { id: 11, nombre: null, nit: null },
+                        ],
+                    } satisfies Schema<"AutorizacionCompletada">,
+                    201,
+                );
+                return true;
+            }
             const conexion = /^\/api\/v1\/integraciones\/(argosisp|horus)\/(conexion\/previsualizar|conectar)$/.exec(ruta);
             if (conexion && metodo === "POST") {
                 if (!puede("integraciones.conectar")) return (await prohibido(), true);
@@ -353,6 +430,9 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
                     id: siguienteConector++,
                     sistema,
                     baseUrl: origen,
+                    apiUrl: origen,
+                    panelUrl: null,
+                    urlPublica: origen,
                     estado: "apagado",
                     origen: "enlace_local",
                     creadoEn: new Date().toISOString(),
