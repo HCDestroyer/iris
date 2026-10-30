@@ -109,7 +109,9 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			if c, err := r.Cookie(CookieSesion); err == nil && c.Value != "" {
-				fila, err := q.SesionVigentePorHash(ctx, Hash256(c.Value))
+				fila, err := q.SesionVigentePorHash(ctx, identidadbd.SesionVigentePorHashParams{
+					TokenHash: Hash256(c.Value), VentanaReautenticacionSeg: int32(VentanaReautenticacion / time.Second),
+				})
 				switch {
 				case errors.Is(err, pgx.ErrNoRows):
 					// sesión vencida o revocada: la petición sigue como anónima
@@ -129,7 +131,7 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 					s, u := fila.NucleoSesione, fila.NucleoUsuario
 					ctx = contexto.ConSesion(ctx, contexto.Sesion{ID: s.ID, UsuarioID: s.UsuarioID, MFAPendiente: s.MfaPendiente,
 						CambioContrasena: u.DebeCambiarContrasena, Origen: s.Origen,
-						Reautenticada: s.ReautenticadaEn != nil && time.Since(*s.ReautenticadaEn) < VentanaReautenticacion})
+						Reautenticada: fila.Reautenticada})
 					if u.DebeCambiarContrasena && !s.MfaPendiente && !permitidaConTemporal(r) {
 						nucleo.EscribirProblema(w, nucleo.NuevoProblema(http.StatusForbidden, "cambio_contrasena_requerido",
 							"Cambio de contraseña requerido", "Tienes una contraseña temporal: cámbiala (POST /api/v1/yo/contrasena) antes de continuar"))

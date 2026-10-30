@@ -146,6 +146,16 @@ func (q *Queries) AsignarRol(ctx context.Context, arg AsignarRolParams) error {
 	return err
 }
 
+const bloquearEmisionSSO = `-- name: BloquearEmisionSSO :exec
+SELECT pg_advisory_xact_lock(1937011567, $1::integer)
+`
+
+// Serializa la emisión por conector (el tope se cuenta después, sin carreras).
+func (q *Queries) BloquearEmisionSSO(ctx context.Context, conectorID int32) error {
+	_, err := q.db.Exec(ctx, bloquearEmisionSSO, conectorID)
+	return err
+}
+
 const bloquearLogin = `-- name: BloquearLogin :exec
 UPDATE nucleo.intentos_login SET fallos = 0, bloqueado_hasta = $1, updated_at = now()
 WHERE correo = $2
@@ -493,22 +503,23 @@ func (q *Queries) CrearSesionPortal(ctx context.Context, arg CrearSesionPortalPa
 }
 
 const crearTicketSSO = `-- name: CrearTicketSSO :one
-INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-        now() + make_interval(secs => $9::integer))
-RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, correo_verificado, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        now() + make_interval(secs => $10::integer))
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at, correo_verificado
 `
 
 type CrearTicketSSOParams struct {
-	ConectorID     int64
-	TicketHash     []byte
-	UsuarioExterno string
-	Correo         string
-	Nombre         string
-	DestinoTipo    string
-	DestinoID      int64
-	EmitidoTokenID *int64
-	VigenciaSeg    int32
+	ConectorID       int64
+	TicketHash       []byte
+	UsuarioExterno   string
+	Correo           string
+	CorreoVerificado bool
+	Nombre           string
+	DestinoTipo      string
+	DestinoID        int64
+	EmitidoTokenID   *int64
+	VigenciaSeg      int32
 }
 
 func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) (NucleoSsoTicket, error) {
@@ -517,6 +528,7 @@ func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) 
 		arg.TicketHash,
 		arg.UsuarioExterno,
 		arg.Correo,
+		arg.CorreoVerificado,
 		arg.Nombre,
 		arg.DestinoTipo,
 		arg.DestinoID,
@@ -541,6 +553,7 @@ func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) 
 		&i.VinculadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CorreoVerificado,
 	)
 	return i, err
 }
@@ -1837,19 +1850,27 @@ func (q *Queries) SesionPortalVigentePorHash(ctx context.Context, tokenHash []by
 }
 
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
-SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, s.origen, s.reautenticada_en, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
+SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, s.origen, s.reautenticada_en, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena,
+       (s.reautenticada_en IS NOT NULL AND s.reautenticada_en > now() - make_interval(secs => $1::integer))::boolean AS reautenticada
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
-WHERE s.token_hash = $1 AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo
+WHERE s.token_hash = $2 AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo
 `
+
+type SesionVigentePorHashParams struct {
+	VentanaReautenticacionSeg int32
+	TokenHash                 []byte
+}
 
 type SesionVigentePorHashRow struct {
 	NucleoSesione NucleoSesione
 	NucleoUsuario NucleoUsuario
+	Reautenticada bool
 }
 
-func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (SesionVigentePorHashRow, error) {
-	row := q.db.QueryRow(ctx, sesionVigentePorHash, tokenHash)
+// reautenticada: confirmó la contraseña hace menos de @ventana_reautenticacion_seg (reloj de la base).
+func (q *Queries) SesionVigentePorHash(ctx context.Context, arg SesionVigentePorHashParams) (SesionVigentePorHashRow, error) {
+	row := q.db.QueryRow(ctx, sesionVigentePorHash, arg.VentanaReautenticacionSeg, arg.TokenHash)
 	var i SesionVigentePorHashRow
 	err := row.Scan(
 		&i.NucleoSesione.ID,
@@ -1881,6 +1902,7 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 		&i.NucleoUsuario.CreatedAt,
 		&i.NucleoUsuario.UpdatedAt,
 		&i.NucleoUsuario.DebeCambiarContrasena,
+		&i.Reautenticada,
 	)
 	return i, err
 }
@@ -2094,7 +2116,7 @@ func (q *Queries) TomarAccesoPortal(ctx context.Context, ticketHash []byte) (Nuc
 const tomarTicketSSO = `-- name: TomarTicketSSO :one
 UPDATE nucleo.sso_tickets SET canjeado_en = now(), updated_at = now()
 WHERE ticket_hash = $1 AND canjeado_en IS NULL AND expira_en > now()
-RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at, correo_verificado
 `
 
 // Un solo uso: lo marca canjeado solo si estaba vigente.
@@ -2118,6 +2140,7 @@ func (q *Queries) TomarTicketSSO(ctx context.Context, ticketHash []byte) (Nucleo
 		&i.VinculadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CorreoVerificado,
 	)
 	return i, err
 }
@@ -2125,7 +2148,7 @@ func (q *Queries) TomarTicketSSO(ctx context.Context, ticketHash []byte) (Nucleo
 const tomarVinculacionSSO = `-- name: TomarVinculacionSSO :one
 UPDATE nucleo.sso_tickets SET vinculado_en = now(), updated_at = now()
 WHERE vinculacion_hash = $1 AND vinculado_en IS NULL AND vinculacion_expira_en > now()
-RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
+RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at, correo_verificado
 `
 
 // La vinculación pendiente se usa una sola vez y dentro de su plazo.
@@ -2149,6 +2172,7 @@ func (q *Queries) TomarVinculacionSSO(ctx context.Context, vinculacionHash []byt
 		&i.VinculadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CorreoVerificado,
 	)
 	return i, err
 }
@@ -2257,7 +2281,7 @@ func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (Nuc
 }
 
 const verTicketSSO = `-- name: VerTicketSSO :one
-SELECT id, conector_id, usuario_externo, destino_tipo, destino_id FROM nucleo.sso_tickets
+SELECT id, conector_id, usuario_externo, nombre, destino_tipo, destino_id FROM nucleo.sso_tickets
 WHERE ticket_hash = $1 AND canjeado_en IS NULL AND expira_en > now()
 `
 
@@ -2265,6 +2289,7 @@ type VerTicketSSORow struct {
 	ID             int64
 	ConectorID     int64
 	UsuarioExterno string
+	Nombre         string
 	DestinoTipo    string
 	DestinoID      int64
 }
@@ -2276,6 +2301,7 @@ func (q *Queries) VerTicketSSO(ctx context.Context, ticketHash []byte) (VerTicke
 		&i.ID,
 		&i.ConectorID,
 		&i.UsuarioExterno,
+		&i.Nombre,
 		&i.DestinoTipo,
 		&i.DestinoID,
 	)

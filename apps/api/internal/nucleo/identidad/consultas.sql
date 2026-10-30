@@ -150,7 +150,9 @@ VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, 
 RETURNING *;
 
 -- name: SesionVigentePorHash :one
-SELECT sqlc.embed(s), sqlc.embed(u)
+-- reautenticada: confirmó la contraseña hace menos de @ventana_reautenticacion_seg (reloj de la base).
+SELECT sqlc.embed(s), sqlc.embed(u),
+       (s.reautenticada_en IS NOT NULL AND s.reautenticada_en > now() - make_interval(secs => @ventana_reautenticacion_seg::integer))::boolean AS reautenticada
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
 WHERE s.token_hash = @token_hash AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo;
@@ -416,8 +418,8 @@ SELECT id, token_entregado_id FROM integracion.conectores WHERE sistema = @siste
 SELECT (estado = 'activo')::boolean AS activo FROM integracion.conectores WHERE id = @id;
 
 -- name: CrearTicketSSO :one
-INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
-VALUES (@conector_id, @ticket_hash, @usuario_externo, @correo, @nombre, @destino_tipo, @destino_id, @emitido_token_id,
+INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, correo_verificado, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
+VALUES (@conector_id, @ticket_hash, @usuario_externo, @correo, @correo_verificado, @nombre, @destino_tipo, @destino_id, @emitido_token_id,
         now() + make_interval(secs => @vigencia_seg::integer))
 RETURNING *;
 
@@ -439,8 +441,12 @@ WHERE id = @id
 RETURNING vinculacion_expira_en::timestamptz;
 
 -- name: VerTicketSSO :one
-SELECT id, conector_id, usuario_externo, destino_tipo, destino_id FROM nucleo.sso_tickets
+SELECT id, conector_id, usuario_externo, nombre, destino_tipo, destino_id FROM nucleo.sso_tickets
 WHERE ticket_hash = @ticket_hash AND canjeado_en IS NULL AND expira_en > now();
+
+-- name: BloquearEmisionSSO :exec
+-- Serializa la emisión por conector (el tope se cuenta después, sin carreras).
+SELECT pg_advisory_xact_lock(1937011567, @conector_id::integer);
 
 -- name: TicketsSSORecientes :one
 -- Tickets emitidos por el conector en la ventana, id_externo distintos y edad del más viejo.

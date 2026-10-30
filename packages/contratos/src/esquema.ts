@@ -2526,7 +2526,7 @@ export interface paths {
         put?: never;
         /**
          * Confirmar la contraseña dentro de la sesión
-         * @description Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (tokens, conectores, gestión de usuarios, roles y vínculos, MFA), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`).
+         * @description Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (las de los permisos de administración de `nucleo.PermisosSensibles`, el MFA propio y los vínculos de autologin), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`); desde una sesión sso con un contador propio, que no bloquea el login con contraseña.
          */
         post: operations["reautenticar"];
         delete?: never;
@@ -2566,7 +2566,7 @@ export interface paths {
         put?: never;
         /**
          * Entrar con el ticket de autologin de Argos
-         * @description Lo llama la página `/sso/entrar#<ticket>` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre una sesión de origen `sso` del usuario de Iris (cookies `iris_sesion` e `iris_csrf`; dura a lo más 8 h y las acciones sensibles piden `POST /api/v1/sesion/reautenticar`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`). Barreras del login: cuenta inactiva, de integración o sin contraseña, 403; bloqueada por fallos, 429 `demasiados_intentos`; con permisos de administración y sin MFA, 403 `sso_requiere_mfa`. Si el navegador ya tiene la sesión completa de **otro** usuario, responde `estado: confirmar_cambio` sin consumir el ticket: repetir con `confirmar: true` cierra esa sesión y entra; si es del mismo usuario, la reutiliza (`estado: sesion`, `sesionReutilizada: true`, sin `sesion`). Sin vínculo: `estado: vincular` con `externo` (id, correo y nombre en Argos) y la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min). `destino.ruta` es la ruta del panel (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global propio: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_canjes`.
+         * @description Lo llama la página `/sso/entrar#<ticket>` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre una sesión de origen `sso` del usuario de Iris (cookies `iris_sesion` e `iris_csrf`; dura a lo más 8 h y las acciones sensibles piden `POST /api/v1/sesion/reautenticar`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`). Barreras del login: cuenta inactiva, de integración o sin contraseña, 403; bloqueada por fallos, 429 `demasiados_intentos`; con permisos de administración y sin MFA, 403 `sso_requiere_mfa`. Si el navegador ya tiene la sesión completa de **otro** usuario, responde `estado: confirmar_cambio` con `entrarComo` (nombre en Iris, id y nombre en Argos) sin consumir el ticket: repetir con `confirmar: true` cierra esa sesión y entra; si es del mismo usuario, la reutiliza (`estado: sesion`, `sesionReutilizada: true`, sin `sesion`). Sin vínculo: `estado: vincular` con `externo` (id, correo y nombre en Argos) y la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min). `destino.ruta` es la ruta del panel (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global propio: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_canjes`.
          */
         post: operations["canjearSSO"];
         delete?: never;
@@ -2586,7 +2586,7 @@ export interface paths {
         put?: never;
         /**
          * Vincular tu usuario con el de Argos del último autologin
-         * @description Solo tras la confirmación explícita del usuario (nunca automático): con la sesión completa del panel (después del MFA), `X-CSRF-Token`, la cookie `iris_sso_vincular` del canje y `{ id_externo }` igual al `externo.idExterno` que se le mostró (si no, o sin vinculación pendiente vigente, 422 `vinculacion_invalida`). La sesión debe haberse abierto después del canje (422 `sesion_anterior_al_canje`). Además, el correo de Argos debe ser el de la cuenta de Iris (sin distinguir mayúsculas); si no, 409 `vinculo_requiere_admin` (lo vincula un administrador con `POST /api/v1/usuarios/{id}/vinculos-sso`). Nunca se vincula solo por correo. 409 `vinculo_existente` (tu usuario ya tiene un vínculo con ese Argos), `cuenta_externa_vinculada` o `conector_apagado`. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.
+         * @description Solo tras la confirmación explícita del usuario (nunca automático): con la sesión completa del panel (después del MFA), `X-CSRF-Token`, la cookie `iris_sso_vincular` del canje y `{ id_externo }` igual al `externo.idExterno` que se le mostró (si no, o sin vinculación pendiente vigente, 422 `vinculacion_invalida`). La sesión debe haberse abierto después del canje (422 `sesion_anterior_al_canje`). Además, Argos debe mandar el correo verificado (`usuario.correo_verificado: true` al emitir) y debe ser el de la cuenta de Iris (sin distinguir mayúsculas); si no, 409 `vinculo_requiere_admin` (lo vincula un administrador con `POST /api/v1/usuarios/{id}/vinculos-sso`). Nunca se vincula solo por correo. 409 `vinculo_existente` (tu usuario ya tiene un vínculo con ese Argos), `cuenta_externa_vinculada` o `conector_apagado`. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.
          */
         post: operations["vincularSSO"];
         delete?: never;
@@ -3797,6 +3797,7 @@ export interface components {
         };
         CanjeSSO: {
             destino: components["schemas"]["DestinoSSOResuelto"];
+            entrarComo?: components["schemas"]["EntrarComoSSO"];
             /**
              * @description sesion: entró (o se reutilizó la sesión del mismo usuario); mfa: falta POST /api/v1/sesion/mfa; vincular: inicia sesión, confirma y POST /api/v1/sso/vincular; confirmar_cambio: el navegador tiene la sesión de otro usuario (repetir con confirmar: true)
              * @enum {string}
@@ -5575,6 +5576,11 @@ export interface components {
         EntradaVincularSSO: {
             /** @description El id de Argos que se mostró al usuario (externo.idExterno del canje) */
             id_externo: string;
+        };
+        EntrarComoSSO: {
+            idExterno: string;
+            nombreExterno: string;
+            nombreIris: string;
         };
         EquipoComodato: {
             mac: string | null;
@@ -8396,12 +8402,16 @@ export interface components {
         UsuarioExternoSSO: {
             /** @description Para mostrarlo al vincular y como condición extra de la autovinculación */
             correo?: string | null;
+            /** @description true si Argos verificó el correo; sin él la vinculación la hace un administrador */
+            correo_verificado?: boolean | null;
             /** @description Id del usuario en Argos (u-<id>) */
             id_externo: string;
             nombre?: string | null;
         };
         UsuarioExternoVisto: {
             correo: string;
+            /** @description Argos dice que verificó el correo; sin eso, vincula un administrador */
+            correoVerificado: boolean;
             idExterno: string;
             nombre: string;
         };

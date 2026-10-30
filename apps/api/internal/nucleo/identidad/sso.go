@@ -67,7 +67,9 @@ const (
 type UsuarioExternoSSO struct {
 	IDExterno string  `json:"id_externo" minLength:"1" maxLength:"100" doc:"Id del usuario en Argos (u-<id>)"`
 	Correo    *string `json:"correo,omitempty" required:"false" nullable:"true" maxLength:"254" doc:"Para mostrarlo al vincular y como condición extra de la autovinculación"`
-	Nombre    *string `json:"nombre,omitempty" required:"false" nullable:"true" maxLength:"200"`
+	// CorreoVerificado: Argos verificó el correo (contrato 0.3.1). Sin true, no hay autovinculación.
+	CorreoVerificado *bool   `json:"correo_verificado,omitempty" required:"false" nullable:"true" doc:"true si Argos verificó el correo; sin él la vinculación la hace un administrador"`
+	Nombre           *string `json:"nombre,omitempty" required:"false" nullable:"true" maxLength:"200"`
 }
 
 // DestinoSSO es el recurso de Iris al que va el usuario.
@@ -112,7 +114,11 @@ func nuevoEmitirTicketSSO(cfg Config) *auditoria.Caso[EntradaEmitirTicketSSO, Ti
 			if a := t.Actor(); a.TokenID == 0 || c.TokenEntregadoID == nil || *c.TokenEntregadoID != a.TokenID {
 				return TicketSSOEmitido{}, nucleo.Prohibido("Solo el token que Iris entregó al conector activo de Argos emite tickets de autologin")
 			}
-			// Tope por conector (en la base: vale con varias réplicas de la API).
+			// Tope por conector (en la base: vale con varias réplicas de la API), contado con la
+			// emisión del conector serializada para que pedidos simultáneos no lo pasen.
+			if err := q.BloquearEmisionSSO(ctx, int32(c.ID)); err != nil { //nolint:gosec // ids de conector pequeños
+				return TicketSSOEmitido{}, err
+			}
 			tope, err := q.TicketsSSORecientes(ctx, identidadbd.TicketsSSORecientesParams{ConectorID: c.ID, VentanaSeg: int32(ventanaTopeSSO / time.Second)})
 			if err != nil {
 				return TicketSSOEmitido{}, err
@@ -132,7 +138,8 @@ func nuevoEmitirTicketSSO(cfg Config) *auditoria.Caso[EntradaEmitirTicketSSO, Ti
 			f, err := q.CrearTicketSSO(ctx, identidadbd.CrearTicketSSOParams{
 				ConectorID: c.ID, TicketHash: Hash256(ticket), UsuarioExterno: in.Usuario.IDExterno,
 				Correo: valorODefecto(in.Usuario.Correo), Nombre: valorODefecto(in.Usuario.Nombre),
-				DestinoTipo: in.Destino.Tipo, DestinoID: destino, EmitidoTokenID: c.TokenEntregadoID,
+				CorreoVerificado: in.Usuario.CorreoVerificado != nil && *in.Usuario.CorreoVerificado,
+				DestinoTipo:      in.Destino.Tipo, DestinoID: destino, EmitidoTokenID: c.TokenEntregadoID,
 				VigenciaSeg: int32(VigenciaTicketSSO / time.Second),
 			})
 			if err != nil {
@@ -190,9 +197,17 @@ type DestinoSSOResuelto struct {
 
 // UsuarioExternoVisto es el usuario de Argos, para la pantalla de vincular.
 type UsuarioExternoVisto struct {
-	IDExterno string `json:"idExterno"`
-	Correo    string `json:"correo"`
-	Nombre    string `json:"nombre"`
+	IDExterno        string `json:"idExterno"`
+	Correo           string `json:"correo"`
+	CorreoVerificado bool   `json:"correoVerificado" doc:"Argos dice que verificó el correo; sin eso, vincula un administrador"`
+	Nombre           string `json:"nombre"`
+}
+
+// EntrarComoSSO: para confirmar el cambio de sesión, la cuenta de Iris y la de Argos.
+type EntrarComoSSO struct {
+	NombreIris    string `json:"nombreIris"`
+	IDExterno     string `json:"idExterno"`
+	NombreExterno string `json:"nombreExterno"`
 }
 
 // CanjeSSO es el resultado del canje.
@@ -203,6 +218,8 @@ type CanjeSSO struct {
 	Sesion *SesionIniciada `json:"sesion,omitempty" required:"false"`
 	// SesionReutilizada: estado sesion con la sesión que ya tenía el navegador (mismo usuario).
 	SesionReutilizada bool `json:"sesionReutilizada,omitempty" required:"false"`
+	// EntrarComo: con estado confirmar_cambio, la cuenta con que se entraría.
+	EntrarComo *EntrarComoSSO `json:"entrarComo,omitempty" required:"false"`
 	// Externo y VinculacionExpiraEn: con estado vincular.
 	Externo             *UsuarioExternoVisto `json:"externo,omitempty" required:"false"`
 	VinculacionExpiraEn *time.Time           `json:"vinculacionExpiraEn,omitempty" required:"false"`
@@ -225,16 +242,11 @@ func ticketSSOInvalido() *nucleo.Problema {
 		"El enlace de acceso no existe, venció o ya se usó; vuelve a abrirlo desde Argos")
 }
 
-// esPrivilegiado: con alguno de estos permisos de administración (no los de ver), el autologin
-// exige TOTP activo.
+// esPrivilegiado: con algún permiso de administración (nucleo.PermisosSensibles, la misma lista
+// que exige re-autenticación) o empresas.todas, el autologin exige TOTP activo.
 func esPrivilegiado(p contexto.Permisos) bool {
 	for _, n := range p.Lista() {
-		if _, accion, _ := strings.Cut(n, "."); strings.HasPrefix(accion, "ver") {
-			continue // ver no administra (roles.ver, tokens.ver, integraciones.ver_pendientes…)
-		}
-		switch {
-		case n == string(nucleo.PermUsuariosEditar), n == string(nucleo.PermEmpresasTodas),
-			strings.HasPrefix(n, "roles."), strings.HasPrefix(n, "integraciones."), strings.HasPrefix(n, "tokens."):
+		if nucleo.EsSensible(nucleo.Permiso(n)) || n == string(nucleo.PermEmpresasTodas) {
 			return true
 		}
 	}
@@ -326,10 +338,15 @@ func nuevoCanjearSSO(m *Modulo) *auditoria.Caso[EntradaCanjearSSO, CanjeSSO] {
 				}
 				v, err := q.VinculoSSO(ctx, identidadbd.VinculoSSOParams{ConectorID: vista.ConectorID, UsuarioExterno: vista.UsuarioExterno})
 				if err == nil && v.UsuarioID != previa.UsuarioID {
+					u, err := q.UsuarioPorID(ctx, v.UsuarioID)
+					if err != nil {
+						return CanjeSSO{}, err
+					}
 					t.FijarEntidad("sso_ticket", vista.ID)
 					t.Anotar(map[string]any{"resultado": "confirmar_cambio"})
 					return CanjeSSO{Estado: "confirmar_cambio",
-						Destino: DestinoSSOResuelto{Tipo: vista.DestinoTipo, ID: vista.DestinoID, Ruta: rutaDestino(vista.DestinoTipo, vista.DestinoID)}}, nil
+						EntrarComo: &EntrarComoSSO{NombreIris: u.Nombre, IDExterno: vista.UsuarioExterno, NombreExterno: vista.Nombre},
+						Destino:    DestinoSSOResuelto{Tipo: vista.DestinoTipo, ID: vista.DestinoID, Ruta: rutaDestino(vista.DestinoTipo, vista.DestinoID)}}, nil
 				} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return CanjeSSO{}, err
 				}
@@ -368,7 +385,7 @@ func nuevoCanjearSSO(m *Modulo) *auditoria.Caso[EntradaCanjearSSO, CanjeSSO] {
 				}
 				t.Anotar(map[string]any{"resultado": "vincular"})
 				salida.Estado, salida.vinculacion, salida.VinculacionExpiraEn = "vincular", vinculacion, &expira
-				salida.Externo = &UsuarioExternoVisto{IDExterno: f.UsuarioExterno, Correo: f.Correo, Nombre: f.Nombre}
+				salida.Externo = &UsuarioExternoVisto{IDExterno: f.UsuarioExterno, Correo: f.Correo, CorreoVerificado: f.CorreoVerificado, Nombre: f.Nombre}
 				return salida, nil
 			case err != nil:
 				return CanjeSSO{}, err
@@ -524,10 +541,11 @@ func nuevoVincularSSO() *auditoria.Caso[EntradaVincularSSO, VinculoSSOCreado] {
 			if u.Tipo != "persona" {
 				return VinculoSSOCreado{}, nucleo.Prohibido("Solo un usuario persona se vincula")
 			}
-			// Condición extra (nunca suficiente sola): el correo de Argos es el de la cuenta.
-			if c := strings.ToLower(strings.TrimSpace(f.Correo)); c == "" || c != strings.ToLower(strings.TrimSpace(u.Correo)) {
+			// Condiciones extra (nunca suficientes solas): Argos verificó el correo y es el de la
+			// cuenta (un empleado de Argos podría poner el correo de otro en su perfil).
+			if c := strings.ToLower(strings.TrimSpace(f.Correo)); !f.CorreoVerificado || c == "" || c != strings.ToLower(strings.TrimSpace(u.Correo)) {
 				return VinculoSSOCreado{}, nucleo.Conflicto("vinculo_requiere_admin",
-					"El correo de tu cuenta de Argos no es el de tu usuario de Iris: pide a un administrador que vincule las cuentas")
+					"Argos no confirma que el correo de tu cuenta allá sea verificado y el mismo de tu usuario de Iris: pide a un administrador que vincule las cuentas")
 			}
 			ticketID := f.ID
 			v, err := crearVinculo(ctx, t, q, f.ConectorID, f.UsuarioExterno, u.ID, &ticketID, "usuario")

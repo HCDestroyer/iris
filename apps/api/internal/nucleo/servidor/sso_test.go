@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,9 @@ import (
 // (si no, lo crea un admin); sesión sso con vida corta, MFA a los privilegiados y re-autenticación.
 
 const rutaTicketsSSO = "/api/v1/integraciones/argosisp/sso/tickets"
+
+// correoSinVerificar, delante de un correo, hace que Argos lo mande con correo_verificado false.
+const correoSinVerificar = "sin-verificar:"
 
 type entornoSSO struct {
 	*entorno
@@ -94,10 +98,13 @@ func (e *entornoSSO) contar(sql string, args ...any) int {
 	return n
 }
 
+// emitir pide un ticket; con correo, Argos lo da por verificado (salvo correoSinVerificar).
 func (e *entornoSSO) emitir(c *cliente, externo, correo, tipo, id string) respuesta {
 	e.t.Helper()
+	verificado := correo != "" && !strings.HasPrefix(correo, correoSinVerificar)
+	correo = strings.TrimPrefix(correo, correoSinVerificar)
 	return c.pedir(http.MethodPost, rutaTicketsSSO, map[string]any{
-		"usuario": map[string]any{"id_externo": externo, "correo": correo, "nombre": "Ana López"},
+		"usuario": map[string]any{"id_externo": externo, "correo": correo, "correo_verificado": verificado, "nombre": "Ana López"},
 		"destino": map[string]any{"tipo": tipo, "id_externo": id},
 	})
 }
@@ -227,6 +234,15 @@ func TestSSOVincularYEntrar(t *testing.T) {
 	otro := e.cliente()
 	otro.entrar(correo)
 	vincular(otro, "u-17").problema(t, 422, "vinculacion_invalida")
+	// El mismo correo sin verificar por Argos no autovincula.
+	sinVerificar := e.cliente()
+	if r := canjear(sinVerificar, e.ticket("u-17", correoSinVerificar+correo, "ticket", "3")); r.cuerpo["estado"] != "vincular" ||
+		r.cuerpo["externo"].(map[string]any)["correoVerificado"] != false {
+		t.Fatalf("sin verificar: %s", r.crudo)
+	}
+	time.Sleep(10 * time.Millisecond)
+	sinVerificar.entrar(correo)
+	vincular(sinVerificar, "u-17").problema(t, 409, "vinculo_requiere_admin")
 	// Tras iniciar sesión de nuevo, vincula solo la cuenta que se le mostró.
 	time.Sleep(10 * time.Millisecond)
 	nav.entrar(correo)
@@ -266,6 +282,7 @@ func TestSSOVincularYEntrar(t *testing.T) {
 	}
 	// Acciones sensibles: re-autenticación con contraseña; las acciones quedan marcadas sso.
 	sso.pedir(http.MethodPost, "/api/v1/yo/mfa", nil).problema(t, 403, "reautenticacion_requerida")
+	sso.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "x"}).problema(t, 403, "reautenticacion_requerida")
 	sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": "otra-cosa-cualquiera"}).problema(t, 401, "credenciales_invalidas")
 	if r := sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}); r.status != 200 {
 		t.Fatalf("reautenticar: %d %s", r.status, r.crudo)
@@ -284,7 +301,9 @@ func TestSSOVincularYEntrar(t *testing.T) {
 	previa := navBeto.cookie(identidad.CookieSesion).Value
 	tk := e.ticket("u-17", correoArgos, "ticket", "3")
 	r = canjear(navBeto, tk)
-	if r.status != 200 || r.cuerpo["estado"] != "confirmar_cambio" || r.cuerpo["sesion"] != nil {
+	como, _ := r.cuerpo["entrarComo"].(map[string]any)
+	if r.status != 200 || r.cuerpo["estado"] != "confirmar_cambio" || r.cuerpo["sesion"] != nil ||
+		como["idExterno"] != "u-17" || como["nombreExterno"] != "Ana López" || !strings.HasPrefix(como["nombreIris"].(string), "Usuario ") {
 		t.Fatalf("confirmar_cambio: %d %s", r.status, r.crudo)
 	}
 	if r := canjear(navBeto, tk, "confirmar", true); r.status != 200 || r.cuerpo["estado"] != "sesion" {
@@ -385,7 +404,17 @@ func TestSSOBarrerasYVinculosBorrados(t *testing.T) {
 	if _, err := e.mod.DesactivarUsuario.Ejecutar(ctx, identidad.EntradaDesactivarUsuario{ID: carla, Version: u.Version, Motivo: "baja"}); err != nil {
 		t.Fatal(err)
 	}
-	for usuario, motivo := range map[int64]string{beto: "contrasena_reiniciada", carla: "usuario_desactivado"} {
+	dani, _ := e.usuario("lectura")
+	e.vincularCon("u-dani", dani)
+	u, err = e.mod.VerUsuario.Ejecutar(ctx, identidad.EntradaVerUsuario{ID: dani})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otroCorreo := pruebas.Correo("nuevo")
+	if _, err := e.mod.EditarUsuario.Ejecutar(ctx, identidad.EntradaEditarUsuario{ID: dani, Version: u.Version, Correo: &otroCorreo}); err != nil {
+		t.Fatal(err)
+	}
+	for usuario, motivo := range map[int64]string{beto: "contrasena_reiniciada", carla: "usuario_desactivado", dani: "correo_cambiado"} {
 		if e.contar(`SELECT count(*) FROM nucleo.sso_vinculos WHERE usuario_id = $1`, usuario) != 0 ||
 			e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.sso_desvinculado' AND (payload->>'usuario_id')::bigint = $1
 				AND payload->>'motivo' = $2`, usuario, motivo) != 1 {
@@ -436,5 +465,47 @@ func TestSSOConMFAVencidoYConectorApagado(t *testing.T) {
 	if err != nil || res.TicketsSSO < 3 || e.contar(`SELECT count(*) FROM nucleo.sso_tickets WHERE conector_id = $1`, e.conectorID) != 0 ||
 		e.contar(`SELECT count(*) FROM nucleo.sso_vinculos WHERE conector_id = $1`, e.conectorID) != 1 {
 		t.Fatalf("purga: %+v %v", res, err)
+	}
+}
+
+// El tope de emisión aguanta pedidos simultáneos (la emisión del conector se serializa).
+func TestSSOTopeConConcurrencia(t *testing.T) {
+	e := nuevoEntornoSSO(t, identidad.Config{SSOTopeEmision: 5})
+	const n = 12
+	estados := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			estados <- e.emitir(e.argos, fmt.Sprintf("u-%d", i), "", "ticket", "1").status
+		}()
+	}
+	wg.Wait()
+	close(estados)
+	cuenta := map[int]int{}
+	for s := range estados {
+		cuenta[s]++
+	}
+	if cuenta[201] != 5 || cuenta[429] != n-5 {
+		t.Fatalf("emitidos con el tope de 5: %v", cuenta)
+	}
+}
+
+// Los fallos de reautenticar desde una sesión del autologin no bloquean el login con contraseña.
+func TestSSOReautenticarConContadorPropio(t *testing.T) {
+	e := nuevoEntornoSSO(t, identidad.Config{LoginMaxFallos: 2})
+	id, correo := e.usuario("lectura")
+	e.vincularCon("u-r", id)
+	sso := e.cliente()
+	if r := canjear(sso, e.ticket("u-r", "", "ticket", "1")); r.cuerpo["estado"] != "sesion" {
+		t.Fatalf("canje: %s", r.crudo)
+	}
+	for range 2 {
+		sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": "mala-mala-mala"}).problema(t, 401, "credenciales_invalidas")
+	}
+	sso.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}).problema(t, 429, "demasiados_intentos")
+	if r := e.cliente().entrar(correo); r.status != 200 {
+		t.Fatalf("el login con contraseña sigue: %d %s", r.status, r.crudo)
 	}
 }

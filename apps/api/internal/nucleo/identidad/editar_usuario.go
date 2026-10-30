@@ -119,6 +119,13 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 				}
 			}
 
+			// Un administrador que cambia el correo de otro: el vínculo de autologin no se hereda.
+			if correo != antes.Correo && !propio {
+				if err := borrarVinculosSSO(ctx, t, q, in.ID, "correo_cambiado"); err != nil {
+					return Usuario{}, err
+				}
+			}
+
 			campos := t.RegistrarCambios("usuario", in.ID, auditable(antes, rolesPrevios[in.ID]), auditable(despues, roles))
 			if len(campos) > 0 {
 				if err := t.Emitir("usuario.actualizado", map[string]any{"usuario_id": in.ID, "campos": campos}); err != nil {

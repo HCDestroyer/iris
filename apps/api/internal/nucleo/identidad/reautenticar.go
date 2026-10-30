@@ -17,6 +17,10 @@ import (
 // puede hacer las acciones sensibles (auditoria.RequiereReautenticacion) durante este tiempo.
 const VentanaReautenticacion = 15 * time.Minute
 
+// prefijoIntentosReautenticarSSO: clave de nucleo.intentos_login de los fallos de reautenticar
+// desde una sesión del autologin (contador propio, no el del login).
+const prefijoIntentosReautenticarSSO = "sso-reautenticar:"
+
 // EntradaReautenticar es la contraseña del usuario de la sesión.
 type EntradaReautenticar struct {
 	Contrasena string `json:"contrasena" minLength:"1" maxLength:"200"`
@@ -43,13 +47,21 @@ func nuevoReautenticar(cfg Config) *auditoria.Caso[EntradaReautenticar, Reautent
 				return Reautenticado{}, err
 			}
 			t.FijarEntidad("usuario", u.ID)
-			hasta, err := q.BloqueoLogin(ctx, u.Correo)
-			switch {
-			case err == nil:
-				return Reautenticado{}, nucleo.DemasiadosIntentos("demasiados_intentos",
-					"Demasiados intentos fallidos con este correo; espera antes de volver a intentar", time.Until(hasta))
-			case !errors.Is(err, pgx.ErrNoRows):
-				return Reautenticado{}, err
+			// Desde una sesión del autologin, los fallos se cuentan aparte: quien tenga Argos no
+			// puede bloquear el login con contraseña de la cuenta. Un bloqueo del login sí frena.
+			clave := u.Correo
+			if s.EsSSO() {
+				clave = prefijoIntentosReautenticarSSO + u.Correo
+			}
+			for _, c := range []string{u.Correo, clave} {
+				hasta, err := q.BloqueoLogin(ctx, c)
+				switch {
+				case err == nil:
+					return Reautenticado{}, nucleo.DemasiadosIntentos("demasiados_intentos",
+						"Demasiados intentos fallidos; espera antes de volver a intentar", time.Until(hasta))
+				case !errors.Is(err, pgx.ErrNoRows):
+					return Reautenticado{}, err
+				}
 			}
 			if u.ContrasenaHash == nil {
 				return Reautenticado{}, nucleo.CredencialesInvalidas()
@@ -59,10 +71,10 @@ func nuevoReautenticar(cfg Config) *auditoria.Caso[EntradaReautenticar, Reautent
 				return Reautenticado{}, err
 			}
 			if !ok {
-				contarFalloLogin(t, cfg, u.Correo)
+				contarFalloLogin(t, cfg, clave)
 				return Reautenticado{}, nucleo.CredencialesInvalidas()
 			}
-			if err := q.LimpiarIntentosLogin(ctx, u.Correo); err != nil {
+			if err := q.LimpiarIntentosLogin(ctx, clave); err != nil {
 				return Reautenticado{}, err
 			}
 			if n, err := q.MarcarSesionReautenticada(ctx, s.ID); err != nil {

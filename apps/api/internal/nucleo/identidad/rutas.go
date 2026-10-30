@@ -131,7 +131,7 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	reaut := operacion("reautenticar", http.MethodPost, "/api/v1/sesion/reautenticar", "Confirmar la contraseña dentro de la sesión", "", http.StatusOK, http.StatusForbidden, http.StatusTooManyRequests)
 	reaut.Security = []map[string][]string{{"sesion": {}}}
-	reaut.Description = "Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (tokens, conectores, gestión de usuarios, roles y vínculos, MFA), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`)."
+	reaut.Description = "Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (las de los permisos de administración de `nucleo.PermisosSensibles`, el MFA propio y los vínculos de autologin), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`); desde una sesión sso con un contador propio, que no bloquea el login con contraseña."
 	huma.Register(api, reaut, func(ctx context.Context, in *conClave[EntradaReautenticar]) (*cuerpo[Reautenticado], error) {
 		return responder(m.Reautenticar.Ejecutar(ctx, in.Body))
 	})

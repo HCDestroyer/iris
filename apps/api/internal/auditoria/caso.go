@@ -181,7 +181,7 @@ func (c *Caso[In, Out]) autorizar(ctx context.Context) error {
 		// El actor cliente solo usa los casos del portal (Acceso Cliente).
 		return nucleo.Prohibido("El cliente del portal no puede usar esta acción")
 	}
-	if s := contexto.SesionDe(ctx); s.EsSSO() && !s.Reautenticada && RequiereReautenticacion(c.Accion) {
+	if s := contexto.SesionDe(ctx); s.EsSSO() && !s.Reautenticada && RequiereReautenticacion(c.Accion, c.Permiso) {
 		return nucleo.NuevoProblema(http.StatusForbidden, "reautenticacion_requerida", "Re-autenticación requerida",
 			"Entraste desde Argos: confirma tu contraseña (POST /api/v1/sesion/reautenticar) antes de esta acción")
 	}

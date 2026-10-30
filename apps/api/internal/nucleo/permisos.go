@@ -177,6 +177,26 @@ const (
 	PermSSOEmitir Permiso = "sso.emitir"
 )
 
+// PermisosSensibles son los de administración (usuarios, tokens, empresas, buzones,
+// integraciones, plantillas, configuración comercial y emisión de accesos), no los de ver ni los
+// operativos. Una sola fuente para el autologin desde Argos: quien tiene alguno (o
+// empresas.todas) solo entra con TOTP, y en una sesión abierta por el autologin toda acción con
+// uno de estos permisos exige re-autenticarse con la contraseña. Un permiso nuevo de esta clase
+// debe agregarse aquí (lo verifica TestPermisosSensiblesCubrenLaAdministracion).
+var PermisosSensibles = map[Permiso]bool{
+	PermUsuariosCrear: true, PermUsuariosEditar: true, PermUsuariosDesactivar: true, PermUsuariosReiniciarMFA: true,
+	PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
+	PermTokensCrear: true, PermTokensRevocar: true,
+	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
+	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
+	PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+}
+
+// EsSensible indica si el permiso es de administración (PermisosSensibles).
+func EsSensible(p Permiso) bool { return PermisosSensibles[p] }
+
 // DefPermiso es una entrada del catálogo.
 type DefPermiso struct {
 	Codigo      Permiso

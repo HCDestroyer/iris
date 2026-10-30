@@ -1003,6 +1003,7 @@ type NucleoSsoTicket struct {
 	VinculadoEn         *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	CorreoVerificado    bool
 }
 
 type NucleoSsoVinculo struct {
