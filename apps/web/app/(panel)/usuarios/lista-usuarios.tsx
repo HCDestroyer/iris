@@ -26,6 +26,7 @@ import { puedeReiniciarMfa } from "@/lib/cuenta/sesion";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { DialogoReiniciarMfa } from "./reiniciar-mfa";
+import Link from "next/link";
 
 type Usuario = Schema<"Usuario">;
 type Pagina = Schema<"PaginaUsuario">;
@@ -41,7 +42,7 @@ function leerPagina(cursor: string | undefined, signal?: AbortSignal): Promise<P
     );
 }
 
-function textoRoles(u: Usuario): string {
+export function textoRoles(u: Usuario): string {
     const roles = u.roles ?? [];
     if (roles.length === 0) {
         return "Sin roles";
@@ -54,7 +55,7 @@ function textoRoles(u: Usuario): string {
         .join(", ");
 }
 
-function Tipo({ u }: { u: Usuario }) {
+export function Tipo({ u }: { u: Usuario }) {
     const Icono = u.tipo === "integracion" ? Bot : User;
     return (
         <span className="inline-flex items-center gap-1.5 text-sm">
@@ -64,7 +65,7 @@ function Tipo({ u }: { u: Usuario }) {
     );
 }
 
-function Mfa({ u }: { u: Usuario }) {
+export function Mfa({ u }: { u: Usuario }) {
     return u.mfaActivo ? (
         <InsigniaEstado tono="success" icono={ShieldCheck} texto="MFA activo" />
     ) : (
@@ -86,7 +87,7 @@ function BotonReiniciar({ u, alAbrir }: { u: Usuario; alAbrir: (u: Usuario) => v
     );
 }
 
-function Activo({ u }: { u: Usuario }) {
+export function Activo({ u }: { u: Usuario }) {
     return u.activo ? (
         <InsigniaEstado tono="neutral" icono={UserCheck} texto="Activo" />
     ) : (
@@ -185,7 +186,9 @@ export function ListaUsuarios() {
                     {usuarios.map((u) => (
                         <li key={u.id} className="grid gap-2 p-4">
                             <div className="grid min-w-0">
-                                <span className="truncate font-medium">{u.nombre}</span>
+                                <Link href={`/usuarios/${u.id}`} className="truncate font-medium text-primary underline-offset-4 hover:underline">
+                                    {u.nombre}
+                                </Link>
                                 <span className="truncate text-sm text-muted-foreground">{u.correo}</span>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -222,7 +225,9 @@ export function ListaUsuarios() {
                                 <TablaFila key={u.id}>
                                     <TablaCelda>
                                         <div className="grid min-w-0">
-                                            <span className="font-medium">{u.nombre}</span>
+                                            <Link href={`/usuarios/${u.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                                                {u.nombre}
+                                            </Link>
                                             <span className="text-muted-foreground">{u.correo}</span>
                                         </div>
                                     </TablaCelda>

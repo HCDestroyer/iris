@@ -4,6 +4,7 @@ import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiReportes, type ApiReportes } from "./api-reportes";
+import { apiSSO, type ApiSSO } from "./api-sso";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
@@ -126,7 +127,11 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "adjuntos.ver",
     "agenda.ver",
     "campo.ver_posiciones",
+    "integraciones.activar",
+    "integraciones.conectar",
+    "integraciones.desactivar",
     "integraciones.reintentar",
+    "integraciones.ver",
     "rutas.proponer",
     "rutas.publicar",
     "rutas.ver",
@@ -166,7 +171,8 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
-    [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
+    // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
+    [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
     [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
 };
@@ -249,6 +255,8 @@ export type ApiFalsa = {
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
+    /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -320,6 +328,13 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const encuestas = apiEncuestas();
     const listables = [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? [])];
     const cuenta = apiCuenta(() => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))]);
+    const sso = apiSSO({
+        usuarios: () => [...usuarios, ...listables.filter((u) => !usuarios.some((x) => x.id === u.id))],
+        ver: (u) => cuenta.ver(u),
+        contrasenaValida: (u, c) => cuenta.contrasenaValida(u, c),
+        marcarMfa: (correo) => mfaPendiente.set(correo, 0),
+        cookiesSesion,
+    });
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -354,6 +369,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         }
         // Rutas públicas de la encuesta: no usan la sesión del panel (ni su CSRF).
         if (await encuestas.manejarPublica({ route, metodo, ruta, cabeceras, cuerpo })) {
+            return;
+        }
+        // Canje del autologin desde Argos: público, sin CSRF (como el login).
+        if (await sso.manejarPublica({ route, metodo, ruta, cabeceras, cuerpo, sesion })) {
             return;
         }
         // CSRF por doble envío (salvo el inicio de sesión), como identidad/middleware.go.
@@ -391,6 +410,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             if (u.mfaActivo) {
                 mfaPendiente.set(u.correo, 0);
             }
+            sso.sesionConContrasena(u.correo);
             return route.fulfill({
                 status: 200,
                 contentType: "application/json",
@@ -446,6 +466,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return;
         }
         const permisos = permisosPorCorreo[actual.correo] ?? [];
+        if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies })) {
+            return;
+        }
 
         // Empresa activa, como identidad.MiddlewareEmpresa (i1.md).
         const cabeceraEmpresa = cabeceras["x-iris-empresa"];
@@ -785,6 +808,15 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },
         reportes: { exportacionExcedida: reportes.exportacionExcedida },
+        sso: {
+            canjes: sso.canjes,
+            vinculaciones: sso.vinculaciones,
+            vinculos: sso.vinculos,
+            conectores: sso.conectores,
+            sesionesSSO: sso.sesionesSSO,
+            reautenticaciones: () => sso.reautenticaciones,
+            descartes: () => sso.descartes,
+        },
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
         cambiarVersionOrden: (ordenId) => {

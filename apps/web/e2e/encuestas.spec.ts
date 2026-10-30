@@ -232,8 +232,13 @@ test.describe("panel", () => {
         await expect(page).toHaveURL(/calificacion=1%2C2/);
         await page.getByRole("combobox", { name: "Tipo" }).selectOption("orden");
         await expect(page).toHaveURL(/entidad=orden/);
-        await expect.poll(() => api.peticiones.filter((p) => p.ruta === "/api/v1/encuestas").at(-1)?.query.get("calificacion")).toBe("1,2");
-        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/encuestas").at(-1)?.query.get("entidad")).toBe("orden");
+        // Espera la consulta con los dos filtros (la de solo calificación puede llegar antes).
+        await expect
+            .poll(() => {
+                const q = api.peticiones.filter((p) => p.ruta === "/api/v1/encuestas").at(-1)?.query;
+                return `${q?.get("calificacion")}|${q?.get("entidad")}`;
+            })
+            .toBe("1,2|orden");
         await expect(filas.first()).toContainText("OT-000001");
         for (const f of await filas.all()) await expect(f).toContainText("Alerta");
 

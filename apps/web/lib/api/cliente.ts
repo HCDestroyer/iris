@@ -2,12 +2,14 @@ import { crearCliente, type ClienteIris } from "@iris/contratos";
 import { CODIGO_CAMBIO_REQUERIDO, notificarCambioRequerido } from "../cuenta/sesion";
 import { CABECERA_EMPRESA, empresaGuardada, esProblemaEmpresa, notificarProblemaEmpresa, type ProblemaEmpresa } from "../empresa";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "./errores";
+import { CODIGO_REAUTENTICACION, RUTA_REAUTENTICAR, solicitarReautenticacion } from "./reautenticacion";
 
 export const COOKIE_CSRF = "iris_csrf";
 export const COOKIE_SESION = "iris_sesion";
 export const CABECERA_CSRF = "X-CSRF-Token";
 
 const METODOS_SIN_ESTADO = new Set(["GET", "HEAD", "OPTIONS"]);
+const CABECERA_IDEMPOTENCIA = "Idempotency-Key";
 
 /** Valor de una cookie legible (`iris_csrf` no es HttpOnly; `iris_sesion` sí y no se ve aquí). */
 export function leerCookie(nombre: string, cookies: string): string | undefined {
@@ -37,6 +39,8 @@ export type OpcionesCliente = {
     alProblemaEmpresa?: (problema: ProblemaEmpresa) => void;
     /** Aviso de un 403 `cambio_contrasena_requerido` (contraseña temporal); por defecto, al panel. */
     alCambioRequerido?: () => void;
+    /** 403 `reautenticacion_requerida` (sesión desde Argos): pide la contraseña; por defecto, el diálogo del panel. */
+    reautenticar?: () => Promise<boolean>;
 };
 
 const PREFIJO_PROBLEMA = "urn:iris:problema:";
@@ -69,6 +73,14 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
     const leerEmpresa = opciones.leerEmpresa ?? empresaGuardada;
     const alProblemaEmpresa = opciones.alProblemaEmpresa ?? notificarProblemaEmpresa;
     const alCambioRequerido = opciones.alCambioRequerido ?? notificarCambioRequerido;
+    const reautenticar = opciones.reautenticar ?? solicitarReautenticacion;
+    const fetchBase = opciones.fetch ?? ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args));
+    // Copia de cada petición antes de enviarla: el cuerpo se consume al mandarla y, tras
+    // re-autenticarse, hay que repetirla igual.
+    const copias = new WeakMap<Request, Request>();
+    // Claves que ya se repitieron tras re-autenticarse: un «Reintentar» con la misma clave va
+    // directo a la derivada (`clave:reaut`) y recibe la respuesta guardada, nunca otra ejecución.
+    const repetidas = new Set<string>();
     const cliente = crearCliente({
         querySerializer: { array: { style: "form", explode: false } },
         baseUrl: opciones.baseUrl ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
@@ -80,27 +92,69 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
             if (empresa !== undefined && !request.headers.has(CABECERA_EMPRESA)) {
                 request.headers.set(CABECERA_EMPRESA, String(empresa));
             }
-            if (METODOS_SIN_ESTADO.has(request.method.toUpperCase())) {
-                return request;
+            if (!METODOS_SIN_ESTADO.has(request.method.toUpperCase())) {
+                const csrf = leerCookie(COOKIE_CSRF, leerCookies());
+                if (csrf && !request.headers.has(CABECERA_CSRF)) {
+                    request.headers.set(CABECERA_CSRF, csrf);
+                }
+                const clave = request.headers.get(CABECERA_IDEMPOTENCIA);
+                if (clave && repetidas.has(clave)) {
+                    request.headers.set(CABECERA_IDEMPOTENCIA, claveTrasReautenticar(clave));
+                }
             }
-            const csrf = leerCookie(COOKIE_CSRF, leerCookies());
-            if (csrf && !request.headers.has(CABECERA_CSRF)) {
-                request.headers.set(CABECERA_CSRF, csrf);
-            }
+            copias.set(request, request.clone());
             return request;
         },
-        async onResponse({ response }) {
+        async onResponse({ request, response }) {
             const codigo = await codigoProblema(response);
             if (codigo !== undefined && esProblemaEmpresa(codigo)) {
                 alProblemaEmpresa(codigo);
             } else if (codigo === CODIGO_CAMBIO_REQUERIDO && response.status === 403) {
                 alCambioRequerido();
+            } else if (codigo === CODIGO_REAUTENTICACION && response.status === 403 && new URL(request.url).pathname !== RUTA_REAUTENTICAR) {
+                const copia = copias.get(request);
+                if (copia && (await reautenticar())) {
+                    const clave = copia.headers.get(CABECERA_IDEMPOTENCIA);
+                    if (clave) {
+                        repetidas.add(clave);
+                        // Acotado: solo importan las recientes (la API guarda 24 h, el panel no tanto).
+                        if (repetidas.size > 200) repetidas.delete(repetidas.values().next().value as string);
+                    }
+                    return repetir(copia, fetchBase, leerCookies);
+                }
             }
             return undefined;
         },
     });
     return cliente;
 }
+
+const SUFIJO_REAUTENTICACION = ":reaut";
+
+/**
+ * Clave de la repetición tras re-autenticarse, derivada de la original (`K` → `K:reaut`): la API
+ * guardó el 403 con `K` (no hizo nada) y cualquier reintento de la misma acción vuelve a `K:reaut`,
+ * así que recibe la respuesta guardada en vez de ejecutarse otra vez. Ya derivada, no cambia.
+ */
+export function claveTrasReautenticar(clave: string): string {
+    return clave.endsWith(SUFIJO_REAUTENTICACION) ? clave : `${clave}${SUFIJO_REAUTENTICACION}`;
+}
+
+
+/** Repite una petición tras re-autenticarse, con la clave derivada; el CSRF se relee por si cambió. */
+async function repetir(copia: Request, fetchBase: typeof fetch, leerCookies: () => string): Promise<Response> {
+    const otra = copia.clone();
+    const clave = otra.headers.get(CABECERA_IDEMPOTENCIA);
+    if (clave) {
+        otra.headers.set(CABECERA_IDEMPOTENCIA, claveTrasReautenticar(clave));
+    }
+    const csrf = leerCookie(COOKIE_CSRF, leerCookies());
+    if (csrf && !METODOS_SIN_ESTADO.has(otra.method.toUpperCase())) {
+        otra.headers.set(CABECERA_CSRF, csrf);
+    }
+    return fetchBase(otra);
+}
+
 
 type Resultado<D> = { data?: D; error?: unknown; response: Response };
 
