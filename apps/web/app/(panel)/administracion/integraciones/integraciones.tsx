@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Aviso, Boton, Campo, CampoSelector, Dialogo, DialogoContenido, DialogoPie, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta } from "@iris/ui";
-import { ArrowLeft, CircleCheck, CirclePower, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CircleCheck, CirclePower, LinkIcon, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -11,15 +11,18 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { activoQueReemplaza, enlaceValido, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
+import { activoQueReemplaza, enlaceValido, panelDe, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
+import { ConectarArgos } from "./conectar-argos";
 
 /**
- * `/administracion/integraciones`: conectores con Argos y Horus. Conectar pega el enlace del otro
- * sistema y, antes de canjearlo, muestra adónde irá el token de Iris (`conexion/previsualizar`);
- * activar avisa si reemplaza al conector activo del mismo sistema.
+ * `/administracion/integraciones`: conectores con Argos y Horus. Con Argos, «Conectar con Argos»
+ * lleva a aprobar la conexión en su panel (contrato 0.4.0 §1.4). Como opción avanzada, conectar
+ * con un enlace pega el enlace del otro sistema y, antes de canjearlo, muestra adónde irá el token
+ * de Iris (`conexion/previsualizar`); activar avisa si reemplaza al conector activo del mismo
+ * sistema.
  */
 export function Integraciones() {
     const { yo, puede } = useSesion();
@@ -43,7 +46,7 @@ export function Integraciones() {
                     puedeConectar ? (
                         <DialogoConectar
                             alConectar={(c) => {
-                                setAviso(`Conectado con ${SISTEMAS[c.sistema]} (${c.baseUrl}). Queda apagado hasta que lo actives.`);
+                                setAviso(`Conectado con ${SISTEMAS[c.sistema]} (${c.apiUrl}). Queda apagado hasta que lo actives.`);
                                 void lectura.refrescar();
                             }}
                         />
@@ -55,13 +58,14 @@ export function Integraciones() {
                     {aviso}
                 </Aviso>
             ) : null}
+            {puedeConectar && lectura.estado !== "cargando" ? <ConectarArgos panelSugerido={lectura.estado === "listo" ? panelSugerido(lectura.datos) : null} /> : null}
             {lectura.estado === "cargando" ? (
                 <Esqueleto className="h-32" />
             ) : lectura.estado === "error" ? (
                 <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="los conectores" />
             ) : lectura.datos.length === 0 ? (
                 <Tarjeta>
-                    <EstadoVacio icono={Plug} titulo="Sin conectores" descripcion="Iris funciona solo con sus datos. Conecta Argos o Horus Flow con el enlace que generan esos sistemas." />
+                    <EstadoVacio icono={Plug} titulo="Sin conectores" descripcion="Iris funciona solo con sus datos. Conecta Argos con el botón, o Argos y Horus Flow con el enlace que generan esos sistemas." />
                 </Tarjeta>
             ) : (
                 <ul className="grid gap-3" aria-label="Conectores">
@@ -74,24 +78,39 @@ export function Integraciones() {
     );
 }
 
+/** Panel del conector de Argos activo (o del más reciente) para volver a autorizar. */
+function panelSugerido(conectores: readonly Conector[]): string | null {
+    const argos = conectores.filter((c) => c.sistema === "argosisp");
+    const elegido = argos.find((c) => c.estado === "activo") ?? argos.at(-1);
+    return elegido ? panelDe(elegido) : null;
+}
+
 function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; todos: readonly Conector[]; alCambiar: () => void }) {
     const { puede } = useSesion();
     const [dialogo, setDialogo] = useState<"activar" | "desactivar" | null>(null);
+    const panel = panelDe(c);
     return (
         <li className="surface-card grid gap-3 p-4" data-conector={c.id}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="grid min-w-0 gap-0.5">
-                    <span className="font-medium">{SISTEMAS[c.sistema]}</span>
-                    <span className="text-sm break-all text-muted-foreground">{c.baseUrl}</span>
-                </div>
+                <span className="font-medium">{SISTEMAS[c.sistema]}</span>
                 {c.estado === "activo" ? (
                     <InsigniaEstado tono="success" icono={CircleCheck} texto="Activo" />
                 ) : (
                     <InsigniaEstado tono="neutral" icono={CirclePower} texto="Apagado" />
                 )}
             </div>
+            <dl className="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)]" data-testid="direcciones-conector">
+                <dt className="text-muted-foreground">Panel de {SISTEMAS[c.sistema]}</dt>
+                <dd className="break-all" data-testid="panel-conector">
+                    {panel ?? <span className="text-muted-foreground">Sin informar (los enlaces abren la API)</span>}
+                </dd>
+                <dt className="text-muted-foreground">API de {SISTEMAS[c.sistema]}</dt>
+                <dd className="font-mono break-all" data-testid="api-conector">
+                    {c.apiUrl}
+                </dd>
+            </dl>
             <p className="text-xs text-muted-foreground tabular-nums">
-                {c.origen === "enlace_local" ? "Conectado desde Iris" : "Conectado desde el otro sistema"} el {textoFechaHora(c.creadoEn)}
+                {textoOrigen(c.origen)} el {textoFechaHora(c.creadoEn)}
                 {c.activadoEn ? ` · activo desde ${textoFechaHora(c.activadoEn)}` : ""}
                 {c.ultimoWebhookEn ? ` · último aviso ${textoFechaHora(c.ultimoWebhookEn)}` : ""}
             </p>
@@ -123,6 +142,17 @@ function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; t
             ) : null}
         </li>
     );
+}
+
+function textoOrigen(origen: Conector["origen"]): string {
+    switch (origen) {
+        case "enlace_local":
+            return "Conectado desde Iris con un enlace";
+        case "autorizacion":
+            return "Conectado con el botón «Conectar con Argos»";
+        default:
+            return "Conectado con un enlace del otro sistema";
+    }
 }
 
 const esquemaCambio = z.object({ motivo: z.string().trim().max(500, "Como mucho 500 caracteres") });
@@ -165,11 +195,11 @@ function DialogoCambio({
     const conflicto = error instanceof ErrorApi && error.estado === 409;
     return (
         <Dialogo open onOpenChange={(a) => !a && alCerrar()}>
-            <DialogoContenido titulo={accion === "activar" ? `Activar el conector de ${sistema}` : `Desactivar el conector de ${sistema}`} descripcion={c.baseUrl}>
+            <DialogoContenido titulo={accion === "activar" ? `Activar el conector de ${sistema}` : `Desactivar el conector de ${sistema}`} descripcion={panelDe(c) ?? c.apiUrl}>
                 <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
                     {accion === "activar" && reemplaza ? (
                         <Aviso tono="warning" titulo={`Reemplazará al conector activo de ${sistema}`} data-testid="aviso-reemplazo">
-                            El conector activo ({reemplaza.baseUrl}) quedará apagado y su token se revocará en el mismo paso.
+                            El conector activo ({panelDe(reemplaza) ?? reemplaza.apiUrl}) quedará apagado y su token se revocará en el mismo paso.
                         </Aviso>
                     ) : null}
                     {accion === "desactivar" ? (
@@ -271,12 +301,15 @@ function DialogoConectar({ alConectar }: { alConectar: (c: Conector) => void }) 
     const sistema = revision ? SISTEMAS[revision.datos.sistema as Sistema] : null;
     return (
         <>
-            <Boton onClick={() => setAbierto(true)}>
-                <PlugZap />
-                Conectar
+            <Boton variante="secundario" onClick={() => setAbierto(true)}>
+                <LinkIcon />
+                Conectar con un enlace
             </Boton>
             <Dialogo open={abierto} onOpenChange={cerrar}>
-                <DialogoContenido titulo="Conectar con otro sistema" descripcion="Pega el enlace de conexión que generó Argos o Horus Flow (vale 15 minutos y sirve una vez).">
+                <DialogoContenido
+                    titulo="Conectar con otro sistema"
+                    descripcion="Opción avanzada: pega el enlace de conexión que generó Argos o Horus Flow (vale 15 minutos y sirve una vez). Con Argos es más simple «Conectar con Argos»."
+                >
                     {revision === null ? (
                         <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(revisar)(e)}>
                             <CampoSelector etiqueta="Sistema" {...form.register("sistema")}>
