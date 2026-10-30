@@ -767,13 +767,18 @@
           "hasta": {
             "format": "date-time",
             "type": "string"
+          },
+          "truncado": {
+            "description": "Hay más citas (o técnicos) de los que caben en la respuesta: no calcules totales; acota con cuadrilla, zona o técnico",
+            "type": "boolean"
           }
         },
         "required": [
           "desde",
           "hasta",
           "citas",
-          "ausencias"
+          "ausencias",
+          "truncado"
         ],
         "type": "object"
       },
@@ -1028,6 +1033,20 @@
               "null"
             ]
           },
+          "conflictos": {
+            "description": "Cita viva que cae en una ausencia del técnico o se cruza con otra cita viva suya (de cualquier empresa y fuera del filtro); vacío = sin conflicto",
+            "items": {
+              "enum": [
+                "ausencia",
+                "solape"
+              ],
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "cuadrillaId": {
             "description": "Cuadrilla de la orden",
             "format": "int64",
@@ -1156,7 +1175,8 @@
           "lat",
           "lon",
           "clienteId",
-          "servicioId"
+          "servicioId",
+          "conflictos"
         ],
         "type": "object"
       },
@@ -31052,7 +31072,7 @@
     },
     "/api/v1/tecnicos/candidatos": {
       "get": {
-        "description": "Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias` u `ordenes.ver`, que operan en la empresa activa. Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`).",
+        "description": "Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias`, que operan en la empresa activa; con alcance limitado, solo las de tus zonas o cuadrillas (por el alcance de su rol). Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`). Paginado con `q`.",
         "operationId": "candidatosTecnico",
         "parameters": [
           {

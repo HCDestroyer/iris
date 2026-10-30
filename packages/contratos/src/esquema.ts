@@ -2688,7 +2688,7 @@ export interface paths {
         };
         /**
          * Usuarios que pueden recibir ficha de técnico
-         * @description Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias` u `ordenes.ver`, que operan en la empresa activa. Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`).
+         * @description Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias`, que operan en la empresa activa; con alcance limitado, solo las de tus zonas o cuadrillas (por el alcance de su rol). Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`). Paginado con `q`.
          */
         get: operations["candidatosTecnico"];
         put?: never;
@@ -3814,6 +3814,8 @@ export interface components {
             desde: string;
             /** Format: date-time */
             hasta: string;
+            /** @description Hay más citas (o técnicos) de los que caben en la respuesta: no calcules totales; acota con cuadrilla, zona o técnico */
+            truncado: boolean;
         };
         CambioOrden: {
             /** @description Ausente si ya no es del técnico (reasignada): quitarla del teléfono */
@@ -3897,6 +3899,8 @@ export interface components {
         CitaAgenda: {
             /** Format: int64 */
             clienteId: number | null;
+            /** @description Cita viva que cae en una ausencia del técnico o se cruza con otra cita viva suya (de cualquier empresa y fuera del filtro); vacío = sin conflicto */
+            conflictos: ("ausencia" | "solape")[] | null;
             /**
              * Format: int64
              * @description Cuadrilla de la orden

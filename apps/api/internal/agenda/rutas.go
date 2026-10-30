@@ -121,7 +121,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		return responder(m.Asignables.Ejecutar(ctx, *in))
 	})
 	candidatos := operacion("candidatosTecnico", http.MethodGet, "/api/v1/tecnicos/candidatos", "Usuarios que pueden recibir ficha de técnico", nucleo.PermAgendaCrearTecnico, http.StatusOK)
-	candidatos.Description += " Personas activas sin ficha, con `ordenes.ver_propias` u `ordenes.ver`, que operan en la empresa activa. Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`)."
+	candidatos.Description += " Personas activas sin ficha, con `ordenes.ver_propias`, que operan en la empresa activa; con alcance limitado, solo las de tus zonas o cuadrillas (por el alcance de su rol). Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`). Paginado con `q`."
 	huma.Register(api, candidatos, func(ctx context.Context, in *EntradaCandidatosTecnico) (*cuerpo[nucleo.Pagina[CandidatoTecnico]], error) {
 		return responder(m.CandidatosTecnico.Ejecutar(ctx, *in))
 	})

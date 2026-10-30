@@ -1,10 +1,15 @@
 package agenda_test
 
 import (
+	"context"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -90,4 +95,103 @@ func TestTelefonoYCandidatosDeTecnico(t *testing.T) {
 
 func paginaCon(cursor string) nucleo.ParamsPagina {
 	return nucleo.ParamsPagina{Cursor: cursor, Limit: 200}
+}
+
+// Candidatos: solo técnicos de campo (ordenes.ver_propias), con el alcance del permiso de crear,
+// y la acción de auditoría propia.
+func TestCandidatosSoloTecnicosYConAlcance(t *testing.T) {
+	e := nuevoEntorno()
+	sup := usuarioCon(t, rol("supervisor"))
+	cs := como(t, sup, "supervisor")
+	z := deber(e.ag.CrearZona.Ejecutar(cs, agenda.EntradaCrearZona{Nombre: "Zona candidatos " + pruebas.Unico()}))(t)
+	otra := deber(e.ag.CrearZona.Ejecutar(cs, agenda.EntradaCrearZona{Nombre: "Otra zona candidatos " + pruebas.Unico()}))(t)
+
+	global := usuarioCon(t, rol("tecnico"))
+	deZona := usuarioCon(t, identidad.AsignacionRol{Rol: "tecnico", ZonaID: &z.ID})
+	deOtra := usuarioCon(t, identidad.AsignacionRol{Rol: "tecnico", ZonaID: &otra.ID})
+	soloVer := usuarioCon(t, rol("lectura")) // ordenes.ver, sin ordenes.ver_propias
+
+	todos := func(ctx context.Context) map[int64]bool {
+		salida := map[int64]bool{}
+		cursor := ""
+		for {
+			p := deber(e.ag.CandidatosTecnico.Ejecutar(ctx, agenda.EntradaCandidatosTecnico{ParamsPagina: paginaCon(cursor)}))(t)
+			for _, c := range p.Data {
+				salida[c.UsuarioID] = true
+			}
+			if p.NextCursor == nil {
+				return salida
+			}
+			cursor = *p.NextCursor
+		}
+	}
+	g := todos(cs)
+	if !g[global] || !g[deZona] || !g[deOtra] || g[soloVer] {
+		t.Fatalf("alcance global: global %v, zona %v, otra %v, solo ordenes.ver %v", g[global], g[deZona], g[deOtra], g[soloVer])
+	}
+	limitado := conAlcance(t, sup, map[string][]contexto.Alcance{"agenda.crear_tecnico": {{ZonaID: z.ID}}})
+	l := todos(limitado)
+	if !l[deZona] || l[deOtra] || l[global] {
+		t.Fatalf("alcance de zona: zona %v, otra %v, global %v", l[deZona], l[deOtra], l[global])
+	}
+	// Sin el permiso: 403 auditado con su acción propia.
+	_, err := e.ag.CandidatosTecnico.Ejecutar(como(t, soloVer, "lectura"), agenda.EntradaCandidatosTecnico{})
+	problema(t, err, 403, "prohibido")
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'agenda.candidatos_tecnico' AND resultado <> 'ok' AND actor_id = $1", soloVer); n < 1 {
+		t.Fatalf("auditoría de candidatos: %d", n)
+	}
+}
+
+// Calendario: `truncado` al pasar el límite y conflictos marcados en el servidor, aunque la
+// otra cita o la ausencia queden fuera del filtro.
+func TestCalendarioTruncadoYConflictos(t *testing.T) {
+	e := nuevoEntorno()
+	sup := usuarioCon(t, rol("supervisor"))
+	cs := como(t, sup, "supervisor")
+	z1 := deber(e.ag.CrearZona.Ejecutar(cs, agenda.EntradaCrearZona{Nombre: "Zona cal 1 " + pruebas.Unico()}))(t)
+	z2 := deber(e.ag.CrearZona.Ejecutar(cs, agenda.EntradaCrearZona{Nombre: "Zona cal 2 " + pruebas.Unico()}))(t)
+	c := deber(e.ag.CrearCuadrilla.Ejecutar(cs, agenda.EntradaCrearCuadrilla{Nombre: "Cuadrilla cal " + pruebas.Unico(), ZonaIDs: []int64{z1.ID, z2.ID}}))(t)
+	tec := usuarioCon(t, rol("tecnico"))
+	f := fichaCon(t, e, cs, tec, &c.ID)
+
+	o1 := deber(programar(e, cs, orden(t, e, cs, "visita", z1.ID), tec, gt(2, 9, 0)))(t)
+	o2 := deber(programar(e, cs, orden(t, e, cs, "visita", z2.ID), tec, gt(2, 13, 0)))(t)
+	o3 := deber(programar(e, cs, orden(t, e, cs, "visita", z1.ID), tec, gt(2, 15, 0)))(t)
+	// o2 se cruza con o1 (se mueve por SQL: la agenda no deja crear un solape) y una ausencia cae en o3.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE agenda.citas SET inicio = $2, fin = $3 WHERE orden_id = $1", o2.ID, gt(2, 9, 30), gt(2, 10, 30)); err != nil {
+		t.Fatal(err)
+	}
+	deber(e.ag.RegistrarAusencia.Ejecutar(cs, agenda.EntradaRegistrarAusencia{ID: f.ID, Inicio: gt(2, 15, 0).Format(time.RFC3339), Fin: gt(2, 16, 0).Format(time.RFC3339), Motivo: "permiso"}))(t)
+
+	rango := agenda.EntradaCalendario{Desde: gt(2, 0, 0).Format(time.RFC3339), Hasta: gt(3, 0, 0).Format(time.RFC3339), TecnicoID: tec}
+	cal := deber(e.ag.Calendario.Ejecutar(cs, rango))(t)
+	if cal.Truncado || len(cal.Citas) != 3 {
+		t.Fatalf("calendario: truncado %v, %d citas", cal.Truncado, len(cal.Citas))
+	}
+	conflictos := map[int64][]string{}
+	for _, x := range cal.Citas {
+		conflictos[x.OrdenID] = x.Conflictos
+	}
+	if !slices.Equal(conflictos[o1.ID], []string{"solape"}) || !slices.Equal(conflictos[o2.ID], []string{"solape"}) || !slices.Equal(conflictos[o3.ID], []string{"ausencia"}) {
+		t.Fatalf("conflictos: %+v", conflictos)
+	}
+	// Con el filtro de zona 1, o2 no viene, pero o1 sigue en conflicto con ella.
+	filtrado := rango
+	filtrado.ZonaID = z1.ID
+	cal = deber(e.ag.Calendario.Ejecutar(cs, filtrado))(t)
+	for _, x := range cal.Citas {
+		if x.OrdenID == o2.ID {
+			t.Fatal("o2 no es de la zona 1")
+		}
+		if x.OrdenID == o1.ID && !slices.Equal(x.Conflictos, []string{"solape"}) {
+			t.Fatalf("o1 filtrada: %+v", x.Conflictos)
+		}
+	}
+
+	// Con un límite de 2 citas, la respuesta sale truncada.
+	corto := agenda.Nuevo(agenda.Config{Reloj: e.reloj.ahora, LimiteCalendario: 2})
+	cal = deber(corto.Calendario.Ejecutar(cs, rango))(t)
+	if !cal.Truncado || len(cal.Citas) != 2 {
+		t.Fatalf("truncado: %v, %d citas", cal.Truncado, len(cal.Citas))
+	}
 }

@@ -691,18 +691,21 @@ type CandidatoTecnico struct {
 }
 
 // nuevoCandidatosTecnico: usuarios a los que se les puede dar ficha (personas activas sin ficha,
-// con ordenes.ver_propias u ordenes.ver, que operan en la empresa activa). Es la lista del
-// selector «Usuario» al dar de alta un técnico: no exige usuarios.ver, sino el permiso de crear.
+// con ordenes.ver_propias —el técnico de campo—, que operan en la empresa activa). Con el permiso
+// de crear limitado a zonas o cuadrillas, solo las personas cuyo rol de técnico es de ese alcance.
+// Es la lista del selector «Usuario» del alta: no exige usuarios.ver, sino el permiso de crear.
 func (m *Modulo) nuevoCandidatosTecnico() *auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]]{
-		Accion: "agenda.crear_tecnico", Permiso: nucleo.PermAgendaCrearTecnico, AuditarExito: soloLecturas[nucleo.Pagina[CandidatoTecnico]],
+		Accion: "agenda.candidatos_tecnico", Permiso: nucleo.PermAgendaCrearTecnico, AuditarExito: soloLecturas[nucleo.Pagina[CandidatoTecnico]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCandidatosTecnico) (nucleo.Pagina[CandidatoTecnico], error) {
 			var despues int64
 			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
 				return nucleo.Pagina[CandidatoTecnico]{}, err
 			}
 			todas, empresa := filtroEmpresa(ctx)
+			a := alcanceDe(ctx, nucleo.PermAgendaCrearTecnico)
 			p := agendabd.CandidatosTecnicoParams{TodasEmpresas: todas, EmpresaID: empresa,
+				AlcanceGlobal: a.global, Zonas: a.zonas, Cuadrillas: a.cuadrillas,
 				Limite: int32(in.Limite() + 1)} //nolint:gosec // Limite() está acotado a 200
 			if despues > 0 {
 				p.DespuesDe = &despues

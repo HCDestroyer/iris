@@ -34,6 +34,9 @@ type Config struct {
 	// Enrutador da tiempos, distancias y trazos por calles (OSRM, OSRMDesdeEntorno). nil = sin
 	// OSRM: las rutas se proponen en línea recta (haversine) y lo dicen (degradada).
 	Enrutador Enrutador
+	// LimiteCalendario: citas por respuesta de GET /agenda (2000 por defecto). Si hay más, la
+	// respuesta sale `truncado` y el panel no calcula totales sobre ella.
+	LimiteCalendario int
 }
 
 // Modulo reúne los casos de uso de agenda.
@@ -81,6 +84,9 @@ type Modulo struct {
 func Nuevo(cfg Config) *Modulo {
 	if cfg.Reloj == nil {
 		cfg.Reloj = time.Now
+	}
+	if cfg.LimiteCalendario <= 0 {
+		cfg.LimiteCalendario = 2000
 	}
 	if cfg.ZonaHoraria == nil {
 		loc, err := time.LoadLocation("America/Guatemala")

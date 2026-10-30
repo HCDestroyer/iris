@@ -168,16 +168,20 @@ ORDER BY t.id
 LIMIT @limite;
 
 -- name: CandidatosTecnico :many
--- Usuarios que pueden recibir ficha: personas activas sin ficha, con ordenes.ver_propias u
--- ordenes.ver por algún rol, que operan en la empresa activa (la misma regla que ListarTecnicos;
--- sin conector, todos).
+-- Usuarios que pueden recibir ficha: personas activas sin ficha que trabajan sus órdenes en campo
+-- (ordenes.ver_propias por algún rol), que operan en la empresa activa (la misma regla que
+-- ListarTecnicos; sin conector, todos). Con alcance limitado del actor, solo las personas cuyo
+-- rol de técnico es de una de sus zonas o cuadrillas (un rol global no lo cubre: falla cerrado).
 SELECT u.id, u.nombre, u.correo
 FROM nucleo.usuarios u
 WHERE u.tipo = 'persona' AND u.activo
   AND (sqlc.narg(despues_de)::bigint IS NULL OR u.id > sqlc.narg(despues_de))
   AND NOT EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = u.id)
   AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
-              WHERE ur.usuario_id = u.id AND rp.permiso IN ('ordenes.ver_propias', 'ordenes.ver'))
+              WHERE ur.usuario_id = u.id AND rp.permiso = 'ordenes.ver_propias'
+                AND (@alcance_global::boolean
+                     OR ur.zona_id = ANY(@zonas::bigint[])
+                     OR ur.cuadrilla_id = ANY(@cuadrillas::bigint[])))
   AND (@todas_empresas::boolean
        OR sqlc.narg(empresa_id)::bigint IS NULL
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = sqlc.narg(empresa_id))
@@ -332,7 +336,7 @@ WHERE c.inicio < @hasta AND c.fin > @desde
        OR o.cuadrilla_id = ANY(@cuadrillas::bigint[])
        OR t.cuadrilla_id = ANY(@cuadrillas::bigint[]))
 ORDER BY c.inicio, c.id
-LIMIT 2000;
+LIMIT @limite;
 
 -- Rutas del día ---------------------------------------------------------------------
 

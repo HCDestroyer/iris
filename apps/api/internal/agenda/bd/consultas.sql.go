@@ -32,7 +32,7 @@ WHERE c.inicio < $1 AND c.fin > $2
        OR o.cuadrilla_id = ANY($11::bigint[])
        OR t.cuadrilla_id = ANY($11::bigint[]))
 ORDER BY c.inicio, c.id
-LIMIT 2000
+LIMIT $12
 `
 
 type AgendaCitasParams struct {
@@ -47,6 +47,7 @@ type AgendaCitasParams struct {
 	AlcanceGlobal     bool
 	Zonas             []int64
 	Cuadrillas        []int64
+	Limite            int32
 }
 
 type AgendaCitasRow struct {
@@ -91,6 +92,7 @@ func (q *Queries) AgendaCitas(ctx context.Context, arg AgendaCitasParams) ([]Age
 		arg.AlcanceGlobal,
 		arg.Zonas,
 		arg.Cuadrillas,
+		arg.Limite,
 	)
 	if err != nil {
 		return nil, err
@@ -367,20 +369,26 @@ WHERE u.tipo = 'persona' AND u.activo
   AND ($1::bigint IS NULL OR u.id > $1)
   AND NOT EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = u.id)
   AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
-              WHERE ur.usuario_id = u.id AND rp.permiso IN ('ordenes.ver_propias', 'ordenes.ver'))
-  AND ($2::boolean
-       OR $3::bigint IS NULL
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $3)
+              WHERE ur.usuario_id = u.id AND rp.permiso = 'ordenes.ver_propias'
+                AND ($2::boolean
+                     OR ur.zona_id = ANY($3::bigint[])
+                     OR ur.cuadrilla_id = ANY($4::bigint[])))
+  AND ($5::boolean
+       OR $6::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $6)
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                   WHERE ur.usuario_id = u.id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
-  AND ($4::text IS NULL OR u.nombre ILIKE '%' || $4 || '%' OR u.correo ILIKE '%' || $4 || '%')
+  AND ($7::text IS NULL OR u.nombre ILIKE '%' || $7 || '%' OR u.correo ILIKE '%' || $7 || '%')
 ORDER BY u.id
-LIMIT $5
+LIMIT $8
 `
 
 type CandidatosTecnicoParams struct {
 	DespuesDe     *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
 	TodasEmpresas bool
 	EmpresaID     *int64
 	Q             *string
@@ -393,12 +401,16 @@ type CandidatosTecnicoRow struct {
 	Correo string
 }
 
-// Usuarios que pueden recibir ficha: personas activas sin ficha, con ordenes.ver_propias u
-// ordenes.ver por algún rol, que operan en la empresa activa (la misma regla que ListarTecnicos;
-// sin conector, todos).
+// Usuarios que pueden recibir ficha: personas activas sin ficha que trabajan sus órdenes en campo
+// (ordenes.ver_propias por algún rol), que operan en la empresa activa (la misma regla que
+// ListarTecnicos; sin conector, todos). Con alcance limitado del actor, solo las personas cuyo
+// rol de técnico es de una de sus zonas o cuadrillas (un rol global no lo cubre: falla cerrado).
 func (q *Queries) CandidatosTecnico(ctx context.Context, arg CandidatosTecnicoParams) ([]CandidatosTecnicoRow, error) {
 	rows, err := q.db.Query(ctx, candidatosTecnico,
 		arg.DespuesDe,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
 		arg.TodasEmpresas,
 		arg.EmpresaID,
 		arg.Q,

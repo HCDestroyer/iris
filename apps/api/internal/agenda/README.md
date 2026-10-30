@@ -22,8 +22,10 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
   sus empresas) con cuadrilla, bodega de Argos, habilidades, base, teléfono de contacto (hasta 30
   caracteres: dígitos, espacios, `+`, `-`, paréntesis y puntos, con al menos 7 dígitos; vacío = sin
   teléfono) y `activo`. Solo personas activas con `ordenes.ver_propias` u `ordenes.ver` que operen
-  en la empresa activa. `GET /tecnicos/candidatos?q=` (`agenda.crear_tecnico`) lista esas personas
-  aún sin ficha: es el selector de usuario del alta en el panel (no exige `usuarios.ver`).
+  en la empresa activa. `GET /tecnicos/candidatos?q=` (`agenda.crear_tecnico`, acción de auditoría
+  `agenda.candidatos_tecnico`) lista las personas aún sin ficha con `ordenes.ver_propias`; con el
+  permiso limitado, solo aquellas cuyo rol de técnico es de una zona o cuadrilla del alcance. Es el
+  selector de usuario del alta en el panel (no exige `usuarios.ver`).
 - **Turnos** semanales en hora de Guatemala (día ISO, `HH:MM`, fin hasta `24:00`, sin cruces en un
   día; un turno nocturno se parte en dos). **Ausencias** (rango UTC, motivo); registrar una devuelve
   las citas vivas que caen dentro (no se mueven solas). **Capacidad** diaria por tipo de orden (o
@@ -42,7 +44,10 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
   turnos, ausencias, citas, huecos libres y capacidad usada del día; `disponible` o `motivo`
   (`sin_turno`, `ausente`, `capacidad_completa`, `sin_espacio`). Los disponibles primero.
 - **Calendario** (`GET /agenda?desde=&hasta=&tecnicoId=&cuadrillaId=&zonaId=`, hasta 31 días): citas
-  con su orden y ausencias de los técnicos visibles.
+  con su orden y ausencias de los técnicos visibles. Hasta 2000 citas (`Config.LimiteCalendario`)
+  y 1000 técnicos: si hay más, `truncado: true` (el panel no calcula totales sobre esa respuesta).
+  Cada cita viva trae `conflictos` (`ausencia`, `solape`) calculados sobre **toda** la agenda de
+  su técnico (cualquier empresa, sin filtro ni alcance), solo con el tipo.
 - **Permisos** `agenda.*` (uno por acción). Zonas y cuadrillas: el permiso sin límite de alcance
   (403 si no). Técnicos: alcance por cuadrilla (o por las zonas que atiende su cuadrilla); fuera de
   lo visible, 404; visible sin alcance para la acción, 403 `fuera_de_alcance`.
