@@ -1,9 +1,12 @@
 package argos_test
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +54,10 @@ type argosFalso struct {
 	fueraDeAlcance map[string]bool
 	// sinGet: servicios que la lista todavía trae (réplica atrasada) pero el GET por id ya no.
 	sinGet map[int64]bool
+	// desafio: code_challenge al que quedó ligado el código vigente (§1.4); vacío = código de §1.3.
+	desafio string
+	// panelURL: lo que responde el canje en panel_url (0.4.0); vacío = no lo manda.
+	panelURL string
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -80,6 +87,31 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 }
 
 func (a *argosFalso) enlace() string { return a.srv.URL + "/conectar#" + a.codigo }
+
+// aprobar hace lo que el panel de Argos al pulsar «Aprobar» (§1.4 pasos 3 y 4) con la URL de
+// autorizar que armó Iris: valida la consulta, crea un código ligado al code_challenge y devuelve
+// el fragmento de la vuelta. desafioAlterado liga el código a otro challenge (un code_verifier
+// que no corresponde).
+func (a *argosFalso) aprobar(autorizar string, desafioAlterado bool) (codigo, api, state string) {
+	a.t.Helper()
+	u, err := url.Parse(autorizar)
+	if err != nil {
+		a.t.Fatalf("URL de autorizar: %v", err)
+	}
+	q := u.Query()
+	if u.Path != "/integraciones/iris/autorizar" || q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) != 43 ||
+		q.Get("iris") == "" || len(q.Get("state")) != 43 || u.Fragment != "" {
+		a.t.Fatalf("URL de autorizar fuera de contrato: %s", autorizar)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.codigo = "codigo-boton-" + q.Get("state")[:12] + "-0123456789"
+	a.desafio = q.Get("code_challenge")
+	if desafioAlterado {
+		a.desafio = strings.Repeat("A", 43)
+	}
+	return a.codigo, a.srv.URL, q.Get("state")
+}
 
 func (a *argosFalso) llamadasA(ruta string) int {
 	a.mu.Lock()
@@ -118,6 +150,17 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 		problema(w, 422, "urn:argos:codigo_invalido", "El código venció o ya se usó")
 		return
 	}
+	// §1.4: un código nacido con code_challenge exige code_verifier S256; si no coincide, 401
+	// codigo_invalido y el código queda gastado. Uno de §1.3 no lo pide.
+	if a.desafio != "" {
+		verificador, _ := p["code_verifier"].(string)
+		suma := sha256.Sum256([]byte(verificador))
+		if base64.RawURLEncoding.EncodeToString(suma[:]) != a.desafio {
+			a.codigo = "usado-" + a.codigo
+			problema(w, 401, "urn:argos:codigo_invalido", "El code_verifier no corresponde")
+			return
+		}
+	}
 	a.codigo = "usado-" + a.codigo
 	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
 	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
@@ -128,6 +171,9 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.alcanceGlobal != nil {
 		resp["alcance_global"] = *a.alcanceGlobal
+	}
+	if a.panelURL != "" {
+		resp["panel_url"] = a.panelURL
 	}
 	escribir(w, resp)
 }

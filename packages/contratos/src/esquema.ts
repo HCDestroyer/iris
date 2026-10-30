@@ -808,6 +808,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/autorizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Iniciar «Conectar con Argos» (autorización con state y PKCE)
+         * @description Permiso: `integraciones.conectar`. Solo con la sesión del panel (422 `sesion_requerida` con un token). Normaliza `panelUrl` a `https://host[:puerto]`, genera un `state` (32 bytes, un uso, 10 min, ligado a la sesión y al usuario) y un `code_verifier` (32 bytes, cifrado en el servidor; nunca sale) y devuelve la URL de autorizar del panel de Argos con el `code_challenge` S256. Exige `empresas.todas` sin límite (403) y `IRIS_ARGOS_ORIGENES` (422 `origenes_no_configurados`). La URL lleva el `state`, que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible` sin iniciar otra autorización.
+         */
+        post: operations["autorizarConexionArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/autorizaciones/completar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Completar «Conectar con Argos» con lo que trae la vuelta
+         * @description Permiso: `integraciones.conectar`. Recibe `{ codigo, api, state }` o `{ error, state }` del fragmento de `/administracion/integraciones/argos/vuelta`. Verifica el `state` (422 `state_invalido` si no existe, ya se usó o es de otra sesión; 422 `state_vencido`) y lo gasta; con `error`, 422 `rechazado`. `api` debe estar en `IRIS_ARGOS_ORIGENES` (422 `origen_no_permitido`). Canjea servidor a servidor con el `code_verifier` (422 `codigo_invalido` si Argos no lo acepta), guarda `panelUrl` y `apiUrl` por separado y deja el conector **apagado** hasta «Activar». Con la misma `Idempotency-Key`, un doble envío devuelve la misma respuesta.
+         */
+        post: operations["completarAutorizacionArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/conectar": {
         parameters: {
             query?: never;
@@ -3769,6 +3809,23 @@ export interface components {
              */
             tecnicoId: number;
         };
+        AutorizacionCompletada: {
+            /** @description El conector nuevo, apagado */
+            conector: components["schemas"]["Conector"];
+            /** @description Empresas del alcance del usuario técnico, según el canje */
+            empresas: components["schemas"]["EmpresaAutorizada"][] | null;
+        };
+        AutorizacionIniciada: {
+            /**
+             * Format: date-time
+             * @description Vence el state (10 min)
+             */
+            expiraEn: string;
+            /** @description Origen normalizado del panel */
+            panelUrl: string;
+            /** @description https://<panel>/integraciones/iris/autorizar?iris=…&state=…&code_challenge=…&code_challenge_method=S256: el panel de Iris la abre en la misma pestaña */
+            url: string;
+        };
         Buzon: {
             activo: boolean;
             /** Format: date-time */
@@ -4055,7 +4112,9 @@ export interface components {
             actualizadoEn: string;
             /** @description Lo que informó el canje de Argos (0.3.1): true = Iris ve también las empresas que se creen después en Argos; false = solo las de empresas (vacía = ninguna). Ausente si no lo informó (Argos anterior a 0.3.1, Horus o un enlace generado en Iris) */
             alcanceGlobal?: boolean;
-            /** @description Origen del otro sistema */
+            /** @description Origen de la API del otro sistema, a la que Iris llama: el api de la vuelta (§1.4) o el origen del enlace (§1.3) */
+            apiUrl: string;
+            /** @description Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad) */
             baseUrl: string;
             /** Format: date-time */
             creadoEn: string;
@@ -4066,17 +4125,19 @@ export interface components {
             /** Format: int64 */
             id: number;
             /**
-             * @description enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro
+             * @description enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro; autorizacion: «Conectar con un botón» (Argos 0.4.0 §1.4)
              * @enum {string}
              */
-            origen: "enlace_remoto" | "enlace_local";
+            origen: "enlace_remoto" | "enlace_local" | "autorizacion";
+            /** @description Origen del panel del otro sistema que informó el canje (panel_url, Argos 0.4.0); null si no lo informó */
+            panelUrl: string | null;
             /** @description Id de la conexión en el otro sistema, si lo informó */
             remotoId: string | null;
             /** @enum {string} */
             sistema: "argosisp" | "horus";
             /** Format: date-time */
             ultimoWebhookEn: string | null;
-            /** @description Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus»: la configurada o, si no hay, baseUrl */
+            /** @description Origen del panel para los enlaces «Ver en Argos/Horus»: la configurada a mano, si no panelUrl y, si tampoco, la API (Argos anterior a 0.4.0) */
             urlPublica: string;
             /** Format: int32 */
             version: number;
@@ -4274,6 +4335,12 @@ export interface components {
             sincronizadoEn: string | null;
             /** Format: int32 */
             version: number;
+        };
+        EmpresaAutorizada: {
+            /** Format: int64 */
+            id: number;
+            nit: string | null;
+            nombre: string | null;
         };
         EmpresaResumen: {
             /** Format: int64 */
@@ -4482,6 +4549,10 @@ export interface components {
              */
             version: number;
         };
+        EntradaAutorizar: {
+            /** @description Dirección del panel del otro sistema (https://host[:puerto]); se normaliza al origen */
+            panelUrl: string;
+        };
         EntradaBorrarVinculoSSO: {
             motivo?: string;
         };
@@ -4564,6 +4635,16 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaCompletarAutorizacion: {
+            /** @description Origen de la API del otro sistema (si aprobó); debe estar en la lista de orígenes */
+            api?: string;
+            /** @description Código de conexión (si el administrador aprobó) */
+            codigo?: string;
+            /** @description Error de la vuelta (rechazado) en vez de codigo y api */
+            error?: string;
+            /** @description state de la vuelta */
+            state: string;
         };
         EntradaConectar: {
             /** @description Enlace de conexión generado en el otro sistema: https://<sistema>/conectar#<código> (15 min, un solo uso) */
@@ -11952,6 +12033,150 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    autorizarConexionArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAutorizar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutorizacionIniciada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    completarAutorizacionArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCompletarAutorizacion"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutorizacionCompletada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
