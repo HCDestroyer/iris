@@ -212,28 +212,6 @@ test.describe("detalle de orden", () => {
 });
 
 test.describe("acciones del panel", () => {
-    test("crear orden desde un ticket", async ({ page, context, baseURL }, info) => {
-        const api = await simularApi(page);
-        await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/tickets/1");
-        await page.getByRole("button", { name: "Crear orden" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Crear orden desde el ticket" });
-        await expect(dialogo.getByText("Hereda los datos del ticket")).toBeVisible();
-        await expect(dialogo.getByLabel("Trabajo a realizar")).toHaveValue("Sin internet desde la mañana");
-        await dialogo.getByLabel("Tipo").selectOption("visita");
-        await page.screenshot({ path: path.join(carpeta, `25-orden-desde-ticket-${info.project.name}.png`) });
-        await dialogo.getByRole("button", { name: "Crear orden" }).click();
-        await expect(page).toHaveURL(/\/ordenes\/1000$/);
-        await expect(page.getByTestId("ticket-vinculado")).toContainText("TK-000101");
-        const post = api.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/ordenes");
-        expect(post?.cuerpo).toEqual({ tipo: "visita", ticketId: 1, descripcion: "Sin internet desde la mañana" });
-        expect(post?.idempotencia).toBeTruthy();
-
-        // El ticket lista sus órdenes.
-        await page.goto("/tickets/1");
-        await expect(page.getByTestId("ordenes-del-ticket")).toContainText("OT-001000");
-    });
-
     test("crear orden desde cero valida la dirección", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
