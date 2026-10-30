@@ -31,8 +31,11 @@ const (
 	CopiaOrden  = "orden"
 )
 
-func errOtraEmpresa() error {
-	return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente o el servicio es de otra empresa en Argos")
+// errNoDisponible es la única respuesta cuando el cliente o el servicio no sirven para la empresa:
+// no existe en Argos, es de otra empresa o el servicio no es de ese cliente o de esa empresa. Es la
+// misma en todos los casos, para no revelar qué clientes o servicios existen en otras empresas.
+func errNoDisponible() error {
+	return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente o el servicio no existe en Argos o no es de tu empresa")
 }
 
 // EsOtraEmpresa indica si err es el 422 empresa_no_coincide de ValidarClienteEnEmpresa.
@@ -41,11 +44,12 @@ func EsOtraEmpresa(err error) bool {
 	return errors.As(err, &p) && p.Codigo() == "empresa_no_coincide"
 }
 
-// ValidarClienteEnEmpresa comprueba, contra la instantánea (si Iris la tiene), que el cliente sea
-// de la empresa (alguno de sus servicios lo es, o no tiene servicios: como en Argos) y que el
-// servicio sea de ese cliente y de esa empresa. Sin instantánea no se puede validar y se acepta
-// (como al crear órdenes); entonces tampoco hay copia. empresa nil o 0 (sin conector): solo se
-// valida que el servicio sea del cliente. 422 empresa_no_coincide o 422 de validación.
+// ValidarClienteEnEmpresa comprueba, contra la instantánea (si Iris la tiene), primero que el
+// cliente sea de la empresa (alguno de sus servicios lo es, o no tiene servicios: como en Argos) y
+// después que el servicio sea de ese cliente y de esa empresa. Sin instantánea no se puede validar
+// y se acepta (AsegurarInstantanea ya la trajo si hacía falta); entonces tampoco hay copia.
+// empresa nil o 0 (sin conector): solo se valida que el servicio sea del cliente. Cualquier
+// incumplimiento da el mismo 422 empresa_no_coincide (errNoDisponible).
 func ValidarClienteEnEmpresa(ctx context.Context, db argosbd.DBTX, clienteID int64, servicioID, empresa *int64) error {
 	q := argosbd.New(db)
 	e := valor(empresa)
@@ -55,7 +59,7 @@ func ValidarClienteEnEmpresa(ctx context.Context, db argosbd.DBTX, clienteID int
 	case err != nil:
 		return err
 	case e != 0 && !enEmpresa(empresasDeFila(c), c.SinServicios, e):
-		return errOtraEmpresa()
+		return errNoDisponible()
 	}
 	if servicioID == nil {
 		return nil
@@ -66,10 +70,8 @@ func ValidarClienteEnEmpresa(ctx context.Context, db argosbd.DBTX, clienteID int
 		return nil
 	case err != nil:
 		return err
-	case s.ClienteID != clienteID:
-		return nucleo.Validacion(nucleo.ErrorCampo{Field: "servicioId", Message: "El servicio no es de ese cliente según Argos", Rule: "servicio"})
-	case e != 0 && s.EmpresaID != e:
-		return errOtraEmpresa()
+	case s.ClienteID != clienteID, e != 0 && s.EmpresaID != e:
+		return errNoDisponible()
 	}
 	return nil
 }

@@ -25,7 +25,7 @@ func TestTicketConClienteDeOtraEmpresa(t *testing.T) {
 	_, err := m.CrearTicket.Ejecutar(c66, soporte.EntradaCrearTicket{Asunto: "Sin señal", ClienteID: ptr(int64(6701))})
 	problema(t, err, 422, "empresa_no_coincide")
 	_, err = m.CrearTicket.Ejecutar(c66, soporte.EntradaCrearTicket{Asunto: "Sin señal", ClienteID: ptr(int64(6601)), ServicioID: ptr(int64(670101))})
-	problema(t, err, 422, "validacion")
+	problema(t, err, 422, "empresa_no_coincide")
 	// El suyo, sí, con su copia.
 	tk := deber(m.CrearTicket.Ejecutar(c66, soporte.EntradaCrearTicket{Asunto: "Sin señal", ClienteID: ptr(int64(6601)), ServicioID: ptr(int64(660101))}))(t)
 	if v := deber(m.VerTicket.Ejecutar(c66, soporte.EntradaVerTicket{ID: tk.ID}))(t); v.DatosArgos == nil || v.DatosArgos.Cliente.ID != 6601 {

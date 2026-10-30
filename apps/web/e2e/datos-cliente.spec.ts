@@ -66,4 +66,14 @@ test.describe("datos del cliente y del servicio", () => {
         await expect(ficha.getByTestId("sincronizado")).toContainText("Copia guardada al crear el ticket (27/10/2026 14:20)");
         await expect(ficha.getByRole("button", { name: "Refrescar" })).toHaveCount(0);
     });
+
+    test("refrescar sin llamar a Argos por la cuota: se avisa", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/2");
+        const ficha = page.getByTestId("ficha-cliente");
+        await expect(ficha).toContainText("Ferretería El Tornillo");
+        await ficha.getByRole("button", { name: "Refrescar" }).click();
+        await expect(ficha.getByRole("status").filter({ hasText: "demasiadas consultas a Argos" })).toBeVisible();
+    });
 });

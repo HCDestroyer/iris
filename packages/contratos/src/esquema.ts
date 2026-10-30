@@ -5980,6 +5980,11 @@ export interface components {
              * @enum {string|null}
              */
             estadoCuentaError: "sin_permiso" | "argos_no_disponible" | "argos_rechazo" | null;
+            /**
+             * @description Solo con ?refrescar=true cuando no se llamó a Argos: cuota (se agotó la cuota de lecturas a pedido del usuario o del conector; intenta en un minuto), reciente (se leyó hace menos de 30 s) o en_espera (Argos falló hace menos de un minuto). La ficha es la instantánea
+             * @enum {string}
+             */
+            refrescoOmitido?: "cuota" | "reciente" | "en_espera";
             servicios: components["schemas"]["Servicio"][] | null;
             /** @description Servicios del cliente que Argos eliminó (servicio.eliminado, contrato 0.3.1): ya no están en servicios. Un ticket u orden cuyo servicioId está aquí lo muestra «eliminado en Argos». Filtrados por la empresa activa, como servicios */
             serviciosEliminados?: components["schemas"]["ServicioEliminado"][] | null;

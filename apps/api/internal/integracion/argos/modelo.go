@@ -131,6 +131,8 @@ type Ficha struct {
 	EstadoCuentaError *string   `json:"estadoCuentaError" nullable:"true" enum:"sin_permiso,argos_no_disponible,argos_rechazo" doc:"sin_permiso: falta clientes.estado_cuenta; argos_no_disponible: Argos no respondió; argos_rechazo: Argos lo negó"`
 	Stale             bool      `json:"stale" doc:"true: Argos no respondió y se muestra la última instantánea"`
 	SincronizadoEn    time.Time `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos esta instantánea"`
+	// RefrescoOmitido: con ?refrescar=true, por qué no se llamó a Argos.
+	RefrescoOmitido *string `json:"refrescoOmitido,omitempty" enum:"cuota,reciente,en_espera" doc:"Solo con ?refrescar=true cuando no se llamó a Argos: cuota (se agotó la cuota de lecturas a pedido del usuario o del conector; intenta en un minuto), reciente (se leyó hace menos de 30 s) o en_espera (Argos falló hace menos de un minuto). La ficha es la instantánea"`
 }
 
 // ResultadoBusqueda de clientes.

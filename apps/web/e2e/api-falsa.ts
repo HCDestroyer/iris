@@ -648,8 +648,10 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
             }
             const id = Number(ruta.split("/").pop());
-            // ?refrescar=true: Argos responde y la instantánea queda al día.
-            const f = url.searchParams.get("refrescar") === "true" ? ficha(id, false, new Date().toISOString()) : ficha(id, id === 502);
+            // ?refrescar=true: Argos responde y la instantánea queda al día; con el 502, la cuota de
+            // lecturas a pedido está agotada (refrescoOmitido) y vuelve la misma instantánea.
+            const refrescar = url.searchParams.get("refrescar") === "true";
+            const f = refrescar && id === 502 ? { ...ficha(id, false), refrescoOmitido: "cuota" as const } : refrescar ? ficha(id, false, new Date().toISOString()) : ficha(id, id === 502);
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 

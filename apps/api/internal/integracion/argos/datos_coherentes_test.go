@@ -251,14 +251,49 @@ func TestAsegurarInstantanea(t *testing.T) {
 	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4601)); err != nil || e.argos.llamadasA("/api/v1/clientes/460") != antes {
 		t.Fatalf("con la instantánea no debía llamar a Argos: %v", err)
 	}
-	// Servicio de otro cliente: 422 servicioId.
-	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4610)); !esProblemaStatus(err, 422, "validacion") {
+	// Servicio de otro cliente con la instantánea recién leída: se valida localmente, sin Argos,
+	// y da el 422 único (el mismo que «no existe» y «de otra empresa»).
+	antes = e.argos.llamadasA("/api/v1/clientes/460")
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4610)); !esProblemaStatus(err, 422, "empresa_no_coincide") ||
+		e.argos.llamadasA("/api/v1/clientes/460") != antes {
 		t.Fatalf("servicio de otro cliente: %v", err)
 	}
-	// Cliente que Argos no tiene: 422.
-	if err := e.mod.AsegurarInstantanea(ctx, 999999, srv(1)); !esProblemaStatus(err, 422, "validacion") {
+	// Con la instantánea de hace más de 30 s, se relee una vez y el servicio sigue sin ser suyo.
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 460`)
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4610)); !esProblemaStatus(err, 422, "empresa_no_coincide") ||
+		e.argos.llamadasA("/api/v1/clientes/460") != antes+1 {
+		t.Fatalf("servicio de otro cliente tras releer: %v", err)
+	}
+	// Cliente que Argos no tiene: el mismo 422.
+	if err := e.mod.AsegurarInstantanea(ctx, 999999, srv(1)); !esProblemaStatus(err, 422, "empresa_no_coincide") {
 		t.Fatalf("cliente inexistente: %v", err)
 	}
+	// Cliente de otra empresa (la activa es la 2): mismo 422 y no entra a la instantánea.
+	e.sembrarComoArgos14(465)
+	otra := pruebas.ContextoUsuarioEnEmpresa(e.pool, 999, 2)
+	if err := e.mod.AsegurarInstantanea(otra, 465, srv(4650)); !esProblemaStatus(err, 422, "empresa_no_coincide") {
+		t.Fatalf("cliente de otra empresa: %v", err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 465`); n != 0 {
+		t.Fatal("un cliente de otra empresa no debía guardarse")
+	}
+	// Argos eliminó al cliente: se borra la instantánea y se anonimizan sus copias.
+	empresa := int64(1)
+	if _, err := argos.CopiarDatos(ctx, e.pool, argos.CopiaTicket, 900010, 460, srv(4600), &empresa, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 460`)
+	e.argos.con(func() { delete(e.argos.clientes, 460) })
+	if err := e.mod.AsegurarInstantanea(ctx, 460, srv(4699)); !esProblemaStatus(err, 422, "empresa_no_coincide") {
+		t.Fatalf("cliente eliminado en Argos: %v", err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 460`); n != 0 {
+		t.Fatal("la instantánea del cliente eliminado debía borrarse")
+	}
+	if c, err := argos.CopiaDe(ctx, e.pool, argos.CopiaTicket, 900010, &empresa); err != nil || c == nil || !c.Anonimizada {
+		t.Fatalf("copia anonimizada: %+v %v", c, err)
+	}
+	e.exec(`DELETE FROM integracion.argos_copias WHERE entidad_id = 900010`)
 	// Argos caído: con servicio, 503; solo con cliente, se sigue.
 	e.sembrarComoArgos14(462)
 	e.argos.con(func() { e.argos.caido = true })
@@ -267,6 +302,26 @@ func TestAsegurarInstantanea(t *testing.T) {
 	}
 	if err := e.mod.AsegurarInstantanea(ctx, 462, nil); err != nil {
 		t.Fatalf("Argos caído sin servicio: %v", err)
+	}
+}
+
+// Cuota de lecturas a pedido por usuario: pasada, 429 y sin llamar a Argos.
+func TestAsegurarInstantaneaCuota(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	ctx := pruebas.ContextoUsuarioEnEmpresa(e.pool, 991, 1)
+	s := int64(1)
+	for i := range argos.CuotaUsuario {
+		if err := e.mod.AsegurarInstantanea(ctx, int64(800000+i), &s); !esProblemaStatus(err, 422, "empresa_no_coincide") {
+			t.Fatalf("lectura %d: %v", i, err)
+		}
+	}
+	if err := e.mod.AsegurarInstantanea(ctx, 800099, &s); !esProblemaStatus(err, 429, "cuota_argos") || e.argos.llamadasA("/api/v1/clientes/800099") != 0 {
+		t.Fatalf("pasada la cuota: %v", err)
+	}
+	// Otro usuario tiene la suya.
+	if err := e.mod.AsegurarInstantanea(pruebas.ContextoUsuarioEnEmpresa(e.pool, 992, 1), 800099, &s); !esProblemaStatus(err, 422, "empresa_no_coincide") {
+		t.Fatalf("otro usuario: %v", err)
 	}
 }
 
@@ -352,5 +407,51 @@ func TestServicioPorIPSinRetirados(t *testing.T) {
 	e.exec(`UPDATE integracion.argos_servicios SET estado = 'retirado' WHERE id = 4640`)
 	if _, err := q.ServicioPorIP(ctx, argosbd.ServicioPorIPParams{Ip: "100.64.10.5", EmpresaID: 1}); err == nil {
 		t.Fatal("un servicio retirado no debía resolver la IP")
+	}
+}
+
+// «Refrescar»: solo se cobra la cuota cuando se llama a Argos; pasada la cuota del usuario, la
+// ficha dice refrescoOmitido «cuota» (y otro usuario sigue pudiendo); una instantánea de hace
+// menos de 30 s da «reciente» sin cobrar; una vencida se lee aunque la cuota esté agotada.
+func TestRefrescarCuotaYOmitido(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	e.sembrarComoArgos14(466)
+	yo := e.usuario("lectura")
+	if f := yo.pedir(http.MethodGet, "/api/v1/clientes/466", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	llamadas := func() int { return e.argos.llamadasA("/api/v1/clientes/466") }
+	// Recién leída: no se llama ni se cobra.
+	for range argos.CuotaUsuario + 2 {
+		if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != "reciente" {
+			t.Fatalf("reciente: %s", r.crudo)
+		}
+	}
+	antes := llamadas()
+	for i := range argos.CuotaUsuario {
+		e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
+		if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != nil {
+			t.Fatalf("refresco %d: %s", i, r.crudo)
+		}
+	}
+	if llamadas() != antes+argos.CuotaUsuario {
+		t.Fatalf("cada refresco dentro de la cuota llama a Argos: %d", llamadas()-antes)
+	}
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
+	if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.status != 200 || r.cuerpo["refrescoOmitido"] != "cuota" || r.cuerpo["stale"] != false {
+		t.Fatalf("pasada la cuota: %s", r.crudo)
+	}
+	if llamadas() != antes+argos.CuotaUsuario {
+		t.Fatal("pasada la cuota no debía llamar a Argos")
+	}
+	if r := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != nil {
+		t.Fatalf("otro usuario tiene su cuota: %s", r.crudo)
+	}
+	// Vencida (24 h): se lee aunque la cuota del usuario esté agotada.
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '25 hours' WHERE id = 466`)
+	antes = llamadas()
+	if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466", nil); r.status != 200 || llamadas() != antes+1 {
+		t.Fatalf("vencida: %s", r.crudo)
 	}
 }

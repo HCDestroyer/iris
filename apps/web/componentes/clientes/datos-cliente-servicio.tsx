@@ -59,6 +59,13 @@ const DEL_ORIGEN: Record<OrigenDatos, { el: string; servicio: string }> = {
     prospecto: { el: "el alta", servicio: "Servicio del alta" },
 };
 
+/** Por qué «Refrescar» no llamó a Argos (la API lo dice en `refrescoOmitido`). */
+const NO_REFRESCADO: Record<NonNullable<Ficha["refrescoOmitido"]>, string> = {
+    cuota: "No se refrescó: hubo demasiadas consultas a Argos en el último minuto. Intenta en un momento.",
+    reciente: "Ya estaba al día: se leyó de Argos hace menos de 30 segundos.",
+    en_espera: "No se refrescó: Argos falló hace menos de un minuto. Sigue la última copia guardada.",
+};
+
 const ERRORES_CUENTA: Record<NonNullable<Ficha["estadoCuentaError"]>, string> = {
     sin_permiso: "No tienes permiso para ver el estado de cuenta.",
     argos_no_disponible: "Argos no respondió: el estado de cuenta no está disponible ahora.",
@@ -90,7 +97,7 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
         try {
             const datos = await resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId }, query: { refrescar: true } } }));
             ficha.reemplazar(datos);
-            setRefresco({ cargando: false, error: datos.stale ? "Argos no respondió: sigue la última copia guardada." : null });
+            setRefresco({ cargando: false, error: datos.refrescoOmitido ? NO_REFRESCADO[datos.refrescoOmitido] : datos.stale ? "Argos no respondió: sigue la última copia guardada." : null });
         } catch (e) {
             const m = mensajeDeError(e);
             setRefresco({ cargando: false, error: `No se pudo refrescar: ${m.detalle ?? m.titulo}` });

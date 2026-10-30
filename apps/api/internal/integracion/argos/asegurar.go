@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -19,10 +20,15 @@ import (
 // habla con Argos.
 //
 //   - Sin conector activo: nada que verificar (Iris trabaja con datos locales).
-//   - Si la instantánea ya tiene el cliente y el servicio pedido: no llama a Argos.
-//   - Si no: lee la ficha (GET /clientes/:id y sus servicios) y la guarda (acción
-//     clientes.sincronizar, auditada). Un servicio que no está entre los del cliente: 422
-//     servicioId. Un cliente que Argos no tiene: 422 clienteId.
+//   - Con instantánea, se valida primero localmente: si cliente y servicio sirven, no se llama a
+//     Argos. Si no sirven (otra empresa, servicio ajeno o desconocido), se relee de Argos solo si
+//     la instantánea tiene más de RefrescoMinimo; si no, el 422 único (errNoDisponible).
+//   - La lectura pasa por la protección de la ficha: singleflight, cuota por usuario y por conector
+//     (agotada: 429) y la espera tras una caída (fallo_en).
+//   - Lo leído se valida (cliente de la empresa activa, servicio suyo y de la empresa) ANTES de
+//     guardarlo: un cliente de otra empresa no entra a la instantánea. Cualquier incumplimiento, y
+//     un cliente que Argos no tiene, da el mismo 422.
+//   - Un 404 de Argos borra la instantánea y anonimiza las copias, como la ficha.
 //   - Argos caído: con servicioId, 503 argos_no_disponible (nunca se acepta un servicio sin
 //     verificar); solo con clienteId, se sigue (no hay servicio que atar).
 func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servicioID *int64) error {
@@ -38,57 +44,132 @@ func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servi
 	if err != nil {
 		return err
 	}
+	e := contexto.EmpresaDe(ctx)
 	q := argosbd.New(bd)
-	_, err = q.ClientePorID(ctx, clienteID)
-	tieneCliente := err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	var previa *argosbd.IntegracionArgosCliente
+	if f, err := q.ClientePorID(ctx, clienteID); err == nil {
+		previa = &f
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if tieneCliente && servicioID == nil {
-		return nil
-	}
-	if tieneCliente && servicioID != nil {
-		s, err := q.ServicioPorID(ctx, *servicioID)
-		if err == nil && s.ClienteID == clienteID {
-			return nil
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	ahora := time.Now()
+	if previa != nil {
+		sirve, err := sirveLocal(ctx, q, *previa, servicioID, e)
+		if err != nil || sirve {
 			return err
 		}
+		if ahora.Sub(previa.SincronizadoEn) <= RefrescoMinimo {
+			return errNoDisponible()
+		}
+		if enEspera(previa, ahora) {
+			if servicioID == nil {
+				return nil
+			}
+			return Problema(errEnEspera())
+		}
 	}
-	ficha, err := leerFichaArgos(ctx, bd, m.clienteDe(c), clienteID)
+	ficha, err := m.refrescos.leerUnaVez(ctx, c.ID, clienteID, contexto.ActorDe(ctx).ID, true, func(cx context.Context) (fichaArgos, error) {
+		return leerFichaArgos(cx, bd, m.clienteDe(c), clienteID)
+	})
 	switch {
 	case err == nil:
+	case errors.Is(err, errCuota):
+		return nucleo.DemasiadosIntentos("cuota_argos", "Demasiadas consultas a Argos en el último minuto; intenta en un momento", time.Minute)
 	case EsNoEncontrado(err):
-		return nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "El cliente no existe en Argos", Rule: "cliente"})
-	case EsCaido(err) && servicioID == nil:
-		return nil
+		if previa != nil {
+			if _, err := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, borrar: true}); err != nil {
+				return err
+			}
+		}
+		return errNoDisponible()
+	case EsCaido(err):
+		if previa != nil {
+			if _, err := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, fallo: true}); err != nil {
+				return err
+			}
+		}
+		if servicioID == nil {
+			return nil
+		}
+		return Problema(err)
 	default:
 		return Problema(err)
 	}
-	if _, err := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, ficha: ficha}); err != nil {
-		return err
+	if !fichaSirve(ficha, servicioID, e) {
+		return errNoDisponible()
 	}
-	if servicioID != nil && !slices.Contains(ficha.idsServicios(), *servicioID) {
-		return nucleo.Validacion(nucleo.ErrorCampo{Field: "servicioId", Message: "El servicio no es de ese cliente según Argos", Rule: "servicio"})
+	_, err = m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, ficha: &ficha})
+	return err
+}
+
+// sirveLocal: la instantánea ya basta (cliente de la empresa y, si se pidió, servicio suyo y de
+// la empresa).
+func sirveLocal(ctx context.Context, q *argosbd.Queries, c argosbd.IntegracionArgosCliente, servicioID *int64, e int64) (bool, error) {
+	if e != 0 && !enEmpresa(empresasDeFila(c), c.SinServicios, e) {
+		return false, nil
 	}
-	return nil
+	if servicioID == nil {
+		return true, nil
+	}
+	s, err := q.ServicioPorID(ctx, *servicioID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return s.ClienteID == c.ID && (e == 0 || s.EmpresaID == e), nil
+}
+
+// fichaSirve valida lo leído de Argos antes de guardarlo: el cliente es de la empresa (o no tiene
+// servicios, según la lista completa) y el servicio, si se pidió, es suyo y de la empresa.
+func fichaSirve(f fichaArgos, servicioID *int64, e int64) bool {
+	if e != 0 && !slices.Contains(EmpresasDelCliente(f.cliente, f.servicios), e) && (!f.completa || len(f.servicios) > 0) {
+		return false
+	}
+	if servicioID == nil {
+		return true
+	}
+	for _, s := range f.servicios {
+		if s.ID == *servicioID {
+			return (s.ClienteID == 0 || s.ClienteID == f.cliente.ID) && (e == 0 || s.EmpresaID == e)
+		}
+	}
+	return false
 }
 
 type entradaGuardarFicha struct {
 	ClienteID int64 `json:"cliente_id"`
-	ficha     fichaArgos
+	// Uno de: la ficha leída, el 404 de Argos (borrar) o una caída (fallo).
+	ficha  *fichaArgos
+	borrar bool
+	fallo  bool
 }
 
-// nuevoGuardarFichaInterna guarda una ficha leída de Argos para validar un alta (sin permiso de
-// clientes.ver: basta el actor que crea el ticket o la orden). Auditada: es una lectura de
-// datos personales.
+// nuevoGuardarFichaInterna aplica lo que se leyó de Argos para validar un alta (sin permiso de
+// clientes.ver: basta el actor que crea el ticket o la orden). Auditada: es una lectura de datos
+// personales.
 func nuevoGuardarFichaInterna() *auditoria.Caso[entradaGuardarFicha, struct{}] {
 	return auditoria.Nuevo(auditoria.Caso[entradaGuardarFicha, struct{}]{
 		Accion: "clientes.sincronizar", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarFicha) (struct{}, error) {
 			t.FijarEntidad("cliente_argos", in.ClienteID)
-			return struct{}{}, guardarFicha(ctx, t, argosbd.New(t), in.ficha)
+			q := argosbd.New(t)
+			switch {
+			case in.borrar:
+				t.Anotar(map[string]any{"resultado_argos": "no_existe"})
+				if err := q.AnonimizarCopiasDeCliente(ctx, in.ClienteID); err != nil {
+					return struct{}{}, err
+				}
+				return struct{}{}, q.BorrarCliente(ctx, in.ClienteID)
+			case in.fallo:
+				t.Anotar(map[string]any{"resultado_argos": "no_disponible"})
+				ahora := time.Now()
+				return struct{}{}, q.MarcarFalloCliente(ctx, argosbd.MarcarFalloClienteParams{ID: in.ClienteID, FalloEn: &ahora})
+			case in.ficha != nil:
+				return struct{}{}, guardarFicha(ctx, t, q, *in.ficha)
+			}
+			return struct{}{}, nil
 		},
 	})
 }

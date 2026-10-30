@@ -289,6 +289,13 @@ type EntradaFicha struct {
 // RefrescoMinimo: con ?refrescar=true, una instantánea más nueva que esto no se vuelve a pedir.
 const RefrescoMinimo = 30 * time.Second
 
+// Por qué «Refrescar» no llamó a Argos (Ficha.RefrescoOmitido).
+const (
+	RefrescoCuota    = "cuota"
+	RefrescoReciente = "reciente"
+	RefrescoEnEspera = "en_espera"
+)
+
 type fichaPrevia struct {
 	conector  conector.Leido
 	cliente   *argosbd.IntegracionArgosCliente
@@ -302,7 +309,9 @@ type entradaFichaFinal struct {
 	noExiste  bool
 	errArgos  error
 	// enEspera: no se llamó a Argos por un fallo reciente (no se vuelve a marcar el fallo).
-	enEspera  bool
+	enEspera bool
+	// omitido: por qué «Refrescar» no llamó a Argos (RefrescoCuota, RefrescoReciente…).
+	omitido   *string
 	estado    *EstadoCuenta
 	errEstado *string
 }
@@ -412,7 +421,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			}
 			return Ficha{
 				Cliente: resumen, Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
-				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn,
+				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn, RefrescoOmitido: in.omitido,
 			}, nil
 		},
 	})
@@ -427,26 +436,35 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	}
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
-	refrescar := in.Refrescar
-	if refrescar && p.cliente != nil {
-		// «Refrescar» solo para un cliente que la instantánea pone en la empresa activa (otro dará
-		// 404 sin llamar a Argos) y dentro de la cuota del conector.
-		e := contexto.EmpresaDe(ctx)
-		refrescar = (e == 0 || enEmpresa(empresasDeFila(*p.cliente), p.cliente.SinServicios, e)) &&
-			o.m.refrescos.tomarCuota(p.conector.ID, time.Now())
+	ahora := time.Now()
+	e := contexto.EmpresaDe(ctx)
+	// Un cliente que la instantánea pone en otra empresa dará 404: «Refrescar» no llama a Argos.
+	deEmpresa := p.cliente == nil || e == 0 || enEmpresa(empresasDeFila(*p.cliente), p.cliente.SinServicios, e)
+	vencida := debeRefrescar(p.cliente, false, o.m.cfg.VigenciaInstantanea)
+	// «Refrescar» de una instantánea vigente: lectura a pedido, con cuota (solo si se llama).
+	aPedido := in.Refrescar && !vencida && deEmpresa && ahora.Sub(p.cliente.SincronizadoEn) > RefrescoMinimo
+	omitir := func(motivo string) {
+		if in.Refrescar && deEmpresa {
+			f.omitido = &motivo
+		}
 	}
 	switch {
-	case !debeRefrescar(p.cliente, refrescar, o.m.cfg.VigenciaInstantanea):
-	case enEspera(p.cliente, time.Now()):
+	case !vencida && !aPedido:
+		omitir(RefrescoReciente)
+	case enEspera(p.cliente, ahora):
 		// Argos se cayó hace poco al leer este cliente: no se insiste; la instantánea, stale.
 		f.errArgos, f.enEspera = errEnEspera(), true
+		omitir(RefrescoEnEspera)
 	default:
-		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, func(c context.Context) (fichaArgos, error) {
+		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, contexto.ActorDe(ctx).ID, aPedido, func(c context.Context) (fichaArgos, error) {
 			return leerFichaArgos(c, nucleo.BDDe(ctx), cli, in.ID)
 		})
 		switch {
 		case err == nil:
 			f.leida = &leida
+		case errors.Is(err, errCuota):
+			// Sin llamar a Argos: la instantánea vigente, y el panel avisa que no se refrescó.
+			omitir(RefrescoCuota)
 		case EsNoEncontrado(err):
 			f.noExiste = true
 		default:

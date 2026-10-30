@@ -6602,6 +6602,15 @@
               "null"
             ]
           },
+          "refrescoOmitido": {
+            "description": "Solo con ?refrescar=true cuando no se llamó a Argos: cuota (se agotó la cuota de lecturas a pedido del usuario o del conector; intenta en un minuto), reciente (se leyó hace menos de 30 s) o en_espera (Argos falló hace menos de un minuto). La ficha es la instantánea",
+            "enum": [
+              "cuota",
+              "reciente",
+              "en_espera"
+            ],
+            "type": "string"
+          },
           "servicios": {
             "items": {
               "$ref": "#/components/schemas/Servicio"
