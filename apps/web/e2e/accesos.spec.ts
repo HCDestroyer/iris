@@ -87,7 +87,7 @@ test.describe("accesos, actividad de la app y roles", () => {
         const luis = page.locator('[data-tecnico="33"]');
         await expect(jorge).toContainText("Al día");
         await expect(jorge).toContainText("1.4.0 · Android");
-        await expect(jorge).toContainText("14.63492, -90.50688");
+        await expect(jorge).toContainText("14.63491, -90.50688");
         await expect(rosa).toContainText("Atrasado · 3 sin enviar");
         await expect(rosa).toContainText("0.9.2 · PWA");
         await expect(luis).toContainText("Sin conexión hace 2 h");

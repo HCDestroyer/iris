@@ -520,9 +520,10 @@ func TestRolesPropios(t *testing.T) {
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/roles/%d/editar", idRol), map[string]any{"version": version, "nombre": "Y"}).problema(t, 409, "conflicto_version")
 	version = r.cuerpo["version"].(float64)
 
-	// Asignar a un usuario, con alcance de zona.
+	// Asignar a un usuario, con alcance de zona (con empresa: no es un dato «sin empresa» que
+	// otras pruebas del paquete adopten).
 	zona := time.Now().UnixNano() % 1_000_000_000
-	if _, err := pool.Exec(ctx, `INSERT INTO agenda.zonas (id, origen, nombre) VALUES ($1, 'local', 'Norte')`, zona); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO agenda.zonas (id, empresa_id, origen, nombre) VALUES ($1, 777777, 'local', 'Norte')`, zona); err != nil {
 		t.Fatal(err)
 	}
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-rol", idLec), map[string]any{"rol": "mesa_ayuda", "zonaId": zona, "cuadrillaId": 1}).problema(t, 422, "validacion")

@@ -285,13 +285,14 @@ export async function simularAccesos(page: Page, usuarios: Usuario[] = [ADMIN, C
         if (metodo === "POST" && ruta === "/api/v1/roles") {
             anotar();
             const e = cuerpo as Schema<"EntradaCrearRol">;
+            const permisos = e.permisos ?? [];
             if (estado.roles.some((r) => r.codigo === e.codigo)) {
                 return problema(route, 409, "rol_existe", `Ya existe un rol con el código ${e.codigo}`);
             }
-            if (e.permisos.some(sensible) && !reautenticado) {
+            if (permisos.some(sensible) && !reautenticado) {
                 return problema(route, 403, "reautenticacion_requerida", "Crear este rol da permisos sensibles: confirma tu contraseña");
             }
-            const nuevo = rol(100 + estado.roles.length, e.codigo, e.nombre, e.permisos, { descripcion: e.descripcion ?? "" });
+            const nuevo = rol(100 + estado.roles.length, e.codigo, e.nombre, permisos, { descripcion: e.descripcion ?? "" });
             estado.roles.push(nuevo);
             return json(route, nuevo, 201);
         }
