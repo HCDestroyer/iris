@@ -116,6 +116,7 @@ type Modulo struct {
 	ListarVinculosSSO *auditoria.Caso[EntradaVinculosSSO, nucleo.Pagina[VinculoSSO]]
 	BorrarVinculoSSO  *auditoria.Caso[EntradaBorrarVinculoSSO, VinculoSSO]
 	CrearVinculoSSO   *auditoria.Caso[EntradaCrearVinculoSSO, VinculoSSO]
+	DescartarSSO      *auditoria.Caso[EntradaDescartarSSO, bool]
 	// Reautenticar: confirmar la contraseña dentro de la sesión (la exige una sesión sso).
 	Reautenticar *auditoria.Caso[EntradaReautenticar, Reautenticado]
 }
@@ -199,6 +200,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ListarVinculosSSO = nuevoListarVinculosSSO()
 	m.BorrarVinculoSSO = nuevoBorrarVinculoSSO()
 	m.CrearVinculoSSO = nuevoCrearVinculoSSO()
+	m.DescartarSSO = nuevoDescartarSSO()
 	m.Reautenticar = nuevoReautenticar(cfg)
 	return m
 }

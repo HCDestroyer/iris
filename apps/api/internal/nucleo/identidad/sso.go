@@ -57,6 +57,8 @@ const (
 	// RutasSSO: prefijo de las rutas del navegador del autologin.
 	RutasSSO       = "/api/v1/sso"
 	rutaCanjearSSO = RutasSSO + "/canjear"
+	// rutaDescartarSSO: «No fui yo» (público y sin CSRF, como el canje).
+	rutaDescartarSSO = RutasSSO + "/descartar"
 	// ventanaTopeSSO: ventana del tope de emisión por conector.
 	ventanaTopeSSO = time.Minute
 )
@@ -713,4 +715,37 @@ func exigirSobreVinculos(ctx context.Context, t *auditoria.Tx, q *identidadbd.Qu
 		return nil
 	}
 	return exigirSuperior(ctx, q, permisos, objetivo, que)
+}
+
+// Descartar ---------------------------------------------------------------------------------
+
+// EntradaDescartarSSO lleva la vinculación pendiente (cookie iris_sso_vincular), si hay.
+type EntradaDescartarSSO struct {
+	Vinculacion string `json:"-"`
+}
+
+// nuevoDescartarSSO: «No fui yo» en la pantalla de vincular. La vinculación pendiente deja de
+// servir (se borra su hash). Idempotente: sin cookie, o ya descartada o usada, no hace nada y no
+// deja fila de auditoría.
+func nuevoDescartarSSO() *auditoria.Caso[EntradaDescartarSSO, bool] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaDescartarSSO, bool]{
+		Accion: "sso.descartar", Acceso: auditoria.Publico,
+		AuditarExito: func(descartada bool) bool { return descartada },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaDescartarSSO) (bool, error) {
+			if in.Vinculacion == "" {
+				return false, nil
+			}
+			// Quien descarta es anónimo (una sesión previa del navegador no es el actor).
+			t.IdentificarActor(contexto.Actor{Tipo: contexto.ActorAnonimo})
+			id, err := identidadbd.New(t).DescartarVinculacionSSO(ctx, Hash256(in.Vinculacion))
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			t.FijarEntidad("sso_ticket", id)
+			return true, nil
+		},
+	})
 }

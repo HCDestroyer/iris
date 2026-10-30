@@ -2575,6 +2575,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sso/descartar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Descartar la vinculación pendiente («No fui yo»)
+         * @description Público y sin CSRF, como el canje. Borra la cookie `iris_sso_vincular` y deja inservible la vinculación pendiente que guardaba (aunque alguien la hubiera copiado). Responde 204 siempre (idempotente: sin cookie, o ya usada o descartada, no hace nada).
+         */
+        post: operations["descartarSSO"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sso/vincular": {
         parameters: {
             query?: never;
@@ -18978,6 +18998,55 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    descartarSSO: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description La deja POST /api/v1/sso/canjear (HttpOnly); el navegador la manda solo */
+                iris_sso_vincular?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

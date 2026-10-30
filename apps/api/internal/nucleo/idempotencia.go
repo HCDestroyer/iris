@@ -54,6 +54,32 @@ func NoRepetible(ctx context.Context) {
 	}
 }
 
+type claveMarcasEjecucion int
+
+// marcasEjecucion: qué pasó con los casos de uso de la petición (lo marcan auditoria.Caso).
+type marcasEjecucion struct {
+	autorizacionFallida bool // un caso respondió 401/403/… antes de ejecutar su lógica
+	confirmado          bool // algún caso confirmó su transacción
+}
+
+// AutorizacionFallida marca que un caso de uso se rechazó en la autorización, antes de ejecutar
+// nada (sin credenciales, sin permiso, re-autenticación requerida, empresa por elegir). Si
+// ningún caso de la petición se confirmó, la clave de idempotencia se libera: repetirla tras
+// corregir la causa ejecuta la acción en vez de devolver el rechazo guardado.
+func AutorizacionFallida(ctx context.Context) {
+	if m, ok := ctx.Value(claveMarcasEjecucion(0)).(*marcasEjecucion); ok {
+		m.autorizacionFallida = true
+	}
+}
+
+// CasoConfirmado marca que un caso de uso de la petición confirmó su transacción (ya no se
+// libera la clave aunque otro caso falle en la autorización).
+func CasoConfirmado(ctx context.Context) {
+	if m, ok := ctx.Value(claveMarcasEjecucion(0)).(*marcasEjecucion); ok {
+		m.confirmado = true
+	}
+}
+
 // claveDeActor separa las claves por credencial: cada token tiene las suyas (dos tokens del
 // mismo usuario no comparten claves ni respuestas) y la sesión las del usuario.
 func claveDeActor(a contexto.Actor) string {
@@ -73,7 +99,9 @@ func claveDeActor(a contexto.Actor) string {
 //     con la cabecera Idempotent-Replayed: true;
 //   - misma clave con otra petición → 422 idempotencia_reutilizada;
 //   - misma clave mientras la primera sigue en curso → 409 idempotencia_en_proceso;
-//   - si la primera respondió 5xx, la clave se libera y se puede reintentar;
+//   - si la primera respondió 5xx, o un caso de uso la rechazó en la autorización antes de
+//     ejecutar nada (401, 403, empresa por elegir; nucleo.AutorizacionFallida) sin que otro caso
+//     de la petición se confirmara, la clave se libera y se puede reintentar;
 //   - si la primera sigue en_proceso después de Reclamo (el proceso cayó entre el COMMIT y
 //     guardar la respuesta), la misma petición la retoma y se ejecuta de nuevo. Riesgo
 //     residual: la acción puede correr dos veces; los casos de uso lo toleran con version,
@@ -178,7 +206,8 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}
 
 			noRepetible := false
-			r = r.WithContext(context.WithValue(ctx, claveNoRepetible(0), &noRepetible))
+			marcas := &marcasEjecucion{}
+			r = r.WithContext(context.WithValue(context.WithValue(ctx, claveNoRepetible(0), &noRepetible), claveMarcasEjecucion(0), marcas))
 			grabadora := &grabadora{ResponseWriter: w, status: http.StatusOK}
 			defer func() {
 				// Ante un pánico la clave se libera; el pánico sigue su camino.
@@ -189,7 +218,8 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}()
 			next.ServeHTTP(grabadora, r)
 
-			if grabadora.status >= 500 {
+			// 5xx, o un rechazo de autorización sin nada ejecutado: la clave se libera.
+			if grabadora.status >= 500 || (marcas.autorizacionFallida && !marcas.confirmado && grabadora.status >= 400) {
 				if err := q.LiberarIdempotencia(bdCtx, nucleobd.LiberarIdempotenciaParams{Actor: claveActor, Clave: clave}); err != nil {
 					op.Log.ErrorContext(ctx, "idempotencia: liberar clave", "err", err)
 				}

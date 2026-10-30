@@ -52,7 +52,8 @@ Subpaquetes:
 **Idempotencia:** el hash de la petición es un HMAC-SHA256 con clave derivada de
 `IRIS_CLAVE_CIFRADO` (HKDF, `iris:idempotencia`), nunca un hash plano del cuerpo (puede llevar
 contraseñas); una fila de una clave ya desconocida da 422 `idempotencia_no_verificable`. Las vencidas las borra el job `nucleo.idempotencia_purga` (worker, cada hora). Claves por credencial (`token:<id>` para tokens, `<tipo>:<usuario>` para
-sesiones, `cliente:<empresa>:<cliente>` para el actor cliente), vigentes 24 h. Las respuestas con secretos (`POST /tokens`, `POST /yo/mfa`) no se
+sesiones, `cliente:<empresa>:<cliente>` para el actor cliente), vigentes 24 h. Un rechazo de autorización antes de ejecutar (401/403/empresa por
+elegir, `nucleo.AutorizacionFallida`) libera la clave si nada se confirmó. Las respuestas con secretos (`POST /tokens`, `POST /yo/mfa`) no se
 guardan: repetir la clave da 409 `idempotencia_no_repetible`. Una clave abandonada
 `en_proceso` se retoma tras `IRIS_IDEMPOTENCIA_RECLAMO` (2 min).
 
