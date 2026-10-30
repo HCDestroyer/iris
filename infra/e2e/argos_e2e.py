@@ -580,12 +580,18 @@ def paso_eliminacion(a, i):
     técnico Iris) → Iris lo confirma con el 404 urn:argosisp:problema:no_encontrado, escribe la lápida y la
     ficha lo lista en serviciosEliminados."""
     yo = a("GET", "/me")
-    exigir(yo.status == 200, f"GET /me en Argos: {yo}")
+    exigir(yo.status == 200, f"GET /me en Argos: {yo.status}")
     uid = (yo.json.get("usuario") or yo.json).get("id")
-    tk = a("POST", "/tokens", {"usuario_id": uid, "nombre": "e2e eliminar servicio"})
-    exigir(tk.status == 201, f"token de API del admin de Argos: {tk}")
-    token, token_id = tk.json["token"], (tk.json.get("datos") or {}).get("id")
+    token_id = None
     try:
+        # El token se crea dentro del try: si algo falla después, el finally lo revoca. Del cuerpo de
+        # /tokens nunca se imprime nada (trae el token): solo el status. Argos 1.3.0 no admite
+        # vencimiento en POST /tokens; se revoca al terminar.
+        tk = a("POST", "/tokens", {"usuario_id": uid, "nombre": "e2e eliminar servicio"})
+        cuerpo = tk.json or {}
+        token_id = (cuerpo.get("datos") or {}).get("id") or cuerpo.get("id")
+        token = cuerpo.get("token")
+        exigir(tk.status == 201 and token and token_id, f"token de API del admin de Argos: status {tk.status}")
         desde = ultimo_entrante()
         s = a("POST", "/servicios", {"cliente_id": estado["cliente_ana"], "router_id": estado["router"], "plan_id": estado["plan"],
                                      "empresa_id": EMPRESA, "direccion": "Zona 1", "coordenadas": "14.6349,-90.5069"},
@@ -614,7 +620,9 @@ def paso_eliminacion(a, i):
                   f"serviciosEliminados {eliminados}")
     finally:
         if token_id:
-            a("POST", f"/tokens/{token_id}/revocar", {})
+            rv = a("POST", f"/tokens/{token_id}/revocar", {})
+            if not 200 <= rv.status < 300:
+                raise Falla(f"revocar el token de API del admin de Argos: status {rv.status}")
 
 
 def paso_sso(a, i):

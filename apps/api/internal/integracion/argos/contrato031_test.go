@@ -466,6 +466,109 @@ func TestEliminacionYFichaSinInterbloqueo(t *testing.T) {
 	}
 }
 
+// B1: lápida vieja C1, una lectura cuyo GET por id da 200 en T y, antes de que esa lectura
+// guarde, una eliminación real confirmada en C2 > T. La lápida queda con C2 (GREATEST) y la
+// lectura no resucita el servicio.
+func TestLapidaViejaYEliminacionConcurrenteNoResucita(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(89, "Lía")
+	if f := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/89", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	for _, sql := range []string{
+		`DELETE FROM integracion.argos_servicios WHERE id = 890`,
+		`INSERT INTO integracion.argos_eliminados (tipo, id, empresa_id, cliente_id, de_instantanea, conector_id, eliminado_en, confirmado_en)
+			VALUES ('servicio', 890, 1, 89, true, ` + strconv.FormatInt(id, 10) + `, now() - interval '1 hour', now() - interval '1 hour')`,
+	} {
+		if _, err := e.pool.Exec(t.Context(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c1 := e.consultarTexto(`SELECT confirmado_en::text FROM integracion.argos_eliminados WHERE id = 890`)
+	ctx := pruebas.ContextoSistema(e.pool)
+	// El refresco lee Argos (GET /servicios/890 → 200 en T) y queda detenido antes de su
+	// transacción (alguien tiene su entrante).
+	refrescar := e.entranteDe(e.enviar(id, secreto, "wh-031-b1-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"cliente_id": 89}, time.Now()))
+	tx, err := e.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(t.Context(), `SELECT 1 FROM integracion.entrantes WHERE id = $1 FOR UPDATE`, refrescar); err != nil {
+		t.Fatal(err)
+	}
+	listo := make(chan error, 1)
+	go func() {
+		_, err := e.mod.ProcesarEntrante.Ejecutar(ctx, refrescar)
+		listo <- err
+	}()
+	limite := time.Now().Add(10 * time.Second)
+	for e.contar(`SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted`) < 1 {
+		if time.Now().After(limite) {
+			t.Fatal("el refresco no llegó a su transacción")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Argos elimina el servicio de verdad (C2 > T) y la eliminación se aplica antes.
+	e.argos.con(func() { e.argos.sinGet[890] = true })
+	if r := e.procesarWebhook(id, secreto, "servicio.eliminado", map[string]any{"servicio_id": 890, "empresa_id": 1, "cliente_id": 89}); r.Resultado != "aplicado" {
+		t.Fatalf("eliminación: %+v", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 890 AND confirmado_en > $1::timestamptz`, c1) != 1 {
+		t.Fatal("la lápida debía quedar con la confirmación nueva")
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-listo; err != nil {
+		t.Fatal(err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 890`) != 0 || e.contar(`SELECT count(*) FROM integracion.argos_eliminados WHERE id = 890`) != 1 ||
+		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.servicio_restaurado' AND payload->>'servicio_id' = '890'`) != 0 {
+		t.Fatal("un GET 200 anterior a la confirmación nueva resucitó el servicio")
+	}
+}
+
+// B5: un refresco de ficha (webhook de la empresa 1) que resucita un servicio de la empresa 2
+// emite argos.servicio_restaurado con la empresa 2, pero la acción auditada y el entrante quedan
+// con la empresa 1.
+func TestRestauradoNoCambiaLaEmpresaDelCaso(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(83, "Mara")
+	e.argos.con(func() {
+		e.argos.servicios[83] = append(e.argos.servicios[83], map[string]any{"id": int64(831), "empresa_id": 2, "cliente_id": 83, "codigo": "S-E2"})
+	})
+	if f := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/83", nil); f.status != 200 {
+		t.Fatalf("ficha: %s", f.crudo)
+	}
+	for _, sql := range []string{
+		`DELETE FROM integracion.argos_servicios WHERE id = 831`,
+		`INSERT INTO integracion.argos_eliminados (tipo, id, empresa_id, cliente_id, de_instantanea, conector_id, eliminado_en, confirmado_en)
+			VALUES ('servicio', 831, 2, 83, true, ` + strconv.FormatInt(id, 10) + `, now() - interval '1 hour', now() - interval '1 hour')`,
+	} {
+		if _, err := e.pool.Exec(t.Context(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := e.procesarWebhook(id, secreto, "cliente.actualizado", map[string]any{"cliente_id": 83, "empresa_id": 1})
+	if r.Resultado != "aplicado" || e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 831`) != 1 {
+		t.Fatalf("resucitar: %+v", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.servicio_restaurado' AND payload->>'servicio_id' = '831' AND empresa_id = 2`) != 1 {
+		t.Fatal("el evento lleva la empresa del servicio")
+	}
+	ent := strconv.FormatInt(r.EntranteID, 10)
+	if e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.procesar_webhook' AND entidad_id = $1 AND empresa_id = 1`, ent) != 1 ||
+		e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.procesar_webhook' AND entidad_id = $1 AND empresa_id IS DISTINCT FROM 1`, ent) != 0 {
+		t.Fatal("la acción auditada debía quedar con la empresa 1")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND empresa_id = 1 AND resultado = 'aplicado' AND procesado_en IS NOT NULL`, r.EntranteID) != 1 {
+		t.Fatal("el entrante debía quedar marcado con la empresa 1")
+	}
+}
+
 // §2.1 coordenadas de routers ("lat,lng" o null) y §2.3 router.eliminado: se quita de la
 // instantánea (factibilidad ya no lo ve), queda la lápida y una carga empezada antes de la
 // confirmación no lo recrea; una posterior que lo trae lo resucita. empresa_id null = router

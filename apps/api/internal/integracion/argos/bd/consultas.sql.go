@@ -456,13 +456,22 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	return empresa_id, err
 }
 
-const registrarEliminado = `-- name: RegistrarEliminado :execrows
-INSERT INTO integracion.argos_eliminados (
+const registrarEliminado = `-- name: RegistrarEliminado :one
+INSERT INTO integracion.argos_eliminados AS e (
     tipo, id, empresa_id, cliente_id, codigo, nombre, de_instantanea, conector_id, entrante_id, eliminado_en, confirmado_en
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
-ON CONFLICT (tipo, id) DO NOTHING
+ON CONFLICT (tipo, id) DO UPDATE SET
+    confirmado_en = GREATEST(e.confirmado_en, excluded.confirmado_en),
+    entrante_id = excluded.entrante_id,
+    conector_id = excluded.conector_id,
+    empresa_id = CASE WHEN excluded.de_instantanea THEN excluded.empresa_id ELSE e.empresa_id END,
+    cliente_id = CASE WHEN excluded.de_instantanea THEN excluded.cliente_id ELSE e.cliente_id END,
+    codigo = CASE WHEN excluded.de_instantanea THEN excluded.codigo ELSE e.codigo END,
+    nombre = CASE WHEN excluded.de_instantanea THEN excluded.nombre ELSE e.nombre END,
+    de_instantanea = e.de_instantanea OR excluded.de_instantanea
+RETURNING (xmax = 0) AS insertado
 `
 
 type RegistrarEliminadoParams struct {
@@ -479,9 +488,12 @@ type RegistrarEliminadoParams struct {
 	ConfirmadoEn  time.Time
 }
 
-// La lápida se escribe una vez (un webhook repetido o un segundo aviso no la cambia).
-func (q *Queries) RegistrarEliminado(ctx context.Context, arg RegistrarEliminadoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, registrarEliminado,
+// Escribe la lápida o, si ya había una, la pone al día: confirmado_en queda en la confirmación
+// más reciente (así un GET 200 anterior a esta no resucita) y una copia de la instantánea
+// reemplaza a una armada con el payload. insertado = true solo la primera vez (el evento interno
+// sale una sola vez).
+func (q *Queries) RegistrarEliminado(ctx context.Context, arg RegistrarEliminadoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, registrarEliminado,
 		arg.Tipo,
 		arg.ID,
 		arg.EmpresaID,
@@ -494,10 +506,9 @@ func (q *Queries) RegistrarEliminado(ctx context.Context, arg RegistrarEliminado
 		arg.EliminadoEn,
 		arg.ConfirmadoEn,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var insertado bool
+	err := row.Scan(&insertado)
+	return insertado, err
 }
 
 const relojBD = `-- name: RelojBD :one

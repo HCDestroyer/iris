@@ -55,8 +55,8 @@ func leerFichaArgos(ctx context.Context, bd argosbd.DBTX, c *Cliente, clienteID 
 	if f.servicios, f.completa, err = c.ServiciosDeClienteCompletos(ctx, clienteID); err != nil {
 		return f, err
 	}
-	f.vivos, err = confirmarVivos(ctx, bd, eliminadoServicio, f.idsServicios(), func(id int64) error {
-		_, err := c.ObtenerServicio(ctx, id)
+	f.vivos, err = confirmarVivos(ctx, bd, eliminadoServicio, f.idsServicios(), func(ctx context.Context, id int64) error {
+		_, err := c.obtenerServicioUnaVez(ctx, id)
 		return err
 	})
 	return f, err

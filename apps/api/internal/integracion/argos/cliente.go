@@ -156,6 +156,20 @@ func (c *Cliente) ObtenerRouter(ctx context.Context, id int64) (RouterArgos, err
 	return r, err
 }
 
+// obtenerServicioUnaVez: GET /servicios/:id sin reintentos (confirmarVivos).
+func (c *Cliente) obtenerServicioUnaVez(ctx context.Context, id int64) (ServicioArgos, error) {
+	var s ServicioArgos
+	err := c.Pedir(ctx, http.MethodGet, "/servicios/"+strconv.FormatInt(id, 10), nil, nil, false, &conector.Recurso{Destino: &s})
+	return s, err
+}
+
+// obtenerRouterUnaVez: GET /routers/:id sin reintentos (confirmarVivos).
+func (c *Cliente) obtenerRouterUnaVez(ctx context.Context, id int64) (RouterArgos, error) {
+	var r RouterArgos
+	err := c.Pedir(ctx, http.MethodGet, "/routers/"+strconv.FormatInt(id, 10), nil, nil, false, &conector.Recurso{Destino: &r})
+	return r, err
+}
+
 // Zonas: GET /zonas (todas las páginas).
 func (c *Cliente) Zonas(ctx context.Context) ([]ZonaArgos, error) {
 	return conector.Todas[ZonaArgos](ctx, c.Cliente, "/zonas", nil)

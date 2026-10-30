@@ -250,12 +250,12 @@ func aplicarEliminacion(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries
 	if r.EmpresaID != nil {
 		t.FijarEmpresa(*r.EmpresaID)
 	}
-	n, err := q.RegistrarEliminado(ctx, r)
+	insertado, err := q.RegistrarEliminado(ctx, r)
 	if err != nil {
 		return err
 	}
 	t.Anotar(map[string]any{"eliminado": el.Tipo, "id": el.ID})
-	if n == 0 {
+	if !insertado {
 		t.Anotar(map[string]any{"ya_eliminado": true})
 		return nil
 	}
@@ -278,10 +278,13 @@ func bloquear(ctx context.Context, q *argosbd.Queries, tipo string, ids []int64)
 	return nil
 }
 
+// tiempoConfirmarVivo: tope del GET por id de confirmarVivos.
+const tiempoConfirmarVivo = 5 * time.Second
+
 // confirmarVivos: de los ids que trae una lista de Argos, los que tienen lápida se confirman con
 // un GET por id (fuera de transacción). Devuelve la hora de Postgres de antes de cada GET que
 // respondió 200 (solo esos resucitan); un 404 o un error los deja fuera (no se guardan).
-func confirmarVivos(ctx context.Context, bd argosbd.DBTX, tipo string, ids []int64, obtener func(int64) error) (map[int64]time.Time, error) {
+func confirmarVivos(ctx context.Context, bd argosbd.DBTX, tipo string, ids []int64, obtener func(context.Context, int64) error) (map[int64]time.Time, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -296,7 +299,11 @@ func confirmarVivos(ctx context.Context, bd argosbd.DBTX, tipo string, ids []int
 		if err != nil {
 			return nil, err
 		}
-		if err := obtener(id); err == nil {
+		// Un solo intento y poco tiempo: es una comprobación extra por id, no la lectura principal.
+		corto, cancelar := context.WithTimeout(ctx, tiempoConfirmarVivo)
+		err = obtener(corto, id)
+		cancelar()
+		if err == nil {
 			vivos[id] = antes
 		} else if !conector.EsNoEncontradoConfirmado(err) {
 			slog.WarnContext(ctx, "argos: no se pudo confirmar un id con lápida que trae la lista; queda fuera", "tipo", tipo, "id", id, "error", err)
@@ -347,12 +354,8 @@ func resucitar(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, tipo st
 		"confirmado_en": f.ConfirmadoEn, "eliminado_en": f.EliminadoEn, "entrante_id": f.EntranteID,
 	}})
 	payload["eliminado_entrante_id"] = f.EntranteID
-	// El evento lleva la empresa del servicio o router; quien llama vuelve a fijar la suya.
-	t.FijarEmpresa(0)
-	if empresa != nil {
-		t.FijarEmpresa(*empresa)
-	}
-	return t.Emitir(evento, payload)
+	// El evento lleva la empresa del servicio o router, sin cambiar la de la acción que refresca.
+	return t.EmitirEnEmpresa(evento, empresa, payload)
 }
 
 // servicioEliminado indica si Argos eliminó el servicio (hay lápida).

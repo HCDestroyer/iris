@@ -107,14 +107,26 @@ DELETE FROM integracion.argos_routers WHERE id = @id;
 -- instantánea del mismo servicio o router (sin él, una lectura en curso la recreaba).
 SELECT pg_advisory_xact_lock(hashtextextended(@tipo::text || ':' || (@id::bigint)::text, 0));
 
--- name: RegistrarEliminado :execrows
--- La lápida se escribe una vez (un webhook repetido o un segundo aviso no la cambia).
-INSERT INTO integracion.argos_eliminados (
+-- name: RegistrarEliminado :one
+-- Escribe la lápida o, si ya había una, la pone al día: confirmado_en queda en la confirmación
+-- más reciente (así un GET 200 anterior a esta no resucita) y una copia de la instantánea
+-- reemplaza a una armada con el payload. insertado = true solo la primera vez (el evento interno
+-- sale una sola vez).
+INSERT INTO integracion.argos_eliminados AS e (
     tipo, id, empresa_id, cliente_id, codigo, nombre, de_instantanea, conector_id, entrante_id, eliminado_en, confirmado_en
 ) VALUES (
     @tipo, @id, @empresa_id, @cliente_id, @codigo, @nombre, @de_instantanea, @conector_id, @entrante_id, @eliminado_en, @confirmado_en
 )
-ON CONFLICT (tipo, id) DO NOTHING;
+ON CONFLICT (tipo, id) DO UPDATE SET
+    confirmado_en = GREATEST(e.confirmado_en, excluded.confirmado_en),
+    entrante_id = excluded.entrante_id,
+    conector_id = excluded.conector_id,
+    empresa_id = CASE WHEN excluded.de_instantanea THEN excluded.empresa_id ELSE e.empresa_id END,
+    cliente_id = CASE WHEN excluded.de_instantanea THEN excluded.cliente_id ELSE e.cliente_id END,
+    codigo = CASE WHEN excluded.de_instantanea THEN excluded.codigo ELSE e.codigo END,
+    nombre = CASE WHEN excluded.de_instantanea THEN excluded.nombre ELSE e.nombre END,
+    de_instantanea = e.de_instantanea OR excluded.de_instantanea
+RETURNING (xmax = 0) AS insertado;
 
 -- name: ResucitarEliminado :one
 -- Un GET por id pedido después de confirmar la eliminación (@leido_en: clock_timestamp() de

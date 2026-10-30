@@ -96,7 +96,14 @@ func (t *Tx) Anotar(datos map[string]any) {
 // Emitir escribe el evento en integracion.outbox dentro de la misma transacción: si la acción
 // se revierte, el evento no existe.
 func (t *Tx) Emitir(evento string, payload any) error {
-	_, err := integracion.Insertar(t.ctx, t.Tx, evento, t.empresa(), contexto.RequestIDDe(t.ctx), payload)
+	return t.EmitirEnEmpresa(evento, t.empresa(), payload)
+}
+
+// EmitirEnEmpresa es Emitir con la empresa del evento explícita (nil = sin empresa), sin cambiar
+// la de la acción auditada: para un evento de otra entidad que sale como efecto secundario del
+// caso (p. ej. un servicio de Argos restaurado al refrescar una ficha).
+func (t *Tx) EmitirEnEmpresa(evento string, empresa *int64, payload any) error {
+	_, err := integracion.Insertar(t.ctx, t.Tx, evento, empresa, contexto.RequestIDDe(t.ctx), payload)
 	if err == nil {
 		t.eventos++
 	}

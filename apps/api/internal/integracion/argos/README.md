@@ -96,7 +96,11 @@ comunes de conectores); aquí queda lo propio de Argos.
     lápida: lo confirma con un GET por id y solo un 200 pedido después de `confirmado_en` (los dos
     con el reloj de Postgres) lo **resucita**: borra la lápida, guarda la instantánea, anota
     `resucitado_<tipo>_<id>` en la auditoría, deja un log de advertencia y emite
-    `argos.servicio_restaurado` / `argos.router_restaurado`;
+    `argos.servicio_restaurado` / `argos.router_restaurado` con la empresa del servicio o router
+    (`Tx.EmitirEnEmpresa`: la acción auditada y el entrante conservan la suya). Ese GET va con un
+    solo intento y 5 s de tope. Una nueva confirmación sobre una lápida existente la pone al día
+    (`confirmado_en` = la más reciente, `GREATEST`), así que un GET 200 anterior a ella no
+    resucita; el evento interno sale solo la primera vez (`RETURNING (xmax = 0)`);
   - un cliente cuyos servicios se eliminaron no queda «sin servicios» (visible en todas las
     empresas): las empresas de sus lápidas `de_instantanea` son la pista (`empresasYPista`); una
     lápida armada solo con el payload no cuenta.

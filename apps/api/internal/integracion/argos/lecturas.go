@@ -586,7 +586,6 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 					return ResultadoCatalogos{}, err
 				}
 			}
-			t.FijarEmpresa(0)
 			if _, err := q.BorrarZonasAnteriores(ctx, in.inicio); err != nil {
 				return ResultadoCatalogos{}, err
 			}
@@ -629,8 +628,8 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 			ids = append(ids, r.ID)
 		}
 		// Routers de la lista con lápida: solo resucitan con un GET /routers/:id con 200.
-		if in.vivos, err = confirmarVivos(ctx, bd, eliminadoRouter, ids, func(id int64) error {
-			_, err := cli.ObtenerRouter(ctx, id)
+		if in.vivos, err = confirmarVivos(ctx, bd, eliminadoRouter, ids, func(ctx context.Context, id int64) error {
+			_, err := cli.obtenerRouterUnaVez(ctx, id)
 			return err
 		}); err != nil {
 			return ResultadoCatalogos{}, err
