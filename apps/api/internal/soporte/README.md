@@ -141,6 +141,11 @@ el conector (I1): `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado
 - **Vuelve (`arriba`):** nota y **propuesta** de resolver (`tickets.propuesta = resolver`, emite
   `ticket.resolucion_propuesta`); nunca resuelve solo. La propuesta se ve en `Ticket.propuesta` y se
   descarta en cualquier cambio de estado. Sin maestro abierto, nada.
+- **Propuesta por cierre de orden** (`ProponerPorOrden`, lo llama campo en la transacción del
+  cierre): nota interna y, si el ticket sigue abierto y no quedan otras órdenes abiertas,
+  `propuesta = resolver` con `propuesta_origen = orden` y `propuesta_orden_id`
+  (`Ticket.propuesta.origen` / `ordenId`); emite `ticket.resolucion_propuesta` con `origen =
+  orden`, `orden_id` y `entrante_id = null`.
 - **Hijos:** al crear un ticket (panel, API, portal; no los de origen `horus`) con cliente y sin
   `ticketPadreId`, si la instantánea de Argos (`integracion.argos_servicios.router_id`) pone su
   servicio (o, sin servicio, todos los servicios del cliente con maestro abierto) en **un solo**

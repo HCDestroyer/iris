@@ -74,8 +74,9 @@ type Ticket struct {
 	// Incidente: el ticket lo abrió Horus (maestro de un router o servicio de infraestructura, o
 	// un hallazgo de seguridad). Ausente en los demás.
 	Incidente *IncidenteHorus `json:"incidente,omitempty" doc:"Solo si lo abrió Horus (maestro o hallazgo)"`
-	// Propuesta: Horus avisó que el problema terminó; un agente decide (resolver o cerrar).
-	Propuesta *PropuestaTicket `json:"propuesta,omitempty" doc:"Propuesta pendiente de Horus (el router volvió, el hallazgo se resolvió); se descarta al cambiar de estado"`
+	// Propuesta: Horus avisó que el problema terminó, o se cerró la orden de trabajo del
+	// ticket; un agente decide (resolver o cerrar).
+	Propuesta *PropuestaTicket `json:"propuesta,omitempty" doc:"Propuesta pendiente: de Horus (el router volvió, el hallazgo se resolvió) o del cierre de su orden de trabajo; se descarta al cambiar de estado"`
 }
 
 // IncidenteHorus describe de dónde viene un ticket abierto por Horus.
@@ -88,11 +89,20 @@ type IncidenteHorus struct {
 	URLHorus   *string `json:"urlHorus" nullable:"true" doc:"«Ver en Horus» (mismo origen que el conector)"`
 }
 
-// PropuestaTicket es una acción que Horus sugiere y un agente confirma.
+// Origen de una propuesta de resolución.
+const (
+	PropuestaDeHorus = "horus"
+	PropuestaDeOrden = "orden"
+)
+
+// PropuestaTicket es una acción que Horus o el cierre de una orden sugieren y un agente
+// confirma. Iris nunca resuelve ni cierra solo.
 type PropuestaTicket struct {
-	Accion string    `json:"accion" enum:"resolver,cerrar"`
-	En     time.Time `json:"en"`
-	Motivo *string   `json:"motivo" nullable:"true"`
+	Accion  string    `json:"accion" enum:"resolver,cerrar"`
+	En      time.Time `json:"en"`
+	Motivo  *string   `json:"motivo" nullable:"true"`
+	Origen  string    `json:"origen" enum:"horus,orden" doc:"horus = aviso de Horus; orden = se cerró la orden de trabajo del ticket"`
+	OrdenID *int64    `json:"ordenId" nullable:"true" doc:"La orden cuyo cierre la propuso (origen orden)"`
 }
 
 func incidenteDe(f soportebd.SoporteTicket) *IncidenteHorus {
@@ -109,7 +119,11 @@ func propuestaDe(f soportebd.SoporteTicket) *PropuestaTicket {
 	if f.Propuesta == nil || f.PropuestaEn == nil {
 		return nil
 	}
-	return &PropuestaTicket{Accion: *f.Propuesta, En: *f.PropuestaEn, Motivo: f.PropuestaMotivo}
+	origen := PropuestaDeHorus
+	if f.PropuestaOrigen != nil {
+		origen = *f.PropuestaOrigen
+	}
+	return &PropuestaTicket{Accion: *f.Propuesta, En: *f.PropuestaEn, Motivo: f.PropuestaMotivo, Origen: origen, OrdenID: f.PropuestaOrdenID}
 }
 
 func aTicket(f soportebd.SoporteTicket, ahora time.Time) Ticket {

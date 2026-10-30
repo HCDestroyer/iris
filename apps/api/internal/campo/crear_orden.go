@@ -47,6 +47,9 @@ type EntradaCrearOrden struct {
 	ClaveIdempotencia string `json:"-"`
 	// Origen lo fija el caso interno (argos: retiro automático); si no, sale del canal.
 	Origen string `json:"-"`
+	// sinCuadrillaDelTicket: la cuadrilla es la indicada (o ninguna), no la del ticket
+	// (tickets.crear_orden elige la asignación explícitamente).
+	sinCuadrillaDelTicket bool
 }
 
 // origenDe: de dónde viene la orden (panel, api o sistema).
@@ -202,7 +205,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				if datos.ZonaID == nil {
 					datos.ZonaID = tk.ZonaID
 				}
-				if datos.CuadrillaID == nil {
+				if datos.CuadrillaID == nil && !in.sinCuadrillaDelTicket {
 					datos.CuadrillaID = tk.CuadrillaID
 				}
 				if pedida == nil && !contexto.ActorDe(ctx).EsUsuario() {

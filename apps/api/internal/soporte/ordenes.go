@@ -3,6 +3,9 @@ package soporte
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -25,6 +28,8 @@ type TicketDeOrden struct {
 	ServicioID       *int64
 	ZonaID           *int64
 	CuadrillaID      *int64
+	AsignadoA        *int64
+	Version          int32
 	ContactoNombre   *string
 	ContactoTelefono *string
 	Asunto           string
@@ -51,7 +56,7 @@ func TicketParaOrden(ctx context.Context, t *auditoria.Tx, id int64) (TicketDeOr
 	}
 	return TicketDeOrden{
 		ID: f.ID, Numero: f.Numero, Estado: f.Estado, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID,
-		ServicioID: f.ServicioID, ZonaID: f.ZonaID, CuadrillaID: f.CuadrillaID,
+		ServicioID: f.ServicioID, ZonaID: f.ZonaID, CuadrillaID: f.CuadrillaID, AsignadoA: f.AsignadoA, Version: f.Version,
 		ContactoNombre: f.ContactoNombre, ContactoTelefono: f.ContactoTelefono, Asunto: f.Asunto,
 	}, nil
 }
@@ -67,4 +72,59 @@ func NotaDeOrden(ctx context.Context, t *auditoria.Tx, ticketID int64, cuerpo st
 	}
 	_, err = mensaje(ctx, t, q, f, false, cuerpo)
 	return err
+}
+
+// CierreDeOrden describe el cierre de una orden ligada a un ticket.
+type CierreDeOrden struct {
+	TicketID  int64
+	OrdenID   int64
+	Numero    string
+	Resultado string // exitosa | parcial
+	// Abiertas son los números de las otras órdenes del ticket que siguen abiertas (ni cerradas
+	// ni canceladas).
+	Abiertas []string
+	Ahora    time.Time
+}
+
+// ProponerPorOrden: la orden ligada al ticket se cerró. Deja una nota interna (autor: quien
+// cerró) y, si el ticket sigue abierto (nuevo, abierto o en espera) y no le quedan otras órdenes
+// abiertas, la propuesta de resolverlo (origen orden) con ticket.resolucion_propuesta. Nunca
+// cambia el estado del ticket: un agente confirma con tickets.resolver. Devuelve si propuso.
+func ProponerPorOrden(ctx context.Context, t *auditoria.Tx, c CierreDeOrden) (bool, error) {
+	q := soportebd.New(t)
+	antes, err := q.TicketPorIDParaActualizar(ctx, c.TicketID)
+	if err != nil {
+		return false, err
+	}
+	nota := fmt.Sprintf("La orden %s se cerró (%s).", c.Numero, c.Resultado)
+	proponer := abierto(antes.Estado) && len(c.Abiertas) == 0
+	switch {
+	case !abierto(antes.Estado):
+	case len(c.Abiertas) > 0:
+		nota += " Siguen abiertas: " + strings.Join(c.Abiertas, ", ") + "; cuando terminen se propondrá resolver el ticket."
+	default:
+		nota += " Propuesta: resolver el ticket (un agente lo confirma)."
+	}
+	if _, err := mensaje(ctx, t, q, antes, false, nota); err != nil {
+		return false, err
+	}
+	if !proponer {
+		return false, nil
+	}
+	cal, err := cargarCalendario(ctx, q, antes.CalendarioID)
+	if err != nil {
+		return false, err
+	}
+	accion, motivo := "resolver", fmt.Sprintf("La orden %s se cerró (%s).", c.Numero, c.Resultado)
+	despues := antes
+	despues.Propuesta, despues.PropuestaEn, despues.PropuestaMotivo = &accion, &c.Ahora, &motivo
+	despues.PropuestaOrigen, despues.PropuestaOrdenID = ptr(PropuestaDeOrden), &c.OrdenID
+	f, err := guardar(ctx, t, q, antes, despues, cal)
+	if err != nil {
+		return false, err
+	}
+	return true, t.EmitirEnEmpresa("ticket.resolucion_propuesta", f.EmpresaID, map[string]any{
+		"ticket_id": f.ID, "accion": accion, "motivo": motivo, "origen": PropuestaDeOrden,
+		"orden_id": c.OrdenID, "entrante_id": nil,
+	})
 }

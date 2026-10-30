@@ -69,6 +69,13 @@ const (
 	PermOrdenesVer           Permiso = "ordenes.ver"
 	PermOrdenesVerPropias    Permiso = "ordenes.ver_propias"
 
+	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
+	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
+	// fecha, ordenes.programar. ordenes.igualar_asignacion: copiar la asignación del ticket a su
+	// orden o al revés; exige además ordenes.asignar o tickets.asignar (el lado que cambia).
+	PermTicketsCrearOrden        Permiso = "tickets.crear_orden"
+	PermOrdenesIgualarAsignacion Permiso = "ordenes.igualar_asignacion"
+
 	// Plantillas de formularios (I2): catálogo administrable con versiones (ver lo usan despacho
 	// y el técnico; el resto, admin y supervisor).
 	PermPlantillasVer        Permiso = "plantillas.ver"
@@ -260,6 +267,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
+	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
 	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
 	{PermOrdenesLlegar, "Marcar la llegada al sitio de una orden"},
 	{PermOrdenesPausar, "Pausar una orden en camino o en sitio, con su motivo"},
@@ -295,6 +303,7 @@ var Catalogo = []DefPermiso{
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
 	{PermTicketsCrear, "Crear tickets de soporte"},
+	{PermTicketsCrearOrden, "Crear la orden de trabajo de un ticket ya asignada (y programada si se elige fecha) en un paso"},
 	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
 	{PermTicketsFusionar, "Fusionar un ticket duplicado en otro"},
 	{PermTicketsNotaInterna, "Agregar notas internas a un ticket"},
@@ -339,6 +348,7 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesReprogramar, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
 	PermOrdenesAsignarForm, PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer,
+	PermTicketsCrearOrden, PermOrdenesIgualarAsignacion,
 }
 
 // permisosPlantillas son los de administrar plantillas de formulario (supervisor).

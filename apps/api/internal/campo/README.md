@@ -84,6 +84,26 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - **Desde un ticket:** `POST /ordenes` con `ticketId` (exige ver el ticket): hereda empresa,
   cliente, servicio, zona, cuadrilla y contacto, y deja nota interna en el ticket; también al
   fallar, cancelar o cerrar la orden.
+- **Ticket y orden de la mano** (`ticket_orden.go`, acciones compuestas: corren anidados los casos
+  de siempre, cada uno con su permiso, auditoría y eventos, en una sola transacción):
+  - `POST /tickets/{id}/crear-orden` (`tickets.crear_orden`; exige además `ordenes.crear`,
+    `ordenes.asignar` y, con `inicio`, `ordenes.programar`): crea la orden ligada (visita por
+    defecto; descripción = asunto del ticket si va vacía), la asigna al técnico y/o la cuadrilla
+    (al menos uno: 422 `validacion`, regla `asignacion_requerida` en `tecnicoId` y `cuadrillaId`) y
+    con fecha la programa. La cuadrilla del ticket **no** se hereda en silencio: va en el cuerpo
+    (el panel la propone). Todo o nada: si la agenda rechaza la cita no queda orden. Emite
+    `orden.creada`, `orden.asignada` (también solo con cuadrilla) y, con fecha,
+    `orden.programada` y `orden.estado_cambiada`.
+  - `POST /ordenes/{id}/igualar-asignacion` (`ordenes.igualar_asignacion`): `desde = ticket` (la
+    orden toma responsable y cuadrilla del ticket con `ordenes.asignar`) o `desde = orden` (el
+    ticket toma técnico y cuadrilla de la orden con `tickets.asignar`). Lleva `version` y
+    `versionTicket` (409 si cualquiera cambió). 422 `sin_ticket`, `ticket_sin_asignar`,
+    `orden_sin_asignar`, `sin_cambios`. Responde `{ orden, ticket }`. Ojo: el rol base `tecnico`
+    no tiene `tickets.ver`, así que soporte rechaza asignarle un ticket (422 en `usuarioId`).
+  - **Al cerrar** una orden con ticket: nota interna en el ticket y, si sigue abierto y no le
+    quedan otras órdenes abiertas (ni cerradas ni canceladas), **propuesta de resolver** con
+    `origen = orden` (soporte emite `ticket.resolucion_propuesta`). El ticket nunca se resuelve
+    solo.
 - **Zona y cuadrilla:** del catálogo de agenda (llaves foráneas). La indicada debe existir, estar
   activa y ser de la empresa (422 en `zonaId`/`cuadrillaId`); la de la instantánea de Argos se
   copia al catálogo si falta.

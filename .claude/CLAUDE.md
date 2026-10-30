@@ -145,7 +145,7 @@ Una tarea está terminada solo si:
 | `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
 | `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
-| `ticket.resolucion_propuesta` | soporte (Horus) | ticket_id, accion (resolver \| cerrar), motivo, origen, entrante_id |
+| `ticket.resolucion_propuesta` | soporte (Horus, cierre de orden) | ticket_id, accion (resolver \| cerrar), motivo, origen (horus \| orden), entrante_id (o null), orden_id (o null) |
 | `ticket.mensaje_cliente` | soporte (portal) | ticket_id, mensaje_id, canal |
 | `encuesta.enviada` | soporte | encuesta_id, entidad (ticket \| orden), entidad_id, canal (correo \| enlace) |
 | `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |

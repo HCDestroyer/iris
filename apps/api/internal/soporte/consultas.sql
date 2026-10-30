@@ -104,6 +104,7 @@ UPDATE soporte.tickets SET
     primera_respuesta_en = @primera_respuesta_en, en_espera_desde = @en_espera_desde,
     resuelto_en = @resuelto_en, cerrado_en = @cerrado_en, fusionado_en_id = @fusionado_en_id,
     propuesta = sqlc.narg(propuesta), propuesta_en = sqlc.narg(propuesta_en), propuesta_motivo = sqlc.narg(propuesta_motivo),
+    propuesta_origen = sqlc.narg(propuesta_origen), propuesta_orden_id = sqlc.narg(propuesta_orden_id),
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;

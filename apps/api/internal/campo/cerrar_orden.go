@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -121,8 +121,28 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 					return f, "", err
 				}
 			}
-			return f, "", notaEnTicket(ctx, t, f, fmt.Sprintf("La orden %s se cerró (%s).", f.Numero, resultado))
+			return f, "", proponerEnTicket(ctx, t, q, f, resultado, m.ahora())
 		})
+}
+
+// proponerEnTicket: al cerrar una orden ligada a un ticket, el ticket recibe una nota interna y,
+// si sigue abierto y no le quedan otras órdenes abiertas, la propuesta de resolverlo (soporte
+// emite ticket.resolucion_propuesta con origen orden). El ticket nunca se resuelve solo.
+func proponerEnTicket(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, resultado string, ahora time.Time) error {
+	if f.TicketID == nil {
+		return nil
+	}
+	abiertas, err := q.OrdenesAbiertasDeTicket(ctx, campobd.OrdenesAbiertasDeTicketParams{TicketID: f.TicketID, Excluir: f.ID})
+	if err != nil {
+		return err
+	}
+	propuso, err := soporte.ProponerPorOrden(ctx, t, soporte.CierreDeOrden{
+		TicketID: *f.TicketID, OrdenID: f.ID, Numero: f.Numero, Resultado: resultado, Abiertas: abiertas, Ahora: ahora,
+	})
+	if err == nil {
+		t.Anotar(map[string]any{"ticket_resolucion_propuesta": propuso})
+	}
+	return err
 }
 
 // requisitosDeCierre: los obligatorios de todos los formularios de la orden (uno por uno),

@@ -2475,6 +2475,38 @@ func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string
 	return i, err
 }
 
+const ordenesAbiertasDeTicket = `-- name: OrdenesAbiertasDeTicket :many
+SELECT numero FROM campo.ordenes
+WHERE ticket_id = $1 AND id <> $2 AND estado NOT IN ('cerrada', 'cancelada')
+ORDER BY id
+`
+
+type OrdenesAbiertasDeTicketParams struct {
+	TicketID *int64
+	Excluir  int64
+}
+
+// Las otras órdenes del ticket que siguen abiertas (ni cerradas ni canceladas), al cerrar una.
+func (q *Queries) OrdenesAbiertasDeTicket(ctx context.Context, arg OrdenesAbiertasDeTicketParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, ordenesAbiertasDeTicket, arg.TicketID, arg.Excluir)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var numero string
+		if err := rows.Scan(&numero); err != nil {
+			return nil, err
+		}
+		items = append(items, numero)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ordenesDelPaquete = `-- name: OrdenesDelPaquete :many
 SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes
 WHERE tecnico_id = $1

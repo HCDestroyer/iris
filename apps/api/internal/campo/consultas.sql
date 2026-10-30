@@ -184,6 +184,12 @@ SELECT * FROM campo.ordenes WHERE id = @id FOR UPDATE;
 -- name: OrdenPorIdempotencia :one
 SELECT * FROM campo.ordenes WHERE idempotencia = @idempotencia;
 
+-- name: OrdenesAbiertasDeTicket :many
+-- Las otras órdenes del ticket que siguen abiertas (ni cerradas ni canceladas), al cerrar una.
+SELECT numero FROM campo.ordenes
+WHERE ticket_id = @ticket_id AND id <> @excluir AND estado NOT IN ('cerrada', 'cancelada')
+ORDER BY id;
+
 -- name: GuardarOrden :one
 -- Escribe el estado completo que calculó el caso de uso (fila leída con FOR UPDATE). Sube la
 -- versión: con una versión vieja no actualiza nada (409).

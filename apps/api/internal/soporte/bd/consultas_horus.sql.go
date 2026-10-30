@@ -142,7 +142,7 @@ func (q *Queries) GuardarEstadoHorus(ctx context.Context, arg GuardarEstadoHorus
 }
 
 const hijosSinAviso = `-- name: HijosSinAviso :many
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo FROM soporte.tickets t
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
 WHERE t.ticket_padre_id = $1::bigint AND t.estado <> 'cerrado'
   AND NOT EXISTS (SELECT 1 FROM soporte.avisos_hijos a
                   WHERE a.maestro_id = $1::bigint AND a.aviso = $2 AND a.hijo_id = t.id)
@@ -215,6 +215,8 @@ func (q *Queries) HijosSinAviso(ctx context.Context, arg HijosSinAvisoParams) ([
 			&i.Propuesta,
 			&i.PropuestaEn,
 			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
 		); err != nil {
 			return nil, err
 		}
@@ -227,7 +229,7 @@ func (q *Queries) HijosSinAviso(ctx context.Context, arg HijosSinAvisoParams) ([
 }
 
 const maestrosParaVincular = `-- name: MaestrosParaVincular :many
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo FROM soporte.tickets t
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
 WHERE t.maestro IS NOT NULL
   AND t.estado IN ('nuevo', 'abierto', 'en_espera')
   AND t.empresa_id IS NOT DISTINCT FROM $1
@@ -306,6 +308,8 @@ func (q *Queries) MaestrosParaVincular(ctx context.Context, arg MaestrosParaVinc
 			&i.Propuesta,
 			&i.PropuestaEn,
 			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
 		); err != nil {
 			return nil, err
 		}
@@ -393,7 +397,7 @@ func (q *Queries) ReglaDeHallazgo(ctx context.Context, arg ReglaDeHallazgoParams
 }
 
 const ticketDeHallazgo = `-- name: TicketDeHallazgo :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets
 WHERE hallazgo_id = $1
   AND ($2::bigint IS NULL OR empresa_id = $2)
 ORDER BY id DESC
@@ -457,12 +461,14 @@ func (q *Queries) TicketDeHallazgo(ctx context.Context, arg TicketDeHallazgoPara
 		&i.Propuesta,
 		&i.PropuestaEn,
 		&i.PropuestaMotivo,
+		&i.PropuestaOrigen,
+		&i.PropuestaOrdenID,
 	)
 	return i, err
 }
 
 const ultimoMaestro = `-- name: UltimoMaestro :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets
 WHERE maestro = $1::text
   AND (CASE WHEN $1::text = 'router' THEN router_id = $2 ELSE infra_id = $3 END)
   AND empresa_id IS NOT DISTINCT FROM $4
@@ -536,6 +542,8 @@ func (q *Queries) UltimoMaestro(ctx context.Context, arg UltimoMaestroParams) (S
 		&i.Propuesta,
 		&i.PropuestaEn,
 		&i.PropuestaMotivo,
+		&i.PropuestaOrigen,
+		&i.PropuestaOrdenID,
 	)
 	return i, err
 }
