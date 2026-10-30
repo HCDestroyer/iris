@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/HCDestroyer/iris/compare/v0.1.0...v0.2.0) (2026-10-30)
+
+
+### Funcionalidades
+
+* **nucleo:** autologin desde Argos («Ver en Iris») con vinculación de usuarios ([#56](https://github.com/HCDestroyer/iris/issues/56)) ([cd14a24](https://github.com/HCDestroyer/iris/commit/cd14a24fbe361aab460ceae79f0a9381d40bf085))
+* **nucleo:** descartar la vinculación SSO y liberar la idempotencia ante rechazos de autorización ([#58](https://github.com/HCDestroyer/iris/issues/58)) ([fca23b9](https://github.com/HCDestroyer/iris/commit/fca23b90216f25450975d56c6f4d1bcfe8042867))
+* **panel:** entrada desde Argos, re-autenticación, cuentas vinculadas y conectores ([#57](https://github.com/HCDestroyer/iris/issues/57)) ([7171be9](https://github.com/HCDestroyer/iris/commit/7171be970c3a6f0ae3709f4e66af90c66ac5f2c4))
+
+
+### Correcciones
+
+* **integracion:** conector Argos según el contrato, con canje solo a orígenes conocidos ([#50](https://github.com/HCDestroyer/iris/issues/50)) ([cd9bbe7](https://github.com/HCDestroyer/iris/commit/cd9bbe79a840168cc580a71742d87f2d65b3cc01))
+* **integracion:** empresa del cliente de Argos según sus servicios ([#52](https://github.com/HCDestroyer/iris/issues/52)) ([ab21e27](https://github.com/HCDestroyer/iris/commit/ab21e27207b53a48a615325ba60d6c6c9eb92d74))
+* **integracion:** lista de orígenes siempre obligatoria y reconexión sin cortar la integración ([#54](https://github.com/HCDestroyer/iris/issues/54)) ([0faf0cb](https://github.com/HCDestroyer/iris/commit/0faf0cb43230b712fbf94cb9db0c11c9cbc5dd61))
+
 ## [0.1.0](https://github.com/HCDestroyer/iris/compare/v0.1.0...v0.1.0) (2026-10-29)
 
 
