@@ -1,0 +1,14 @@
+# Iris · optional host ports for administration (IRIS_PUERTOS_ADMIN=true in the .env; install.sh and
+# irisctl add this file). Postgres, MinIO (API and console) and OSRM on 127.0.0.1 only, e.g. for psql
+# or the MinIO console through an SSH tunnel. Off by default: Iris itself does not need them.
+services:
+  postgres:
+    ports:
+      - 127.0.0.1:${IRIS_PG_PUERTO:-5432}:5432
+  minio:
+    ports:
+      - 127.0.0.1:${IRIS_MINIO_PUERTO:-9000}:9000
+      - 127.0.0.1:${IRIS_MINIO_CONSOLA_PUERTO:-9001}:9001
+  osrm:
+    ports:
+      - 127.0.0.1:${IRIS_OSRM_PUERTO:-5000}:5000
