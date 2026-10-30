@@ -193,15 +193,22 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `empresa_no_coincide` o 422 `servicioId`). Horus con un cliente de otra empresa abre el ticket
   sin cliente (`otra_empresa`). Antes de la transacción, `ConInstantanea` (envoltura de
   `CrearTicket` y `CrearOrden` para usuarios, tokens e integraciones con el permiso) llama a
-  `AsegurarInstantanea`: si falta el cliente o el servicio en la instantánea, lee la ficha de Argos
-  y la guarda (`clientes.sincronizar`, auditada); un servicio que no es del cliente es 422 y, con
-  Argos caído, 503 `argos_no_disponible` (nunca se acepta un servicio sin verificar). El sistema
-  (retiro automático, alta comercial) no consulta.
+  `AsegurarInstantanea`: valida primero con la instantánea y solo relee de Argos si no basta y
+  tiene más de 30 s, con la protección de la ficha (singleflight, cuota por usuario y conector →
+  429 `cuota_argos`, espera tras una caída). Lo leído se valida antes de guardarlo (un cliente de
+  otra empresa no entra a la instantánea; auditado como `clientes.sincronizar`); un 404 borra la
+  instantánea y anonimiza las copias. Con Argos caído y un servicio pedido, 503
+  `argos_no_disponible`. Cliente inexistente, de otra empresa o servicio ajeno dan el mismo 422
+  `empresa_no_coincide` (sin oráculo de enumeración). El sistema (retiro automático, alta
+  comercial) no consulta.
 - **Convertidor único:** `AServicio(ServicioArgos, zonaCliente)` → `Servicio` (instantánea y
   lecturas en vivo).
 - **Protección de Argos** (`refrescos.go`): una sola lectura de ficha en curso por (conector,
-  cliente) (`singleflight`), cuota de 60 «Refrescar» por minuto y conector, y tras una caída
-  (`fallo_en`) 1 min sin volver a llamar (instantánea `stale`). «Refrescar» de un cliente que la
+  cliente) (`singleflight`); las lecturas a pedido («Refrescar» y la verificación de altas) cobran
+  cuota solo cuando de verdad llaman a Argos y solo el líder del singleflight: 60 por minuto y
+  conector y 10 por minuto y usuario. Tras una caída (`fallo_en`), 1 min sin volver a llamar
+  (instantánea `stale`). Con `?refrescar=true`, `refrescoOmitido` dice por qué no se llamó
+  (`cuota`, `reciente`, `en_espera`) y el panel lo muestra. «Refrescar» de un cliente que la
   instantánea pone en otra empresa no llama a Argos (404).
 - **Auditoría de la búsqueda:** una búsqueda con 4 dígitos o más (teléfono, NIT, CUI) queda con los
   dígitos ocultos salvo los dos últimos (`****-**44`).
