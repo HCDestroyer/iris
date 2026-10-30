@@ -46,13 +46,19 @@ Optional, stronger check (needs the GitHub CLI): every release asset carries a b
 attestation, which proves it was built by this repository's release workflow:
 
 ```sh
-gh attestation verify install.sh --repo HCDestroyer/iris
+gh attestation verify install.sh --repo HCDestroyer/iris \
+    --signer-workflow HCDestroyer/iris/.github/workflows/release.yml --source-ref refs/heads/main
 ```
 
 The installer does the same for the package it downloads (`iris-X.Y.Z.tar.gz`, also on
-`irisctl upgrade`): when `gh` is installed and logged in (`gh auth login`, as the user that runs the
-installer), a package whose attestation does not verify is refused. Without `gh` it says so and
-checks the sha256 only.
+`irisctl upgrade`), with the same signer workflow and ref (packages are only built by `release.yml`
+running from `main`): when `gh` is installed and logged in as root (`sudo gh auth login`), a package
+whose attestation does not verify is refused, and `gh`'s own error is shown (a network, rate-limit
+or login problem also stops it). Without `gh` it says so, checks the sha256 only and prints the
+command to verify the package by hand from any machine that has `gh`.
+
+`install`, `upgrade`, `start` and `backup` change the install, so they run as root and share one
+lock per server (`/run/iris/install.lock`); `status`, `logs`, `stop` and `compose` only need Docker.
 
 It asks for what it needs. The same answers can be passed as flags (`--yes` never asks):
 

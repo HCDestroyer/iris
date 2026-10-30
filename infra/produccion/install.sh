@@ -242,20 +242,17 @@ check_docker() {
 }
 
 # One lock per Docker host (the compose project is always "iris"), outside the install folder, in a
-# directory only root can write (as root) or in the user's home.
+# directory only root can write. The commands that change the install (install, upgrade, start,
+# backup) need root, so every one of them takes this same lock.
 lock() {
-    command -v flock > /dev/null || return 0
-    local d
-    if [ "$(id -u)" = 0 ]; then
-        d=/run/iris
-        install -d -m 700 -o root -g root "$d"
-        if [ -L "$d" ] || [ "$(stat -c '%u %a' "$d")" != "0 700" ]; then
-            die "$d must be a directory owned by root with mode 700"
-        fi
-    else
-        d="${HOME:?}"
+    local d=/run/iris
+    [ "$(id -u)" = 0 ] || die "this command changes the install: run it as root (sudo)"
+    command -v flock > /dev/null || die "flock is required (util-linux)"
+    install -d -m 700 -o root -g root "$d"
+    if [ -L "$d" ] || [ "$(stat -c '%u %a' "$d")" != "0 700" ]; then
+        die "$d must be a directory owned by root with mode 700"
     fi
-    exec 9> "$d/.iris-install.lock"
+    exec 9> "$d/install.lock"
     flock -n 9 || die "another install.sh/irisctl operation is running on this server"
 }
 
@@ -328,11 +325,18 @@ fetch_release() {
     if [ -n "$SOURCE" ]; then
         warn "local package ($SOURCE): no provenance check, sha256 only"
     elif command -v gh > /dev/null && gh auth status > /dev/null 2>&1 < /dev/null; then
-        gh attestation verify "$tmp/$pkg" --repo "$REPO" < /dev/null > /dev/null 2>&1 ||
-            { rm -rf "$tmp"; die "the provenance attestation of $pkg does not verify (gh attestation verify --repo $REPO): refusing to install it"; }
-        log "provenance of $pkg verified (built by $REPO)"
+        local err
+        # Only release.yml of $REPO, run from main (on push and on dispatch), signs packages.
+        if ! err="$(gh attestation verify "$tmp/$pkg" --repo "$REPO" \
+            --signer-workflow "$REPO/.github/workflows/release.yml" --source-ref refs/heads/main \
+            < /dev/null 2>&1 > /dev/null)"; then
+            rm -rf "$tmp"
+            die "gh attestation verify failed for $pkg, refusing to install it. gh said: ${err:-no output}
+  (a network, rate-limit or login problem also ends here: fix it and run again)"
+        fi
+        log "provenance of $pkg verified (built by $REPO's release workflow from main)"
     else
-        warn "GitHub CLI (gh) not installed or not logged in: checking the package by sha256 only, without its provenance attestation (docs/runbooks/install.md)"
+        warn "GitHub CLI (gh) not installed or not logged in$([ "$(id -u)" = 0 ] && echo " as root (sudo gh auth login)"): checking $pkg by sha256 only. To check its provenance by hand, on any machine with gh: download $pkg from https://github.com/$REPO/releases/tag/v$v and run: gh attestation verify $pkg --repo $REPO --signer-workflow $REPO/.github/workflows/release.yml --source-ref refs/heads/main (docs/runbooks/install.md)"
     fi
     tar -xzf "$tmp/$pkg" -C "$tmp" --no-same-owner
     [ -f "$tmp/iris-$v/docker-compose.yml" ] || { rm -rf "$tmp"; die "$pkg does not contain iris-$v/docker-compose.yml"; }
@@ -441,7 +445,11 @@ do_backup() {
     local days
     days="$(env_get IRIS_RESPALDO_DIAS)"
     if [[ "${days:-14}" =~ ^[0-9]+$ ]] && [ "${days:-14}" -gt 0 ]; then
-        find "$dir" -maxdepth 1 -type f \( -name '*.dump' -o -name '*.dump.sha256' \) -mtime +"${days:-14}" -delete
+        # Only the files this function writes: <db>-<YYYYMMDDTHHMMSSZ>.dump and its .sha256.
+        if [[ "${db:-iris}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            find "$dir" -maxdepth 1 -type f -regextype posix-extended \
+                -regex ".*/${db:-iris}-[0-9]{8}T[0-9]{6}Z\.dump(\.sha256)?" -mtime +"${days:-14}" -delete
+        fi
     fi
 }
 
@@ -618,15 +626,23 @@ schema_die() {
 # Before anything is written: the lab's own postgres container (started if it was stopped).
 LAB_PG=""
 lab_psql() { docker exec -i "$LAB_PG" "$@"; }
+# If this check started the lab's postgres, it stops it again however it ends (the lab is left as
+# it was found).
+stop_lab_pg() { docker stop "$LAB_PG" > /dev/null 2>&1 || true; }
 check_schema_lab() {
-    local lab="$1" n
+    local lab="$1" n err
     LAB_PG="$(docker ps -aq --filter label=com.docker.compose.project=iris --filter label=com.docker.compose.service=postgres | head -n1)"
     if [ -z "$LAB_PG" ]; then
         warn "the lab postgres container was not found: the schema is checked later, before migrating"
         return 0
     fi
+    local started=false
     if [ "$(docker inspect -f '{{.State.Running}}' "$LAB_PG")" != true ]; then
-        docker start "$LAB_PG" > /dev/null
+        if ! err="$(docker start "$LAB_PG" 2>&1 > /dev/null)"; then
+            die "could not start the lab database container ($(docker inspect -f '{{.Name}}' "$LAB_PG" | tr -d /)) to check its schema: $err"
+        fi
+        started=true
+        trap stop_lab_pg EXIT
     fi
     for n in $(seq 1 30); do
         docker exec "$LAB_PG" pg_isready -q > /dev/null 2>&1 && break
@@ -635,6 +651,10 @@ check_schema_lab() {
     done
     if schema_ahead lab_psql "$(lab_get IRIS_PG_USUARIO iris "$lab")" "$(lab_get IRIS_PG_BASE iris "$lab")"; then
         schema_die
+    fi
+    if $started; then
+        stop_lab_pg
+        trap - EXIT
     fi
 }
 # Again under the production compose, right before migrating (also when resuming).

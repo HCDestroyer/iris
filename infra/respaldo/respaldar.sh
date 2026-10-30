@@ -75,7 +75,15 @@ mv "$parcial" "$dir/$nombre"
 echo "Respaldo: $dir/$nombre ($(du -h "$dir/$nombre" | cut -f1))"
 
 if [ "$dias" -gt 0 ] 2>/dev/null; then
-    # También los volcados sin cifrar del instalador de producción (*.dump, cuando no hay age).
-    find "$dir" -maxdepth 1 -type f \( -name '*.dump.age' -o -name '*.dump.age.sha256' -o -name '*.dump' -o -name '*.dump.sha256' \) \
-        -mtime +"$dias" -print -delete | sed 's/^/Borrado (más de '"$dias"' días): /'
+    # Solo los archivos de respaldo de esta base: <base>-<AAAAMMDDTHHMMSSZ>.dump.age y, del
+    # instalador de producción sin age, <base>-<…>Z.dump; cada uno con su .sha256. Nunca otro *.dump.
+    # Con un nombre de base raro (fuera de [A-Za-z0-9_-]) no se borra nada: mejor sobrar que borrar
+    # de más.
+    if [[ "$base" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        find "$dir" -maxdepth 1 -type f -regextype posix-extended \
+            -regex ".*/$base-[0-9]{8}T[0-9]{6}Z\.dump(\.age)?(\.sha256)?" \
+            -mtime +"$dias" -print -delete | sed 's/^/Borrado (más de '"$dias"' días): /'
+    else
+        echo "Aviso: la base '$base' tiene caracteres fuera de [A-Za-z0-9_-]; no se borran respaldos viejos." >&2
+    fi
 fi
