@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, EstadoVacio, InsigniaEstado, Tarjeta, cn, type Tono } from "@iris/ui";
-import { CalendarOff, CalendarX2, GripVertical, MoveRight, UserRound } from "lucide-react";
+import { CalendarOff, CalendarX2, GripVertical, MoveRight, TriangleAlert, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useState, type DragEvent, type ReactNode } from "react";
 import {
@@ -21,6 +21,7 @@ import {
     type Zona,
 } from "@/lib/despacho/calendario";
 import { diasDesde, etiquetaDia, etiquetaDiaLarga, horaDe, minutosDeTexto, minutosEnDia, textoMinutos, type Dia } from "@/lib/despacho/fechas";
+import { textoConflicto, type Conflicto } from "@/lib/agenda/mes";
 import { arrastrePermitido, movibleDeCita, movibleDeOrden, sePuedeMover, type Movible } from "@/lib/despacho/mover";
 import { ESTADOS_ORDEN, TIPOS_ORDEN, type Orden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
@@ -39,6 +40,8 @@ type Comun = {
     arrastre: Movible | null;
     setArrastre: (m: Movible | null) => void;
     ahora: number;
+    /** Citas con conflicto (ausencia del técnico o cruce con otra cita viva). */
+    conflictos?: Map<number, Conflicto[]>;
 };
 
 const BORDE_TONO: Record<Tono, string> = {
@@ -55,10 +58,11 @@ const VISIBLES_BANDEJA = 9;
 /** Hora que se propone al soltar en la semana una orden que no tenía cita. */
 const HORA_POR_DEFECTO = 8 * 60;
 
-function textoCita(c: CitaAgenda): string {
+function textoCita(c: CitaAgenda, conflictos: readonly Conflicto[] = []): string {
     const ventana = c.ventanaInicio && c.ventanaFin ? ` · ventana ${horaDe(c.ventanaInicio)}–${horaDe(c.ventanaFin)}` : "";
     const llego = c.enSitioEn ? ` · llegó ${horaDe(c.enSitioEn)}` : "";
-    return `${c.numero} · ${TIPOS_ORDEN[c.tipo].texto} · ${horaDe(c.inicio)}–${horaDe(c.fin)} · ${ESTADOS_ORDEN[c.estado].texto}${ventana}${llego}`;
+    const conflicto = conflictos.length > 0 ? ` · Conflicto: ${conflictos.map(textoConflicto).join("; ")}` : "";
+    return `${c.numero} · ${TIPOS_ORDEN[c.tipo].texto} · ${horaDe(c.inicio)}–${horaDe(c.fin)} · ${ESTADOS_ORDEN[c.estado].texto}${ventana}${llego}${conflicto}`;
 }
 
 /** Hace arrastrable un elemento que representa una orden. */
@@ -104,7 +108,9 @@ function BloqueCita({ cita, comun, className, style, children }: { cita: CitaAge
     const { puede } = useSesion();
     const movible = sePuedeMover(cita.estado, puede);
     const m = movibleDeCita(cita);
-    const tono = ESTADOS_ORDEN[cita.estado].tono;
+    const conflictos = comun.conflictos?.get(cita.ordenId) ?? [];
+    const tono = conflictos.length > 0 ? "error" : ESTADOS_ORDEN[cita.estado].tono;
+    const texto = textoCita(cita, conflictos);
     const clases = cn(
         "flex min-w-0 items-center gap-1 overflow-hidden rounded-md border border-l-4 border-border bg-elevated px-1.5 text-left text-xs text-foreground shadow-sm",
         "hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-1",
@@ -115,7 +121,17 @@ function BloqueCita({ cita, comun, className, style, children }: { cita: CitaAge
     );
     if (!movible) {
         return (
-            <Link href={`/ordenes/${cita.ordenId}`} className={clases} style={style} data-cita={cita.numero} data-estado={cita.estado} title={textoCita(cita)} aria-label={`${textoCita(cita)}. Ver orden`}>
+            <Link
+                href={`/ordenes/${cita.ordenId}`}
+                className={clases}
+                style={style}
+                data-cita={cita.numero}
+                data-estado={cita.estado}
+                data-conflicto={conflictos.length > 0 ? "" : undefined}
+                title={texto}
+                aria-label={`${texto}. Ver orden`}
+            >
+                {conflictos.length > 0 ? <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-error" /> : null}
                 {children}
             </Link>
         );
@@ -127,12 +143,14 @@ function BloqueCita({ cita, comun, className, style, children }: { cita: CitaAge
             style={style}
             data-cita={cita.numero}
             data-estado={cita.estado}
-            title={`${textoCita(cita)}. Arrastra para mover o pulsa para «Mover a…»`}
-            aria-label={`${textoCita(cita)}. Mover a…`}
+            data-conflicto={conflictos.length > 0 ? "" : undefined}
+            title={`${texto}. Arrastra para mover o pulsa para «Mover a…»`}
+            aria-label={`${texto}. Mover a…`}
             aria-haspopup="dialog"
             onClick={() => comun.alMover(m)}
             {...propsArrastre(m, movible, comun.setArrastre)}
         >
+            {conflictos.length > 0 ? <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-error" /> : null}
             {children}
         </Boton>
     );
@@ -187,7 +205,11 @@ function CabeceraFila({ fila, comun, detalle }: { fila: FilaTecnico; comun: Comu
     const { puede } = useSesion();
     const soltar = useSoltar(arrastrePermitido(comun.arrastre, false, puede), (m) => comun.alMover(m, { tecnicoId: fila.usuarioId, dia: null, minutos: null }));
     return (
-        <div {...soltar.props} className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5", soltar.encima && "bg-primary/10 outline-2 outline-primary")} data-cabecera-tecnico={fila.usuarioId}>
+        <div
+            {...soltar.props}
+            className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5", soltar.encima && "bg-primary/10 outline-2 outline-primary")}
+            data-cabecera-tecnico={fila.usuarioId}
+        >
             <UserRound aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <div className="grid min-w-0">
                 <span className="truncate text-sm font-medium">{fila.nombre}</span>
@@ -298,7 +320,11 @@ function RejillaDia({ dia, comun }: { dia: Dia; comun: Comun }) {
                 </span>
                 <div role="columnheader" className="relative h-6" aria-label="Horas">
                     {horas.map((h) => (
-                        <span key={h} className="absolute top-1 -translate-x-1/2 text-[0.6875rem] text-muted-foreground tabular-nums first:translate-x-0" style={{ left: `${((h - horario.desde) / total) * 100}%` }}>
+                        <span
+                            key={h}
+                            className="absolute top-1 -translate-x-1/2 text-[0.6875rem] text-muted-foreground tabular-nums first:translate-x-0"
+                            style={{ left: `${((h - horario.desde) / total) * 100}%` }}
+                        >
                             {textoMinutos(h)}
                         </span>
                     ))}
@@ -396,7 +422,13 @@ function ListaTelefono({ dias, comun }: { dias: Dia[]; comun: Comun }) {
                                     {citas.map((c) => {
                                         const p = ESTADOS_ORDEN[c.estado];
                                         return (
-                                            <li key={c.ordenId} data-cita={c.numero} data-estado={c.estado} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-elevated px-2 py-1.5 text-sm">
+                                            <li
+                                                key={c.ordenId}
+                                                data-cita={c.numero}
+                                                data-estado={c.estado}
+                                                data-conflicto={comun.conflictos?.has(c.ordenId) ? "" : undefined}
+                                                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-elevated px-2 py-1.5 text-sm"
+                                            >
                                                 <span className="font-medium tabular-nums">
                                                     {horaDe(c.inicio)}–{horaDe(c.fin)}
                                                 </span>
@@ -404,13 +436,27 @@ function ListaTelefono({ dias, comun }: { dias: Dia[]; comun: Comun }) {
                                                     {c.numero}
                                                 </Link>
                                                 <InsigniaEstado tono={p.tono} icono={p.icono} texto={p.texto} />
+                                                {comun.conflictos?.has(c.ordenId) ? (
+                                                    <InsigniaEstado
+                                                        tono="error"
+                                                        icono={TriangleAlert}
+                                                        texto="Conflicto"
+                                                        title={(comun.conflictos.get(c.ordenId) ?? []).map(textoConflicto).join("; ")}
+                                                    />
+                                                ) : null}
                                                 <span className="w-full min-w-0 truncate text-xs text-muted-foreground">
                                                     {TIPOS_ORDEN[c.tipo].texto} · {c.direccion || "Sin dirección"}
                                                     {c.ventanaInicio && c.ventanaFin ? ` · ventana ${horaDe(c.ventanaInicio)}–${horaDe(c.ventanaFin)}` : ""}
                                                     {c.enSitioEn ? ` · llegó ${horaDe(c.enSitioEn)}` : ""}
                                                 </span>
                                                 {sePuedeMover(c.estado, puede) ? (
-                                                    <Boton variante="secundario" tamano="sm" className="ml-auto" aria-label={`Mover a… ${c.numero}`} onClick={() => comun.alMover(movibleDeCita(c))}>
+                                                    <Boton
+                                                        variante="secundario"
+                                                        tamano="sm"
+                                                        className="ml-auto"
+                                                        aria-label={`Mover a… ${c.numero}`}
+                                                        onClick={() => comun.alMover(movibleDeCita(c))}
+                                                    >
                                                         <MoveRight />
                                                         Mover a…
                                                     </Boton>
@@ -435,11 +481,7 @@ export function CalendarioTecnicos({ vista, desde, ...comun }: PropsCalendario) 
     const dias = vista === "dia" ? [desde] : diasDesde(desde, 7);
     if (comun.filas.length === 0) {
         return (
-            <EstadoVacio
-                icono={CalendarX2}
-                titulo="No hay técnicos en este filtro"
-                descripcion="Cambia la cuadrilla o la zona, o registra la ficha de agenda de los técnicos."
-            />
+            <EstadoVacio icono={CalendarX2} titulo="No hay técnicos en este filtro" descripcion="Cambia la cuadrilla o la zona, o registra la ficha de agenda de los técnicos." />
         );
     }
     return (
@@ -529,7 +571,21 @@ export function BandejaSinProgramar({
 }
 
 /** Tarjeta envolvente con título para secciones del despacho. */
-export function Seccion({ titulo, descripcion, acciones, children, className, ...props }: { titulo: string; descripcion?: ReactNode; acciones?: ReactNode; children: ReactNode; className?: string; "data-testid"?: string }) {
+export function Seccion({
+    titulo,
+    descripcion,
+    acciones,
+    children,
+    className,
+    ...props
+}: {
+    titulo: string;
+    descripcion?: ReactNode;
+    acciones?: ReactNode;
+    children: ReactNode;
+    className?: string;
+    "data-testid"?: string;
+}) {
     return (
         <Tarjeta className={cn("grid content-start gap-3 p-4 [&>*]:min-w-0", className)} {...props}>
             <div className="flex flex-wrap items-center justify-between gap-2">

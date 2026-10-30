@@ -6,6 +6,7 @@ import { apiEncuestas, type ApiEncuestas } from "./api-encuestas";
 import { apiReportes, type ApiReportes } from "./api-reportes";
 import { apiSSO, type ApiSSO } from "./api-sso";
 import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
+import { apiEquipo, type ApiEquipo } from "./api-equipo";
 import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
 import { apiRutas, type ApiRutas } from "./api-rutas";
@@ -119,8 +120,29 @@ export const PERMISOS_VENTAS: Permiso[] = [
 /** Formularios y pausa (PR #29): los de despacho. */
 const PERMISOS_FORMULARIOS: Permiso[] = ["plantillas.ver", "ordenes.asignar_formulario", "ordenes.pausar", "ordenes.reanudar"];
 
+/** Fichas de técnicos, turnos, ausencias, cuadrillas y zonas (admin y supervisor). */
+const PERMISOS_EQUIPO: Permiso[] = [
+    "agenda.crear_tecnico",
+    "agenda.editar_tecnico",
+    "agenda.activar_tecnico",
+    "agenda.desactivar_tecnico",
+    "agenda.fijar_turnos",
+    "agenda.fijar_capacidad",
+    "agenda.registrar_ausencia",
+    "agenda.anular_ausencia",
+    "agenda.crear_cuadrilla",
+    "agenda.editar_cuadrilla",
+    "agenda.activar_cuadrilla",
+    "agenda.desactivar_cuadrilla",
+    "agenda.crear_zona",
+    "agenda.editar_zona",
+    "agenda.activar_zona",
+    "agenda.desactivar_zona",
+];
+
 export const PERMISOS_ADMIN: Permiso[] = [
     ...PERMISOS_VENTAS.filter((p) => p !== "adjuntos.ver" && p !== "agenda.ver"),
+    ...PERMISOS_EQUIPO,
     "factibilidad.configurar",
     "factibilidad.registrar_manual",
     ...PERMISOS_BUZONES,
@@ -174,7 +196,7 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "agenda.fijar_turnos", "agenda.registrar_ausencia", "agenda.anular_ausencia", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
@@ -243,6 +265,8 @@ export type ApiFalsa = {
     cambiarVersionPendiente: (pendienteId: number) => void;
     /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
     agenda: ApiAgenda["escenario"];
+    /** Técnicos, cuadrillas y zonas (se pueden cambiar en la prueba). */
+    equipo: Pick<ApiEquipo, "tecnicos" | "cuadrillas" | "zonas" | "cambiarVersionTecnico">;
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
     /** Plantillas de formulario (se pueden cambiar en la prueba). */
@@ -322,6 +346,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     });
     const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     enlace.agenda = agenda;
+    const equipo = apiEquipo(agenda.escenario, ordenes.escenario.ordenes);
     const rutas = apiRutas(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
     const comercial = apiComercial({ conector: opciones.comercialConector === true });
     const reportes = apiReportes();
@@ -667,6 +692,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await reportes.manejar({ route, metodo, ruta, query: url.searchParams, puede })) {
             return;
         }
+        if (await equipo.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, puede })) {
+            return;
+        }
         if (await agenda.manejar({ route, metodo, ruta, query: url.searchParams, puede, empresaId })) {
             return;
         }
@@ -807,6 +835,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
+        equipo: { tecnicos: equipo.tecnicos, cuadrillas: equipo.cuadrillas, zonas: equipo.zonas, cambiarVersionTecnico: equipo.cambiarVersionTecnico },
         rutas: rutas.rutas,
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },

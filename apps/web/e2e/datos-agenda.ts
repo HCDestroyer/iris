@@ -45,6 +45,7 @@ const tecnico = (id: number, usuarioId: number, nombre: string, cuadrillaId: num
     baseLat: null,
     baseLon: null,
     bodegaId: 30,
+    telefono: "+502 5555-0000",
     version: 1,
     creadoEn: "2026-10-01T00:00:00Z",
     actualizadoEn: "2026-10-01T00:00:00Z",
@@ -60,6 +61,8 @@ export type EscenarioAgenda = {
     /** Ventana acordada por orden (la API la guarda en la cita). */
     ventanas: Map<number, { inicio: string; fin: string }>;
     posiciones: Schema<"PosicionTecnico">[];
+    /** `GET /agenda` responde `truncado` (como la API con más de 2000 citas). */
+    truncado?: boolean;
 };
 
 /**
