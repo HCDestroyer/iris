@@ -119,6 +119,22 @@ type Modulo struct {
 	DescartarSSO      *auditoria.Caso[EntradaDescartarSSO, bool]
 	// Reautenticar: confirmar la contraseña dentro de la sesión (la exige una sesión sso).
 	Reautenticar *auditoria.Caso[EntradaReautenticar, Reautenticado]
+
+	// Historial de accesos y sesiones activas (accesos.go).
+	ListarAccesos         *auditoria.Caso[EntradaListarAccesos, nucleo.Pagina[Acceso]]
+	ListarSesionesUsuario *auditoria.Caso[EntradaSesionesUsuario, nucleo.Pagina[SesionActiva]]
+	CerrarSesionUsuario   *auditoria.Caso[EntradaCerrarSesionUsuario, SesionesCerradas]
+	CerrarSesionesUsuario *auditoria.Caso[EntradaCerrarSesionesUsuario, SesionesCerradas]
+	// Actividad de la app de campo por técnico (actividad_campo.go).
+	ActividadCampo *auditoria.Caso[EntradaActividadCampo, ActividadCampo]
+	// Roles propios y su asignación (roles.go).
+	VerRol            *auditoria.Caso[EntradaVerRol, Rol]
+	CrearRol          *auditoria.Caso[EntradaCrearRol, Rol]
+	EditarRol         *auditoria.Caso[EntradaEditarRol, Rol]
+	ActivarRol        *auditoria.Caso[EntradaCambiarActivoRol, Rol]
+	DesactivarRol     *auditoria.Caso[EntradaCambiarActivoRol, Rol]
+	AsignarRolUsuario *auditoria.Caso[EntradaRolUsuario, Usuario]
+	QuitarRolUsuario  *auditoria.Caso[EntradaRolUsuario, Usuario]
 }
 
 // Nuevo arma el módulo.
@@ -202,6 +218,18 @@ func Nuevo(cfg Config) *Modulo {
 	m.CrearVinculoSSO = nuevoCrearVinculoSSO()
 	m.DescartarSSO = nuevoDescartarSSO()
 	m.Reautenticar = nuevoReautenticar(cfg)
+	m.ListarAccesos = nuevoListarAccesos()
+	m.ListarSesionesUsuario = nuevoListarSesionesUsuario()
+	m.CerrarSesionUsuario = nuevoCerrarSesionUsuario()
+	m.CerrarSesionesUsuario = nuevoCerrarSesionesUsuario()
+	m.ActividadCampo = nuevoActividadCampo()
+	m.VerRol = nuevoVerRol()
+	m.CrearRol = nuevoCrearRol()
+	m.EditarRol = nuevoEditarRol()
+	m.ActivarRol = nuevoCambiarActivoRol(true)
+	m.DesactivarRol = nuevoCambiarActivoRol(false)
+	m.AsignarRolUsuario = nuevoAsignarRolUsuario()
+	m.QuitarRolUsuario = nuevoQuitarRolUsuario()
 	return m
 }
 

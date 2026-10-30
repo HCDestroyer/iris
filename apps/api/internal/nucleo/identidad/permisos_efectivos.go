@@ -65,7 +65,10 @@ type rolResuelto struct {
 // resolverRoles valida las asignaciones (rol existente, sin duplicados, alcance de zona o de
 // cuadrilla pero no ambos) y que quien asigna tenga, sin límite de alcance, cada permiso de
 // cada rol: nadie da más de lo que tiene.
-func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.Permisos, campo string, roles []AsignacionRol) ([]rolResuelto, error) {
+//
+// Un rol desactivado no se asigna (422), salvo que la asignación ya estuviera en previas (editar
+// un usuario conserva lo que tiene).
+func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.Permisos, campo string, roles []AsignacionRol, previas ...AsignacionRol) ([]rolResuelto, error) {
 	if len(roles) == 0 {
 		return nil, nil
 	}
@@ -94,10 +97,19 @@ func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.P
 		porCodigo[f.Codigo] = f
 		ids = append(ids, f.ID)
 	}
+	tenia := map[string]bool{}
+	for _, p := range previas {
+		tenia[p.clave()] = true
+	}
 	for i, r := range roles {
-		if _, ok := porCodigo[r.Rol]; !ok {
+		f, ok := porCodigo[r.Rol]
+		switch {
+		case !ok:
 			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("%s[%d].rol", campo, i),
 				Message: "El rol " + r.Rol + " no existe", Rule: "existe"})
+		case !f.Activo && !tenia[r.clave()]:
+			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("%s[%d].rol", campo, i),
+				Message: "El rol " + r.Rol + " está desactivado: actívalo antes de asignarlo", Rule: "activo"})
 		}
 	}
 	if len(errores) > 0 {

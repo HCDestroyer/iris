@@ -45,9 +45,16 @@ func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 			if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "desactivar a este usuario"); err != nil {
 				return Usuario{}, err
 			}
+			guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
+			if err != nil {
+				return Usuario{}, err
+			}
 			despues, err := q.DesactivarUsuario(ctx, identidadbd.DesactivarUsuarioParams{ID: in.ID, Version: in.Version})
 			if err != nil {
 				return Usuario{}, nucleo.VerificarVersion(err, "usuario", in.ID)
+			}
+			if err := guardia.despues(ctx); err != nil {
+				return Usuario{}, err
 			}
 			if _, err := q.RevocarSesionesDeUsuario(ctx, in.ID); err != nil {
 				return Usuario{}, err

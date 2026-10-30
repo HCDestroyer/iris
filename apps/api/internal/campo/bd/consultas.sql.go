@@ -75,7 +75,7 @@ func (q *Queries) AdjuntosDeOrdenes(ctx context.Context, ordenes []int64) ([]Cam
 const alcancesDePermisoDeUsuario = `-- name: AlcancesDePermisoDeUsuario :many
 SELECT ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
-JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = $1 AND rp.permiso = $2
 `
 

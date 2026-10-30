@@ -47,6 +47,18 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 			if err != nil {
 				return Usuario{}, err
 			}
+			// Dar permisos sensibles exige re-autenticarse, salvo el usuario de integración con el
+			// rol de su contrato creado por PrepararIntegracion o el canje del conector (marca
+			// interna del contexto, nunca por HTTP).
+			if !esIntegracionInterna(ctx) || tipo != "integracion" || !soloRolesDeIntegracion(in.Roles) {
+				permisos, err := permisosDeAsignaciones(ctx, q, roles)
+				if err != nil {
+					return Usuario{}, err
+				}
+				if err := exigirReautenticacionSensibles(ctx, permisos, "Crear este usuario"); err != nil {
+					return Usuario{}, err
+				}
+			}
 
 			empresas, err := empresasNuevoUsuario(ctx, q, in.Empresas)
 			if err != nil {
@@ -150,4 +162,18 @@ func empresasNuevoUsuario(ctx context.Context, q *identidadbd.Queries, ids []int
 		}
 	}
 	return salida, nil
+}
+
+// soloRolesDeIntegracion: todas las asignaciones son roles de integración (RolesIntegracion).
+func soloRolesDeIntegracion(roles []AsignacionRol) bool {
+	for _, r := range roles {
+		es := false
+		for _, codigo := range RolesIntegracion {
+			es = es || r.Rol == codigo
+		}
+		if !es {
+			return false
+		}
+	}
+	return true
 }

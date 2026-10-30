@@ -44,6 +44,42 @@ func (q *Queries) ActivarTOTP(ctx context.Context, arg ActivarTOTPParams) (Nucle
 	return i, err
 }
 
+const actualizarRol = `-- name: ActualizarRol :one
+UPDATE nucleo.roles
+SET nombre = $1, descripcion = $2, version = version + 1, updated_at = now()
+WHERE id = $3 AND version = $4 AND NOT sistema
+RETURNING id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo
+`
+
+type ActualizarRolParams struct {
+	Nombre      string
+	Descripcion string
+	ID          int64
+	Version     int32
+}
+
+func (q *Queries) ActualizarRol(ctx context.Context, arg ActualizarRolParams) (NucleoRole, error) {
+	row := q.db.QueryRow(ctx, actualizarRol,
+		arg.Nombre,
+		arg.Descripcion,
+		arg.ID,
+		arg.Version,
+	)
+	var i NucleoRole
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.Descripcion,
+		&i.Sistema,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Activo,
+	)
+	return i, err
+}
+
 const actualizarUsuario = `-- name: ActualizarUsuario :one
 UPDATE nucleo.usuarios
 SET nombre = $1, correo = $2, contrasena_hash = $3,
@@ -225,6 +261,36 @@ func (q *Queries) BorrarVinculosSSODeUsuario(ctx context.Context, usuarioID int6
 	return items, nil
 }
 
+const cambiarActivoRol = `-- name: CambiarActivoRol :one
+UPDATE nucleo.roles
+SET activo = $1, version = version + 1, updated_at = now()
+WHERE id = $2 AND version = $3 AND NOT sistema
+RETURNING id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo
+`
+
+type CambiarActivoRolParams struct {
+	Activo  bool
+	ID      int64
+	Version int32
+}
+
+func (q *Queries) CambiarActivoRol(ctx context.Context, arg CambiarActivoRolParams) (NucleoRole, error) {
+	row := q.db.QueryRow(ctx, cambiarActivoRol, arg.Activo, arg.ID, arg.Version)
+	var i NucleoRole
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.Descripcion,
+		&i.Sistema,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Activo,
+	)
+	return i, err
+}
+
 const cambiarContrasenaPropia = `-- name: CambiarContrasenaPropia :one
 UPDATE nucleo.usuarios
 SET contrasena_hash = $1, debe_cambiar_contrasena = false,
@@ -315,6 +381,46 @@ func (q *Queries) ConectorSigueActivo(ctx context.Context, id int64) (bool, erro
 	return activo, err
 }
 
+const conexionesAppDe = `-- name: ConexionesAppDe :many
+SELECT DISTINCT ON (c.usuario_id) c.usuario_id, c.app, c.plataforma, c.version, c.pendientes, c.pendientes_en, c.ip, c.user_agent, c.ultima_conexion, c.created_at, c.updated_at
+FROM nucleo.conexiones_app c
+WHERE c.usuario_id = ANY($1::bigint[]) AND c.app = 'campo'
+ORDER BY c.usuario_id, c.ultima_conexion DESC
+`
+
+// La conexión más reciente de la app de campo de cada usuario (cualquier plataforma).
+func (q *Queries) ConexionesAppDe(ctx context.Context, usuarios []int64) ([]NucleoConexionesApp, error) {
+	rows, err := q.db.Query(ctx, conexionesAppDe, usuarios)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NucleoConexionesApp
+	for rows.Next() {
+		var i NucleoConexionesApp
+		if err := rows.Scan(
+			&i.UsuarioID,
+			&i.App,
+			&i.Plataforma,
+			&i.Version,
+			&i.Pendientes,
+			&i.PendientesEn,
+			&i.Ip,
+			&i.UserAgent,
+			&i.UltimaConexion,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const confirmarTokenEntregado = `-- name: ConfirmarTokenEntregado :execrows
 UPDATE nucleo.tokens_api SET expira_en = NULL
 WHERE id = $1 AND revocado_en IS NULL AND (expira_en IS NULL OR expira_en > now())
@@ -401,11 +507,41 @@ func (q *Queries) CrearEmpresa(ctx context.Context, arg CrearEmpresaParams) (Nuc
 	return i, err
 }
 
+const crearRol = `-- name: CrearRol :one
+INSERT INTO nucleo.roles (codigo, nombre, descripcion)
+VALUES ($1, $2, $3)
+ON CONFLICT (codigo) DO NOTHING
+RETURNING id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo
+`
+
+type CrearRolParams struct {
+	Codigo      string
+	Nombre      string
+	Descripcion string
+}
+
+func (q *Queries) CrearRol(ctx context.Context, arg CrearRolParams) (NucleoRole, error) {
+	row := q.db.QueryRow(ctx, crearRol, arg.Codigo, arg.Nombre, arg.Descripcion)
+	var i NucleoRole
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.Descripcion,
+		&i.Sistema,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Activo,
+	)
+	return i, err
+}
+
 const crearSesion = `-- name: CrearSesion :one
 
-INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos, origen, reautenticada_en
+INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen, canal, app)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos, origen, reautenticada_en, canal, app
 `
 
 type CrearSesionParams struct {
@@ -417,6 +553,8 @@ type CrearSesionParams struct {
 	UserAgent    string
 	ExpiraEn     time.Time
 	Origen       string
+	Canal        string
+	App          *string
 }
 
 // Sesiones -------------------------------------------------------------------
@@ -430,6 +568,8 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		arg.UserAgent,
 		arg.ExpiraEn,
 		arg.Origen,
+		arg.Canal,
+		arg.App,
 	)
 	var i NucleoSesione
 	err := row.Scan(
@@ -448,6 +588,8 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		&i.MfaFallos,
 		&i.Origen,
 		&i.ReautenticadaEn,
+		&i.Canal,
+		&i.App,
 	)
 	return i, err
 }
@@ -923,6 +1065,32 @@ func (q *Queries) EmpresasPorIDs(ctx context.Context, ids []int64) ([]NucleoEmpr
 	return items, nil
 }
 
+const existeAsignacionRol = `-- name: ExisteAsignacionRol :one
+SELECT EXISTS (SELECT 1 FROM nucleo.usuarios_roles
+               WHERE usuario_id = $1 AND rol_id = $2
+                 AND zona_id IS NOT DISTINCT FROM $3::bigint
+                 AND cuadrilla_id IS NOT DISTINCT FROM $4::bigint)
+`
+
+type ExisteAsignacionRolParams struct {
+	UsuarioID   int64
+	RolID       int64
+	ZonaID      *int64
+	CuadrillaID *int64
+}
+
+func (q *Queries) ExisteAsignacionRol(ctx context.Context, arg ExisteAsignacionRolParams) (bool, error) {
+	row := q.db.QueryRow(ctx, existeAsignacionRol,
+		arg.UsuarioID,
+		arg.RolID,
+		arg.ZonaID,
+		arg.CuadrillaID,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const fallosMFASesion = `-- name: FallosMFASesion :one
 SELECT mfa_fallos FROM nucleo.sesiones WHERE id = $1
 `
@@ -1005,6 +1173,28 @@ func (q *Queries) GuardarSecretoTOTP(ctx context.Context, arg GuardarSecretoTOTP
 	return err
 }
 
+const hayAdministradorDeRoles = `-- name: HayAdministradorDeRoles :one
+SELECT EXISTS (
+    SELECT 1 FROM nucleo.usuarios u
+    WHERE u.activo AND u.tipo = 'persona'
+      AND (SELECT count(DISTINCT rp.permiso)
+           FROM nucleo.usuarios_roles ur
+           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+           WHERE ur.usuario_id = u.id AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
+             AND rp.permiso = ANY($1::text[])) = cardinality($1::text[])
+)::boolean
+`
+
+// Alguna persona activa tiene, sin límite de alcance y por roles activos, todos @permisos (los de
+// administrar roles): sin ella nadie podría volver a dar ni arreglar roles.
+func (q *Queries) HayAdministradorDeRoles(ctx context.Context, permisos []string) (bool, error) {
+	row := q.db.QueryRow(ctx, hayAdministradorDeRoles, permisos)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const hayEmpresas = `-- name: HayEmpresas :one
 SELECT EXISTS (SELECT 1 FROM nucleo.empresas)
 `
@@ -1023,6 +1213,107 @@ DELETE FROM nucleo.intentos_login WHERE correo = $1
 func (q *Queries) LimpiarIntentosLogin(ctx context.Context, correo string) error {
 	_, err := q.db.Exec(ctx, limpiarIntentosLogin, correo)
 	return err
+}
+
+const listarAccesos = `-- name: ListarAccesos :many
+SELECT a.id, a.usuario_id, a.canal, a.resultado, a.ip, a.dispositivo, a.app, a.sesion_id, a.token_id, a.intentos, a.created_at,
+       u.nombre AS usuario_nombre, u.correo AS usuario_correo
+FROM nucleo.accesos a
+LEFT JOIN nucleo.usuarios u ON u.id = a.usuario_id
+WHERE ($1::bigint = 0 OR a.id < $1::bigint)
+  AND ($2::bigint IS NULL OR a.usuario_id = $2::bigint)
+  AND ($3::timestamptz IS NULL OR a.created_at >= $3::timestamptz)
+  AND ($4::timestamptz IS NULL OR a.created_at < $4::timestamptz)
+  AND (cardinality($5::text[]) = 0 OR a.canal = ANY($5::text[]))
+  AND (cardinality($6::text[]) = 0 OR a.resultado = ANY($6::text[]))
+  -- La regla de exigirEmpresasDe: usuarios con empresas, todas del actor, y sin empresas.todas.
+  AND ($7::boolean OR a.usuario_id = $8::bigint
+       OR (EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = a.usuario_id)
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                           WHERE ue.usuario_id = a.usuario_id AND NOT (ue.empresa_id = ANY($9::bigint[])))
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                           WHERE ur.usuario_id = a.usuario_id AND rp.permiso = 'empresas.todas')))
+ORDER BY a.id DESC
+LIMIT $10
+`
+
+type ListarAccesosParams struct {
+	AntesDe    int64
+	UsuarioID  *int64
+	Desde      *time.Time
+	Hasta      *time.Time
+	Canales    []string
+	Resultados []string
+	Todas      bool
+	Yo         int64
+	Empresas   []int64
+	Limite     int32
+}
+
+type ListarAccesosRow struct {
+	ID            int64
+	UsuarioID     *int64
+	Canal         string
+	Resultado     string
+	Ip            string
+	Dispositivo   string
+	App           *string
+	SesionID      *int64
+	TokenID       *int64
+	Intentos      int32
+	CreatedAt     time.Time
+	UsuarioNombre *string
+	UsuarioCorreo *string
+}
+
+// Del más reciente al más antiguo (cursor: el id del último visto). Sin @todas, solo los accesos del
+// propio usuario y de quienes comparten alguna empresa con él; los de correos que no existen
+// (usuario_id null) solo con @todas.
+func (q *Queries) ListarAccesos(ctx context.Context, arg ListarAccesosParams) ([]ListarAccesosRow, error) {
+	rows, err := q.db.Query(ctx, listarAccesos,
+		arg.AntesDe,
+		arg.UsuarioID,
+		arg.Desde,
+		arg.Hasta,
+		arg.Canales,
+		arg.Resultados,
+		arg.Todas,
+		arg.Yo,
+		arg.Empresas,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListarAccesosRow
+	for rows.Next() {
+		var i ListarAccesosRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UsuarioID,
+			&i.Canal,
+			&i.Resultado,
+			&i.Ip,
+			&i.Dispositivo,
+			&i.App,
+			&i.SesionID,
+			&i.TokenID,
+			&i.Intentos,
+			&i.CreatedAt,
+			&i.UsuarioNombre,
+			&i.UsuarioCorreo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listarEmpresas = `-- name: ListarEmpresas :many
@@ -1103,7 +1394,7 @@ func (q *Queries) ListarPermisos(ctx context.Context) ([]NucleoPermiso, error) {
 }
 
 const listarRoles = `-- name: ListarRoles :many
-SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at FROM nucleo.roles WHERE id > $1 ORDER BY id LIMIT $2
+SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo FROM nucleo.roles WHERE id > $1 ORDER BY id LIMIT $2
 `
 
 type ListarRolesParams struct {
@@ -1129,6 +1420,7 @@ func (q *Queries) ListarRoles(ctx context.Context, arg ListarRolesParams) ([]Nuc
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Activo,
 		); err != nil {
 			return nil, err
 		}
@@ -1314,6 +1606,7 @@ func (q *Queries) PermisosDeRoles(ctx context.Context, roles []int64) ([]Permiso
 const permisosDeUsuario = `-- name: PermisosDeUsuario :many
 SELECT rp.permiso, ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
 JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = $1
 ORDER BY rp.permiso
@@ -1325,6 +1618,7 @@ type PermisosDeUsuarioRow struct {
 	CuadrillaID *int64
 }
 
+// Un rol desactivado no da permisos (sigue asignado: al reactivarlo vuelve a darlos).
 func (q *Queries) PermisosDeUsuario(ctx context.Context, usuarioID int64) ([]PermisosDeUsuarioRow, error) {
 	rows, err := q.db.Query(ctx, permisosDeUsuario, usuarioID)
 	if err != nil {
@@ -1363,6 +1657,26 @@ func (q *Queries) PrepararVinculacionSSO(ctx context.Context, arg PrepararVincul
 	var vinculacion_expira_en time.Time
 	err := row.Scan(&vinculacion_expira_en)
 	return vinculacion_expira_en, err
+}
+
+const purgarAccesos = `-- name: PurgarAccesos :execrows
+DELETE FROM nucleo.accesos
+WHERE id IN (SELECT id FROM nucleo.accesos
+             WHERE created_at < now() - make_interval(secs => $1::bigint)
+             ORDER BY id LIMIT $2)
+`
+
+type PurgarAccesosParams struct {
+	AntiguedadSeg int64
+	Lote          int32
+}
+
+func (q *Queries) PurgarAccesos(ctx context.Context, arg PurgarAccesosParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarAccesos, arg.AntiguedadSeg, arg.Lote)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const purgarAccesosPortal = `-- name: PurgarAccesosPortal :execrows
@@ -1469,6 +1783,33 @@ func (q *Queries) PurgarTicketsSSO(ctx context.Context, arg PurgarTicketsSSOPara
 	return result.RowsAffected(), nil
 }
 
+const quitarAsignacionRol = `-- name: QuitarAsignacionRol :execrows
+DELETE FROM nucleo.usuarios_roles
+WHERE usuario_id = $1 AND rol_id = $2
+  AND zona_id IS NOT DISTINCT FROM $3::bigint
+  AND cuadrilla_id IS NOT DISTINCT FROM $4::bigint
+`
+
+type QuitarAsignacionRolParams struct {
+	UsuarioID   int64
+	RolID       int64
+	ZonaID      *int64
+	CuadrillaID *int64
+}
+
+func (q *Queries) QuitarAsignacionRol(ctx context.Context, arg QuitarAsignacionRolParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarAsignacionRol,
+		arg.UsuarioID,
+		arg.RolID,
+		arg.ZonaID,
+		arg.CuadrillaID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const quitarEmpresa = `-- name: QuitarEmpresa :execrows
 DELETE FROM nucleo.usuarios_empresas WHERE usuario_id = $1 AND empresa_id = $2
 `
@@ -1518,6 +1859,212 @@ DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1
 
 func (q *Queries) QuitarRolesDeUsuario(ctx context.Context, usuarioID int64) error {
 	_, err := q.db.Exec(ctx, quitarRolesDeUsuario, usuarioID)
+	return err
+}
+
+const rechazosSyncDe = `-- name: RechazosSyncDe :many
+SELECT o.usuario_id, count(*)::integer AS rechazadas, max(o.created_at)::timestamptz AS ultimo
+FROM campo.operaciones_sync o
+WHERE o.usuario_id = ANY($1::bigint[]) AND o.estado = 'rechazada'
+  AND o.created_at > now() - make_interval(secs => $2::bigint)
+GROUP BY o.usuario_id
+`
+
+type RechazosSyncDeParams struct {
+	Usuarios   []int64
+	VentanaSeg int64
+}
+
+type RechazosSyncDeRow struct {
+	UsuarioID  int64
+	Rechazadas int32
+	Ultimo     time.Time
+}
+
+// Operaciones del lote que siguen rechazadas (una rechazada se vuelve a evaluar al reenviarse).
+func (q *Queries) RechazosSyncDe(ctx context.Context, arg RechazosSyncDeParams) ([]RechazosSyncDeRow, error) {
+	rows, err := q.db.Query(ctx, rechazosSyncDe, arg.Usuarios, arg.VentanaSeg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RechazosSyncDeRow
+	for rows.Next() {
+		var i RechazosSyncDeRow
+		if err := rows.Scan(&i.UsuarioID, &i.Rechazadas, &i.Ultimo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const registrarAcceso = `-- name: RegistrarAcceso :exec
+
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, sesion_id, token_id, request_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10)
+`
+
+type RegistrarAccesoParams struct {
+	UsuarioID   *int64
+	Canal       string
+	Resultado   string
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	SesionID    *int64
+	TokenID     *int64
+	RequestID   string
+}
+
+// Historial de accesos (accesos.go) ------------------------------------------------
+func (q *Queries) RegistrarAcceso(ctx context.Context, arg RegistrarAccesoParams) error {
+	_, err := q.db.Exec(ctx, registrarAcceso,
+		arg.UsuarioID,
+		arg.Canal,
+		arg.Resultado,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Dispositivo,
+		arg.App,
+		arg.SesionID,
+		arg.TokenID,
+		arg.RequestID,
+	)
+	return err
+}
+
+const registrarAccesoFallido = `-- name: RegistrarAccesoFallido :exec
+WITH previo AS (
+    UPDATE nucleo.accesos SET intentos = intentos + 1, updated_at = now()
+    WHERE id = (
+        SELECT a.id FROM nucleo.accesos a
+        WHERE a.resultado = $3 AND a.canal = $2
+          AND (CASE WHEN $1::bigint IS NULL THEN a.usuario_id IS NULL AND a.ip = $4
+                    ELSE a.usuario_id = $1::bigint AND a.ip = $4 END)
+          AND (a.created_at > now() - make_interval(secs => $10::bigint)
+               OR ($1::bigint IS NULL
+                   AND (SELECT count(*) FROM nucleo.accesos b
+                        WHERE b.usuario_id IS NULL AND b.ip = $4 AND b.created_at > now() - interval '1 hour') >= $9::bigint
+                   AND a.created_at > now() - interval '1 hour'))
+        ORDER BY a.id DESC LIMIT 1)
+    RETURNING id
+)
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, request_id)
+SELECT $1::bigint, $2, $3, $4, $5, $6, $7::text, $8
+WHERE NOT EXISTS (SELECT 1 FROM previo)
+  AND ($1::bigint IS NOT NULL
+       OR (SELECT count(*) FROM nucleo.accesos b
+           WHERE b.usuario_id IS NULL AND b.ip = $4 AND b.created_at > now() - interval '1 hour') < $9::bigint)
+`
+
+type RegistrarAccesoFallidoParams struct {
+	UsuarioID   *int64
+	Canal       string
+	Resultado   string
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	RequestID   string
+	TopeIp      int64
+	VentanaSeg  int64
+}
+
+// Un fallo repetido (mismo usuario e IP o, sin usuario, misma IP; mismo canal y resultado) dentro de
+// @ventana_seg suma a la fila existente. Sin usuario, además, como mucho @tope_ip filas por IP y
+// hora: el resto solo suma a la última. Así nadie inunda el historial sin credenciales.
+func (q *Queries) RegistrarAccesoFallido(ctx context.Context, arg RegistrarAccesoFallidoParams) error {
+	_, err := q.db.Exec(ctx, registrarAccesoFallido,
+		arg.UsuarioID,
+		arg.Canal,
+		arg.Resultado,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Dispositivo,
+		arg.App,
+		arg.RequestID,
+		arg.TopeIp,
+		arg.VentanaSeg,
+	)
+	return err
+}
+
+const registrarAccesoToken = `-- name: RegistrarAccesoToken :execrows
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, token_id, request_id)
+SELECT $1, 'token', 'exito', $2, $3, $4, $5, $6::bigint, $7
+WHERE NOT EXISTS (SELECT 1 FROM nucleo.accesos
+                  WHERE token_id = $6::bigint AND created_at > now() - interval '1 hour')
+`
+
+type RegistrarAccesoTokenParams struct {
+	UsuarioID   *int64
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	TokenID     int64
+	RequestID   string
+}
+
+// El uso de un token deja como mucho una fila por hora (no una por petición).
+func (q *Queries) RegistrarAccesoToken(ctx context.Context, arg RegistrarAccesoTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, registrarAccesoToken,
+		arg.UsuarioID,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Dispositivo,
+		arg.App,
+		arg.TokenID,
+		arg.RequestID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const registrarConexionApp = `-- name: RegistrarConexionApp :exec
+
+INSERT INTO nucleo.conexiones_app AS c (usuario_id, app, plataforma, version, pendientes, pendientes_en, ip, user_agent, ultima_conexion)
+VALUES ($1, $2, $3, $4, $5::integer,
+        CASE WHEN $5::integer IS NULL THEN NULL ELSE now() END, $6, $7, now())
+ON CONFLICT (usuario_id, app, plataforma) DO UPDATE SET
+    version = EXCLUDED.version,
+    pendientes = coalesce(EXCLUDED.pendientes, c.pendientes),
+    pendientes_en = coalesce(EXCLUDED.pendientes_en, c.pendientes_en),
+    ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, ultima_conexion = now(), updated_at = now()
+WHERE c.ultima_conexion < now() - interval '30 seconds'
+`
+
+type RegistrarConexionAppParams struct {
+	UsuarioID  int64
+	App        string
+	Plataforma string
+	Version    string
+	Pendientes *int32
+	Ip         string
+	UserAgent  string
+}
+
+// Actividad de la app de campo ------------------------------------------------------
+// Última conexión por (usuario, app, plataforma): como mucho una escritura cada 30 s (también si
+// cambian la versión o los pendientes; se ven en la siguiente).
+func (q *Queries) RegistrarConexionApp(ctx context.Context, arg RegistrarConexionAppParams) error {
+	_, err := q.db.Exec(ctx, registrarConexionApp,
+		arg.UsuarioID,
+		arg.App,
+		arg.Plataforma,
+		arg.Version,
+		arg.Pendientes,
+		arg.Ip,
+		arg.UserAgent,
+	)
 	return err
 }
 
@@ -1644,6 +2191,24 @@ func (q *Queries) RevocarSesion(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const revocarSesionDeUsuario = `-- name: RevocarSesionDeUsuario :execrows
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE id = $1 AND usuario_id = $2 AND revocada_en IS NULL AND expira_en > now()
+`
+
+type RevocarSesionDeUsuarioParams struct {
+	ID        int64
+	UsuarioID int64
+}
+
+func (q *Queries) RevocarSesionDeUsuario(ctx context.Context, arg RevocarSesionDeUsuarioParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revocarSesionDeUsuario, arg.ID, arg.UsuarioID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revocarSesionPortal = `-- name: RevocarSesionPortal :execrows
 UPDATE nucleo.portal_sesiones SET revocada_en = now(), updated_at = now()
 WHERE id = $1 AND revocada_en IS NULL
@@ -1668,6 +2233,38 @@ func (q *Queries) RevocarSesionesDeUsuario(ctx context.Context, usuarioID int64)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const revocarSesionesDeUsuarioSalvo = `-- name: RevocarSesionesDeUsuarioSalvo :many
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE usuario_id = $1 AND revocada_en IS NULL AND expira_en > now() AND id <> $2
+RETURNING id
+`
+
+type RevocarSesionesDeUsuarioSalvoParams struct {
+	UsuarioID int64
+	Salvo     int64
+}
+
+// Cierra las sesiones abiertas del usuario salvo @salvo (la del propio actor; 0 = ninguna).
+func (q *Queries) RevocarSesionesDeUsuarioSalvo(ctx context.Context, arg RevocarSesionesDeUsuarioSalvoParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, revocarSesionesDeUsuarioSalvo, arg.UsuarioID, arg.Salvo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const revocarToken = `-- name: RevocarToken :one
@@ -1722,6 +2319,50 @@ func (q *Queries) RevocarTokensDeUsuario(ctx context.Context, usuarioID int64) (
 	return items, nil
 }
 
+const rolPorID = `-- name: RolPorID :one
+
+SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo FROM nucleo.roles WHERE id = $1
+`
+
+// Roles propios (roles.go) ----------------------------------------------------------
+func (q *Queries) RolPorID(ctx context.Context, id int64) (NucleoRole, error) {
+	row := q.db.QueryRow(ctx, rolPorID, id)
+	var i NucleoRole
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.Descripcion,
+		&i.Sistema,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Activo,
+	)
+	return i, err
+}
+
+const rolPorIDParaActualizar = `-- name: RolPorIDParaActualizar :one
+SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo FROM nucleo.roles WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) RolPorIDParaActualizar(ctx context.Context, id int64) (NucleoRole, error) {
+	row := q.db.QueryRow(ctx, rolPorIDParaActualizar, id)
+	var i NucleoRole
+	err := row.Scan(
+		&i.ID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.Descripcion,
+		&i.Sistema,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Activo,
+	)
+	return i, err
+}
+
 const rolesDeUsuarios = `-- name: RolesDeUsuarios :many
 
 SELECT ur.usuario_id, ur.zona_id, ur.cuadrilla_id, r.codigo, r.nombre
@@ -1767,7 +2408,7 @@ func (q *Queries) RolesDeUsuarios(ctx context.Context, usuarios []int64) ([]Role
 }
 
 const rolesPorCodigos = `-- name: RolesPorCodigos :many
-SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at FROM nucleo.roles WHERE codigo = ANY($1::text[]) ORDER BY codigo
+SELECT id, codigo, nombre, descripcion, sistema, version, created_at, updated_at, activo FROM nucleo.roles WHERE codigo = ANY($1::text[]) ORDER BY codigo
 `
 
 func (q *Queries) RolesPorCodigos(ctx context.Context, codigos []string) ([]NucleoRole, error) {
@@ -1788,6 +2429,7 @@ func (q *Queries) RolesPorCodigos(ctx context.Context, codigos []string) ([]Nucl
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Activo,
 		); err != nil {
 			return nil, err
 		}
@@ -1864,7 +2506,7 @@ func (q *Queries) SesionPortalVigentePorHash(ctx context.Context, tokenHash []by
 }
 
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
-SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, s.origen, s.reautenticada_en, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena,
+SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, s.origen, s.reautenticada_en, s.canal, s.app, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena,
        (s.reautenticada_en IS NOT NULL AND s.reautenticada_en > now() - make_interval(secs => $1::integer))::boolean AS reautenticada
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
@@ -1902,6 +2544,8 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, arg SesionVigentePor
 		&i.NucleoSesione.MfaFallos,
 		&i.NucleoSesione.Origen,
 		&i.NucleoSesione.ReautenticadaEn,
+		&i.NucleoSesione.Canal,
+		&i.NucleoSesione.App,
 		&i.NucleoUsuario.ID,
 		&i.NucleoUsuario.Nombre,
 		&i.NucleoUsuario.Correo,
@@ -1921,6 +2565,52 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, arg SesionVigentePor
 	return i, err
 }
 
+const sesionesActivasDeUsuario = `-- name: SesionesActivasDeUsuario :many
+
+SELECT id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos, origen, reautenticada_en, canal, app FROM nucleo.sesiones
+WHERE usuario_id = $1 AND revocada_en IS NULL AND expira_en > now() AND NOT mfa_pendiente
+ORDER BY ultimo_uso DESC, id DESC
+`
+
+// Sesiones activas ------------------------------------------------------------------
+func (q *Queries) SesionesActivasDeUsuario(ctx context.Context, usuarioID int64) ([]NucleoSesione, error) {
+	rows, err := q.db.Query(ctx, sesionesActivasDeUsuario, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NucleoSesione
+	for rows.Next() {
+		var i NucleoSesione
+		if err := rows.Scan(
+			&i.ID,
+			&i.UsuarioID,
+			&i.TokenHash,
+			&i.CsrfHash,
+			&i.MfaPendiente,
+			&i.Ip,
+			&i.UserAgent,
+			&i.ExpiraEn,
+			&i.UltimoUso,
+			&i.RevocadaEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.MfaFallos,
+			&i.Origen,
+			&i.ReautenticadaEn,
+			&i.Canal,
+			&i.App,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sistemaDeConector = `-- name: SistemaDeConector :one
 SELECT sistema FROM integracion.conectores WHERE id = $1
 `
@@ -1930,6 +2620,108 @@ func (q *Queries) SistemaDeConector(ctx context.Context, id int64) (string, erro
 	var sistema string
 	err := row.Scan(&sistema)
 	return sistema, err
+}
+
+const subirVersionUsuario = `-- name: SubirVersionUsuario :one
+UPDATE nucleo.usuarios SET version = version + 1, updated_at = now()
+WHERE id = $1 AND version = $2
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
+`
+
+type SubirVersionUsuarioParams struct {
+	ID      int64
+	Version int32
+}
+
+func (q *Queries) SubirVersionUsuario(ctx context.Context, arg SubirVersionUsuarioParams) (NucleoUsuario, error) {
+	row := q.db.QueryRow(ctx, subirVersionUsuario, arg.ID, arg.Version)
+	var i NucleoUsuario
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Correo,
+		&i.Tipo,
+		&i.ContrasenaHash,
+		&i.TotpSecreto,
+		&i.TotpActivo,
+		&i.TotpUltimoPaso,
+		&i.Activo,
+		&i.UsuarioArgosID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
+	)
+	return i, err
+}
+
+const tecnicosVisibles = `-- name: TecnicosVisibles :many
+SELECT t.usuario_id, t.id AS ficha_id, t.cuadrilla_id, u.nombre, u.correo
+FROM agenda.tecnicos t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.activo AND u.activo
+  AND ($1::boolean OR $2::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = $2::bigint))
+  AND ($3::boolean
+       OR t.cuadrilla_id = ANY($4::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                  WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = ANY($5::bigint[])))
+ORDER BY u.nombre, t.usuario_id
+LIMIT $6
+`
+
+type TecnicosVisiblesParams struct {
+	Todas         bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Cuadrillas    []int64
+	Zonas         []int64
+	Limite        int32
+}
+
+type TecnicosVisiblesRow struct {
+	UsuarioID   int64
+	FichaID     int64
+	CuadrillaID *int64
+	Nombre      string
+	Correo      string
+}
+
+// Técnicos activos (ficha de agenda) visibles para el actor: empresa activa (el técnico la tiene
+// asignada; sin conector, todos) y alcance de campo.ver_actividad (su cuadrilla o las zonas que
+// atiende). Sin paginar: los técnicos de una empresa son pocos (≤ @limite).
+func (q *Queries) TecnicosVisibles(ctx context.Context, arg TecnicosVisiblesParams) ([]TecnicosVisiblesRow, error) {
+	rows, err := q.db.Query(ctx, tecnicosVisibles,
+		arg.Todas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Cuadrillas,
+		arg.Zonas,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TecnicosVisiblesRow
+	for rows.Next() {
+		var i TecnicosVisiblesRow
+		if err := rows.Scan(
+			&i.UsuarioID,
+			&i.FichaID,
+			&i.CuadrillaID,
+			&i.Nombre,
+			&i.Correo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ticketsSSORecientes = `-- name: TicketsSSORecientes :one
@@ -1962,7 +2754,7 @@ func (q *Queries) TicketsSSORecientes(ctx context.Context, arg TicketsSSORecient
 const tieneEmpresasTodasGlobal = `-- name: TieneEmpresasTodasGlobal :one
 SELECT EXISTS (
     SELECT 1 FROM nucleo.usuarios_roles ur
-    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
     WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
 )
@@ -2191,12 +2983,122 @@ func (q *Queries) TomarVinculacionSSO(ctx context.Context, vinculacionHash []byt
 	return i, err
 }
 
+const ultimasPosicionesDe = `-- name: UltimasPosicionesDe :many
+SELECT DISTINCT ON (p.tecnico_id) p.tecnico_id, p.lat, p.lon, p.precision_m, p.registrada_en, p.recibida_en
+FROM campo.posiciones_ultimas p
+JOIN agenda.tecnicos t ON t.usuario_id = p.tecnico_id
+WHERE p.tecnico_id = ANY($1::bigint[])
+  AND p.registrada_en >= $2
+  AND ($3::boolean OR $4::bigint IS NULL OR p.empresa_id = $4::bigint)
+  AND ($5::boolean
+       OR t.cuadrilla_id = ANY($6::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                  WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = ANY($7::bigint[])))
+ORDER BY p.tecnico_id, p.registrada_en DESC
+`
+
+type UltimasPosicionesDeParams struct {
+	Usuarios      []int64
+	Desde         time.Time
+	Todas         bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Cuadrillas    []int64
+	Zonas         []int64
+}
+
+type UltimasPosicionesDeRow struct {
+	TecnicoID    int64
+	Lat          float64
+	Lon          float64
+	PrecisionM   *float64
+	RegistradaEn time.Time
+	RecibidaEn   time.Time
+}
+
+// Como GET /campo/posiciones/ultimas: solo de las últimas 24 h (@desde) y de técnicos que cubre el
+// alcance de campo.ver_posiciones del actor (su cuadrilla o las zonas que atiende).
+func (q *Queries) UltimasPosicionesDe(ctx context.Context, arg UltimasPosicionesDeParams) ([]UltimasPosicionesDeRow, error) {
+	rows, err := q.db.Query(ctx, ultimasPosicionesDe,
+		arg.Usuarios,
+		arg.Desde,
+		arg.Todas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Cuadrillas,
+		arg.Zonas,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UltimasPosicionesDeRow
+	for rows.Next() {
+		var i UltimasPosicionesDeRow
+		if err := rows.Scan(
+			&i.TecnicoID,
+			&i.Lat,
+			&i.Lon,
+			&i.PrecisionM,
+			&i.RegistradaEn,
+			&i.RecibidaEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const ultimosLotesDe = `-- name: UltimosLotesDe :many
+SELECT DISTINCT ON (d.usuario_id) d.usuario_id, d.id, d.plataforma, d.ultimo_contacto
+FROM campo.dispositivos d
+WHERE d.usuario_id = ANY($1::bigint[])
+ORDER BY d.usuario_id, d.ultimo_contacto DESC
+`
+
+type UltimosLotesDeRow struct {
+	UsuarioID      int64
+	ID             string
+	Plataforma     string
+	UltimoContacto time.Time
+}
+
+// El último POST /sync/lote de cada usuario (campo.dispositivos se actualiza en cada lote).
+func (q *Queries) UltimosLotesDe(ctx context.Context, usuarios []int64) ([]UltimosLotesDeRow, error) {
+	rows, err := q.db.Query(ctx, ultimosLotesDe, usuarios)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UltimosLotesDeRow
+	for rows.Next() {
+		var i UltimosLotesDeRow
+		if err := rows.Scan(
+			&i.UsuarioID,
+			&i.ID,
+			&i.Plataforma,
+			&i.UltimoContacto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const usuarioEnEmpresa = `-- name: UsuarioEnEmpresa :one
 SELECT COALESCE(
     EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = $1 AND ue.empresa_id = $2)
     OR (EXISTS (SELECT 1 FROM nucleo.empresas e WHERE e.id = $2)
         AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
-                    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                     WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
                       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
     false)::boolean AS en_empresa
@@ -2292,6 +3194,38 @@ func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (Nuc
 		&i.DebeCambiarContrasena,
 	)
 	return i, err
+}
+
+const usuariosPorRol = `-- name: UsuariosPorRol :many
+SELECT rol_id, count(DISTINCT usuario_id)::integer AS usuarios
+FROM nucleo.usuarios_roles
+WHERE rol_id = ANY($1::bigint[])
+GROUP BY rol_id
+`
+
+type UsuariosPorRolRow struct {
+	RolID    int64
+	Usuarios int32
+}
+
+func (q *Queries) UsuariosPorRol(ctx context.Context, roles []int64) ([]UsuariosPorRolRow, error) {
+	rows, err := q.db.Query(ctx, usuariosPorRol, roles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UsuariosPorRolRow
+	for rows.Next() {
+		var i UsuariosPorRolRow
+		if err := rows.Scan(&i.RolID, &i.Usuarios); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const verTicketSSO = `-- name: VerTicketSSO :one

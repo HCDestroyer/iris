@@ -878,6 +878,23 @@ type IntegracionPendiente struct {
 	Verificar        []string
 }
 
+type NucleoAcceso struct {
+	ID          int64
+	UsuarioID   *int64
+	Canal       string
+	Resultado   string
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	SesionID    *int64
+	TokenID     *int64
+	RequestID   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Intentos    int32
+}
+
 type NucleoAdjunto struct {
 	ID             uuid.UUID
 	EmpresaID      *int64
@@ -907,6 +924,20 @@ type NucleoAdjuntosParte struct {
 	AdjuntoID uuid.UUID
 	Desde     int64
 	Datos     []byte
+}
+
+type NucleoConexionesApp struct {
+	UsuarioID      int64
+	App            string
+	Plataforma     string
+	Version        string
+	Pendientes     *int32
+	PendientesEn   *time.Time
+	Ip             string
+	UserAgent      string
+	UltimaConexion time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type NucleoEmpresa struct {
@@ -992,6 +1023,7 @@ type NucleoRole struct {
 	Version     int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Activo      bool
 }
 
 type NucleoRolesPermiso struct {
@@ -1017,6 +1049,8 @@ type NucleoSesione struct {
 	MfaFallos       int32
 	Origen          string
 	ReautenticadaEn *time.Time
+	Canal           string
+	App             *string
 }
 
 type NucleoSsoTicket struct {

@@ -82,6 +82,8 @@ export const MENU: readonly EntradaMenu[] = [
             "tokens.ver",
             "roles.ver",
             "permisos.ver",
+            "accesos.ver",
+            "campo.ver_actividad",
             "agenda.crear_cuadrilla",
             "agenda.editar_cuadrilla",
             "agenda.activar_cuadrilla",

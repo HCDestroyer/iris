@@ -154,6 +154,7 @@ func correr() error {
 			// 24 h, aunque la API suba LoginVentana sin avisar al worker.
 			identidad.RegistrarPurgaIntentos(w, pool, 0, 0)
 			identidad.RegistrarPurgaPortal(w, pool)
+			identidad.RegistrarPurgaAccesos(w, pool, cfg.AccesosRetencion)
 			// Reintento de revocar un iris_pat_ entregado en un canje (si la revocación inmediata falló).
 			conector.RegistrarRevocador(w, pool, identidad.Nuevo(identidad.Config{}))
 			// code_verifier de autorizaciones «Conectar con Argos» abandonadas.
@@ -173,7 +174,9 @@ func correr() error {
 			// Intentos de login vencidos (la tabla crece con cada correo de una fuerza bruta).
 			identidad.TrabajoPeriodicoPurgaIntentos(time.Hour),
 			// Sesiones y tickets del portal vencidos hace más de 30 días.
-			identidad.TrabajoPeriodicoPurgaPortal(time.Hour), comercial.TrabajoPeriodicoAltas(5*time.Minute)),
+			identidad.TrabajoPeriodicoPurgaPortal(time.Hour), comercial.TrabajoPeriodicoAltas(5*time.Minute),
+			// Historial de accesos más viejo que IRIS_ACCESOS_RETENCION_DIAS.
+			identidad.TrabajoPeriodicoPurgaAccesos(time.Hour)),
 	})
 	if err != nil {
 		return err
