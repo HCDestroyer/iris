@@ -23,6 +23,7 @@ export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi, crearTransportePos
 export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 export {
     CODIGO_BLOQUEADA,
+    CODIGOS_REINTENTABLES,
     CODIGOS_TERMINALES,
     compararOrdenesDelDia,
     cubreFaltante,

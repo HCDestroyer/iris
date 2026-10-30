@@ -54,6 +54,7 @@ POST /api/v1/sync/lote
 | `orden.pausar` sobre una orden ya pausada (despacho u otro teléfono la pausó) | `rechazada` con `orden_ya_pausada` (409). |
 | `orden.pausar` cuya hora cae antes del fin de la pausa anterior | Se aplica con el inicio ajustado a ese fin y `aviso: pausa_ajustada` (las pausas no se enciman; el tiempo pausado nunca supera lo transcurrido desde que salió). |
 | `orden.reanudar` sobre una orden que no está pausada (despacho la reanudó, reprogramó o canceló) | `rechazada` con `orden_no_pausada` (409); si se canceló, `orden_cancelada`. |
+| Choque con otra transacción en el servidor (Postgres cortó un deadlock o una serialización) | `rechazada` con `concurrencia` (409), pero **no es un rechazo**: el servidor no lo guarda (el mismo `id` se puede volver a mandar) y responde lo mismo, sin aplicarlas, a las operaciones siguientes de esa orden en el lote. El teléfono las deja en la cola con su `id`, no detiene la orden ni muestra rechazo, y reintenta la pasada con la espera exponencial (`CODIGOS_REINTENTABLES` de `packages/sync`). |
 | `orden.cerrar`, `orden.fallar`, `orden.llegar` u `orden.iniciar_camino` con la orden pausada | `rechazada` con `orden_pausada` (422): primero `orden.reanudar`. Fallar desde pausada no se admite (decisión: la pausa se cierra con su duración y el técnico confirma la falla en curso). |
 
 Una orden pausada sigue en el paquete y conserva su cita y su lugar en la ruta; admite checklist, notas, materiales, equipos, firma y adjuntos. La hora de cada operación nunca queda antes del inicio de la pausa en curso.
