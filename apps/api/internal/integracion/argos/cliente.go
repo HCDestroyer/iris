@@ -72,7 +72,7 @@ func (c *Cliente) ObtenerCliente(ctx context.Context, id int64) (ClienteArgos, e
 	return cl, err
 }
 
-// ObtenerServicio: GET /servicios/:id (supuesto: existe como /clientes/:id).
+// ObtenerServicio: GET /servicios/:id (404 si no existe o Argos lo eliminó: servicio.eliminado, 0.3.1).
 func (c *Cliente) ObtenerServicio(ctx context.Context, id int64) (ServicioArgos, error) {
 	var s ServicioArgos
 	err := c.Pedir(ctx, http.MethodGet, "/servicios/"+strconv.FormatInt(id, 10), nil, nil, true, &conector.Recurso{Destino: &s})
@@ -147,6 +147,13 @@ func (c *Cliente) Planes(ctx context.Context) ([]PlanArgos, error) {
 // Routers: GET /routers (todas las páginas).
 func (c *Cliente) Routers(ctx context.Context) ([]RouterArgos, error) {
 	return conector.Todas[RouterArgos](ctx, c.Cliente, "/routers", nil)
+}
+
+// ObtenerRouter: GET /routers/:id (contrato 0.3.1: 404 si Argos lo eliminó).
+func (c *Cliente) ObtenerRouter(ctx context.Context, id int64) (RouterArgos, error) {
+	var r RouterArgos
+	err := c.Pedir(ctx, http.MethodGet, "/routers/"+strconv.FormatInt(id, 10), nil, nil, true, &conector.Recurso{Destino: &r})
+	return r, err
 }
 
 // Zonas: GET /zonas (todas las páginas).

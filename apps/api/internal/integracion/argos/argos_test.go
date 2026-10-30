@@ -63,7 +63,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	for _, sql := range []string{
 		"UPDATE integracion.conectores SET estado = 'apagado'",
 		"DELETE FROM integracion.argos_servicios", "DELETE FROM integracion.argos_clientes",
-		"DELETE FROM integracion.argos_zonas", "DELETE FROM integracion.argos_routers",
+		"DELETE FROM integracion.argos_zonas", "DELETE FROM integracion.argos_routers", "DELETE FROM integracion.argos_eliminados",
 		// Multiempresa: solo la empresa 1 (la que el Argos falso informa en el canje).
 		"DELETE FROM nucleo.usuarios_empresas WHERE empresa_id <> 1", "DELETE FROM nucleo.empresas WHERE id <> 1",
 		"INSERT INTO nucleo.empresas (id, nombre) VALUES (1, 'Empresa 1') ON CONFLICT (id) DO NOTHING",

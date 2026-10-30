@@ -19,6 +19,15 @@ func (q *Queries) BorrarCliente(ctx context.Context, id int64) error {
 	return err
 }
 
+const borrarRouter = `-- name: BorrarRouter :exec
+DELETE FROM integracion.argos_routers WHERE id = $1
+`
+
+func (q *Queries) BorrarRouter(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, borrarRouter, id)
+	return err
+}
+
 const borrarRoutersAnteriores = `-- name: BorrarRoutersAnteriores :execrows
 DELETE FROM integracion.argos_routers WHERE sincronizado_en < $1
 `
@@ -149,6 +158,32 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 	return i, err
 }
 
+const eliminado = `-- name: Eliminado :one
+SELECT tipo, id, empresa_id, cliente_id, codigo, nombre, entrante_id, eliminado_en, created_at FROM integracion.argos_eliminados WHERE tipo = $1 AND id = $2
+`
+
+type EliminadoParams struct {
+	Tipo string
+	ID   int64
+}
+
+func (q *Queries) Eliminado(ctx context.Context, arg EliminadoParams) (IntegracionArgosEliminado, error) {
+	row := q.db.QueryRow(ctx, eliminado, arg.Tipo, arg.ID)
+	var i IntegracionArgosEliminado
+	err := row.Scan(
+		&i.Tipo,
+		&i.ID,
+		&i.EmpresaID,
+		&i.ClienteID,
+		&i.Codigo,
+		&i.Nombre,
+		&i.EntranteID,
+		&i.EliminadoEn,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
@@ -203,7 +238,8 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 
 const guardarRouter = `-- name: GuardarRouter :exec
 INSERT INTO integracion.argos_routers (id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+SELECT $1, $2, $3, $4, $5, $6, $7
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'router' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, nombre = excluded.nombre, zona_id = excluded.zona_id,
     lat = excluded.lat, lon = excluded.lon, sincronizado_en = excluded.sincronizado_en, updated_at = now()
@@ -220,6 +256,7 @@ type GuardarRouterParams struct {
 	SincronizadoEn time.Time
 }
 
+// Un router que Argos eliminó (lápida) no vuelve con una carga de catálogos atrasada.
 func (q *Queries) GuardarRouter(ctx context.Context, arg GuardarRouterParams) error {
 	_, err := q.db.Exec(ctx, guardarRouter,
 		arg.ID,
@@ -237,10 +274,10 @@ const guardarServicio = `-- name: GuardarServicio :exec
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
     ip, direccion, lat, lon, estado, sincronizado_en
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16
 )
+SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
@@ -269,6 +306,7 @@ type GuardarServicioParams struct {
 	SincronizadoEn time.Time
 }
 
+// Un servicio que Argos eliminó (lápida en argos_eliminados) no se recrea con una lectura atrasada.
 func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams) error {
 	_, err := q.db.Exec(ctx, guardarServicio,
 		arg.ID,
@@ -333,6 +371,43 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	var empresa_id int64
 	err := row.Scan(&empresa_id)
 	return empresa_id, err
+}
+
+const registrarEliminado = `-- name: RegistrarEliminado :execrows
+
+INSERT INTO integracion.argos_eliminados (tipo, id, empresa_id, cliente_id, codigo, nombre, entrante_id, eliminado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (tipo, id) DO NOTHING
+`
+
+type RegistrarEliminadoParams struct {
+	Tipo        string
+	ID          int64
+	EmpresaID   *int64
+	ClienteID   *int64
+	Codigo      string
+	Nombre      string
+	EntranteID  *int64
+	EliminadoEn time.Time
+}
+
+// Eliminados en Argos (servicio.eliminado, router.eliminado; contrato 0.3.1) ---------------
+// La lápida se escribe una vez (un webhook repetido o un segundo aviso no la cambia).
+func (q *Queries) RegistrarEliminado(ctx context.Context, arg RegistrarEliminadoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, registrarEliminado,
+		arg.Tipo,
+		arg.ID,
+		arg.EmpresaID,
+		arg.ClienteID,
+		arg.Codigo,
+		arg.Nombre,
+		arg.EntranteID,
+		arg.EliminadoEn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const routerPorID = `-- name: RouterPorID :one
@@ -457,6 +532,92 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosEliminados = `-- name: ServiciosEliminados :many
+SELECT tipo, id, empresa_id, cliente_id, codigo, nombre, entrante_id, eliminado_en, created_at FROM integracion.argos_eliminados
+WHERE tipo = 'servicio' AND id = ANY($1::bigint[])
+  AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+ORDER BY id
+`
+
+type ServiciosEliminadosParams struct {
+	Ids       []int64
+	EmpresaID int64
+}
+
+// Servicios eliminados en Argos entre @ids (para marcar órdenes y tickets «eliminado en Argos»).
+func (q *Queries) ServiciosEliminados(ctx context.Context, arg ServiciosEliminadosParams) ([]IntegracionArgosEliminado, error) {
+	rows, err := q.db.Query(ctx, serviciosEliminados, arg.Ids, arg.EmpresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosEliminado
+	for rows.Next() {
+		var i IntegracionArgosEliminado
+		if err := rows.Scan(
+			&i.Tipo,
+			&i.ID,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.Codigo,
+			&i.Nombre,
+			&i.EntranteID,
+			&i.EliminadoEn,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosEliminadosDeCliente = `-- name: ServiciosEliminadosDeCliente :many
+SELECT tipo, id, empresa_id, cliente_id, codigo, nombre, entrante_id, eliminado_en, created_at FROM integracion.argos_eliminados
+WHERE tipo = 'servicio' AND cliente_id = $1
+  AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+ORDER BY id
+`
+
+type ServiciosEliminadosDeClienteParams struct {
+	ClienteID *int64
+	EmpresaID int64
+}
+
+// Con @empresa_id (≠ 0), solo los de esa empresa (un servicio sin empresa no se atribuye a nadie).
+func (q *Queries) ServiciosEliminadosDeCliente(ctx context.Context, arg ServiciosEliminadosDeClienteParams) ([]IntegracionArgosEliminado, error) {
+	rows, err := q.db.Query(ctx, serviciosEliminadosDeCliente, arg.ClienteID, arg.EmpresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosEliminado
+	for rows.Next() {
+		var i IntegracionArgosEliminado
+		if err := rows.Scan(
+			&i.Tipo,
+			&i.ID,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.Codigo,
+			&i.Nombre,
+			&i.EntranteID,
+			&i.EliminadoEn,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

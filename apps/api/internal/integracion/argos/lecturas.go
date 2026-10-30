@@ -335,8 +335,14 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				return Ficha{}, nucleo.NoEncontrado("El cliente no existe")
 			}
 			// Los servicios de otras empresas no se muestran (salvo con empresas.todas global).
+			filtro := int64(0)
 			if e != 0 && !todasGlobal(ctx) {
+				filtro = e
 				servicios = slices.DeleteFunc(servicios, func(s argosbd.IntegracionArgosServicio) bool { return s.EmpresaID != e })
+			}
+			eliminados, err := q.ServiciosEliminadosDeCliente(ctx, argosbd.ServiciosEliminadosDeClienteParams{ClienteID: &in.ClienteID, EmpresaID: filtro})
+			if err != nil {
+				return Ficha{}, err
 			}
 			if e == 0 {
 				e = cliente.EmpresaID
@@ -344,7 +350,7 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			t.FijarEmpresa(e)
 			t.Anotar(map[string]any{"stale": stale, "estado_cuenta": in.estado != nil})
 			return Ficha{
-				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), EstadoCuenta: in.estado,
+				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
 				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn,
 			}, nil
 		},

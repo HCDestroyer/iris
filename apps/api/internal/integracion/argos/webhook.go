@@ -32,6 +32,21 @@ type payloadEntrante struct {
 	} `json:"servicio"`
 	De string `json:"de"`
 	A  string `json:"a"`
+	// RouterID: router.eliminado y servicio.eliminado (0.3.1).
+	RouterID *int64 `json:"router_id"`
+	Router   *Ref   `json:"router"`
+	// Campos: los que cambiaron en cliente.actualizado (0.3.1; solo nombres).
+	Campos []string `json:"campos"`
+}
+
+func (p payloadEntrante) router() *int64 {
+	if p.RouterID == nil && p.Router != nil {
+		return p.Router.ID
+	}
+	if p.RouterID == nil {
+		return p.ID
+	}
+	return p.RouterID
 }
 
 func leerPayload(crudo []byte) payloadEntrante {
@@ -90,8 +105,12 @@ type entradaAplicar struct {
 	borrar     bool
 	// retiro es el servicio releído de Argos cuando el webhook dice «a = retirado»: el evento
 	// interno solo sale si Argos confirma el estado (el payload no se cree).
-	retiro   *ServicioArgos
-	errArgos error
+	retiro *ServicioArgos
+	// eliminado: servicio o router que Argos eliminó (confirmado con un 404); omitido: por qué el
+	// webhook se ignora sin leer Argos (va a la auditoría).
+	eliminado *eliminacion
+	omitido   string
+	errArgos  error
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -140,6 +159,16 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		return r, in.errArgos
 	}
 	r.Resultado = "ignorado"
+	if in.omitido != "" {
+		t.Anotar(map[string]any{"omitido": in.omitido})
+	}
+	if in.eliminado != nil {
+		// La lápida va antes que el refresco de la ficha: así la ficha no lo recrea.
+		if err := aplicarEliminacion(ctx, t, q, e, *in.eliminado); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
 	switch {
 	case in.borrar && in.ClienteID != nil:
 		if err := q.BorrarCliente(ctx, *in.ClienteID); err != nil {
@@ -193,6 +222,32 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 	if e.ProcesadoEn != nil {
 		return ResultadoEntrante{EntranteID: e.ID, Resultado: "ya_procesado"}, nil
 	}
+	datos := leerPayload(e.Payload)
+	switch e.Evento {
+	case EventoServicioEliminado, EventoRouterEliminado:
+		in.eliminado, in.omitido, in.errArgos = p.leerEliminacion(ctx, bd, e, datos)
+		if in.eliminado == nil || in.eliminado.Tipo == eliminadoRouter {
+			return p.aplicar.Ejecutar(ctx, in)
+		}
+	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
+		// Un evento atrasado de un servicio que Argos eliminó no recrea la instantánea.
+		if s := datos.servicio(); s != nil {
+			eliminado, err := servicioEliminado(ctx, q, *s)
+			if err != nil {
+				return ResultadoEntrante{}, err
+			}
+			if eliminado {
+				in.omitido = omitidoServicioEliminado
+				return p.aplicar.Ejecutar(ctx, in)
+			}
+		}
+	case EventoClienteActualizado:
+		// Solo cambiaron campos que la instantánea no guarda (nit, tipo, móvil…): no se relee.
+		if soloCamposSinEfecto(datos.Campos) {
+			in.omitido = omitidoCamposSinEfecto
+			return p.aplicar.Ejecutar(ctx, in)
+		}
+	}
 	clienteID, err := clienteARefrescar(ctx, q, e)
 	if err != nil {
 		return ResultadoEntrante{}, err
@@ -201,7 +256,7 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		in.ClienteID = clienteID
 		in.ficha, in.borrar, in.errArgos = p.leerDeArgos(ctx, bd, e.ConectorID, *clienteID)
 	}
-	if datos := leerPayload(e.Payload); in.errArgos == nil && e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(datos.A, "retirado") {
+	if in.errArgos == nil && e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(datos.A, "retirado") {
 		in.retiro, in.errArgos = p.confirmarRetiro(ctx, bd, e.ConectorID, datos.servicio())
 	}
 	return p.aplicar.Ejecutar(ctx, in)
@@ -249,7 +304,8 @@ func clienteARefrescar(ctx context.Context, q *argosbd.Queries, e conector.Entra
 		if clienteID == nil {
 			clienteID = datos.ID
 		}
-	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
+	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado,
+		EventoServicioEliminado:
 		clienteID = datos.cliente()
 		if s := datos.servicio(); clienteID == nil && s != nil {
 			srv, err := q.ServicioPorID(ctx, *s)

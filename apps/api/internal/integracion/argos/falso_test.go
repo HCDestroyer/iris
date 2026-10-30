@@ -40,6 +40,10 @@ type argosFalso struct {
 	// estadoPedido: ?empresa_id= del último estado de cuenta.
 	estadoPedido string
 	conectorID   any // lo que responde el canje en conector_id (nil = "77")
+	// empresasCanje y alcanceGlobal: lo que responde el canje (0.3.1). nil = como Argos 1.3.0
+	// (empresas [{ id: 1 }] y sin alcance_global).
+	empresasCanje []any
+	alcanceGlobal *bool
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -61,6 +65,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/ip/{ip}", a.conToken(a.resolverIP))
 	mux.HandleFunc("GET /api/v1/zonas", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.zonas) }))
 	mux.HandleFunc("GET /api/v1/routers", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.routers) }))
+	mux.HandleFunc("GET /api/v1/routers/{id}", a.conToken(a.router))
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
@@ -108,8 +113,15 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	a.codigo = "usado-" + a.codigo
 	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
 	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
-	escribir(w, map[string]any{"token": a.token, "webhook": map[string]any{"url": "https://argos.prueba/api/v1/integraciones/iris/webhook", "secreto": "secreto-de-argos-para-iris"},
-		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}})
+	resp := map[string]any{"token": a.token, "webhook": map[string]any{"url": "https://argos.prueba/api/v1/integraciones/iris/webhook", "secreto": "secreto-de-argos-para-iris"},
+		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}}
+	if a.empresasCanje != nil {
+		resp["empresas"] = a.empresasCanje
+	}
+	if a.alcanceGlobal != nil {
+		resp["alcance_global"] = *a.alcanceGlobal
+	}
+	escribir(w, resp)
 }
 
 func (a *argosFalso) idDelCanje() any {
@@ -229,6 +241,38 @@ func (a *argosFalso) servicio(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	problema(w, 404, "urn:argos:no_encontrado", "No existe")
+}
+
+func (a *argosFalso) router(w http.ResponseWriter, r *http.Request) {
+	for _, rt := range a.routers {
+		if enteroDe(rt["id"]) == idDe(r) {
+			escribir(w, map[string]any{"data": rt})
+			return
+		}
+	}
+	problema(w, 404, "urn:argos:no_encontrado", "No existe")
+}
+
+// quitarServicio borra un servicio como lo hace Argos al eliminarlo (0.3.1). Llamar dentro de con.
+func (a *argosFalso) quitarServicio(id int64) {
+	for c, lista := range a.servicios {
+		for i, s := range lista {
+			if enteroDe(s["id"]) == id {
+				a.servicios[c] = append(lista[:i:i], lista[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+// quitarRouter borra un router (0.3.1). Llamar dentro de con.
+func (a *argosFalso) quitarRouter(id int64) {
+	for i, rt := range a.routers {
+		if enteroDe(rt["id"]) == id {
+			a.routers = append(a.routers[:i:i], a.routers[i+1:]...)
+			return
+		}
+	}
 }
 
 func (a *argosFalso) resolverA8(w http.ResponseWriter, r *http.Request) {

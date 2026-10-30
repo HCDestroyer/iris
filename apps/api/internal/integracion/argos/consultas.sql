@@ -31,13 +31,14 @@ ORDER BY nombre, id
 LIMIT @limite;
 
 -- name: GuardarServicio :exec
+-- Un servicio que Argos eliminó (lápida en argos_eliminados) no se recrea con una lectura atrasada.
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
     ip, direccion, lat, lon, estado, sincronizado_en
-) VALUES (
-    @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
-    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en
 )
+SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
+    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
@@ -79,8 +80,10 @@ WHERE integracion.argos_zonas.sincronizado_en <= excluded.sincronizado_en;
 DELETE FROM integracion.argos_zonas WHERE sincronizado_en < @antes;
 
 -- name: GuardarRouter :exec
+-- Un router que Argos eliminó (lápida) no vuelve con una carga de catálogos atrasada.
 INSERT INTO integracion.argos_routers (id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en)
-VALUES (@id, @empresa_id, @nombre, @zona_id, @lat, @lon, @sincronizado_en)
+SELECT @id, @empresa_id, @nombre, @zona_id, @lat, @lon, @sincronizado_en
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'router' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, nombre = excluded.nombre, zona_id = excluded.zona_id,
     lat = excluded.lat, lon = excluded.lon, sincronizado_en = excluded.sincronizado_en, updated_at = now()
@@ -91,6 +94,34 @@ DELETE FROM integracion.argos_routers WHERE sincronizado_en < @antes;
 
 -- name: RouterPorID :one
 SELECT * FROM integracion.argos_routers WHERE id = @id;
+
+-- name: BorrarRouter :exec
+DELETE FROM integracion.argos_routers WHERE id = @id;
+
+-- Eliminados en Argos (servicio.eliminado, router.eliminado; contrato 0.3.1) ---------------
+
+-- name: RegistrarEliminado :execrows
+-- La lápida se escribe una vez (un webhook repetido o un segundo aviso no la cambia).
+INSERT INTO integracion.argos_eliminados (tipo, id, empresa_id, cliente_id, codigo, nombre, entrante_id, eliminado_en)
+VALUES (@tipo, @id, @empresa_id, @cliente_id, @codigo, @nombre, @entrante_id, @eliminado_en)
+ON CONFLICT (tipo, id) DO NOTHING;
+
+-- name: Eliminado :one
+SELECT * FROM integracion.argos_eliminados WHERE tipo = @tipo AND id = @id;
+
+-- name: ServiciosEliminadosDeCliente :many
+-- Con @empresa_id (≠ 0), solo los de esa empresa (un servicio sin empresa no se atribuye a nadie).
+SELECT * FROM integracion.argos_eliminados
+WHERE tipo = 'servicio' AND cliente_id = @cliente_id
+  AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+ORDER BY id;
+
+-- name: ServiciosEliminados :many
+-- Servicios eliminados en Argos entre @ids (para marcar órdenes y tickets «eliminado en Argos»).
+SELECT * FROM integracion.argos_eliminados
+WHERE tipo = 'servicio' AND id = ANY(@ids::bigint[])
+  AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+ORDER BY id;
 
 -- name: PistaEmpresaAlta :one
 -- Cliente recién creado desde un prospecto ganado (alta en Argos), todavía sin servicio: la

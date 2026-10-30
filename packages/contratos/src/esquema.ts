@@ -4023,6 +4023,8 @@ export interface components {
             activadoEn: string | null;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Lo que informó el canje de Argos (0.3.1): true = Iris ve también las empresas que se creen después en Argos; false = solo las de empresas (vacía = ninguna). Ausente si no lo informó (Argos anterior a 0.3.1, Horus o un enlace generado en Iris) */
+            alcanceGlobal?: boolean;
             /** @description Origen del otro sistema */
             baseUrl: string;
             /** Format: date-time */
@@ -5814,6 +5816,8 @@ export interface components {
              */
             estadoCuentaError: "sin_permiso" | "argos_no_disponible" | "argos_rechazo" | null;
             servicios: components["schemas"]["Servicio"][] | null;
+            /** @description Servicios del cliente que Argos eliminó (servicio.eliminado, contrato 0.3.1): ya no están en servicios. Un ticket u orden cuyo servicioId está aquí lo muestra «eliminado en Argos». Filtrados por la empresa activa, como servicios */
+            serviciosEliminados?: components["schemas"]["ServicioEliminado"][] | null;
             /**
              * Format: date-time
              * @description Cuándo se leyó de Argos esta instantánea
@@ -8033,6 +8037,26 @@ export interface components {
             router: string;
             /** Format: date-time */
             sincronizadoEn: string;
+        };
+        ServicioEliminado: {
+            /** Format: int64 */
+            clienteId: number | null;
+            /** @description Último código conocido; vacío si Iris no tenía la instantánea */
+            codigo: string;
+            /**
+             * Format: date-time
+             * @description Cuándo lo eliminó Argos (ocurrido_en del webhook)
+             */
+            eliminadoEn: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /**
+             * Format: int64
+             * @description Id del servicio en Argos (ya no existe allá)
+             */
+            id: number;
+            /** @description Último plan conocido; vacío si Iris no tenía la instantánea */
+            planNombre: string;
         };
         ServidorIMAP: {
             carpeta: string;

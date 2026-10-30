@@ -102,11 +102,16 @@ func (c *Conexion) exigirConfiguracion() error {
 
 // insertarConector cifra token y secreto atados a la fila (id reservado) e inserta (apagado).
 func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64) (conectorbd.IntegracionConectore, error) {
-	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, empresas, nil)
+	lista := make([]EmpresaCanje, 0, len(empresas))
+	for _, e := range empresas {
+		lista = append(lista, EmpresaCanje{ID: e})
+	}
+	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil)
 }
 
-// insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil).
-func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, empresas []int64, entregado *int64) (conectorbd.IntegracionConectore, error) {
+// insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil) y
+// lo que informó el canje de Argos (0.3.1): empresas con nombre y nit, y alcance_global (o nil).
+func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64) (conectorbd.IntegracionConectore, error) {
 	q := conectorbd.New(t)
 	tokenCifrado, err := c.n.cifrar(id, "token", token)
 	if err != nil {
@@ -120,24 +125,36 @@ func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id 
 	if a := t.Actor(); a.EsUsuario() {
 		creadoPor = &a.ID
 	}
-	if empresas == nil || !c.s.RegistrarEmpresas {
-		empresas = []int64{}
+	if !c.s.RegistrarEmpresas {
+		lista, alcanceGlobal = nil, nil
+	}
+	empresas := make([]int64, 0, len(lista))
+	for _, e := range lista {
+		if e.ID > 0 && !slices.Contains(empresas, e.ID) {
+			empresas = append(empresas, e.ID)
+		}
 	}
 	f, err := q.InsertarConector(ctx, conectorbd.InsertarConectorParams{
 		ID: id, Sistema: c.s.Nombre, BaseUrl: base, Origen: origen, TokenCifrado: tokenCifrado,
 		SecretoWebhookCifrado: secretoCifrado, RemotoID: remotoID, Empresas: empresas, CreadoPor: creadoPor,
-		TokenEntregadoID: entregado,
+		TokenEntregadoID: entregado, AlcanceGlobal: alcanceGlobal,
 	})
 	if err != nil {
 		return f, err
 	}
 	// Las empresas que cubre el token quedan registradas (multiempresa): un administrador les
 	// pone nombre y las asigna a los usuarios.
-	for _, e := range empresas {
-		if e <= 0 {
+	registradas := map[int64]bool{}
+	for _, e := range lista {
+		if e.ID <= 0 || registradas[e.ID] {
 			continue
 		}
-		if err := q.RegistrarEmpresaConector(ctx, conectorbd.RegistrarEmpresaConectorParams{ID: e, Nombre: "Empresa " + itoa(e)}); err != nil {
+		registradas[e.ID] = true
+		nombre := e.Nombre
+		if nombre == "" {
+			nombre = "Empresa " + itoa(e.ID)
+		}
+		if err := q.RegistrarEmpresaConector(ctx, conectorbd.RegistrarEmpresaConectorParams{ID: e.ID, Nombre: nombre, Nit: e.NIT}); err != nil {
 			return f, err
 		}
 	}
@@ -223,7 +240,7 @@ func nuevoConectar(c *Conexion) *Conectar {
 				entregado = &in.tokenEntregado
 			}
 			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, "enlace_remoto", in.Base, token, in.secreto,
-				remotoID, in.respuesta.IDsEmpresas(), entregado)
+				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado)
 			if err != nil {
 				return Conector{}, err
 			}

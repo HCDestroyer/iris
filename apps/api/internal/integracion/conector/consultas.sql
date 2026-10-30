@@ -7,10 +7,10 @@ SELECT nextval(pg_get_serial_sequence('integracion.conectores', 'id'))::bigint A
 -- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id
+    token_entregado_id, alcance_global
 ) VALUES (
     @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por,
-    sqlc.narg(token_entregado_id)
+    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global)
 )
 RETURNING *;
 
@@ -114,8 +114,16 @@ WHERE id = @id;
 -- Empresas ------------------------------------------------------------------
 
 -- name: RegistrarEmpresaConector :exec
--- Empresa que cubre el token del conector (canje). Si ya existe solo se marca sincronizada: el
--- nombre lo pone el administrador (Argos no lo manda en el canje).
-INSERT INTO nucleo.empresas (id, nombre, origen, sincronizado_en)
-VALUES (@id, @nombre, 'argos', now())
-ON CONFLICT (id) DO UPDATE SET sincronizado_en = now(), updated_at = now();
+-- Empresa que cubre el token del conector (canje). Argos 0.3.1 manda nombre y nit; antes, solo el
+-- id (nombre «Empresa <id>», nit vacío). Si ya existe, se marca sincronizada y solo se completa lo
+-- que nadie puso: el nombre si sigue siendo el marcador «Empresa <id>» y el nit si está vacío (lo
+-- que escribió un administrador no se pisa).
+INSERT INTO nucleo.empresas (id, nombre, nit, origen, sincronizado_en)
+VALUES (@id, @nombre, @nit, 'argos', now())
+ON CONFLICT (id) DO UPDATE SET
+    nombre = CASE WHEN nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id THEN excluded.nombre ELSE nucleo.empresas.nombre END,
+    nit = CASE WHEN nucleo.empresas.nit = '' THEN excluded.nit ELSE nucleo.empresas.nit END,
+    version = nucleo.empresas.version + CASE
+        WHEN (nucleo.empresas.nombre = 'Empresa ' || nucleo.empresas.id AND excluded.nombre <> nucleo.empresas.nombre)
+          OR (nucleo.empresas.nit = '' AND excluded.nit <> '') THEN 1 ELSE 0 END,
+    sincronizado_en = now(), updated_at = now();
