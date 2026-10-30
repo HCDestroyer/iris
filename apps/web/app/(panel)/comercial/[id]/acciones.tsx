@@ -91,7 +91,7 @@ function Pie({ etiqueta, enviando, deshabilitado, faltan, children }: { etiqueta
 function FormMotivo({ accion, detalle, alHecho, recargar }: PropsForm & { accion: "contactar" | "reabrir" }) {
     const envio = useEnvio();
     const formulario = useForm<DatosReabrir>({ resolver: zodResolver(esquemaReabrir), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     async function enviar(d: DatosReabrir) {
         const ruta = accion === "contactar" ? "/api/v1/prospectos/{id}/contactar" : "/api/v1/prospectos/{id}/reabrir";
         const r = await envio.enviar(
@@ -123,7 +123,7 @@ function FormMotivo({ accion, detalle, alHecho, recargar }: PropsForm & { accion
 function FormPerder({ detalle, alHecho, recargar }: PropsForm) {
     const envio = useEnvio();
     const formulario = useForm<DatosPerder>({ resolver: zodResolver(esquemaPerder), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     async function enviar(d: DatosPerder) {
         const r = await envio.enviar(
             (clave) =>
@@ -161,7 +161,7 @@ function FormAsignar({ detalle, usuarios, alHecho, recargar }: PropsForm & { usu
         resolver: zodResolver(esquemaAsignar),
         defaultValues: { vendedorId: detalle.vendedorId === null ? "" : String(detalle.vendedorId) },
     });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const sinVendedor = !useWatch({ control: formulario.control, name: "vendedorId" });
     const otros = (usuarios ?? []).filter((u) => u.id !== yo.usuario.id && u.tipo === "persona" && u.activo);
     const actual = nombreUsuario(usuarios, detalle.vendedorId, { id: yo.usuario.id, nombre: yo.usuario.nombre });
@@ -221,7 +221,7 @@ function FormGanar({ detalle, alHecho, recargar }: PropsForm) {
             if (pideRouter && d.routerId === "") ctx.addIssue({ code: "custom", path: ["routerId"], message: "Elige el router desde donde se atenderá" });
         });
     const formulario = useForm<{ confirmarObra: boolean; routerId: string }>({ resolver: zodResolver(esquema), defaultValues: { confirmarObra: false, routerId: "" } });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const requisitos = requisitosGanar(detalle);
     const routerElegido = useWatch({ control: formulario.control, name: "routerId" });
     const sinRouter = pideRouter && !routerElegido;

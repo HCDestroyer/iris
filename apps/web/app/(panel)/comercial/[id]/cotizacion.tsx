@@ -267,7 +267,7 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
             notas: "",
         },
     });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { fields, append, remove } = useFieldArray({ control: formulario.control, name: "lineas" });
     const { errors } = formulario.formState;
     const lineas = useWatch({ control: formulario.control, name: "lineas" });

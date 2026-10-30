@@ -254,7 +254,7 @@ const ruta = (t: Ticket, clave: string) => ({ path: { id: t.id }, header: cabece
 
 function FormResponder({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaResponder), defaultValues: { cuerpo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -276,7 +276,7 @@ function FormResponder({ ticket, enviar, pie }: PropsFormulario) {
 
 function FormNota({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaNotaInterna), defaultValues: { cuerpo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -299,7 +299,7 @@ function FormNota({ ticket, enviar, pie }: PropsFormulario) {
 function FormAsignar({ ticket, enviar, pie, usuarios }: PropsFormulario & { usuarios: readonly Usuario[] | null | undefined }) {
     const { yo } = useSesion();
     const form = useForm({ resolver: zodResolver(esquemaAsignar), defaultValues: { usuarioId: ticket.asignadoA === null ? "" : String(ticket.asignadoA) } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const otros = (usuarios ?? []).filter((u) => u.tipo === "persona" && u.activo && u.id !== yo.usuario.id);
     // Sin responsable elegido y el ticket sin asignar: no hay nada que guardar.
     const sinResponsable = useWatch({ control: form.control, name: "usuarioId" }) === "" && ticket.asignadoA === null;
@@ -345,7 +345,7 @@ function FormAsignar({ ticket, enviar, pie, usuarios }: PropsFormulario & { usua
 
 function FormEscalar({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaEscalar(ticket.prioridad)), defaultValues: { motivo: "", prioridad: "" as const } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const mayores = ORDEN_PRIORIDADES.filter((p) => prioridadMayor(p, ticket.prioridad));
     return (
         <form
@@ -386,7 +386,7 @@ function FormEscalar({ ticket, enviar, pie }: PropsFormulario) {
 
 function FormMotivo({ ticket, enviar, pie, accion }: PropsFormulario & { accion: "poner_en_espera" | "reabrir" }) {
     const form = useForm({ resolver: zodResolver(accion === "reabrir" ? esquemaReabrir : esquemaPonerEnEspera), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -420,7 +420,7 @@ function FormMotivo({ ticket, enviar, pie, accion }: PropsFormulario & { accion:
 
 function FormReanudar({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaReanudar), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -447,7 +447,7 @@ function FormReanudar({ ticket, enviar, pie }: PropsFormulario) {
 
 function FormResolver({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaResolver), defaultValues: { solucion: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -470,7 +470,7 @@ function FormResolver({ ticket, enviar, pie }: PropsFormulario) {
 function FormCerrar({ ticket, enviar, pie }: PropsFormulario) {
     const resuelto = ticket.estado === "resuelto";
     const form = useForm({ resolver: zodResolver(esquemaCerrar(resuelto)), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -509,7 +509,7 @@ function FormCerrar({ ticket, enviar, pie }: PropsFormulario) {
 
 function FormFusionar({ ticket, enviar, pie }: PropsFormulario) {
     const form = useForm({ resolver: zodResolver(esquemaFusionar), defaultValues: { destino: "", motivo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate

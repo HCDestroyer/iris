@@ -165,7 +165,7 @@ function FactibilidadManual({ detalle, recargar, alHecho }: Props & { alHecho: (
         resolver: zodResolver(esquemaFactibilidadManual(anula)),
         defaultValues: { ...FACTIBILIDAD_MANUAL_VACIA, routerId: f?.routerId ? String(f.routerId) : "" },
     });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors } = formulario.formState;
     const resultado = useWatch({ control: formulario.control, name: "resultado" });
     async function enviar(d: DatosFactibilidadManual) {

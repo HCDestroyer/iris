@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
+import { limpiarClientesRecientes } from "@/lib/clientes/selector";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuVisible } from "@/lib/menu";
@@ -159,6 +160,8 @@ function Estructura({ children }: { children: ReactNode }) {
                 return;
             }
         }
+        // Los clientes recientes del selector no sobreviven a la sesión.
+        limpiarClientesRecientes();
         router.replace("/entrar");
         router.refresh();
     }

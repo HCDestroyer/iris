@@ -44,7 +44,7 @@ function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
     const router = useRouter();
     const envio = useEnvio();
     const formulario = useForm<DatosProspecto>({ resolver: zodResolver(esquemaProspecto), defaultValues: PROSPECTO_VACIO });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors, isSubmitting } = formulario.formState;
 
     async function enviar(datos: DatosProspecto) {

@@ -8,8 +8,10 @@ import {
     moverIndice,
     nombresEmpresas,
     ordenarServicios,
-    pasoTrasElegir,
+    limpiarClientesRecientes,
+    soloMinimo,
     sonRecientes,
+    type ClienteReciente,
     type ClienteResumen,
     type ServicioCliente,
 } from "./selector";
@@ -66,28 +68,42 @@ describe("selector de cliente", () => {
         expect(estadoServicio("").texto).toBe("Sin estado");
     });
 
-    it("ordena los vigentes primero y decide si preguntar el servicio", () => {
+    it("ordena los vigentes primero", () => {
         expect(ordenarServicios([servicio(3, "retirado"), servicio(2, "activo"), servicio(1, "suspendido")]).map((s) => s.id)).toEqual([1, 2, 3]);
-        expect(pasoTrasElegir(null)).toBe("leer");
-        expect(pasoTrasElegir(undefined)).toBe("leer");
-        expect(pasoTrasElegir([])).toBe("listo");
-        expect(pasoTrasElegir([servicio(1, "activo")])).toBe("listo");
-        expect(pasoTrasElegir([servicio(1, "activo"), servicio(2, "activo")])).toBe("preguntar");
     });
 
-    it("recientes: al principio, sin repetir, con tope y validados", () => {
-        let lista: ClienteResumen[] = [];
+    it("recientes: solo id, código y nombre, al principio, sin repetir, con tope y validados", () => {
+        let lista: ClienteReciente[] = [];
         for (let i = 1; i <= MAX_RECIENTES + 2; i += 1) lista = agregarReciente(lista, cliente(i));
         expect(lista).toHaveLength(MAX_RECIENTES);
-        expect(lista[0]?.id).toBe(MAX_RECIENTES + 2);
+        expect(lista[0]).toEqual({ id: MAX_RECIENTES + 2, codigo: `C-${MAX_RECIENTES + 2}`, nombre: `Cliente ${MAX_RECIENTES + 2}` });
+        expect(JSON.stringify(lista)).not.toMatch(/telefono|direccion|servicios|5555/);
         lista = agregarReciente(lista, cliente(5));
         expect(lista.map((c) => c.id).slice(0, 2)).toEqual([5, MAX_RECIENTES + 2]);
         expect(new Set(lista.map((c) => c.id)).size).toBe(lista.length);
         expect(sonRecientes(lista)).toBe(true);
         expect(sonRecientes([{ id: "x" }])).toBe(false);
         expect(sonRecientes("basura")).toBe(false);
+        expect(soloMinimo([{ ...cliente(9) }])).toEqual([{ id: 9, codigo: "C-9", nombre: "Cliente 9" }]);
         expect(claveRecientes(7, 2)).toBe("iris:clientes-recientes:7:2");
         expect(claveRecientes(7, null)).toBe("iris:clientes-recientes:7:0");
+    });
+
+    it("limpiarClientesRecientes borra solo las claves de recientes", () => {
+        const datos = new Map<string, string>([
+            ["iris:clientes-recientes:7:2", "[]"],
+            ["iris:clientes-recientes:8:0", "[]"],
+            ["iris:empresa", "2"],
+        ]);
+        const almacen = {
+            get length() {
+                return datos.size;
+            },
+            key: (i: number) => [...datos.keys()][i] ?? null,
+            removeItem: (k: string) => void datos.delete(k),
+        };
+        limpiarClientesRecientes(almacen);
+        expect([...datos.keys()]).toEqual(["iris:empresa"]);
     });
 
     it("teclado: flechas con vuelta, Inicio y Fin", () => {

@@ -24,22 +24,31 @@ import { Boton, type PropsBoton } from "./boton";
 
 // --- Cambios sin guardar --------------------------------------------------------------------
 
-type ContextoProtegido = { reportar: (id: string, sucio: boolean) => void };
+type ContextoProtegido = { reportar: (id: string, sucio: boolean, ocupado: boolean) => void };
 
 const Contexto = createContext<ContextoProtegido | null>(null);
 
 /**
  * Avisa al `DialogoProtegido` más cercano si el formulario tiene cambios sin guardar
- * (`form.formState.isDirty`). Fuera de un `DialogoProtegido` no hace nada.
+ * (`form.formState.isDirty`) y si se está enviando (`isSubmitting`: mientras tanto el diálogo no
+ * se puede cerrar ni descartar). Fuera de un `DialogoProtegido` no hace nada.
  */
-export function useCambiosSinGuardar(sucio: boolean) {
+export function useCambiosSinGuardar(sucio: boolean, ocupado = false) {
     const contexto = useContext(Contexto);
     const id = useId();
     useEffect(() => {
         if (!contexto) return undefined;
-        contexto.reportar(id, sucio);
-        return () => contexto.reportar(id, false);
-    }, [contexto, id, sucio]);
+        contexto.reportar(id, sucio, ocupado);
+        return () => contexto.reportar(id, false, false);
+    }, [contexto, id, sucio, ocupado]);
+}
+
+function conValor(antes: ReadonlySet<string>, id: string, valor: boolean): ReadonlySet<string> {
+    if (antes.has(id) === valor) return antes;
+    const despues = new Set(antes);
+    if (valor) despues.add(id);
+    else despues.delete(id);
+    return despues;
 }
 
 export type PropsDialogoProtegido = Omit<ComponentProps<typeof Dialog.Root>, "open" | "onOpenChange"> & {
@@ -69,18 +78,15 @@ export function DialogoProtegido({
     ...props
 }: PropsDialogoProtegido) {
     const [sucios, setSucios] = useState<ReadonlySet<string>>(() => new Set());
+    const [ocupados, setOcupados] = useState<ReadonlySet<string>>(() => new Set());
     const [confirmando, setConfirmando] = useState(false);
-    const reportar = useCallback((id: string, valor: boolean) => {
-        setSucios((antes) => {
-            if (antes.has(id) === valor) return antes;
-            const despues = new Set(antes);
-            if (valor) despues.add(id);
-            else despues.delete(id);
-            return despues;
-        });
+    const reportar = useCallback((id: string, valorSucio: boolean, valorOcupado: boolean) => {
+        setSucios((antes) => conValor(antes, id, valorSucio));
+        setOcupados((antes) => conValor(antes, id, valorOcupado));
     }, []);
     const contexto = useMemo(() => ({ reportar }), [reportar]);
     const hayCambios = sucio || sucios.size > 0;
+    const enviando = ocupado || ocupados.size > 0;
 
     return (
         <Contexto.Provider value={contexto}>
@@ -91,7 +97,7 @@ export function DialogoProtegido({
                         onOpenChange(true);
                         return;
                     }
-                    if (ocupado) return;
+                    if (enviando) return;
                     if (hayCambios) {
                         setConfirmando(true);
                         return;
@@ -103,7 +109,7 @@ export function DialogoProtegido({
                 {children}
             </Dialog.Root>
             <DialogoConfirmar
-                open={open && confirmando}
+                open={open && confirmando && !enviando}
                 onOpenChange={setConfirmando}
                 titulo={tituloDescartar}
                 descripcion={descripcionDescartar}

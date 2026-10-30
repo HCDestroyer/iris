@@ -44,37 +44,68 @@ export function ordenarServicios(servicios: readonly ServicioCliente[]): Servici
     return [...servicios].sort((a, b) => peso(a) - peso(b) || a.id - b.id);
 }
 
-/**
- * Al elegir un cliente: sin servicios (o un solo servicio) se resuelve solo; con varios hay que
- * preguntar; con `null` (no se pudieron leer) hay que leer la ficha.
- */
-export function pasoTrasElegir(servicios: readonly ServicioCliente[] | null | undefined): "leer" | "listo" | "preguntar" {
-    if (servicios === null || servicios === undefined) return "leer";
-    return servicios.length > 1 ? "preguntar" : "listo";
-}
-
 export const MAX_RECIENTES = 5;
+
+/** Mínimo de caracteres para buscar por texto (la API lo exige con `servicios=true`). */
+export const MIN_BUSQUEDA = 3;
+
+const PREFIJO_RECIENTES = "iris:clientes-recientes:";
+
+/**
+ * Lo único que se guarda de un cliente reciente en el navegador: sin dirección, teléfono ni
+ * servicios (datos personales). Al elegirlo se vuelve a leer la ficha.
+ */
+export type ClienteReciente = { id: number; codigo: string; nombre: string };
 
 /** Clave de los recientes en el navegador: por usuario y empresa activa. */
 export function claveRecientes(usuarioId: number, empresaId: number | null | undefined): string {
-    return `iris:clientes-recientes:${usuarioId}:${empresaId ?? 0}`;
+    return `${PREFIJO_RECIENTES}${usuarioId}:${empresaId ?? 0}`;
 }
 
-/** Pone el cliente al principio, sin repetir, y corta en MAX_RECIENTES. */
-export function agregarReciente(lista: readonly ClienteResumen[], cliente: ClienteResumen): ClienteResumen[] {
-    return [cliente, ...lista.filter((c) => c.id !== cliente.id)].slice(0, MAX_RECIENTES);
+/** Pone el cliente al principio, sin repetir, con solo id, código y nombre, y corta en MAX_RECIENTES. */
+export function agregarReciente(lista: readonly ClienteReciente[], cliente: ClienteReciente): ClienteReciente[] {
+    const minimo: ClienteReciente = { id: cliente.id, codigo: cliente.codigo, nombre: cliente.nombre };
+    return [minimo, ...lista.filter((c) => c.id !== cliente.id).map((c) => ({ id: c.id, codigo: c.codigo, nombre: c.nombre }))].slice(0, MAX_RECIENTES);
 }
 
 /** Valida lo leído del navegador (puede venir corrupto o de una versión anterior). */
-export function sonRecientes(valor: unknown): valor is ClienteResumen[] {
+export function sonRecientes(valor: unknown): valor is ClienteReciente[] {
     return (
         Array.isArray(valor) &&
         valor.every((c: unknown) => {
             if (typeof c !== "object" || c === null) return false;
             const x = c as Record<string, unknown>;
-            return typeof x.id === "number" && typeof x.nombre === "string" && typeof x.codigo === "string" && typeof x.direccion === "string";
+            return typeof x.id === "number" && typeof x.nombre === "string" && typeof x.codigo === "string";
         })
     );
+}
+
+/** Lo leído del navegador reducido a id, código y nombre (una versión anterior guardaba más). */
+export function soloMinimo(lista: readonly ClienteReciente[]): ClienteReciente[] {
+    return lista.map((c) => ({ id: c.id, codigo: c.codigo, nombre: c.nombre }));
+}
+
+/** Borra los recientes de todos los usuarios y empresas: al cerrar sesión y ante cualquier 401. */
+export function limpiarClientesRecientes(almacen: Pick<Storage, "length" | "key" | "removeItem"> | undefined = navegador()): void {
+    if (!almacen) return;
+    try {
+        const claves: string[] = [];
+        for (let i = 0; i < almacen.length; i += 1) {
+            const k = almacen.key(i);
+            if (k?.startsWith(PREFIJO_RECIENTES)) claves.push(k);
+        }
+        for (const k of claves) almacen.removeItem(k);
+    } catch {
+        // Sin almacenamiento: no hay nada que borrar.
+    }
+}
+
+function navegador(): Storage | undefined {
+    try {
+        return typeof window === "undefined" ? undefined : window.localStorage;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Índice activo tras una tecla de la lista (con vuelta al principio/fin); `null` si no aplica. */

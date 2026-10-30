@@ -13,9 +13,11 @@ import {
     estadoServicio,
     moverIndice,
     nombresEmpresas,
+    MIN_BUSQUEDA,
     ordenarServicios,
-    pasoTrasElegir,
+    soloMinimo,
     sonRecientes,
+    type ClienteReciente,
     type ClienteResumen,
     type SeleccionCliente,
     type ServicioCliente,
@@ -168,20 +170,20 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
     const id = useId();
     const clave = claveRecientes(yo.usuario.id, yo.empresaActiva?.id);
     // Solo en el navegador: la búsqueda se monta al abrir el diálogo.
-    const [recientes] = useState<ClienteResumen[]>(() => leerLocalJson(clave, sonRecientes, []));
+    const [recientes] = useState<ClienteReciente[]>(() => soloMinimo(leerLocalJson(clave, sonRecientes, [])));
     const [texto, setTexto] = useState("");
     const q = useDiferido(texto.trim(), 300);
     const [estado, setEstado] = useState<Estado | null>(null);
     const [intento, setIntento] = useState(0);
     const [activo, setActivo] = useState(-1);
-    const [pendiente, setPendiente] = useState<{ cliente: ClienteResumen; servicioIP?: number | null } | null>(null);
+    const [pendiente, setPendiente] = useState<{ elegido: ClienteReciente; servicioIP: number | null | undefined } | null>(null);
     const apagadoRef = useRef(alConectorApagado);
     useEffect(() => {
         apagadoRef.current = alConectorApagado;
     }, [alConectorApagado]);
 
     useEffect(() => {
-        if (q.length < 2) return undefined;
+        if (q.length < MIN_BUSQUEDA) return undefined;
         const control = new AbortController();
         buscarClientes(q, control.signal).then(
             (r) => {
@@ -201,36 +203,25 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
 
     const terminar = useCallback(
         (cliente: ClienteResumen, servicio: ServicioCliente | null) => {
-            const guardado = agregarReciente(recientes, { ...cliente, servicios: null });
-            escribirLocal(clave, JSON.stringify(guardado));
+            // En el navegador solo id, código y nombre.
+            escribirLocal(clave, JSON.stringify(agregarReciente(recientes, cliente)));
             alElegir({ cliente, servicio });
         },
         [alElegir, clave, recientes],
     );
 
-    const elegir = (cliente: ClienteResumen, servicioIP?: number | null) => {
-        const servicios = cliente.servicios;
-        const deIP = servicioIP ? servicios?.find((s) => s.id === servicioIP) : undefined;
-        if (deIP) {
-            terminar(cliente, deIP);
-            return;
-        }
-        const paso = pasoTrasElegir(servicios);
-        if (paso === "listo") {
-            terminar(cliente, servicios?.[0] ?? null);
-            return;
-        }
-        setPendiente({ cliente, ...(servicioIP !== undefined ? { servicioIP } : {}) });
-    };
+    // Elegir siempre confirma contra la ficha: cliente y servicio salen de ahí.
+    const elegir = (c: ClienteReciente, servicioIP?: number | null) => setPendiente({ elegido: { id: c.id, codigo: c.codigo, nombre: c.nombre }, servicioIP });
 
     if (pendiente) {
-        return <ElegirServicio cliente={pendiente.cliente} alVolver={() => setPendiente(null)} alElegir={(s) => terminar(pendiente.cliente, s)} />;
+        return <ConfirmarCliente elegido={pendiente.elegido} servicioIP={pendiente.servicioIP} alVolver={() => setPendiente(null)} alTerminar={terminar} />;
     }
 
-    const vigente = estado && estado.q === q && q.length >= 2 ? estado : null;
-    const buscando = q.length >= 2 && !vigente;
+    const corta = q.length < MIN_BUSQUEDA;
+    const vigente = estado && estado.q === q && !corta ? estado : null;
+    const buscando = !corta && !vigente;
     const escribiendo = texto.trim() !== q;
-    const lista: ClienteResumen[] = q.length < 2 ? recientes : vigente?.tipo === "listo" ? vigente.datos : [];
+    const lista: (ClienteResumen | ClienteReciente)[] = corta ? recientes : vigente?.tipo === "listo" ? vigente.datos : [];
     const servicioIP = vigente?.tipo === "listo" ? vigente.servicioIP : undefined;
     const idLista = `${id}-lista`;
     const idOpcion = (i: number) => `${id}-op-${i}`;
@@ -246,7 +237,7 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
         if (e.key === "Enter") {
             e.preventDefault();
             const c = lista[activo];
-            if (c) elegir(c, q.length < 2 ? undefined : servicioIP);
+            if (c) elegir(c, corta ? undefined : servicioIP);
         }
     };
 
@@ -277,9 +268,9 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
             <p className="text-xs text-muted-foreground" aria-hidden>
                 ↑ ↓ para moverte · Enter para elegir · Esc para cerrar
             </p>
-            {q.length < 2 ? (
+            {corta ? (
                 recientes.length === 0 ? (
-                    <Vacio icono={Search} titulo="Escribe al menos 2 caracteres" texto="Busca por nombre, código, teléfono, NIT/CUI, dirección o la IP del servicio." />
+                    <Vacio icono={Search} titulo={`Escribe al menos ${MIN_BUSQUEDA} caracteres`} texto="Busca por nombre, código, teléfono, NIT/CUI, dirección o la IP del servicio." />
                 ) : (
                     <span className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
                         <History aria-hidden className="size-4" />
@@ -287,7 +278,7 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
                     </span>
                 )
             ) : null}
-            {buscando || (escribiendo && q.length >= 2) ? <Cargando texto="Buscando clientes…" visible /> : null}
+            {buscando || (escribiendo && !corta) ? <Cargando texto="Buscando clientes…" visible /> : null}
             {vigente?.tipo === "error" ? <ErrorBusqueda error={vigente.error} reintentar={() => setIntento((n) => n + 1)} /> : null}
             {vigente?.tipo === "listo" && vigente.stale ? (
                 <InsigniaEstado tono="warning" icono={History} texto="Desactualizado: Argos no respondió, resultados de la copia local" className="justify-self-start whitespace-normal" />
@@ -300,7 +291,7 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
                 />
             ) : null}
             {lista.length > 0 ? (
-                <ul id={idLista} role="listbox" aria-label={q.length < 2 ? "Clientes recientes" : "Clientes encontrados"} className="grid gap-2">
+                <ul id={idLista} role="listbox" aria-label={corta ? "Clientes recientes" : "Clientes encontrados"} className="grid gap-2">
                     {lista.map((c, i) => (
                         <OpcionCliente
                             key={c.id}
@@ -308,7 +299,7 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
                             cliente={c}
                             activa={i === activo}
                             alEnfocar={() => setActivo(i)}
-                            alElegir={() => elegir(c, q.length < 2 ? undefined : servicioIP)}
+                            alElegir={() => elegir(c, corta ? undefined : servicioIP)}
                         />
                     ))}
                 </ul>
@@ -317,9 +308,11 @@ function Busqueda({ alElegir, alConectorApagado }: { alElegir: (s: SeleccionClie
     );
 }
 
-function OpcionCliente({ id, cliente, activa, alEnfocar, alElegir }: { id: string; cliente: ClienteResumen; activa: boolean; alEnfocar: () => void; alElegir: () => void }) {
+function OpcionCliente({ id, cliente: opcion, activa, alEnfocar, alElegir }: { id: string; cliente: ClienteResumen | ClienteReciente; activa: boolean; alEnfocar: () => void; alElegir: () => void }) {
     const { empresas } = useSesion();
-    const empresa = nombresEmpresas(cliente, empresas);
+    // Un reciente solo trae id, código y nombre (lo demás no se guarda en el navegador).
+    const cliente: Partial<ClienteResumen> & ClienteReciente = opcion;
+    const empresa = "direccion" in opcion ? nombresEmpresas(opcion, empresas) : null;
     const servicios = cliente.servicios ? ordenarServicios(cliente.servicios) : null;
     return (
         <li
@@ -360,6 +353,7 @@ function OpcionCliente({ id, cliente, activa, alEnfocar, alElegir }: { id: strin
                     ) : null}
                 </span>
             </span>
+            {"direccion" in opcion ? null : <span className="text-xs text-muted-foreground">Reciente: al elegirlo se lee su ficha</span>}
             {servicios === null ? null : servicios.length === 0 ? (
                 <span className="text-xs text-muted-foreground">Sin servicios en esta empresa</span>
             ) : (
@@ -374,15 +368,30 @@ function OpcionCliente({ id, cliente, activa, alEnfocar, alElegir }: { id: strin
     );
 }
 
-/** Paso 2: el cliente tiene varios servicios (o hay que leerlos de la ficha). */
-function ElegirServicio({ cliente, alVolver, alElegir }: { cliente: ClienteResumen; alVolver: () => void; alElegir: (s: ServicioCliente | null) => void }) {
+/**
+ * Paso 2: confirmar el cliente contra su ficha (`GET /clientes/{id}`, que guarda la instantánea).
+ * El cliente y el servicio que se entregan salen de la ficha, nunca de la búsqueda en vivo ni de
+ * los recientes. Con un solo servicio (o el de la IP buscada) termina solo; con varios, pregunta.
+ */
+function ConfirmarCliente({
+    elegido,
+    servicioIP,
+    alVolver,
+    alTerminar,
+}: {
+    elegido: ClienteReciente;
+    servicioIP: number | null | undefined;
+    alVolver: () => void;
+    alTerminar: (cliente: ClienteResumen, servicio: ServicioCliente | null) => void;
+}) {
     const id = useId();
-    const [lectura, setLectura] = useState<{ tipo: "cargando" } | { tipo: "listo"; servicios: ServicioCliente[] } | { tipo: "error"; error: unknown }>(() =>
-        cliente.servicios ? { tipo: "listo", servicios: ordenarServicios(cliente.servicios) } : { tipo: "cargando" },
-    );
+    const [lectura, setLectura] = useState<{ tipo: "cargando" } | { tipo: "listo"; cliente: ClienteResumen; servicios: ServicioCliente[] } | { tipo: "error"; error: unknown }>({ tipo: "cargando" });
     const [intento, setIntento] = useState(0);
     const [activo, setActivo] = useState(0);
-    const conocidos = cliente.servicios;
+    const terminarRef = useRef(alTerminar);
+    useEffect(() => {
+        terminarRef.current = alTerminar;
+    }, [alTerminar]);
 
     const lista = useRef<HTMLUListElement>(null);
     const hayLista = lectura.tipo === "listo";
@@ -392,27 +401,28 @@ function ElegirServicio({ cliente, alVolver, alElegir }: { cliente: ClienteResum
     }, [hayLista]);
 
     useEffect(() => {
-        if (conocidos) return undefined;
         const control = new AbortController();
-        resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: cliente.id } }, signal: control.signal })).then(
+        resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: elegido.id } }, signal: control.signal })).then(
             (f) => {
                 if (control.signal.aborted) return;
                 const servicios = ordenarServicios(f.servicios ?? []);
-                if (servicios.length <= 1) {
-                    alElegir(servicios[0] ?? null);
+                const deIP = servicioIP ? servicios.find((x) => x.id === servicioIP) : undefined;
+                if (deIP || servicios.length <= 1) {
+                    terminarRef.current(f.cliente, deIP ?? servicios[0] ?? null);
                     return;
                 }
-                setLectura({ tipo: "listo", servicios });
+                setLectura({ tipo: "listo", cliente: f.cliente, servicios });
             },
             (error: unknown) => !control.signal.aborted && setLectura({ tipo: "error", error }),
         );
         return () => control.abort();
-        // alElegir cambia en cada render del padre; leer de nuevo solo con el cliente o «Reintentar».
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cliente.id, conocidos, intento]);
+    }, [elegido.id, servicioIP, intento]);
 
     const servicios = lectura.tipo === "listo" ? lectura.servicios : [];
     const idOpcion = (i: number) => `${id}-srv-${i}`;
+    const elegir = (s: ServicioCliente | null) => {
+        if (lectura.tipo === "listo") alTerminar(lectura.cliente, s);
+    };
 
     return (
         <div className="grid content-start gap-3" data-testid="elegir-servicio">
@@ -421,18 +431,20 @@ function ElegirServicio({ cliente, alVolver, alElegir }: { cliente: ClienteResum
                 Volver a los resultados
             </Boton>
             <div className="grid gap-0.5">
-                <span className="font-medium">{cliente.nombre}</span>
-                <span className="text-sm text-muted-foreground">Tiene varios servicios: elige a cuál se refiere.</span>
+                <span className="font-medium">{lectura.tipo === "listo" ? lectura.cliente.nombre : elegido.nombre}</span>
+                {lectura.tipo === "listo" ? <span className="text-sm text-muted-foreground">Tiene varios servicios: elige a cuál se refiere.</span> : null}
             </div>
-            {lectura.tipo === "cargando" ? <Cargando texto="Leyendo los servicios…" visible /> : null}
-            {lectura.tipo === "error" ? <ErrorBusqueda
+            {lectura.tipo === "cargando" ? <Cargando texto="Leyendo la ficha del cliente…" visible /> : null}
+            {lectura.tipo === "error" ? (
+                <ErrorBusqueda
                     error={lectura.error}
                     reintentar={() => {
                         setLectura({ tipo: "cargando" });
                         setIntento((n) => n + 1);
                     }}
-                    que="los servicios del cliente"
-                /> : null}
+                    que="la ficha del cliente"
+                />
+            ) : null}
             {servicios.length > 0 ? (
                 <ul
                     role="listbox"
@@ -447,42 +459,42 @@ function ElegirServicio({ cliente, alVolver, alElegir }: { cliente: ClienteResum
                             setActivo(siguiente);
                         } else if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            const s = servicios[activo];
-                            if (s) alElegir(s);
+                            const x = servicios[activo];
+                            if (x) elegir(x);
                         }
                     }}
                     className="grid gap-2 rounded-md focus-visible:outline-2"
                 >
-                    {servicios.map((s, i) => (
+                    {servicios.map((x, i) => (
                         <li
-                            key={s.id}
+                            key={x.id}
                             id={idOpcion(i)}
                             role="option"
                             aria-selected={i === activo}
-                            data-servicio={s.codigo}
+                            data-servicio={x.codigo}
                             onMouseMove={() => setActivo(i)}
-                            onClick={() => alElegir(s)}
+                            onClick={() => elegir(x)}
                             className={cn(
                                 "grid cursor-pointer gap-1 rounded-md border p-3 text-sm",
                                 i === activo ? "border-primary bg-primary/10" : "bg-background hover:border-primary/60",
                             )}
                         >
                             <span className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-medium">{s.planNombre || "Sin plan"}</span>
-                                <InsigniaEstado {...estadoServicio(s.estado)} />
+                                <span className="font-medium">{x.planNombre || "Sin plan"}</span>
+                                <InsigniaEstado {...estadoServicio(x.estado)} />
                             </span>
                             <span className="text-xs break-words text-muted-foreground">
-                                <span className="font-mono">{s.codigo}</span>
-                                {s.ip ? ` · IP ${s.ip}` : null}
-                                {s.direccion ? ` · ${s.direccion}` : null}
-                                {s.zonaNombre ? ` · ${s.zonaNombre}` : null}
+                                <span className="font-mono">{x.codigo}</span>
+                                {x.ip ? ` · IP ${x.ip}` : null}
+                                {x.direccion ? ` · ${x.direccion}` : null}
+                                {x.zonaNombre ? ` · ${x.zonaNombre}` : null}
                             </span>
                         </li>
                     ))}
                 </ul>
             ) : null}
-            {lectura.tipo !== "cargando" ? (
-                <Boton variante="contorno" className="justify-self-start" onClick={() => alElegir(null)}>
+            {lectura.tipo === "listo" ? (
+                <Boton variante="contorno" className="justify-self-start" onClick={() => elegir(null)}>
                     Continuar sin servicio específico
                 </Boton>
             ) : null}

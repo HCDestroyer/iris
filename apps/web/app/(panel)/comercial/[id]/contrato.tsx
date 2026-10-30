@@ -170,7 +170,7 @@ function Firmar({
     const [trazos, setTrazos] = useState<Trazos>({ trazos: [], ancho: 0, alto: 0 });
     const [faltaFirma, setFaltaFirma] = useState(false);
     const formulario = useForm<DatosFirma>({ resolver: zodResolver(esquemaFirma), defaultValues: { firmanteNombre: nombreSugerido, firmanteDocumento: documentoSugerido } });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors } = formulario.formState;
 
     async function enviar(d: DatosFirma) {

@@ -233,7 +233,7 @@ function CampoTecnico({
 
 function FormAsignar({ orden, enviar, pie, usuarios }: PropsFormulario & { usuarios: readonly Usuario[] | null | undefined }) {
     const form = useForm({ resolver: zodResolver(esquemaAsignarOrden), defaultValues: { tecnicoId: orden.tecnicoId === null ? "" : String(orden.tecnicoId) } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const tecnicoAsignar = useWatch({ control: form.control, name: "tecnicoId" });
     return (
         <form
@@ -272,7 +272,7 @@ function FormProgramar({ orden, enviar, pie, usuarios, reprogramar }: PropsFormu
         resolver: zodResolver(esquemaProgramarOrden({ requiereTecnico: orden.tecnicoId === null, reprogramar })),
         defaultValues: { tecnicoId: orden.tecnicoId === null ? "" : String(orden.tecnicoId), fecha: previo.fecha, hora: previo.hora, motivo: "" },
     });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const errores = form.formState.errors;
     const [tecnicoElegido, fecha, hora] = useWatch({ control: form.control, name: ["tecnicoId", "fecha", "hora"] });
     const faltan = [
@@ -319,7 +319,7 @@ function FormProgramar({ orden, enviar, pie, usuarios, reprogramar }: PropsFormu
 
 function FormMotivo({ orden, enviar, pie, accion }: PropsFormulario & { accion: "cancelar" | "reabrir" }) {
     const form = useForm({ resolver: zodResolver(esquemaMotivoOrden), defaultValues: { motivo: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate
@@ -352,7 +352,7 @@ function FormMotivo({ orden, enviar, pie, accion }: PropsFormulario & { accion: 
 
 function FormPausar({ orden, enviar, pie }: PropsFormulario) {
     const form = useForm<DatosPausar>({ resolver: zodResolver(esquemaPausar), defaultValues: { motivo: "esperando_material", nota: "" } });
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const motivo = useWatch({ control: form.control, name: "motivo" });
     return (
         <form
@@ -384,7 +384,7 @@ function FormPausar({ orden, enviar, pie }: PropsFormulario) {
 
 function FormReanudar({ orden, enviar, pie }: PropsFormulario) {
     const form = useForm();
-    useCambiosSinGuardar(form.formState.isDirty);
+    useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     return (
         <form
             noValidate

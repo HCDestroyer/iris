@@ -188,7 +188,7 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
     const plantillas = paginado.primera;
     const envio = useEnvioOrden(recargar);
     const formulario = useForm<z.infer<typeof esquemaAgregar>>({ resolver: zodResolver(esquemaAgregar), defaultValues: { plantillaId: "" } });
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const sinPlantilla = !useWatch({ control: formulario.control, name: "plantillaId" });
     const presentes = new Set((orden.formularios ?? []).map((f) => f.plantillaId));
     const disponibles = paginado.items.filter((p) => p.activa && !presentes.has(p.id));

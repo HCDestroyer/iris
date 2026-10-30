@@ -52,7 +52,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
         defaultValues: { motivo: "", contrasenaTemporal: "", revocarTokens: true },
     });
     const { errors, isSubmitting } = formulario.formState;
-    useCambiosSinGuardar(formulario.formState.isDirty);
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const temporal = useWatch({ control: formulario.control, name: "contrasenaTemporal" });
 
     async function enviar(datos: DatosReiniciarMfa) {

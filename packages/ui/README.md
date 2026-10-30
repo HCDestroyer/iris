@@ -47,7 +47,8 @@ pasa `isDirty`, lo que falta y `setError`.
   piden «¿Descartar los cambios?» antes de cerrar. Cerrar por código (tras guardar) no pregunta.
   Los cambios llegan por `sucio` (cuando el formulario vive en el mismo componente que el
   diálogo) o con **`useCambiosSinGuardar(form.formState.isDirty)`** desde un formulario hijo.
-  `ocupado` impide cerrar mientras se envía.
+  `ocupado` (o el segundo argumento del hook, `isSubmitting`) impide cerrar o descartar mientras
+  se envía.
 - **`BotonEnviar`**: `type="submit"`, deshabilitado mientras `enviando` o mientras `faltan` tenga
   selecciones obligatorias (`["el técnico"]` → «Falta elegir el técnico para guardar.», o
   `motivo` propio), con el mensaje visible junto al botón y enlazado por `aria-describedby`. El
