@@ -10,6 +10,11 @@
 # 4. Con la versión creada, el job `imagenes` publica en GHCR ghcr.io/<dueño>/iris-api,
 #    iris-worker e iris-web con las etiquetas X.Y.Z y latest (las mismas que construye y prueba
 #    imagenes.yml en cada PR; VERSION queda en main.version de api y worker).
+# 5. Con las imágenes publicadas, el job `paquete` adjunta a la release el instalador de producción
+#    (infra/produccion/package.sh): iris-X.Y.Z.tar.gz, su .sha256, install.sh e install.sh.sha256
+#    (en inglés por decisión del PM; docs/runbooks/install.md). Para adjuntarlo a una release que ya
+#    existe (p. ej. una anterior a este job): workflow_dispatch con `version` = X.Y.Z; el paquete
+#    sale del commit despachado y usa las imágenes X.Y.Z de GHCR.
 #
 # La PR de release-please la abre GITHUB_TOKEN, así que el CI no corre solo en ella: ciérrala y
 # vuelve a abrirla (o corre CI con workflow_dispatch en su rama) antes de mergear (CLAUDE.md §12).
@@ -19,6 +24,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Install package only — attach it to the existing release vX.Y.Z (e.g. 0.2.0)
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -97,3 +107,40 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+  # Paquete de instalación (A6 de Argos como modelo): va al final, cuando las imágenes ya existen,
+  # porque install.sh e `irisctl upgrade` solo ven una versión cuando su paquete está publicado.
+  paquete:
+    name: Paquete de instalación
+    needs: [release-please, imagenes]
+    if: >-
+      always() &&
+      ((needs.release-please.outputs.creada == 'true' && needs.imagenes.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.version != ''))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.release-please.outputs.version || inputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Armar y adjuntar a la release
+        run: |
+          VERSION="${VERSION#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::versión inválida: '$VERSION'"; exit 1; }
+          gh release view "v$VERSION" >/dev/null || { echo "::error::no existe la release v$VERSION"; exit 1; }
+          infra/produccion/package.sh "$VERSION" dist
+          gh release upload "v$VERSION" --clobber \
+            "dist/iris-$VERSION.tar.gz#Iris $VERSION production install package" \
+            "dist/iris-$VERSION.tar.gz.sha256#Iris $VERSION install package SHA-256" \
+            "dist/install.sh#Iris installer (install.sh)" \
+            "dist/install.sh.sha256#Iris installer SHA-256"
+          {
+            echo "### Install package v$VERSION"
+            echo '```'
+            cat "dist/iris-$VERSION.tar.gz.sha256" dist/install.sh.sha256
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
