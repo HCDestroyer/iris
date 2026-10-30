@@ -147,7 +147,9 @@ ask() { # ask "question" [default] → answer on stdout
 confirm() { # confirm "question" default(y|n)
     local def="${2:-y}" a
     if ! has_tty; then [ "$def" = y ]; return; fi
-    a="$(ask "$1 [$([ "$def" = y ] && echo Y/n || echo y/N)]" "")"
+    local hint=y/N
+    if [ "$def" = y ]; then hint=Y/n; fi
+    a="$(ask "$1 [$hint]" "")"
     case "${a,,}" in y | yes) return 0 ;; n | no) return 1 ;; *) [ "$def" = y ] ;; esac
 }
 
@@ -247,7 +249,9 @@ lock() {
     if [ "$(id -u)" = 0 ]; then
         d=/run/iris
         install -d -m 700 -o root -g root "$d"
-        [ "$(stat -c '%u %a' "$d")" = "0 700" ] && [ ! -L "$d" ] || die "$d must be a directory owned by root with mode 700"
+        if [ -L "$d" ] || [ "$(stat -c '%u %a' "$d")" != "0 700" ]; then
+            die "$d must be a directory owned by root with mode 700"
+        fi
     else
         d="${HOME:?}"
     fi
@@ -717,7 +721,7 @@ cmd_install() {
         read -r mode phase FROM_LAB < "$PENDING" || true
         case "$mode $phase" in "fresh prepared" | "fresh migrating" | "lab prepared" | "lab migrating") ;; *) die "unreadable $PENDING" ;; esac
         resume=true
-        log "resuming the unfinished $([ "$mode" = lab ] && echo "lab migration" || echo install) in $DIR"
+        if [ "$mode" = lab ]; then log "resuming the unfinished lab migration in $DIR"; else log "resuming the unfinished install in $DIR"; fi
     elif [ -f "$ENV_FILE" ]; then
         mode=existing
         [ -z "$FROM_LAB" ] || die "Iris is already installed in $DIR: --from-lab is only for the first install"
@@ -918,7 +922,8 @@ offer_identity_removal() {
 }
 
 print_summary() {
-    local new_key="$1" web url host
+    local new_key="$1" web url host manage="$DIR/current/install.sh"
+    if [ -e /usr/local/bin/irisctl ]; then manage=irisctl; fi
     web="$(env_get IRIS_WEB_PUERTO)"
     url="$(env_get IRIS_BASE_URL)"
     host="${url#*://}"; host="${host%%:*}"
@@ -929,7 +934,7 @@ Iris $(env_get IRIS_VERSION) is running.
   Panel (local):   http://127.0.0.1:$web
   Public address:  $url
   Settings:        $ENV_FILE (mode 600)
-  Manage:          $( [ -e /usr/local/bin/irisctl ] && echo irisctl || echo "$DIR/current/install.sh" ) status | logs | backup | upgrade | stop | start
+  Manage:          $manage status | logs | backup | upgrade | stop | start
 
 EOF
     if [ "$new_key" = true ]; then
