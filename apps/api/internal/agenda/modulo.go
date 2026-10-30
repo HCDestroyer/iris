@@ -56,6 +56,7 @@ type Modulo struct {
 
 	ListarTecnicos    *auditoria.Caso[EntradaListarTecnicos, nucleo.Pagina[Tecnico]]
 	VerTecnico        *auditoria.Caso[EntradaVerTecnico, TecnicoDetalle]
+	CandidatosTecnico *auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]]
 	CrearTecnico      *auditoria.Caso[EntradaCrearTecnico, TecnicoDetalle]
 	EditarTecnico     *auditoria.Caso[EntradaEditarTecnico, TecnicoDetalle]
 	ActivarTecnico    *auditoria.Caso[EntradaVersion, TecnicoDetalle]
@@ -103,6 +104,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.CapacidadCuadrilla = m.nuevoCapacidadCuadrilla()
 	m.ListarTecnicos = m.nuevoListarTecnicos()
 	m.VerTecnico = m.nuevoVerTecnico()
+	m.CandidatosTecnico = m.nuevoCandidatosTecnico()
 	m.CrearTecnico = m.nuevoCrearTecnico()
 	m.EditarTecnico = m.nuevoEditarTecnico()
 	m.ActivarTecnico = m.nuevoActivarTecnico(true)

@@ -120,6 +120,11 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, asignables, func(ctx context.Context, in *EntradaAsignables) (*cuerpo[RespuestaAsignables], error) {
 		return responder(m.Asignables.Ejecutar(ctx, *in))
 	})
+	candidatos := operacion("candidatosTecnico", http.MethodGet, "/api/v1/tecnicos/candidatos", "Usuarios que pueden recibir ficha de técnico", nucleo.PermAgendaCrearTecnico, http.StatusOK)
+	candidatos.Description += " Personas activas sin ficha, con `ordenes.ver_propias` u `ordenes.ver`, que operan en la empresa activa. Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`)."
+	huma.Register(api, candidatos, func(ctx context.Context, in *EntradaCandidatosTecnico) (*cuerpo[nucleo.Pagina[CandidatoTecnico]], error) {
+		return responder(m.CandidatosTecnico.Ejecutar(ctx, *in))
+	})
 	huma.Register(api, operacion("verTecnico", http.MethodGet, "/api/v1/tecnicos/{id}", "Ficha de un técnico con turnos, capacidad y ausencias", nucleo.PermAgendaVer, http.StatusOK, http.StatusNotFound),
 		func(ctx context.Context, in *EntradaVerTecnico) (*cuerpo[TecnicoDetalle], error) {
 			return responder(m.VerTecnico.Ejecutar(ctx, *in))

@@ -19,8 +19,11 @@ OSRM, publicación y ruta propuesta frente a la real). Schema `agenda`.
   todas para el filtro `zonaId` de asignables, pero **no** la cubre un alcance por zona (falla
   cerrado: sus técnicos, fichas y posiciones solo los ve el alcance global o el de esa cuadrilla).
 - **Técnicos**: una ficha por usuario (la persona: sus turnos, ausencias y citas valen en todas
-  sus empresas) con cuadrilla, bodega de Argos, habilidades, base y `activo`. Solo personas activas
-  con `ordenes.ver_propias` u `ordenes.ver` que operen en la empresa activa.
+  sus empresas) con cuadrilla, bodega de Argos, habilidades, base, teléfono de contacto (hasta 30
+  caracteres: dígitos, espacios, `+`, `-`, paréntesis y puntos, con al menos 7 dígitos; vacío = sin
+  teléfono) y `activo`. Solo personas activas con `ordenes.ver_propias` u `ordenes.ver` que operen
+  en la empresa activa. `GET /tecnicos/candidatos?q=` (`agenda.crear_tecnico`) lista esas personas
+  aún sin ficha: es el selector de usuario del alta en el panel (no exige `usuarios.ver`).
 - **Turnos** semanales en hora de Guatemala (día ISO, `HH:MM`, fin hasta `24:00`, sin cruces en un
   día; un turno nocturno se parte en dos). **Ausencias** (rango UTC, motivo); registrar una devuelve
   las citas vivas que caen dentro (no se mueven solas). **Capacidad** diaria por tipo de orden (o

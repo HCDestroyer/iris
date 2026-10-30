@@ -2679,6 +2679,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tecnicos/candidatos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usuarios que pueden recibir ficha de técnico
+         * @description Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias` u `ordenes.ver`, que operan en la empresa activa. Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`).
+         */
+        get: operations["candidatosTecnico"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tecnicos/{id}": {
         parameters: {
             query?: never;
@@ -3815,6 +3835,12 @@ export interface components {
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
         };
+        CandidatoTecnico: {
+            correo: string;
+            nombre: string;
+            /** Format: int64 */
+            usuarioId: number;
+        };
         CanjeSSO: {
             destino: components["schemas"]["DestinoSSOResuelto"];
             entrarComo?: components["schemas"]["EntrarComoSSO"];
@@ -4739,6 +4765,8 @@ export interface components {
             cuadrillaId?: number;
             /** @description Códigos libres (fibra, inalambrico, altura…) */
             habilidades?: string[] | null;
+            /** @description Teléfono de contacto: dígitos, espacios, +, -, paréntesis y puntos */
+            telefono?: string;
             /**
              * Format: int64
              * @description Usuario persona con ordenes.ver_propias u ordenes.ver
@@ -4945,6 +4973,8 @@ export interface components {
             /** Format: int64 */
             cuadrillaId?: number;
             habilidades?: string[] | null;
+            /** @description Teléfono de contacto (vacío = sin teléfono) */
+            telefono?: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -6727,6 +6757,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaCandidatoTecnico: {
+            data: components["schemas"]["CandidatoTecnico"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaCategoria: {
             data: components["schemas"]["Categoria"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -8132,6 +8167,8 @@ export interface components {
              */
             id: number;
             nombre: string;
+            /** @description Teléfono de contacto de la ficha; vacío = sin teléfono */
+            telefono: string;
             /**
              * Format: int64
              * @description Usuario (es el tecnicoId de las órdenes)
@@ -8169,6 +8206,8 @@ export interface components {
              */
             id: number;
             nombre: string;
+            /** @description Teléfono de contacto de la ficha; vacío = sin teléfono */
+            telefono: string;
             turnos: components["schemas"]["Turno"][] | null;
             /**
              * Format: int64
@@ -19390,6 +19429,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaAsignables"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    candidatosTecnico: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Nombre o correo */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCandidatoTecnico"];
                 };
             };
             /** @description Unauthorized */
