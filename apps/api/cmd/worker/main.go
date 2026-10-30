@@ -157,6 +157,8 @@ func correr() error {
 			identidad.RegistrarPurgaAccesos(w, pool, cfg.AccesosRetencion)
 			// Reintento de revocar un iris_pat_ entregado en un canje (si la revocación inmediata falló).
 			conector.RegistrarRevocador(w, pool, identidad.Nuevo(identidad.Config{}))
+			// code_verifier de autorizaciones «Conectar con Argos» abandonadas.
+			conector.RegistrarPurgaAutorizaciones(w, pool)
 			cmp.RegistrarTrabajos(pool)(w)
 			cmp.Agenda().RegistrarTrabajos(pool)(w)
 			com.RegistrarTrabajos(pool)(w)
@@ -167,6 +169,8 @@ func correr() error {
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),
 			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).
 			nucleo.TrabajoPeriodicoPurgaIdempotencia(time.Hour),
+			// Autorizaciones de «Conectar con Argos» vencidas: sin code_verifier y, al día, borradas.
+			conector.TrabajoPeriodicoPurgaAutorizaciones(10*time.Minute),
 			// Intentos de login vencidos (la tabla crece con cada correo de una fuerza bruta).
 			identidad.TrabajoPeriodicoPurgaIntentos(time.Hour),
 			// Sesiones y tickets del portal vencidos hace más de 30 días.

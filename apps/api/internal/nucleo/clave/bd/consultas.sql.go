@@ -9,6 +9,39 @@ import (
 	"context"
 )
 
+const autorizacionesCifradas = `-- name: AutorizacionesCifradas :many
+SELECT id, verificador_cifrado FROM integracion.autorizaciones
+WHERE verificador_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type AutorizacionesCifradasRow struct {
+	ID                 int64
+	VerificadorCifrado []byte
+}
+
+// code_verifier de las autorizaciones «Conectar con un botón» sin usar (al usarse queda NULL).
+func (q *Queries) AutorizacionesCifradas(ctx context.Context) ([]AutorizacionesCifradasRow, error) {
+	rows, err := q.db.Query(ctx, autorizacionesCifradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AutorizacionesCifradasRow
+	for rows.Next() {
+		var i AutorizacionesCifradasRow
+		if err := rows.Scan(&i.ID, &i.VerificadorCifrado); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const buzonesCifrados = `-- name: BuzonesCifrados :many
 SELECT id, imap_contrasena, smtp_contrasena FROM soporte.buzones
 WHERE imap_contrasena IS NOT NULL OR smtp_contrasena IS NOT NULL
@@ -72,6 +105,20 @@ func (q *Queries) ConectoresCifrados(ctx context.Context) ([]ConectoresCifradosR
 		return nil, err
 	}
 	return items, nil
+}
+
+const recifrarAutorizacion = `-- name: RecifrarAutorizacion :exec
+UPDATE integracion.autorizaciones SET verificador_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarAutorizacionParams struct {
+	VerificadorCifrado []byte
+	ID                 int64
+}
+
+func (q *Queries) RecifrarAutorizacion(ctx context.Context, arg RecifrarAutorizacionParams) error {
+	_, err := q.db.Exec(ctx, recifrarAutorizacion, arg.VerificadorCifrado, arg.ID)
+	return err
 }
 
 const recifrarBuzon = `-- name: RecifrarBuzon :exec

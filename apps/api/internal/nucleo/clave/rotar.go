@@ -25,10 +25,12 @@ const (
 	ColumnaSecretoWebhook = "integracion.conectores.secreto_webhook_cifrado"
 	ColumnaIMAP           = "soporte.buzones.imap_contrasena"
 	ColumnaSMTP           = "soporte.buzones.smtp_contrasena"
+	// ColumnaVerificador: code_verifier de las autorizaciones «Conectar con un botón» sin usar.
+	ColumnaVerificador = "integracion.autorizaciones.verificador_cifrado"
 )
 
 // Columnas en el orden en que se rotan y se informan.
-var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP}
+var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -114,6 +116,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.buzones(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.autorizaciones(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -240,6 +245,25 @@ func (r *rotador) buzones(ctx context.Context, q *clavebd.Queries, simular bool)
 		}
 		if (c1 || c2) && !simular {
 			if err := q.RecifrarBuzon(ctx, clavebd.RecifrarBuzonParams{ID: f.ID, ImapContrasena: imap, SmtpContrasena: smtp}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) autorizaciones(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.AutorizacionesCifradas(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaVerificador, f.ID, f.VerificadorCifrado, conector.DatosAsociadosAutorizacion(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarAutorizacion(ctx, clavebd.RecifrarAutorizacionParams{ID: f.ID, VerificadorCifrado: nuevo}); err != nil {
 				return err
 			}
 		}

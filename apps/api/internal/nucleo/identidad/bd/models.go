@@ -760,6 +760,21 @@ type IntegracionArgosZona struct {
 	UpdatedAt      time.Time
 }
 
+type IntegracionAutorizacione struct {
+	ID                 int64
+	Sistema            string
+	StateHash          []byte
+	VerificadorCifrado []byte
+	PanelUrl           string
+	UsuarioID          int64
+	SesionID           int64
+	ExpiraEn           time.Time
+	UsadoEn            *time.Time
+	ConectorID         *int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 type IntegracionCodigosConexion struct {
 	ID         int64
 	Sistema    string
@@ -792,6 +807,7 @@ type IntegracionConectore struct {
 	UrlPublica            *string
 	TokenEntregadoID      *int64
 	AlcanceGlobal         *bool
+	PanelUrl              *string
 }
 
 type IntegracionEntrante struct {
