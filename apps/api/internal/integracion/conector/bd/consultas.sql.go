@@ -10,6 +10,83 @@ import (
 	"time"
 )
 
+const anularAutorizacionesDeSesion = `-- name: AnularAutorizacionesDeSesion :many
+UPDATE integracion.autorizaciones
+SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
+WHERE sesion_id = $1 AND sistema = $2 AND usado_en IS NULL
+RETURNING id
+`
+
+type AnularAutorizacionesDeSesionParams struct {
+	SesionID int64
+	Sistema  string
+}
+
+// Al iniciar otra en la misma sesión y sistema, las anteriores sin usar quedan gastadas y sin
+// code_verifier (solo vale la última).
+func (q *Queries) AnularAutorizacionesDeSesion(ctx context.Context, arg AnularAutorizacionesDeSesionParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, anularAutorizacionesDeSesion, arg.SesionID, arg.Sistema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const autorizacionParaUsar = `-- name: AutorizacionParaUsar :one
+SELECT id, sistema, state_hash, verificador_cifrado, panel_url, usuario_id, sesion_id, expira_en, usado_en, conector_id, created_at, updated_at FROM integracion.autorizaciones WHERE state_hash = $1 AND sistema = $2 FOR UPDATE
+`
+
+type AutorizacionParaUsarParams struct {
+	StateHash []byte
+	Sistema   string
+}
+
+// Bloqueada: dos vueltas con el mismo state se atienden de una en una (la segunda la ve usada).
+func (q *Queries) AutorizacionParaUsar(ctx context.Context, arg AutorizacionParaUsarParams) (IntegracionAutorizacione, error) {
+	row := q.db.QueryRow(ctx, autorizacionParaUsar, arg.StateHash, arg.Sistema)
+	var i IntegracionAutorizacione
+	err := row.Scan(
+		&i.ID,
+		&i.Sistema,
+		&i.StateHash,
+		&i.VerificadorCifrado,
+		&i.PanelUrl,
+		&i.UsuarioID,
+		&i.SesionID,
+		&i.ExpiraEn,
+		&i.UsadoEn,
+		&i.ConectorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const borrarAutorizacionesViejas = `-- name: BorrarAutorizacionesViejas :execrows
+DELETE FROM integracion.autorizaciones WHERE expira_en < now() - interval '1 day'
+`
+
+// Purga: las autorizaciones vencidas hace más de un día ya no sirven ni para explicar un error.
+func (q *Queries) BorrarAutorizacionesViejas(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarAutorizacionesViejas)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cambiarEstadoConector = `-- name: CambiarEstadoConector :one
 UPDATE integracion.conectores
 SET estado       = $1,
@@ -18,7 +95,7 @@ SET estado       = $1,
     version      = version + 1,
     updated_at   = now()
 WHERE id = $3 AND version = $4
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url
 `
 
 type CambiarEstadoConectorParams struct {
@@ -56,6 +133,7 @@ func (q *Queries) CambiarEstadoConector(ctx context.Context, arg CambiarEstadoCo
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
@@ -64,7 +142,7 @@ const cambiarURLPublicaConector = `-- name: CambiarURLPublicaConector :one
 UPDATE integracion.conectores
 SET url_publica = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url
 `
 
 type CambiarURLPublicaConectorParams struct {
@@ -96,6 +174,7 @@ func (q *Queries) CambiarURLPublicaConector(ctx context.Context, arg CambiarURLP
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
@@ -132,7 +211,7 @@ func (q *Queries) CompletarEmpresaCanje(ctx context.Context, arg CompletarEmpres
 }
 
 const conectorActivo = `-- name: ConectorActivo :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 `
 
 func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (IntegracionConectore, error) {
@@ -158,12 +237,13 @@ func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (Integraci
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
 
 const conectorPorID = `-- name: ConectorPorID :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE id = $1
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url FROM integracion.conectores WHERE id = $1
 `
 
 func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -189,12 +269,13 @@ func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConec
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
 
 const conectorPorIDParaActualizar = `-- name: ConectorPorIDParaActualizar :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE id = $1 FOR UPDATE
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url FROM integracion.conectores WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -220,12 +301,13 @@ func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (In
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
 
 const conectoresActivos = `-- name: ConectoresActivos :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
 `
 
 func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore, error) {
@@ -257,6 +339,7 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 			&i.UrlPublica,
 			&i.TokenEntregadoID,
 			&i.AlcanceGlobal,
+			&i.PanelUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -424,6 +507,52 @@ func (q *Queries) ExisteConectorConBase(ctx context.Context, arg ExisteConectorC
 	return existe, err
 }
 
+const insertarAutorizacion = `-- name: InsertarAutorizacion :one
+INSERT INTO integracion.autorizaciones (id, sistema, state_hash, verificador_cifrado, panel_url, usuario_id, sesion_id, expira_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, sistema, state_hash, verificador_cifrado, panel_url, usuario_id, sesion_id, expira_en, usado_en, conector_id, created_at, updated_at
+`
+
+type InsertarAutorizacionParams struct {
+	ID                 int64
+	Sistema            string
+	StateHash          []byte
+	VerificadorCifrado []byte
+	PanelUrl           string
+	UsuarioID          int64
+	SesionID           int64
+	ExpiraEn           time.Time
+}
+
+func (q *Queries) InsertarAutorizacion(ctx context.Context, arg InsertarAutorizacionParams) (IntegracionAutorizacione, error) {
+	row := q.db.QueryRow(ctx, insertarAutorizacion,
+		arg.ID,
+		arg.Sistema,
+		arg.StateHash,
+		arg.VerificadorCifrado,
+		arg.PanelUrl,
+		arg.UsuarioID,
+		arg.SesionID,
+		arg.ExpiraEn,
+	)
+	var i IntegracionAutorizacione
+	err := row.Scan(
+		&i.ID,
+		&i.Sistema,
+		&i.StateHash,
+		&i.VerificadorCifrado,
+		&i.PanelUrl,
+		&i.UsuarioID,
+		&i.SesionID,
+		&i.ExpiraEn,
+		&i.UsadoEn,
+		&i.ConectorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertarCodigoConexion = `-- name: InsertarCodigoConexion :one
 
 INSERT INTO integracion.codigos_conexion (sistema, codigo_hash, expira_en, creado_por)
@@ -464,12 +593,12 @@ func (q *Queries) InsertarCodigoConexion(ctx context.Context, arg InsertarCodigo
 const insertarConector = `-- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id, alcance_global
+    token_entregado_id, alcance_global, panel_url
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11
+    $10, $11, $12
 )
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url
 `
 
 type InsertarConectorParams struct {
@@ -484,6 +613,7 @@ type InsertarConectorParams struct {
 	CreadoPor             *int64
 	TokenEntregadoID      *int64
 	AlcanceGlobal         *bool
+	PanelUrl              *string
 }
 
 func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorParams) (IntegracionConectore, error) {
@@ -499,6 +629,7 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		arg.CreadoPor,
 		arg.TokenEntregadoID,
 		arg.AlcanceGlobal,
+		arg.PanelUrl,
 	)
 	var i IntegracionConectore
 	err := row.Scan(
@@ -521,6 +652,7 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		&i.UrlPublica,
 		&i.TokenEntregadoID,
 		&i.AlcanceGlobal,
+		&i.PanelUrl,
 	)
 	return i, err
 }
@@ -577,7 +709,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 }
 
 const listarConectores = `-- name: ListarConectores :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global FROM integracion.conectores
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url FROM integracion.conectores
 WHERE id > $1
 ORDER BY id
 LIMIT $2
@@ -617,6 +749,7 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 			&i.UrlPublica,
 			&i.TokenEntregadoID,
 			&i.AlcanceGlobal,
+			&i.PanelUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -669,6 +802,35 @@ type MarcarEntranteProcesadoParams struct {
 func (q *Queries) MarcarEntranteProcesado(ctx context.Context, arg MarcarEntranteProcesadoParams) error {
 	_, err := q.db.Exec(ctx, marcarEntranteProcesado, arg.Resultado, arg.Nota, arg.ID)
 	return err
+}
+
+const olvidarVerificadoresVencidos = `-- name: OlvidarVerificadoresVencidos :execrows
+UPDATE integracion.autorizaciones
+SET verificador_cifrado = NULL, updated_at = now()
+WHERE verificador_cifrado IS NOT NULL AND expira_en < now()
+`
+
+// Purga (job periódico): una autorización abandonada no guarda su code_verifier después de vencer.
+func (q *Queries) OlvidarVerificadoresVencidos(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, olvidarVerificadoresVencidos)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const siguienteIDAutorizacion = `-- name: SiguienteIDAutorizacion :one
+
+SELECT nextval(pg_get_serial_sequence('integracion.autorizaciones', 'id'))::bigint AS id
+`
+
+// Autorizaciones «Conectar con un botón» (contrato 0.4.0 §1.4) ----------------------------
+// El id se reserva antes de insertar: el cifrado ata el code_verifier a su fila.
+func (q *Queries) SiguienteIDAutorizacion(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, siguienteIDAutorizacion)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const siguienteIDConector = `-- name: SiguienteIDConector :one
@@ -784,6 +946,32 @@ func (q *Queries) TomarCodigoConexion(ctx context.Context, arg TomarCodigoConexi
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const usarAutorizacion = `-- name: UsarAutorizacion :exec
+UPDATE integracion.autorizaciones
+SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
+WHERE id = $1
+`
+
+// Un solo uso: el code_verifier se borra al usarla (ya viaja en el canje).
+func (q *Queries) UsarAutorizacion(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, usarAutorizacion, id)
+	return err
+}
+
+const vincularAutorizacion = `-- name: VincularAutorizacion :exec
+UPDATE integracion.autorizaciones SET conector_id = $1, updated_at = now() WHERE id = $2
+`
+
+type VincularAutorizacionParams struct {
+	ConectorID *int64
+	ID         int64
+}
+
+func (q *Queries) VincularAutorizacion(ctx context.Context, arg VincularAutorizacionParams) error {
+	_, err := q.db.Exec(ctx, vincularAutorizacion, arg.ConectorID, arg.ID)
+	return err
 }
 
 const vincularCodigoConexion = `-- name: VincularCodigoConexion :exec

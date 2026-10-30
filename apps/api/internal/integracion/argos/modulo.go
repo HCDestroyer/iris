@@ -85,19 +85,22 @@ type Modulo struct {
 	nucleo              *conector.Nucleo
 	conexion            *conector.Conexion
 
-	Conectar             *conector.Conectar
-	Previsualizar        *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
-	GenerarEnlace        *auditoria.Caso[struct{}, EnlaceGenerado]
-	CanjearConexion      *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
-	ActivarConector      *auditoria.Caso[EntradaCambioConector, Conector]
-	DesactivarConector   *auditoria.Caso[EntradaCambioConector, Conector]
-	ListarConectores     *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
-	RecibirWebhook       *auditoria.Caso[EntradaWebhook, WebhookRecibido]
-	ProcesarEntrante     *ProcesarEntrante
-	BuscarClientes       *BuscarClientes
-	ObtenerFicha         *ObtenerFicha
-	ResolverIP           *ResolverIP
-	SincronizarCatalogos *SincronizarCatalogos
+	Conectar        *conector.Conectar
+	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
+	GenerarEnlace   *auditoria.Caso[struct{}, EnlaceGenerado]
+	CanjearConexion *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
+	// «Conectar con un botón» (contrato 0.4.0 §1.4).
+	Autorizar             *auditoria.Caso[conector.EntradaAutorizar, conector.AutorizacionIniciada]
+	CompletarAutorizacion *conector.CompletarAutorizacion
+	ActivarConector       *auditoria.Caso[EntradaCambioConector, Conector]
+	DesactivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
+	ListarConectores      *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
+	RecibirWebhook        *auditoria.Caso[EntradaWebhook, WebhookRecibido]
+	ProcesarEntrante      *ProcesarEntrante
+	BuscarClientes        *BuscarClientes
+	ObtenerFicha          *ObtenerFicha
+	ResolverIP            *ResolverIP
+	SincronizarCatalogos  *SincronizarCatalogos
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -125,6 +128,7 @@ func Nuevo(cfg Config) *Modulo {
 	})
 	m.conexion = m.nucleo.Agregar(conector.Sistema{
 		Nombre: Sistema, Remoto: Remoto, PrefijoToken: "atk_", RutaCanje: "/integraciones/iris/conexion/canjear",
+		RutaAutorizar:     "/integraciones/iris/autorizar",
 		RegistrarEmpresas: true, RedesPermitidas: cfg.RedesPermitidas, Origenes: cfg.Origenes, Etiqueta: "Argos",
 		Timeout: cfg.Timeout, Intentos: cfg.Intentos, Espera: cfg.Espera,
 		// Primera carga de zonas y routers, en la transacción de la activación.
@@ -140,6 +144,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.Previsualizar = m.conexion.Previsualizar
 	m.GenerarEnlace = m.conexion.GenerarEnlace
 	m.CanjearConexion = m.conexion.CanjearConexion
+	m.Autorizar = m.conexion.Autorizar
+	m.CompletarAutorizacion = m.conexion.CompletarAutorizacion
 	m.RecibirWebhook = m.conexion.RecibirWebhook
 	m.ActivarConector = m.nucleo.ActivarConector
 	m.DesactivarConector = m.nucleo.DesactivarConector

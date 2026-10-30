@@ -256,7 +256,7 @@ export type ApiFalsa = {
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
-    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -466,7 +466,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             return;
         }
         const permisos = permisosPorCorreo[actual.correo] ?? [];
-        if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies })) {
+        if (await sso.manejar({ route, metodo, ruta, actual, puede: (p) => permisos.includes(p), cuerpo, cookies, idempotencia: cabeceras["idempotency-key"] })) {
             return;
         }
 
@@ -814,6 +814,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             vinculaciones: sso.vinculaciones,
             vinculos: sso.vinculos,
             conectores: sso.conectores,
+            autorizaciones: sso.autorizaciones,
+            completados: sso.completados,
+            enProceso: sso.enProceso,
             sesionesSSO: sso.sesionesSSO,
             reautenticaciones: () => sso.reautenticaciones,
             descartes: () => sso.descartes,
