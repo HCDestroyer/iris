@@ -7,10 +7,10 @@ SELECT nextval(pg_get_serial_sequence('integracion.conectores', 'id'))::bigint A
 -- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id, alcance_global
+    token_entregado_id, alcance_global, panel_url
 ) VALUES (
     @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por,
-    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global)
+    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global), sqlc.narg(panel_url)
 )
 RETURNING *;
 
@@ -81,6 +81,30 @@ RETURNING *;
 
 -- name: VincularCodigoConexion :exec
 UPDATE integracion.codigos_conexion SET conector_id = @conector_id, updated_at = now() WHERE id = @id;
+
+-- Autorizaciones «Conectar con un botón» (contrato 0.4.0 §1.4) ----------------------------
+
+-- name: SiguienteIDAutorizacion :one
+-- El id se reserva antes de insertar: el cifrado ata el code_verifier a su fila.
+SELECT nextval(pg_get_serial_sequence('integracion.autorizaciones', 'id'))::bigint AS id;
+
+-- name: InsertarAutorizacion :one
+INSERT INTO integracion.autorizaciones (id, sistema, state_hash, verificador_cifrado, panel_url, usuario_id, sesion_id, expira_en)
+VALUES (@id, @sistema, @state_hash, @verificador_cifrado, @panel_url, @usuario_id, @sesion_id, @expira_en)
+RETURNING *;
+
+-- name: AutorizacionParaUsar :one
+-- Bloqueada: dos vueltas con el mismo state se atienden de una en una (la segunda la ve usada).
+SELECT * FROM integracion.autorizaciones WHERE state_hash = @state_hash AND sistema = @sistema FOR UPDATE;
+
+-- name: UsarAutorizacion :exec
+-- Un solo uso: el code_verifier se borra al usarla (ya viaja en el canje).
+UPDATE integracion.autorizaciones
+SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
+WHERE id = @id;
+
+-- name: VincularAutorizacion :exec
+UPDATE integracion.autorizaciones SET conector_id = @conector_id, updated_at = now() WHERE id = @id;
 
 -- Webhooks entrantes --------------------------------------------------------------------
 

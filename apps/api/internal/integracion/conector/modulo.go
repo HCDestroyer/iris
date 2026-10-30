@@ -69,6 +69,10 @@ type Sistema struct {
 	PrefijoToken string
 	// RutaCanje del canje en el otro sistema, bajo /api/v1 (enlace generado allá).
 	RutaCanje string
+	// RutaAutorizar: página del panel del otro sistema que aprueba «Conectar con un botón»
+	// (contrato Iris ↔ ArgosISP 0.4.0 §1.4: /integraciones/iris/autorizar). Vacía = el sistema no
+	// lo ofrece y no se publican sus rutas.
+	RutaAutorizar string
 	// RegistrarEmpresas: las empresas que informa el canje se registran en nucleo.empresas
 	// (solo Argos: los ids de empresa son los suyos).
 	RegistrarEmpresas bool
@@ -168,6 +172,9 @@ type Conexion struct {
 	GenerarEnlace   *auditoria.Caso[struct{}, EnlaceGenerado]
 	CanjearConexion *auditoria.Caso[EntradaCanjear, ConexionCanjeada]
 	RecibirWebhook  *auditoria.Caso[EntradaWebhook, WebhookRecibido]
+	// «Conectar con un botón» (§1.4); nil si el sistema no tiene RutaAutorizar.
+	Autorizar             *auditoria.Caso[EntradaAutorizar, AutorizacionIniciada]
+	CompletarAutorizacion *CompletarAutorizacion
 }
 
 // Agregar suma un sistema al núcleo. Entra en pánico si está mal definido o repetido (se
@@ -205,6 +212,10 @@ func (n *Nucleo) Agregar(s Sistema) *Conexion {
 	c.GenerarEnlace = nuevoGenerarEnlace(c)
 	c.CanjearConexion = nuevoCanjearConexion(c)
 	c.RecibirWebhook = nuevoRecibirWebhook(c)
+	if s.RutaAutorizar != "" {
+		c.Autorizar = nuevoAutorizar(c)
+		c.CompletarAutorizacion = nuevoCompletarAutorizacion(c)
+	}
 	n.sistemas[s.Nombre] = c
 	return c
 }
