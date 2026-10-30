@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import {
     Aviso,
     Boton,
+    DialogoConfirmar,
     Esqueleto,
     EstadoVacio,
     InsigniaEstado,
@@ -206,6 +207,7 @@ function TarjetaBuzon({
     const clave = useRef(nuevaClaveIdempotencia());
     const claveProbar = useRef(nuevaClaveIdempotencia());
     const [cambiando, setCambiando] = useState(false);
+    const [confirmar, setConfirmar] = useState(false);
     const [probando, setProbando] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const [prueba, setPrueba] = useState<ResultadoPrueba | null>(null);
@@ -368,7 +370,7 @@ function TarjetaBuzon({
                             </Boton>
                         ) : null}
                         {puedeCambiar ? (
-                            <Boton variante="contorno" tamano="sm" onClick={cambiarEstado} disabled={cambiando}>
+                            <Boton variante={b.activo ? "peligro" : "contorno"} tamano="sm" onClick={b.activo ? () => setConfirmar(true) : cambiarEstado} disabled={cambiando}>
                                 {b.activo ? <PowerOff /> : <Power />}
                                 {cambiando ? (accion === "activar" ? "Activando…" : "Desactivando…") : accion === "activar" ? "Activar" : "Desactivar"}
                             </Boton>
@@ -376,6 +378,18 @@ function TarjetaBuzon({
                     </div>
                 ) : null}
             </TarjetaContenido>
+            <DialogoConfirmar
+                open={confirmar}
+                onOpenChange={setConfirmar}
+                peligro
+                titulo={`¿Desactivar ${b.correo}?`}
+                descripcion="Iris deja de leer este buzón: los correos nuevos no crearán tickets hasta que lo actives otra vez."
+                textoConfirmar="Desactivar"
+                alConfirmar={async () => {
+                    setConfirmar(false);
+                    await cambiarEstado();
+                }}
+            />
         </Tarjeta>
     );
 }

@@ -172,11 +172,15 @@ test.describe("plantillas de formulario", () => {
         await page.goto("/administracion/plantillas/2");
         await expect(page.getByRole("heading", { name: "Seguridad en altura" })).toBeVisible();
         api.plantillas.cambiarVersion(2);
+        // Desactivar es destructivo: pide confirmación.
         await page.getByRole("button", { name: "Desactivar" }).click();
+        const confirmar = page.getByRole("alertdialog", { name: "¿Desactivar «Seguridad en altura»?" });
+        await confirmar.getByRole("button", { name: "Desactivar" }).click();
         await expect(page.getByText("Alguien más cambió esta plantilla mientras la veías")).toBeVisible();
         await page.getByRole("button", { name: "Recargar" }).click();
         await expect(page.getByText("Alguien más cambió esta plantilla mientras la veías")).toHaveCount(0);
         await page.getByRole("button", { name: "Desactivar" }).click();
+        await confirmar.getByRole("button", { name: "Desactivar" }).click();
         await expect(page.getByText("Inactiva", { exact: true })).toBeVisible();
         expect(posts(api, "/plantillas/2/desactivar").map((p) => (p.cuerpo as { version: number }).version)).toEqual([1, 2]);
     });
@@ -209,8 +213,10 @@ test.describe("formularios de la orden", () => {
         const opciones = dialogo.getByLabel("Formulario", { exact: true }).locator("option");
         await expect(opciones).toHaveText(["Elige…", "Seguridad en altura · v1 · común"]);
         expect(api.peticiones.filter((p) => p.ruta === "/api/v1/plantillas").at(-1)?.query.get("tipo")).toBe("cambio_equipo");
-        await dialogo.getByRole("button", { name: "Agregar" }).click();
-        await expect(dialogo.getByText("Elige el formulario")).toBeVisible();
+        // Sin formulario elegido no se puede agregar: botón deshabilitado y el motivo a la vista.
+        await expect(dialogo.getByRole("button", { name: "Agregar" })).toBeDisabled();
+        await expect(dialogo.getByRole("button", { name: "Agregar" })).toHaveAccessibleDescription("Falta elegir el formulario para guardar.");
+        await expect(dialogo.getByLabel("Formulario", { exact: true })).toHaveAccessibleDescription("Elige el formulario que llenará el técnico.");
         await dialogo.getByLabel("Formulario", { exact: true }).selectOption({ label: "Seguridad en altura · v1 · común" });
         await dialogo.getByRole("button", { name: "Agregar" }).click();
         await expect(formularios.locator('[data-formulario="seguridad"]')).toContainText("Agregado por despacho");

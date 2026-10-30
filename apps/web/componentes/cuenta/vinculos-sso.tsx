@@ -7,9 +7,10 @@ import {
     Boton,
     Campo,
     CampoSelector,
-    Dialogo,
+    DialogoCerrar,
     DialogoContenido,
     DialogoPie,
+    DialogoProtegido,
     Esqueleto,
     Tarjeta,
     TarjetaContenido,
@@ -144,7 +145,7 @@ function DialogoQuitar({ usuarioId, vinculo, propio, alCerrar, alQuitar }: { usu
     }
 
     return (
-        <Dialogo open onOpenChange={(a) => !a && alCerrar()}>
+        <DialogoProtegido sucio={form.formState.isDirty} open onOpenChange={(a) => !a && alCerrar()}>
             <DialogoContenido
                 titulo="Quitar el vínculo"
                 descripcion={`${propio ? "Ya no podrás" : "Ya no podrá"} entrar desde ${nombreSistema(vinculo.sistema)} con la cuenta ${vinculo.usuarioExterno} sin contraseña.`}
@@ -157,17 +158,19 @@ function DialogoQuitar({ usuarioId, vinculo, propio, alCerrar, alQuitar }: { usu
                         </Aviso>
                     ) : null}
                     <DialogoPie>
-                        <Boton type="button" variante="secundario" onClick={alCerrar}>
-                            Cancelar
-                        </Boton>
-                        <Boton type="submit" disabled={isSubmitting}>
+                        <DialogoCerrar asChild>
+                            <Boton type="button" variante="secundario">
+                                Cancelar
+                            </Boton>
+                        </DialogoCerrar>
+                        <Boton type="submit" variante="peligro" disabled={isSubmitting}>
                             <Link2Off />
                             {isSubmitting ? "Quitando…" : "Quitar vínculo"}
                         </Boton>
                     </DialogoPie>
                 </form>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }
 
@@ -215,7 +218,7 @@ function DialogoVincular({ usuarioId, alVincular }: { usuarioId: number; alVincu
                 <Plus />
                 Vincular cuenta de Argos
             </Boton>
-            <Dialogo open={abierto} onOpenChange={setAbierto}>
+            <DialogoProtegido sucio={form.formState.isDirty} open={abierto} onOpenChange={setAbierto}>
                 <DialogoContenido titulo="Vincular cuenta de Argos" descripcion="Para cuando el usuario no puede vincularla él mismo. Comprueba antes que la cuenta de Argos sea suya.">
                     <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
                         {!verConectores ? (
@@ -255,7 +258,7 @@ function DialogoVincular({ usuarioId, alVincular }: { usuarioId: number; alVincu
                         </DialogoPie>
                     </form>
                 </DialogoContenido>
-            </Dialogo>
+            </DialogoProtegido>
         </>
     );
 }

@@ -186,14 +186,16 @@ test.describe("alta rápida", () => {
         await dialogo.getByLabel("Asunto").fill("Sin señal en todo el sector");
         await dialogo.getByLabel("Categoría").selectOption({ label: "Sin servicio" });
         await dialogo.getByLabel("Prioridad").selectOption("alta");
-        await dialogo.getByLabel("Cliente en Argos").fill("Castillo");
-        await dialogo.getByRole("button", { name: /María Castillo/ }).click();
+        await dialogo.getByLabel("Cliente en Argos").click();
+        await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
+        await page.getByRole("option", { name: /María Castillo/ }).click();
         await expect(dialogo.getByTestId("cliente-elegido")).toContainText("María Castillo");
+        await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
         await dialogo.getByRole("button", { name: "Crear ticket" }).click();
         await expect(page).toHaveURL(/\/tickets\/1000$/);
         await expect(page.getByRole("heading", { name: "Sin señal en todo el sector" })).toBeVisible();
         const alta = api.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/tickets");
-        expect(alta?.cuerpo).toEqual({ asunto: "Sin señal en todo el sector", prioridad: "alta", categoriaId: 1, clienteId: 501 });
+        expect(alta?.cuerpo).toEqual({ asunto: "Sin señal en todo el sector", prioridad: "alta", categoriaId: 1, clienteId: 501, servicioId: 5010 });
         expect(alta?.idempotencia).toBeTruthy();
     });
 
@@ -204,8 +206,10 @@ test.describe("alta rápida", () => {
         await page.getByRole("button", { name: "Nuevo ticket" }).click();
         const dialogo = page.getByRole("dialog");
         await dialogo.getByLabel("Asunto").fill("Cliente sin registro");
-        await dialogo.getByLabel("Cliente en Argos").fill("Pérez");
-        await expect(dialogo.getByText("Conector con Argos apagado")).toBeVisible();
+        await dialogo.getByLabel("Cliente en Argos").click();
+        await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Pérez");
+        await expect(page.getByTestId("dialogo-cliente").getByText("Conector con Argos apagado")).toBeVisible();
+        await page.keyboard.press("Escape");
         await expect(dialogo.getByRole("group", { name: "Datos de contacto" })).toBeVisible();
         await dialogo.getByLabel("Nombre").fill("Pedro Pérez");
         await dialogo.getByLabel("Correo").fill("no-es-correo");

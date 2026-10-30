@@ -61,9 +61,11 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
     await page.screenshot({ path: nombre("12-barra-superior"), clip: { x: 0, y: 0, width: page.viewportSize()?.width ?? 390, height: 64 } });
 
     await page.getByRole("button", { name: "Nuevo ticket" }).click();
-    await page.getByRole("dialog").getByLabel("Cliente en Argos").fill("Castillo");
-    await expect(page.getByRole("dialog").getByRole("button", { name: /María Castillo/ })).toBeVisible();
+    await page.getByRole("dialog").getByLabel("Cliente en Argos").click();
+    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
+    await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible();
     await page.screenshot({ path: nombre("13-alta-rapida") });
+    await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
 
     await page.goto("/tickets/1");

@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, Campo, CampoArea, Casilla, DialogoContenido, DialogoPie } from "@iris/ui";
+import { Aviso, Boton, Campo, CampoArea, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, useCambiosSinGuardar } from "@iris/ui";
 import { CircleCheck, RefreshCw, RotateCcw, RotateCw, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -52,6 +52,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
         defaultValues: { motivo: "", contrasenaTemporal: "", revocarTokens: true },
     });
     const { errors, isSubmitting } = formulario.formState;
+    useCambiosSinGuardar(formulario.formState.isDirty);
     const temporal = useWatch({ control: formulario.control, name: "contrasenaTemporal" });
 
     async function enviar(datos: DatosReiniciarMfa) {
@@ -167,9 +168,10 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
                     {...formulario.register("revocarTokens")}
                 />
                 <DialogoPie>
-                    <Boton variante="fantasma" onClick={alCerrar}>
-                        Cancelar
-                    </Boton>
+                    {/* Por el diálogo: si hay cambios, pide confirmar antes de descartarlos. */}
+                    <DialogoCerrar asChild>
+                        <Boton variante="fantasma">Cancelar</Boton>
+                    </DialogoCerrar>
                     <Boton type="submit" disabled={isSubmitting || recargando}>
                         <RotateCcw />
                         {isSubmitting ? "Reiniciando…" : "Reiniciar MFA"}

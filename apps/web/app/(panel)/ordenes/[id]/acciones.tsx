@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
+import { Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
 import { Ban, CalendarClock, CalendarSync, CirclePause, CirclePlay, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
@@ -88,7 +88,7 @@ export function BarraAccionesOrden({ orden, usuarios, alHecho, recargar }: Props
 }
 
 type Envio = <T extends FieldValues>(peticion: (clave: string) => Promise<Orden>, campos: readonly Path<T>[], setError: UseFormSetError<T>) => Promise<void>;
-type PropsFormulario = { orden: Orden; enviar: Envio; pie: (etiqueta: string, enviando: boolean) => ReactNode };
+type PropsFormulario = { orden: Orden; enviar: Envio; pie: (etiqueta: string, enviando: boolean, faltan?: readonly string[]) => ReactNode };
 
 function DialogoAccionOrden({
     accion,
@@ -136,7 +136,7 @@ function DialogoAccionOrden({
         }
     }
 
-    const pie = (etiqueta: string, enviando: boolean) => (
+    const pie = (etiqueta: string, enviando: boolean, faltan: readonly string[] = []) => (
         <>
             {conflicto ? (
                 <Aviso
@@ -162,16 +162,16 @@ function DialogoAccionOrden({
                         Volver
                     </Boton>
                 </DialogoCerrar>
-                <Boton type="submit" disabled={enviando || conflicto}>
-                    {enviando ? "Enviando…" : etiqueta}
-                </Boton>
+                <BotonEnviar enviando={enviando} textoEnviando="Enviando…" disabled={conflicto} faltan={faltan}>
+                    {etiqueta}
+                </BotonEnviar>
             </DialogoPie>
         </>
     );
 
     const props: PropsFormulario = { orden, enviar, pie };
     return (
-        <Dialogo open onOpenChange={(a) => !a && alCerrar()}>
+        <DialogoProtegido open onOpenChange={(a) => !a && alCerrar()}>
             <DialogoContenido titulo={def.titulo} descripcion={`${orden.numero} · ${orden.direccion || "Sin dirección"}`}>
                 {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
                 {accion === "programar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar={false} /> : null}
@@ -181,7 +181,7 @@ function DialogoAccionOrden({
                 {accion === "pausar" ? <FormPausar {...props} /> : null}
                 {accion === "reanudar" ? <FormReanudar {...props} /> : null}
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }
 
@@ -233,6 +233,8 @@ function CampoTecnico({
 
 function FormAsignar({ orden, enviar, pie, usuarios }: PropsFormulario & { usuarios: readonly Usuario[] | null | undefined }) {
     const form = useForm({ resolver: zodResolver(esquemaAsignarOrden), defaultValues: { tecnicoId: orden.tecnicoId === null ? "" : String(orden.tecnicoId) } });
+    useCambiosSinGuardar(form.formState.isDirty);
+    const tecnicoAsignar = useWatch({ control: form.control, name: "tecnicoId" });
     return (
         <form
             noValidate
@@ -259,7 +261,7 @@ function FormAsignar({ orden, enviar, pie, usuarios }: PropsFormulario & { usuar
             {orden.estado === "programada" || orden.estado === "en_camino" ? (
                 <p className="text-sm text-muted-foreground">Sin técnico la orden vuelve a pendiente; con otro técnico queda programada para él.</p>
             ) : null}
-            {pie("Asignar", form.formState.isSubmitting)}
+            {pie("Asignar", form.formState.isSubmitting, orden.tecnicoId === null && !tecnicoAsignar ? ["el técnico"] : [])}
         </form>
     );
 }
@@ -270,7 +272,14 @@ function FormProgramar({ orden, enviar, pie, usuarios, reprogramar }: PropsFormu
         resolver: zodResolver(esquemaProgramarOrden({ requiereTecnico: orden.tecnicoId === null, reprogramar })),
         defaultValues: { tecnicoId: orden.tecnicoId === null ? "" : String(orden.tecnicoId), fecha: previo.fecha, hora: previo.hora, motivo: "" },
     });
+    useCambiosSinGuardar(form.formState.isDirty);
     const errores = form.formState.errors;
+    const [tecnicoElegido, fecha, hora] = useWatch({ control: form.control, name: ["tecnicoId", "fecha", "hora"] });
+    const faltan = [
+        ...(orden.tecnicoId === null && !tecnicoElegido ? ["el técnico"] : []),
+        ...(!fecha ? ["la fecha"] : []),
+        ...(!hora ? ["la hora"] : []),
+    ];
     return (
         <form
             noValidate
@@ -303,13 +312,14 @@ function FormProgramar({ orden, enviar, pie, usuarios, reprogramar }: PropsFormu
             {reprogramar ? (
                 <CampoArea etiqueta="Motivo" rows={2} maxLength={500} error={errores.motivo?.message} {...form.register("motivo")} />
             ) : null}
-            {pie(reprogramar ? "Reprogramar" : "Programar", form.formState.isSubmitting)}
+            {pie(reprogramar ? "Reprogramar" : "Programar", form.formState.isSubmitting, faltan)}
         </form>
     );
 }
 
 function FormMotivo({ orden, enviar, pie, accion }: PropsFormulario & { accion: "cancelar" | "reabrir" }) {
     const form = useForm({ resolver: zodResolver(esquemaMotivoOrden), defaultValues: { motivo: "" } });
+    useCambiosSinGuardar(form.formState.isDirty);
     return (
         <form
             noValidate
@@ -342,6 +352,7 @@ function FormMotivo({ orden, enviar, pie, accion }: PropsFormulario & { accion: 
 
 function FormPausar({ orden, enviar, pie }: PropsFormulario) {
     const form = useForm<DatosPausar>({ resolver: zodResolver(esquemaPausar), defaultValues: { motivo: "esperando_material", nota: "" } });
+    useCambiosSinGuardar(form.formState.isDirty);
     const motivo = useWatch({ control: form.control, name: "motivo" });
     return (
         <form
@@ -373,6 +384,7 @@ function FormPausar({ orden, enviar, pie }: PropsFormulario) {
 
 function FormReanudar({ orden, enviar, pie }: PropsFormulario) {
     const form = useForm();
+    useCambiosSinGuardar(form.formState.isDirty);
     return (
         <form
             noValidate

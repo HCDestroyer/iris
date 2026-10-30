@@ -9,10 +9,11 @@ import {
     CampoArea,
     CampoSelector,
     Casilla,
-    Dialogo,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
+    DialogoProtegido,
+    BotonEnviar,
     Esqueleto,
     Tabla,
     TablaCelda,
@@ -24,6 +25,7 @@ import {
     TarjetaContenido,
     TarjetaEncabezado,
     TarjetaTitulo,
+    useCambiosSinGuardar,
 } from "@iris/ui";
 import { Calculator, CircleCheck, FilePlus, History, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -120,7 +122,7 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
                 <AvisoAccion envio={envio} que="aceptar la cotización" recargar={recargar} />
                 {revisiones ? <Revisiones prospectoId={detalle.id} /> : null}
             </TarjetaContenido>
-            <Dialogo open={nueva} onOpenChange={setNueva}>
+            <DialogoProtegido open={nueva} onOpenChange={setNueva}>
                 {nueva ? (
                     <NuevaCotizacion
                         detalle={detalle}
@@ -131,7 +133,7 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
                         }}
                     />
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
         </Tarjeta>
     );
 }
@@ -144,7 +146,21 @@ function DetalleCotizacion({ c }: { c: Cotizacion }) {
                 <span className="font-mono tabular-nums">{c.numero}</span> · revisión {c.revision} · vigente hasta{" "}
                 <span className="tabular-nums">{formatearFecha(c.vigenteHasta)}</span>
             </p>
-            <div className="overflow-x-auto rounded-md border">
+            {/* Teléfono: cada línea como tarjeta (sin tabla que desborde). */}
+            <ul className="grid gap-2 sm:hidden" aria-label={`Líneas de ${c.numero}`}>
+                {lineas.map((l) => (
+                    <li key={l.posicion} className="grid gap-1 rounded-md border p-3 text-sm">
+                        <span className="flex items-start justify-between gap-3">
+                            <span className="min-w-0 font-medium break-words">{l.descripcion}</span>
+                            <span className="shrink-0 font-semibold tabular-nums">{textoMonto(l.total, c.moneda)}</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                            {TIPOS_LINEA[l.tipo]} · {l.recurrente ? "mensual" : "único"} · {l.cantidad} × {textoMonto(l.precioUnitario, c.moneda)}
+                        </span>
+                    </li>
+                ))}
+            </ul>
+            <div className="hidden rounded-md border sm:block">
                 <Tabla aria-label={`Líneas de ${c.numero}`}>
                     <TablaEncabezado>
                         <TablaFila className="hover:bg-transparent">
@@ -166,8 +182,8 @@ function DetalleCotizacion({ c }: { c: Cotizacion }) {
                                     </span>
                                 </TablaCelda>
                                 <TablaCelda className="text-right tabular-nums">{l.cantidad}</TablaCelda>
-                                <TablaCelda className="text-right tabular-nums">{textoMonto(l.precioUnitario, c.moneda)}</TablaCelda>
-                                <TablaCelda className="text-right tabular-nums">{textoMonto(l.total, c.moneda)}</TablaCelda>
+                                <TablaCelda className="text-right whitespace-nowrap tabular-nums">{textoMonto(l.precioUnitario, c.moneda)}</TablaCelda>
+                                <TablaCelda className="text-right whitespace-nowrap tabular-nums">{textoMonto(l.total, c.moneda)}</TablaCelda>
                             </TablaFila>
                         ))}
                     </TablaCuerpo>
@@ -251,9 +267,12 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
             notas: "",
         },
     });
+    useCambiosSinGuardar(formulario.formState.isDirty);
     const { fields, append, remove } = useFieldArray({ control: formulario.control, name: "lineas" });
     const { errors } = formulario.formState;
     const lineas = useWatch({ control: formulario.control, name: "lineas" });
+    // Con el catálogo de Argos, cada línea de plan necesita su plan elegido.
+    const sinPlan = activos !== null && lineas.some((l) => l.tipo === "plan" && !l.planId);
 
     async function enviar(d: DatosCotizacion) {
         const nombres = d.lineas.flatMap((_, i) => [`lineas.${i}.planId`, `lineas.${i}.descripcion`, `lineas.${i}.cantidad`, `lineas.${i}.precioUnitario`] as const);
@@ -355,10 +374,10 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
                         Volver
                     </Boton>
                 </DialogoCerrar>
-                <Boton type="submit" disabled={envio.enviando || envio.conflicto}>
+                <BotonEnviar disabled={envio.enviando || envio.conflicto} faltan={sinPlan ? ["el plan"] : []}>
                     <FilePlus />
                     {envio.enviando ? "Guardando…" : "Guardar cotización"}
-                </Boton>
+                </BotonEnviar>
             </DialogoPie>
         </form>
     );

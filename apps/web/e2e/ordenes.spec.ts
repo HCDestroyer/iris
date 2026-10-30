@@ -240,9 +240,11 @@ test.describe("acciones del panel", () => {
         await page.goto("/ordenes");
         await page.getByRole("button", { name: "Nueva orden" }).click();
         const dialogo = page.getByRole("dialog", { name: "Nueva orden" });
-        await dialogo.getByRole("button", { name: "Crear orden" }).click();
-        await expect(dialogo.getByText("Escribe la dirección: sin cliente de Argos no hay de dónde tomarla")).toBeVisible();
+        // Sin cliente ni dirección no se puede guardar, y se explica junto al botón.
+        await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
+        await expect(dialogo.getByRole("button", { name: "Crear orden" })).toHaveAccessibleDescription("Elige el cliente o escribe la dirección para crear la orden.");
         await dialogo.getByLabel("Dirección").fill("Lote 5, aldea El Carmen");
+        await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeEnabled();
         await dialogo.getByLabel("Latitud").fill("14.5");
         await dialogo.getByRole("button", { name: "Crear orden" }).click();
         await expect(dialogo.getByText("Escribe la latitud y la longitud, o ninguna")).toBeVisible();
@@ -260,9 +262,9 @@ test.describe("acciones del panel", () => {
         await page.goto("/ordenes/2");
         await page.getByRole("group", { name: "Acciones de la orden" }).getByRole("button", { name: "Programar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Programar visita" });
-        await dialogo.getByRole("button", { name: "Programar" }).click();
-        await expect(dialogo.getByLabel("Técnico")).toHaveAccessibleDescription(/Elige el técnico/);
-        await expect(dialogo.getByLabel("Fecha")).toHaveAccessibleDescription("Elige la fecha");
+        // Sin técnico ni fecha no se puede programar: botón deshabilitado con el motivo.
+        await expect(dialogo.getByRole("button", { name: "Programar" })).toBeDisabled();
+        await expect(dialogo.getByRole("button", { name: "Programar" })).toHaveAccessibleDescription(/Falta elegir el técnico, la fecha/);
         await dialogo.getByLabel("Técnico").selectOption({ label: "Lucía Ramírez" });
         await dialogo.getByLabel("Fecha").fill("2026-11-03");
         await dialogo.getByLabel("Hora").fill("14:30");

@@ -1,12 +1,25 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
+import {
+    Aviso,
+    Boton,
+    BotonEnviar,
+    Campo,
+    CampoArea,
+    CampoSelector,
+    DialogoCerrar,
+    DialogoContenido,
+    DialogoDisparador,
+    DialogoPie,
+    DialogoProtegido,
+    ErrorFormulario,
+} from "@iris/ui";
 import { ClipboardPlus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
-import { BuscadorCliente, type ClienteResumen } from "@/componentes/tickets/buscador-cliente";
+import { SelectorCliente, type SeleccionCliente } from "@/componentes/clientes/selector-cliente";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
@@ -42,19 +55,23 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
     const router = useRouter();
     const tipos = useTiposOrden();
     const [abierto, setAbierto] = useState(false);
-    const [cliente, setCliente] = useState<ClienteResumen | null>(null);
+    const [seleccion, setSeleccion] = useState<SeleccionCliente | null>(null);
+    const cliente = seleccion?.cliente ?? null;
     const [, setApagado] = useState(false);
     const [errorGeneral, setErrorGeneral] = useState<unknown>(null);
     const clave = useRef(nuevaClaveIdempotencia());
     const form = useForm<EntradaFormCrearOrden, unknown, DatosCrearOrden>({ resolver: zodResolver(esquemaCrearOrden), defaultValues: vacio(ticket) });
     const errores = form.formState.errors;
     const tipoElegido = useWatch({ control: form.control, name: "tipo" });
+    const direccion = useWatch({ control: form.control, name: "direccion" });
+    // Sin ticket ni cliente hace falta la dirección: se avisa junto al botón y al campo.
+    const falta = !ticket && !cliente && !direccion.trim();
     const plantillas = tipos.estado === "listo" ? (tipos.datos.find((t) => t.codigo === tipoElegido)?.plantillas ?? []) : [];
     const buscarCliente = !ticket && puede(["clientes.ver"]);
 
     function reiniciar() {
         form.reset(vacio(ticket));
-        setCliente(null);
+        setSeleccion(null);
         setErrorGeneral(null);
         clave.current = nuevaClaveIdempotencia();
     }
@@ -62,7 +79,11 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
     async function crear(datos: DatosCrearOrden) {
         setErrorGeneral(null);
         try {
-            const cuerpo = entradaCrearOrden({ ...datos, ...(cliente ? { clienteId: cliente.id } : {}) });
+            const cuerpo = entradaCrearOrden({
+                ...datos,
+                ...(cliente ? { clienteId: cliente.id } : {}),
+                ...(seleccion?.servicio ? { servicioId: seleccion.servicio.id } : {}),
+            });
             const orden = await resolver(api().POST("/api/v1/ordenes", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             reiniciar();
             setAbierto(false);
@@ -76,8 +97,10 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
     }
 
     return (
-        <Dialogo
+        <DialogoProtegido
             open={abierto}
+            sucio={form.formState.isDirty || seleccion !== null}
+            ocupado={form.formState.isSubmitting}
             onOpenChange={(a) => {
                 setAbierto(a);
                 if (!a) reiniciar();
@@ -138,10 +161,18 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
                         </CampoSelector>
                     </div>
                     <CampoArea etiqueta="Trabajo a realizar" rows={3} maxLength={4000} error={errores.descripcion?.message} {...form.register("descripcion")} />
-                    {buscarCliente ? <BuscadorCliente elegido={cliente} alElegir={setCliente} alConectorApagado={setApagado} /> : null}
+                    {buscarCliente ? (
+                        <SelectorCliente
+                            etiqueta="Cliente en Argos"
+                            valor={seleccion}
+                            alCambiar={setSeleccion}
+                            alConectorApagado={setApagado}
+                            ayuda={cliente ? "La dirección y la zona salen del cliente si las dejas vacías." : "Elige el cliente o escribe la dirección de la visita."}
+                        />
+                    ) : null}
                     <Campo
                         etiqueta={ticket || cliente ? "Dirección (opcional)" : "Dirección"}
-                        ayuda={ticket || cliente ? "Vacía: la del servicio o el cliente en Argos." : undefined}
+                        ayuda={ticket || cliente ? "Vacía: la del servicio o el cliente en Argos." : "Obligatoria si no eliges un cliente."}
                         maxLength={300}
                         autoComplete="off"
                         error={errores.direccion?.message}
@@ -172,21 +203,22 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
                             </fieldset>
                         </>
                     )}
-                    {errorGeneral ? (
-                        <Aviso tono="error" titulo="No se pudo crear la orden">
-                            {[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")}
-                        </Aviso>
-                    ) : null}
+                    {errorGeneral ? <ErrorFormulario titulo="No se pudo crear la orden" detalle={[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")} /> : null}
                     <DialogoPie>
                         <DialogoCerrar asChild>
                             <Boton variante="contorno">Cancelar</Boton>
                         </DialogoCerrar>
-                        <Boton type="submit" disabled={form.formState.isSubmitting}>
-                            {form.formState.isSubmitting ? "Creando…" : "Crear orden"}
-                        </Boton>
+                        <BotonEnviar
+                            enviando={form.formState.isSubmitting}
+                            textoEnviando="Creando…"
+                            faltan={falta ? ["el cliente"] : []}
+                            motivo="Elige el cliente o escribe la dirección para crear la orden."
+                        >
+                            Crear orden
+                        </BotonEnviar>
                     </DialogoPie>
                 </form>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }

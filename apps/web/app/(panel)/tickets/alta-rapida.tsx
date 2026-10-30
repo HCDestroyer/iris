@@ -1,12 +1,24 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
+import {
+    BotonEnviar,
+    Boton,
+    Campo,
+    CampoArea,
+    CampoSelector,
+    DialogoCerrar,
+    DialogoContenido,
+    DialogoDisparador,
+    DialogoPie,
+    DialogoProtegido,
+    ErrorFormulario,
+} from "@iris/ui";
 import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { BuscadorCliente, type ClienteResumen } from "@/componentes/tickets/buscador-cliente";
+import { SelectorCliente, type SeleccionCliente } from "@/componentes/clientes/selector-cliente";
 import type { Categoria } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
@@ -28,7 +40,8 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
     const { puede } = useSesion();
     const router = useRouter();
     const [abierto, setAbierto] = useState(false);
-    const [cliente, setCliente] = useState<ClienteResumen | null>(null);
+    const [seleccion, setSeleccion] = useState<SeleccionCliente | null>(null);
+    const cliente = seleccion?.cliente ?? null;
     const [apagado, setApagado] = useState(false);
     const [errorGeneral, setErrorGeneral] = useState<unknown>(null);
     const clave = useRef(nuevaClaveIdempotencia());
@@ -38,7 +51,7 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
 
     function reiniciar() {
         form.reset(VACIO);
-        setCliente(null);
+        setSeleccion(null);
         setApagado(false);
         setErrorGeneral(null);
         clave.current = nuevaClaveIdempotencia();
@@ -47,7 +60,11 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
     async function crear(datos: DatosCrearTicket) {
         setErrorGeneral(null);
         try {
-            const cuerpo = entradaCrearTicket({ ...datos, ...(cliente ? { clienteId: cliente.id } : {}) });
+            const cuerpo = entradaCrearTicket({
+                ...datos,
+                ...(cliente ? { clienteId: cliente.id } : {}),
+                ...(seleccion?.servicio ? { servicioId: seleccion.servicio.id } : {}),
+            });
             if (cliente) {
                 delete cuerpo.contacto;
             }
@@ -65,8 +82,10 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
     }
 
     return (
-        <Dialogo
+        <DialogoProtegido
             open={abierto}
+            sucio={form.formState.isDirty || seleccion !== null}
+            ocupado={form.formState.isSubmitting}
             onOpenChange={(a) => {
                 setAbierto(a);
                 if (!a) {
@@ -101,7 +120,15 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
                         </CampoSelector>
                     </div>
                     <CampoArea etiqueta="Descripción" rows={3} maxLength={20000} ayuda="Primer mensaje público del ticket." error={errores.descripcion?.message} {...form.register("descripcion")} />
-                    {buscarCliente ? <BuscadorCliente elegido={cliente} alElegir={setCliente} alConectorApagado={setApagado} /> : null}
+                    {buscarCliente ? (
+                        <SelectorCliente
+                            etiqueta="Cliente en Argos"
+                            valor={seleccion}
+                            alCambiar={setSeleccion}
+                            alConectorApagado={setApagado}
+                            ayuda={cliente ? undefined : "Opcional: si no es cliente, captura el contacto abajo."}
+                        />
+                    ) : null}
                     {cliente ? null : (
                         <fieldset className="grid gap-3 rounded-md border p-3">
                             <legend className="px-1 text-sm font-medium">
@@ -114,21 +141,17 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
                             </div>
                         </fieldset>
                     )}
-                    {errorGeneral ? (
-                        <Aviso tono="error" titulo="No se pudo crear el ticket">
-                            {[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")}
-                        </Aviso>
-                    ) : null}
+                    {errorGeneral ? <ErrorFormulario titulo="No se pudo crear el ticket" detalle={[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")} /> : null}
                     <DialogoPie>
                         <DialogoCerrar asChild>
                             <Boton variante="contorno">Cancelar</Boton>
                         </DialogoCerrar>
-                        <Boton type="submit" disabled={form.formState.isSubmitting}>
-                            {form.formState.isSubmitting ? "Creando…" : "Crear ticket"}
-                        </Boton>
+                        <BotonEnviar enviando={form.formState.isSubmitting} textoEnviando="Creando…">
+                            Crear ticket
+                        </BotonEnviar>
                     </DialogoPie>
                 </form>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }

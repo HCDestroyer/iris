@@ -93,6 +93,7 @@ export const esquemaCrearTicket = z.object({
     prioridad,
     descripcion: textoOpcional(20000),
     clienteId: z.number().int().positive().optional(),
+    servicioId: z.number().int().positive().optional(),
     contacto: z.object({
         nombre: textoOpcional(120),
         telefono: textoOpcional(40),
@@ -120,6 +121,7 @@ export function entradaCrearTicket(datos: DatosCrearTicket): Schema<"EntradaCrea
         ...(datos.categoriaId !== undefined ? { categoriaId: datos.categoriaId } : {}),
         ...(datos.descripcion !== undefined ? { descripcion: datos.descripcion } : {}),
         ...(datos.clienteId !== undefined ? { clienteId: datos.clienteId } : {}),
+        ...(datos.clienteId !== undefined && datos.servicioId !== undefined ? { servicioId: datos.servicioId } : {}),
         ...(Object.keys(contacto).length ? { contacto } : {}),
     };
 }

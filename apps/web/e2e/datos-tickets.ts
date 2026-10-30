@@ -23,32 +23,43 @@ export const CATEGORIAS: Schema<"Categoria">[] = [
 export const CLIENTES: Schema<"ClienteResumen">[] = [
     { id: 501, empresaId: 10, codigo: "CL-0501", nombre: "María Castillo", telefono: "5555 0101", direccion: "4a calle 3-21, zona 1", lat: 14.64, lon: -90.51, zonaId: 1, estado: "activo" },
     { id: 502, empresaId: 10, codigo: "CL-0502", nombre: "Ferretería El Tornillo", telefono: "5555 0202", direccion: "Km 18 carretera a El Salvador", lat: null, lon: null, zonaId: 2, estado: "activo" },
+    { id: 503, empresaId: 10, empresas: [10], codigo: "CL-0503", nombre: "Ana Morales", telefono: "5555 0303", direccion: "6a avenida 12-40, zona 10", lat: 14.6, lon: -90.51, zonaId: 1, estado: "activo" },
 ];
+
+/** Servicios de un cliente de la API falsa: uno por cliente; Ana Morales (503) tiene dos. */
+export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
+    const cliente = CLIENTES.find((c) => c.id === clienteId);
+    if (!cliente) return [];
+    const base: Schema<"Servicio"> = {
+        id: clienteId * 10,
+        empresaId: cliente.empresaId,
+        clienteId,
+        codigo: `SV-${clienteId}`,
+        planId: 3,
+        planNombre: "Fibra 100 Mb/s",
+        routerId: 7,
+        routerNombre: "RB-Norte-01",
+        zonaId: cliente.zonaId,
+        zonaNombre: "Zona norte",
+        ip: clienteId === 503 ? "10.20.30.53" : "10.20.30.40",
+        direccion: cliente.direccion,
+        lat: cliente.lat,
+        lon: cliente.lon,
+        estado: "activo",
+    };
+    if (clienteId !== 503) return [base];
+    return [
+        base,
+        { ...base, id: 5031, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", estado: "suspendido" },
+    ];
+}
 
 export function ficha(clienteId: number, stale: boolean): Schema<"Ficha"> | undefined {
     const cliente = CLIENTES.find((c) => c.id === clienteId);
     if (!cliente) return undefined;
     return {
         cliente,
-        servicios: [
-            {
-                id: clienteId * 10,
-                empresaId: cliente.empresaId,
-                clienteId,
-                codigo: `SV-${clienteId}`,
-                planId: 3,
-                planNombre: "Fibra 100 Mb/s",
-                routerId: 7,
-                routerNombre: "RB-Norte-01",
-                zonaId: cliente.zonaId,
-                zonaNombre: "Zona norte",
-                ip: "10.20.30.40",
-                direccion: cliente.direccion,
-                lat: cliente.lat,
-                lon: cliente.lon,
-                estado: "activo",
-            },
-        ],
+        servicios: serviciosDe(clienteId),
         estadoCuenta: stale ? undefined : { saldo: "150.00", moneda: "GTQ", facturasVencidas: 1, montoVencido: "150.00" },
         estadoCuentaError: stale ? "argos_no_disponible" : null,
         stale,

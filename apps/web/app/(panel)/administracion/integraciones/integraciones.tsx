@@ -1,7 +1,19 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoSelector, Dialogo, DialogoContenido, DialogoPie, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta } from "@iris/ui";
+import {
+    Aviso,
+    Boton,
+    Campo,
+    CampoSelector,
+    DialogoCerrar, DialogoContenido,
+    DialogoPie,
+    DialogoProtegido,
+    Esqueleto,
+    EstadoVacio,
+    InsigniaEstado,
+    Tarjeta,
+} from "@iris/ui";
 import { ArrowLeft, CircleCheck, CirclePower, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -164,7 +176,7 @@ function DialogoCambio({
 
     const conflicto = error instanceof ErrorApi && error.estado === 409;
     return (
-        <Dialogo open onOpenChange={(a) => !a && alCerrar()}>
+        <DialogoProtegido sucio={form.formState.isDirty} open onOpenChange={(a) => !a && alCerrar()}>
             <DialogoContenido titulo={accion === "activar" ? `Activar el conector de ${sistema}` : `Desactivar el conector de ${sistema}`} descripcion={c.baseUrl}>
                 <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
                     {accion === "activar" && reemplaza ? (
@@ -184,9 +196,17 @@ function DialogoCambio({
                         </Aviso>
                     ) : null}
                     <DialogoPie>
-                        <Boton type="button" variante="secundario" onClick={conflicto ? alHecho : alCerrar}>
-                            {conflicto ? "Cerrar y recargar" : "Cancelar"}
-                        </Boton>
+                        {conflicto ? (
+                            <Boton type="button" variante="secundario" onClick={alHecho}>
+                                Cerrar y recargar
+                            </Boton>
+                        ) : (
+                            <DialogoCerrar asChild>
+                                <Boton type="button" variante="secundario">
+                                    Cancelar
+                                </Boton>
+                            </DialogoCerrar>
+                        )}
                         {conflicto ? null : (
                             <Boton type="submit" disabled={isSubmitting}>
                                 {accion === "activar" ? <Power /> : <CirclePower />}
@@ -196,7 +216,7 @@ function DialogoCambio({
                     </DialogoPie>
                 </form>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }
 
@@ -275,7 +295,7 @@ function DialogoConectar({ alConectar }: { alConectar: (c: Conector) => void }) 
                 <PlugZap />
                 Conectar
             </Boton>
-            <Dialogo open={abierto} onOpenChange={cerrar}>
+            <DialogoProtegido sucio={form.formState.isDirty} open={abierto} onOpenChange={cerrar}>
                 <DialogoContenido titulo="Conectar con otro sistema" descripcion="Pega el enlace de conexión que generó Argos o Horus Flow (vale 15 minutos y sirve una vez).">
                     {revision === null ? (
                         <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(revisar)(e)}>
@@ -290,9 +310,11 @@ function DialogoConectar({ alConectar }: { alConectar: (c: Conector) => void }) 
                                 </Aviso>
                             ) : null}
                             <DialogoPie>
-                                <Boton type="button" variante="secundario" onClick={() => cerrar(false)}>
-                                    Cancelar
-                                </Boton>
+                                <DialogoCerrar asChild>
+                                    <Boton type="button" variante="secundario">
+                                        Cancelar
+                                    </Boton>
+                                </DialogoCerrar>
                                 <Boton type="submit" disabled={isSubmitting}>
                                     {isSubmitting ? "Revisando…" : "Revisar enlace"}
                                 </Boton>
@@ -336,7 +358,7 @@ function DialogoConectar({ alConectar }: { alConectar: (c: Conector) => void }) 
                         </div>
                     )}
                 </DialogoContenido>
-            </Dialogo>
+            </DialogoProtegido>
         </>
     );
 }

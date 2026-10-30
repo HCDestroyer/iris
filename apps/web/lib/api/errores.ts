@@ -115,7 +115,10 @@ export function errorSinConexion(causa?: unknown): ErrorApi {
 /** Mensaje para mostrar al usuario: qué pasó, sin códigos crudos. */
 export function mensajeDeError(error: unknown): { titulo: string; detalle: string | undefined } {
     if (error instanceof ErrorApi) {
-        return { titulo: error.titulo, detalle: error.detalle };
+        // Los errors[] del problem+json también se ven (los que no quedaron junto a su campo).
+        const deCampos = error.errores.map((e) => e.message).filter((m) => m && m !== error.detalle);
+        const detalle = [error.detalle, ...deCampos].filter(Boolean).join(". ") || undefined;
+        return { titulo: error.titulo, detalle };
     }
     return { titulo: "Algo salió mal", detalle: "Inténtalo de nuevo en un momento." };
 }

@@ -2,10 +2,10 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, BotonEnviar, CampoSelector, Dialogo, DialogoCerrar, DialogoProtegido, useCambiosSinGuardar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { CirclePause, ClipboardList, FilePlus, PenLine, RotateCw, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { PieLista } from "@/componentes/pie-lista";
@@ -91,7 +91,7 @@ export function Formularios({ orden, usuarios, yo, recargar }: Props) {
                     </section>
                 ))}
             </TarjetaContenido>
-            <Dialogo open={agregando} onOpenChange={setAgregando}>
+            <DialogoProtegido open={agregando} onOpenChange={setAgregando}>
                 {agregando ? (
                     <AgregarFormulario
                         orden={orden}
@@ -102,7 +102,7 @@ export function Formularios({ orden, usuarios, yo, recargar }: Props) {
                         }}
                     />
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
             <Dialogo open={quitando !== null} onOpenChange={(v) => (v ? undefined : setQuitando(null))}>
                 {quitando ? (
                     <QuitarFormulario
@@ -188,6 +188,8 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
     const plantillas = paginado.primera;
     const envio = useEnvioOrden(recargar);
     const formulario = useForm<z.infer<typeof esquemaAgregar>>({ resolver: zodResolver(esquemaAgregar), defaultValues: { plantillaId: "" } });
+    useCambiosSinGuardar(formulario.formState.isDirty);
+    const sinPlantilla = !useWatch({ control: formulario.control, name: "plantillaId" });
     const presentes = new Set((orden.formularios ?? []).map((f) => f.plantillaId));
     const disponibles = paginado.items.filter((p) => p.activa && !presentes.has(p.id));
     async function enviar(d: z.infer<typeof esquemaAgregar>) {
@@ -207,7 +209,12 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
                 <p className="text-sm text-muted-foreground">No hay más formularios activos para este tipo de orden.</p>
             ) : (
                 <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-4" aria-label="Agregar formulario">
-                    <CampoSelector etiqueta="Formulario" error={formulario.formState.errors.plantillaId?.message} {...formulario.register("plantillaId")}>
+                    <CampoSelector
+                        etiqueta="Formulario"
+                        ayuda={sinPlantilla ? "Elige el formulario que llenará el técnico." : undefined}
+                        error={formulario.formState.errors.plantillaId?.message}
+                        {...formulario.register("plantillaId")}
+                    >
                         <option value="">Elige…</option>
                         {disponibles.map((p) => (
                             <option key={p.id} value={String(p.id)}>
@@ -222,10 +229,10 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
                         <DialogoCerrar asChild>
                             <Boton variante="contorno">Volver</Boton>
                         </DialogoCerrar>
-                        <Boton type="submit" disabled={formulario.formState.isSubmitting || envio.conflicto}>
+                        <BotonEnviar enviando={formulario.formState.isSubmitting} textoEnviando="Agregando…" disabled={envio.conflicto} faltan={sinPlantilla ? ["el formulario"] : []}>
                             <FilePlus />
-                            {formulario.formState.isSubmitting ? "Agregando…" : "Agregar"}
-                        </Boton>
+                            Agregar
+                        </BotonEnviar>
                     </DialogoPie>
                 </form>
             )}
@@ -256,7 +263,7 @@ function QuitarFormulario({ orden, formulario, recargar, alHecho }: { orden: Ord
                 <DialogoCerrar asChild>
                     <Boton variante="contorno">Volver</Boton>
                 </DialogoCerrar>
-                <Boton onClick={quitar} disabled={enviando || envio.conflicto}>
+                <Boton variante="peligro" onClick={quitar} disabled={enviando || envio.conflicto}>
                     <Trash2 />
                     {enviando ? "Quitando…" : "Quitar"}
                 </Boton>
