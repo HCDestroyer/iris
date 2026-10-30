@@ -28,27 +28,54 @@ mkdir -p "$dir"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-openssl req -x509 -newkey rsa:2048 -nodes -days 825 -sha256 \
-    -subj "/O=Iris dev/CN=Iris CA de desarrollo (Mailpit)" \
-    -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
-    -addext "keyUsage=critical,keyCertSign,cRLSign" \
-    -keyout "$tmp/ca.key" -out "$tmp/ca.pem" 2>/dev/null
+# Configuración propia (sin -addext ni el openssl.cnf del sistema): con OpenSSL 1.1.1 (Ubuntu 20.04),
+# -addext se suma a las extensiones v3_ca del openssl.cnf y la CA queda con extensiones repetidas,
+# así que `openssl verify` no la reconoce («unable to get local issuer certificate»).
+cat >"$tmp/ca.cnf" <<'CNF'
+[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = v3_ca
+[dn]
+O = Iris dev
+CN = Iris CA de desarrollo (Mailpit)
+[v3_ca]
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+CNF
 
-openssl req -newkey rsa:2048 -nodes -sha256 -subj "/O=Iris dev/CN=mailpit" \
-    -keyout "$tmp/mailpit.key" -out "$tmp/mailpit.csr" 2>/dev/null
+openssl req -x509 -config "$tmp/ca.cnf" -newkey rsa:2048 -nodes -days 825 -sha256 \
+    -keyout "$tmp/ca.key" -out "$tmp/ca.pem"
+
+cat >"$tmp/csr.cnf" <<'CNF'
+[req]
+prompt = no
+distinguished_name = dn
+[dn]
+O = Iris dev
+CN = mailpit
+CNF
+
+openssl req -config "$tmp/csr.cnf" -newkey rsa:2048 -nodes -sha256 \
+    -keyout "$tmp/mailpit.key" -out "$tmp/mailpit.csr"
 
 cat >"$tmp/ext.cnf" <<'CNF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 subjectAltName=DNS:mailpit,DNS:localhost,IP:127.0.0.1
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid
 CNF
 
 openssl x509 -req -in "$tmp/mailpit.csr" -CA "$tmp/ca.pem" -CAkey "$tmp/ca.key" -CAcreateserial \
     -days 825 -sha256 -extfile "$tmp/ext.cnf" -out "$tmp/mailpit.pem" 2>/dev/null
 
+# Se verifica antes de instalar: si falla, no quedan certificados rotos que la próxima corrida
+# daría por buenos.
+openssl verify -CAfile "$tmp/ca.pem" "$tmp/mailpit.pem" >/dev/null
 install -m 0644 "$tmp/ca.pem" "$dir/ca.pem"
 install -m 0644 "$tmp/mailpit.pem" "$dir/mailpit.pem"
 install -m 0644 "$tmp/mailpit.key" "$dir/mailpit.key"
-openssl verify -CAfile "$dir/ca.pem" "$dir/mailpit.pem" >/dev/null
 echo "Certificados de Mailpit creados en $dir (CA: ca.pem → IRIS_CORREO_CA)"
