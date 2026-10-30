@@ -49,6 +49,11 @@ attestation, which proves it was built by this repository's release workflow:
 gh attestation verify install.sh --repo HCDestroyer/iris
 ```
 
+The installer does the same for the package it downloads (`iris-X.Y.Z.tar.gz`, also on
+`irisctl upgrade`): when `gh` is installed and logged in (`gh auth login`, as the user that runs the
+installer), a package whose attestation does not verify is refused. Without `gh` it says so and
+checks the sha256 only.
+
 It asks for what it needs. The same answers can be passed as flags (`--yes` never asks):
 
 ```sh
@@ -217,20 +222,24 @@ On the PM's server the lab is a git checkout in `/opt/iris` (tag v0.2.0) with th
    `/opt/iris`, e.g. your home). It detects the lab and:
    - moves the checkout `/opt/iris` to `/opt/iris-lab` (after asking), before creating anything, and
      installs in `/opt/iris`;
+   - checks, before writing anything, that the release is not older than the lab database schema
+     (with the lab's own postgres container). If it is, it stops and tells you to pass a newer
+     `--version`;
    - builds the new `/opt/iris/.env` from the lab `.env`: encryption key, database and MinIO
      credentials, public address, Argos/Horus origins and networks, ports, Docker subnet and every
      other `IRIS_*` value the lab set. It drops what only made sense in the lab: Mailpit
      (`IRIS_SMTP_*`, `IRIS_CORREO_CA`, its ports), `localhost` URLs, build settings. Lab backup keys
      are copied into `/opt/iris/backup-keys`;
-   - starts the lab database under the production compose and checks that the release is not older
-     than the database schema (it stops if the database has newer migrations than the release);
+   - replaces the lab MinIO secret when it is the public default or has characters other than
+     letters and digits (e.g. one made with `openssl rand -base64`): the production compose passes it
+     in a URL. Attachments stay readable: MinIO takes its root credentials from the environment;
+   - starts the lab database under the production compose and checks the schema again;
    - takes a backup of the lab database into `/opt/iris/backups` (encrypted with age, or the plain
      fallback above). If the backup fails, it stops before any migration;
    - starts the production containers on the same volumes (migrations run first) and removes Mailpit;
-   - once healthy, replaces the public lab defaults with generated secrets: the database password
-     `iris` (stored as a SCRAM verifier, never sent in clear; `--keep-db-password` skips it) and the
-     MinIO secret `iris-dev-solo-local` (attachments stay readable: MinIO takes its root credentials
-     from the environment).
+   - once healthy, replaces the public lab database password `iris` with a generated one (stored as a
+     SCRAM verifier, never sent in clear; `--keep-db-password` skips it). The new password is saved
+     in the `.env` first, so an interruption at any point is finished by the next run.
 3. Apache keeps pointing to `127.0.0.1:53000` (and the API stays on `58080`): nothing to change in
    Virtualmin or NPM. Postgres (`55432`) and MinIO (`59000/59001`) are no longer published on the
    host; see "Reverse proxy" for `IRIS_PUERTOS_ADMIN` if you used them.
@@ -243,8 +252,27 @@ On the PM's server the lab is a git checkout in `/opt/iris` (tag v0.2.0) with th
 
 If anything stops half way (a busy port, no network, a failed backup), fix it and run
 `sudo bash install.sh` again: it resumes the migration, including the backup and the password
-changes. Non-interactive: `sudo bash install.sh --yes`. If the lab `.env` is somewhere else:
+changes. While nothing has been migrated yet, the resumed run may use another `--version`. Until the
+install finishes, `irisctl status`, `logs`, `stop`, `compose` and `backup` work (with a warning);
+`start`, `upgrade` and `create-admin` wait for it. Non-interactive: `sudo bash install.sh --yes`. If the lab `.env` is somewhere else:
 `--from-lab /path/to/.env`.
+
+### Discard an unfinished install
+
+`/opt/iris/.install-pending` says how far it got: `lab prepared …` means no migration has run;
+`lab migrating …` means the migrations may have run (then use "Back to the lab" below).
+
+With `prepared`, the lab database is untouched and the lab `.env` (in `/opt/iris-lab`) is still
+valid as is:
+
+```sh
+docker compose --env-file /opt/iris/.env -f /opt/iris/current/docker-compose.yml down   # keeps volumes
+sudo mv /opt/iris /opt/iris-discarded && sudo mv /opt/iris-lab /opt/iris
+cd /opt/iris && make dev-app
+```
+
+MinIO takes its credentials from the `.env` of whoever starts it, so the lab's own secret works
+again. Delete `/opt/iris-discarded` once the lab is back (it holds a backup and secrets).
 
 ### Back to the lab
 
