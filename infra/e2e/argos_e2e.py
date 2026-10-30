@@ -476,7 +476,7 @@ def paso_instalacion(a, i):
     else:
         # §3.1 (0.3.1): otra activación con otra clave sobre el servicio ya activo es de negocio,
         # 409 servicio_no_pendiente (Argos 1.3.0 respondía 422: hallazgo si vuelve a pasar).
-        otra = a("POST", f"/servicios/{sid}/activar-instalacion", {"origen_tipo": "iris_orden", "origen_id": oid},
+        otra = a("POST", f"/servicios/{sid}/activar-instalacion", {"origen_tipo": "iris_orden", "origen_id": str(oid)},
                  clave=f"e2e-otra-activacion-{oid}")
         tipo = str((otra.json or {}).get("type", ""))
         registrar("4d activar-instalacion repetida → 409 servicio_no_pendiente",

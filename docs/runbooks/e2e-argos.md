@@ -30,7 +30,7 @@ Variables útiles:
 
 | Variable | Para qué |
 | --- | --- |
-| `ARGOS_VERSION` | Versión de Argos (`1.3.0`). |
+| `ARGOS_VERSION` | Versión de Argos (`1.4.0`, la que cumple el contrato 0.3.1). |
 | `E2E_ARGOS_DIR` | Un clon de Argos que ya tengas en la etiqueta (evita clonar). |
 | `E2E_IRIS_API_DIR` | Otro árbol de Iris para compilar, p. ej. una rama sin mergear. |
 | `E2E_TRABAJO` | Carpeta de trabajo (logs, binarios, adjuntos, correos); por defecto `infra/e2e/.trabajo`. |
@@ -50,6 +50,22 @@ script sale distinto de 0 si algún paso falla.
 | 4 alta | Prospecto → factibilidad → cotización → contrato firmado → ganar: `POST /clientes` y `POST /servicios` (`codigo_externo=iris:prospecto:<id>`, §3.1–§3.2). La orden de instalación se cierra con checklist, foto (tus), ONU y firma: `activar-instalacion` y comodato en Argos, y su bienvenida (sumidero SMTP). |
 | 5 caída | Argos se apaga antes de ganar: el pendiente falla y se reintenta; al volver, el alta se completa sin duplicar en Argos. |
 | 6 SSO | «Ver en Iris» desde Argos. |
+| 7 eliminación | `DELETE /servicios/:id` en Argos (token admin temporal) → `servicio.eliminado` → lápida y `serviciosEliminados` en Iris. |
+
+## Resultado con Argos 1.4.0 (30 oct)
+
+Con Iris de `main` (contrato 0.3.1, #60): **17 de 17 pasos OK**.
+
+- Conexión: el canje informa `empresas[]` y `alcance_global`.
+- Planes y catálogos; búsqueda y ficha del cliente.
+- Webhooks: firma, deduplicación, ventana, `cliente.actualizado` con `campos[]` al cambiar el teléfono, y retiro con comodato.
+- Alta desde el prospecto e instalación cerrada: `activar-instalacion` sin `version`, comodato y bienvenida.
+- Activación repetida: 409 `servicio_no_pendiente`.
+- Argos caído y de vuelta, sin duplicar.
+- «Ver en Iris» (SSO).
+- `servicio.eliminado`: lápida y `serviciosEliminados`.
+
+Los routers de la siembra no tienen coordenadas, así que la factibilidad sigue `indeterminado` (esperado).
 
 ## Resultado con Argos 1.3.0 (29 oct)
 
