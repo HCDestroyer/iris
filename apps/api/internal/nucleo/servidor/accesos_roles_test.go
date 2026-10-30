@@ -217,6 +217,15 @@ func TestHistorialDeAccesos(t *testing.T) {
 	if despues := contar(); despues != antes {
 		t.Fatalf("tope por IP: %d → %d", antes, despues)
 	}
+	// Con usuario, la IP también es parte de la clave: un fallo desde otra IP es otra fila.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE nucleo.accesos SET ip = '10.9.9.9'
+		WHERE usuario_id = $1 AND resultado = 'contrasena_erronea'`, idLec); err != nil {
+		t.Fatal(err)
+	}
+	entrarCon(e.cliente(), correoLec, "otra-mala-clave-1")
+	if f := filas(t, admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/usuarios/%d/accesos?resultado=contrasena_erronea", idLec), nil)); len(f) != 2 || f[0]["ip"] == f[1]["ip"] {
+		t.Fatalf("fallos por IP: %v", f)
+	}
 }
 
 func TestMFAExitoQuedaAlVerificar(t *testing.T) {
@@ -760,5 +769,85 @@ func TestUltimoAdministradorDeRoles(t *testing.T) {
 	_, err = e.mod.EditarUsuario.Ejecutar(sis, identidad.EntradaEditarUsuario{ID: idA, Version: version, Roles: &vacio})
 	if !errors.As(err, &p) || p.Codigo() != "ultimo_admin" {
 		t.Fatalf("editar el último admin: %v", err)
+	}
+}
+
+// Dos administradores que se quitan el rol a la vez: el candado los pone en fila y el segundo
+// recibe ultimo_admin (sin él, cada uno vería al otro y los dos confirmarían).
+func TestUltimoAdministradorConcurrente(t *testing.T) {
+	e := nuevoEntorno(t)
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	idA, _ := e.usuario("admin")
+	idB, _ := e.usuario("admin")
+	// Solo A y B quedan activos; al terminar se reactivan los demás.
+	filas, err := pool.Query(ctx, `UPDATE nucleo.usuarios SET activo = false
+		WHERE tipo = 'persona' AND activo AND id <> ALL($1) RETURNING id`, []int64{idA, idB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var otros []int64
+	for filas.Next() {
+		var id int64
+		if err := filas.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		otros = append(otros, id)
+	}
+	filas.Close()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE nucleo.usuarios SET activo = true WHERE id = ANY($1)`, otros)
+	})
+
+	// La prueba toma el candado: las dos acciones llegan a él y esperan; al soltarlo, corren en fila.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, int64(0x1715_0003)); err != nil {
+		t.Fatal(err)
+	}
+	sis := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
+	errs := make(chan error, 2)
+	for _, id := range []int64{idA, idB} {
+		go func() {
+			_, err := e.mod.QuitarRolUsuario.Ejecutar(sis, identidad.EntradaRolUsuario{UsuarioID: id, AsignacionRol: identidad.AsignacionRol{Rol: "admin"}})
+			errs <- err
+		}()
+	}
+	limite := time.Now().Add(10 * time.Second)
+	for {
+		var esperando int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+			AND objid = ($1::bigint & x'FFFFFFFF'::bigint)`, int64(0x1715_0003)).Scan(&esperando); err != nil {
+			t.Fatal(err)
+		}
+		if esperando == 2 {
+			break
+		}
+		if time.Now().After(limite) {
+			t.Fatalf("las dos acciones no llegaron al candado (%d esperando)", esperando)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, int64(0x1715_0003)); err != nil {
+		t.Fatal(err)
+	}
+	var ok, ultimo int
+	for range 2 {
+		err := <-errs
+		var p *nucleo.Problema
+		switch {
+		case err == nil:
+			ok++
+		case errors.As(err, &p) && p.Codigo() == "ultimo_admin":
+			ultimo++
+		default:
+			t.Fatalf("error inesperado: %v", err)
+		}
+	}
+	if ok != 1 || ultimo != 1 {
+		t.Fatalf("una debe pasar y la otra recibir ultimo_admin: ok=%d ultimo_admin=%d", ok, ultimo)
 	}
 }

@@ -521,7 +521,7 @@ VALUES (sqlc.narg(usuario_id), @canal, @resultado, @ip, @user_agent, @dispositiv
         sqlc.narg(token_id), @request_id);
 
 -- name: RegistrarAccesoFallido :exec
--- Un fallo repetido (mismo usuario o, sin usuario, misma IP; mismo canal y resultado) dentro de
+-- Un fallo repetido (mismo usuario e IP o, sin usuario, misma IP; mismo canal y resultado) dentro de
 -- @ventana_seg suma a la fila existente. Sin usuario, además, como mucho @tope_ip filas por IP y
 -- hora: el resto solo suma a la última. Así nadie inunda el historial sin credenciales.
 WITH previo AS (
@@ -530,7 +530,7 @@ WITH previo AS (
         SELECT a.id FROM nucleo.accesos a
         WHERE a.resultado = @resultado AND a.canal = @canal
           AND (CASE WHEN sqlc.narg(usuario_id)::bigint IS NULL THEN a.usuario_id IS NULL AND a.ip = @ip
-                    ELSE a.usuario_id = sqlc.narg(usuario_id)::bigint END)
+                    ELSE a.usuario_id = sqlc.narg(usuario_id)::bigint AND a.ip = @ip END)
           AND (a.created_at > now() - make_interval(secs => @ventana_seg::bigint)
                OR (sqlc.narg(usuario_id)::bigint IS NULL
                    AND (SELECT count(*) FROM nucleo.accesos b

@@ -48,12 +48,12 @@ Subpaquetes:
   cabecera `X-Iris-App`. Un correo que no existe queda sin usuario y **sin el correo** (no sirve
   para enumerar cuentas; la respuesta del login es la misma). Retención:
   `IRIS_ACCESOS_RETENCION_DIAS` (180, mínimo 7), job `nucleo.accesos_purga` del worker cada hora.
-  Contra la inundación sin credenciales, un fallo igual (mismo usuario o, sin usuario, misma IP;
+  Contra la inundación sin credenciales, un fallo igual (mismo usuario e IP o, sin usuario, misma IP;
   mismo canal y resultado) en 1 min suma a la fila (`intentos`); un `bloqueado`, una fila por
   ventana de bloqueo; sin usuario, como mucho 20 filas por IP y hora. Cerrar todas las sesiones
   no revoca los tokens `iris_pat_` salvo `revocarTokens: true` (con `tokens.revocar`). Nunca
   queda Iris sin una persona activa con `usuarios.asignar_rol` y `roles.*` globales (422
-  `ultimo_admin`).
+  `ultimo_admin`; un candado de transacción pone en fila esos cambios).
   `GET /accesos`, `GET /usuarios/{id}/accesos` (`accesos.ver`), `GET /usuarios/{id}/sesiones`
   y `POST /usuarios/{id}/sesiones/{sesionId}/cerrar` | `/cerrar-sesiones`
   (`usuarios.cerrar_sesiones`, exige superar al usuario salvo el propio).

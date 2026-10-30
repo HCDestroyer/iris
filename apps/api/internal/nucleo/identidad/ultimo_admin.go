@@ -22,7 +22,15 @@ type guardiaUltimoAdmin struct {
 	habia bool
 }
 
+// candadoAdministradores serializa los cambios que pueden quitar al último administrador de
+// roles: sin él, dos admins que se quitan el rol a la vez verían cada uno al otro y los dos
+// confirmarían. pg_advisory_xact_lock se suelta al terminar la transacción.
+const candadoAdministradores int64 = 0x1715_0003
+
 func nuevaGuardiaUltimoAdmin(ctx context.Context, q *identidadbd.Queries) (guardiaUltimoAdmin, error) {
+	if err := q.CandadoSemilla(ctx, candadoAdministradores); err != nil {
+		return guardiaUltimoAdmin{}, err
+	}
 	habia, err := q.HayAdministradorDeRoles(ctx, permisosAdministrarRoles)
 	return guardiaUltimoAdmin{q: q, habia: habia}, err
 }

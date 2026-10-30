@@ -1946,7 +1946,7 @@ WITH previo AS (
         SELECT a.id FROM nucleo.accesos a
         WHERE a.resultado = $3 AND a.canal = $2
           AND (CASE WHEN $1::bigint IS NULL THEN a.usuario_id IS NULL AND a.ip = $4
-                    ELSE a.usuario_id = $1::bigint END)
+                    ELSE a.usuario_id = $1::bigint AND a.ip = $4 END)
           AND (a.created_at > now() - make_interval(secs => $10::bigint)
                OR ($1::bigint IS NULL
                    AND (SELECT count(*) FROM nucleo.accesos b
@@ -1976,7 +1976,7 @@ type RegistrarAccesoFallidoParams struct {
 	VentanaSeg  int64
 }
 
-// Un fallo repetido (mismo usuario o, sin usuario, misma IP; mismo canal y resultado) dentro de
+// Un fallo repetido (mismo usuario e IP o, sin usuario, misma IP; mismo canal y resultado) dentro de
 // @ventana_seg suma a la fila existente. Sin usuario, además, como mucho @tope_ip filas por IP y
 // hora: el resto solo suma a la última. Así nadie inunda el historial sin credenciales.
 func (q *Queries) RegistrarAccesoFallido(ctx context.Context, arg RegistrarAccesoFallidoParams) error {
