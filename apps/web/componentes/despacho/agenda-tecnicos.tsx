@@ -1,9 +1,10 @@
 "use client";
 
 import { Aviso, Esqueleto } from "@iris/ui";
-import { CircleCheck } from "lucide-react";
+import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { conflictosDe, textoConflicto } from "@/lib/agenda/mes";
 import { filasDeTecnicos, type Cuadrilla, type Zona } from "@/lib/despacho/calendario";
 import { diaDesdeIso, etiquetaDia, horaDe, hoyGuatemala, type Dia } from "@/lib/despacho/fechas";
 import { movibleDeCita, movibleDeOrden, type DatosMover, type Movible } from "@/lib/despacho/mover";
@@ -91,7 +92,9 @@ export function AgendaTecnicos({
         void datos.refrescar();
     }
 
-    const comun = { filas, calendario, zonas, cuadrillas, alMover: abrir, arrastre, setArrastre, ahora };
+    const conflictos = conflictosDe(calendario.citas ?? [], calendario.ausencias ?? []);
+    const conConflicto = (calendario.citas ?? []).filter((c) => conflictos.has(c.ordenId)).sort((a, b) => a.inicio.localeCompare(b.inicio));
+    const comun = { filas, calendario, zonas, cuadrillas, alMover: abrir, arrastre, setArrastre, ahora, conflictos };
     return (
         <div className="grid gap-4 [&>*]:min-w-0">
             {hecho ? (
@@ -102,6 +105,24 @@ export function AgendaTecnicos({
             {tecnicos.datos.cortada ? (
                 <Aviso tono="info" titulo="Hay más técnicos">
                     Se muestran los primeros {tecnicos.datos.lista.length}. Filtra por cuadrilla o zona para ver el resto.
+                </Aviso>
+            ) : null}
+            {conConflicto.length > 0 ? (
+                <Aviso
+                    tono="error"
+                    icono={TriangleAlert}
+                    titulo={conConflicto.length === 1 ? "1 orden con conflicto" : `${conConflicto.length} órdenes con conflicto`}
+                    data-testid="conflictos"
+                >
+                    <ul className="grid gap-0.5">
+                        {conConflicto.map((c) => (
+                            <li key={c.ordenId}>
+                                <span className="font-medium tabular-nums">{c.numero}</span> ({filas.find((f) => f.usuarioId === c.tecnicoId)?.nombre ?? `Técnico ${c.tecnicoId}`},{" "}
+                                {etiquetaDia(diaDesdeIso(c.inicio) ?? desde)} {horaDe(c.inicio)}): {(conflictos.get(c.ordenId) ?? []).map(textoConflicto).join("; ")}.
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="mt-1 text-muted-foreground">Reprográmalas con «Mover a…» o asígnalas a otro técnico.</p>
                 </Aviso>
             ) : null}
             <CalendarioTecnicos vista={vista} desde={desde} {...comun} />
@@ -122,7 +143,7 @@ export function AgendaTecnicos({
                         ordenes={sinProgramar.datos.ordenes}
                         cortada={sinProgramar.datos.cortada}
                         zonas={zonas}
-                        alMover={abrir}
+                        alMover={(m) => abrir(m, vista === "dia" ? { tecnicoId: null, dia: desde, minutos: null } : undefined)}
                         arrastre={arrastre}
                         setArrastre={setArrastre}
                     />

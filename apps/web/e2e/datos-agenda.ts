@@ -45,6 +45,7 @@ const tecnico = (id: number, usuarioId: number, nombre: string, cuadrillaId: num
     baseLat: null,
     baseLon: null,
     bodegaId: 30,
+    telefono: "+502 5555-0000",
     version: 1,
     creadoEn: "2026-10-01T00:00:00Z",
     actualizadoEn: "2026-10-01T00:00:00Z",
