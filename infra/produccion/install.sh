@@ -86,7 +86,7 @@ if [ "$CMD" = compose ] || [ "$CMD" = logs ]; then
     COMPOSE_ARGS=("$@")
     set --
 fi
-need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
+need_value() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value"; fi; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --url) need_value "$@"; URL="$2"; shift 2 ;;
@@ -329,7 +329,9 @@ ensure_backup_keys() {
 do_backup() {
     local r
     r="$(env_get IRIS_RESPALDO_DESTINATARIOS)"
-    [ -n "$r" ] && [ -s "$r" ] || die "no backup key configured (IRIS_RESPALDO_DESTINATARIOS). Run install.sh again to create one, or use --skip-backup"
+    if [ -z "$r" ] || [ ! -s "$r" ]; then
+        die "no backup key configured (IRIS_RESPALDO_DESTINATARIOS). Run install.sh again to create one, or use --skip-backup"
+    fi
     command -v age > /dev/null || die "age is not installed (apt-get install age)"
     [ -x "$DIR/current/backup/respaldar.sh" ] || die "$DIR/current/backup/respaldar.sh is missing"
     mkdir -p "$(env_get IRIS_RESPALDO_DIR)"
