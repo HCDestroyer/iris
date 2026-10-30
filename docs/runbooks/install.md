@@ -10,8 +10,9 @@ The production install never builds anything on the server. Each GitHub Release 
 | `install.sh` + `install.sh.sha256` | The installer, also the day-to-day manager (`irisctl`) |
 | `iris-X.Y.Z.tar.gz` + `.sha256` | Install package: production `docker-compose.yml`, `env.example`, the installer and the backup scripts |
 
-The images come from GHCR: `ghcr.io/hcdestroyer/iris-api`, `iris-worker` and `iris-web`, tag `X.Y.Z`.
-Postgres, Redis and MinIO run next to them; there is no Mailpit. OSRM (street routing) is optional.
+The images come from GHCR: `ghcr.io/hcdestroyer/iris-api`, `iris-worker` and `iris-web`, tag `X.Y.Z`,
+pinned by digest in the packaged compose (so are Postgres, Redis, MinIO and OSRM). Postgres, Redis
+and MinIO run next to them; there is no Mailpit. OSRM (street routing) is optional.
 
 Sources: `infra/produccion/` (compose, env template, `install.sh`, `package.sh`) and
 `.github/workflows/release.yml` (job `paquete`).
@@ -21,8 +22,14 @@ Sources: `infra/produccion/` (compose, env template, `install.sh`, `package.sh`)
 - Ubuntu or Debian, 4 GB of RAM, 20 GB of free disk.
 - Docker Engine and the Compose v2 plugin (2.24 or newer):
   <https://docs.docker.com/engine/install/ubuntu/>. The installer checks them; it does not install Docker.
-- `curl`, `tar`, `sha256sum` (always there on Ubuntu). `age` for encrypted backups (the installer
-  installs it with `apt-get` when it runs as root).
+  **Docker Engine 28 or newer is recommended:** before 28.0, a port published on `127.0.0.1` can be
+  reached by other machines on the same network segment. The installer warns about older engines.
+- `curl`, `tar`, `sha256sum` (always there on Ubuntu).
+- `age` for encrypted backups. The installer installs it with `apt-get`; where the distribution has
+  no package (Ubuntu 20.04), it downloads the official `age` v1.2.1 binary from its GitHub release,
+  checks its pinned sha256 and keeps it in `/opt/iris/bin`. If that also fails, backups are plain
+  `pg_dump` files readable only by root, with a loud warning: a lab migration or an upgrade never
+  runs without a backup unless you pass `--skip-backup`.
 - A reverse proxy with HTTPS for the public name (Apache/Virtualmin, nginx, Nginx Proxy Manager…).
 - **One Iris per Docker host**: the compose project and its volumes are always named `iris`.
 
@@ -33,6 +40,13 @@ curl -fsSLO https://github.com/HCDestroyer/iris/releases/latest/download/install
 curl -fsSLO https://github.com/HCDestroyer/iris/releases/latest/download/install.sh.sha256
 sha256sum -c install.sh.sha256          # must print "install.sh: OK"
 sudo bash install.sh
+```
+
+Optional, stronger check (needs the GitHub CLI): every release asset carries a build provenance
+attestation, which proves it was built by this repository's release workflow:
+
+```sh
+gh attestation verify install.sh --repo HCDestroyer/iris
 ```
 
 It asks for what it needs. The same answers can be passed as flags (`--yes` never asks):
@@ -56,20 +70,24 @@ sudo bash install.sh --yes \
 | `--dir` | `IRIS_DIR` | Default `/opt/iris` |
 | `--with-osrm` | `IRIS_OSRM` | Also run OSRM (needs `infra/osrm/preparar.sh` data in the `iris_osrm` volume) |
 | `--from-lab` | | Migrate a `make dev-app` install (section 6) |
+| `--skip-backup` | | Lab migration without a backup first (not recommended) |
 
 What it does, step by step:
 
 1. Checks Docker, Compose v2 and that the ports it will publish are free (ports used by Iris's own
-   containers do not count).
+   containers do not count). It refuses an install folder owned by another user, and only one Iris
+   runs per Docker host.
 2. Downloads `iris-X.Y.Z.tar.gz` and its `.sha256` from the release, verifies the sum and unpacks it
    into `/opt/iris/releases/X.Y.Z` (`/opt/iris/current` points to it).
 3. Writes `/opt/iris/.env` (mode 600) from the template with your answers. It generates
    `IRIS_CLAVE_CIFRADO`, the Postgres password and the MinIO secret **only if they are missing**,
-   and an age key pair for backups in `/opt/iris/backup-keys/`.
+   and an age key pair for backups in `/opt/iris/backup-keys/`. Until the install finishes, a marker
+   (`/opt/iris/.install-pending`) makes a re-run resume it with the same steps.
 4. Pulls the images, runs the migrations (`migrar`, before api and worker), starts everything and
    waits for `/api/v1/salud` on the API and through the panel.
-5. Offers to create the first administrator and prints its password **once**.
-6. Prints the reverse-proxy settings and how to check.
+5. Offers to create the first administrator and prints its password **once** (on the terminal).
+6. Prints the reverse-proxy settings and how to check, then shows the private backup key once and
+   offers to delete it from the server after you copy it.
 
 Running it again is safe: it keeps every existing value and secret, fills in only what is missing,
 applies the flags you pass and makes sure everything is up. Containers that did not change are not
@@ -83,8 +101,12 @@ the public key (`recipients.txt`); the private one is only needed to restore.
 
 ## 3. Reverse proxy
 
-Every port is bound to `127.0.0.1`. Only the panel port (`IRIS_WEB_PUERTO`) goes behind the proxy:
-the panel serves `/api/*` itself.
+Only the panel (`IRIS_WEB_PUERTO`) and the API (`IRIS_API_PUERTO`, for health checks) are published,
+both on `127.0.0.1`. Only the panel port goes behind the proxy: the panel serves `/api/*` itself.
+Postgres, MinIO and OSRM are reachable only inside the compose network. To reach them from the host
+(psql, the MinIO console through an SSH tunnel), set `IRIS_PUERTOS_ADMIN=true` in the `.env` and
+`irisctl start`: they are then published on `127.0.0.1` at `IRIS_PG_PUERTO`, `IRIS_MINIO_PUERTO`,
+`IRIS_MINIO_CONSOLA_PUERTO` and `IRIS_OSRM_PUERTO` (`docker-compose.admin-ports.yml`).
 
 Apache / Virtualmin (Server Configuration → Edit Directives, in the `:443` VirtualHost; modules
 `proxy`, `proxy_http` and `headers`):
@@ -156,7 +178,7 @@ After editing the `.env`: `irisctl start`.
 ```sh
 irisctl status                 # installed and latest version, containers, health, last backup
 irisctl logs [api|worker|web]  # follow the logs
-irisctl backup                 # encrypted database backup now (/opt/iris/backups)
+irisctl backup                 # database backup now (/opt/iris/backups, encrypted with age)
 irisctl upgrade                # backup → new package and images → migrations → health check
 irisctl upgrade --version X.Y.Z
 irisctl stop                   # stop everything (data is kept)
@@ -165,8 +187,9 @@ irisctl create-admin --email a@b.c --name "Name"
 irisctl compose ps             # any docker compose command on the install
 ```
 
-`irisctl upgrade` refuses to go to an older version (migrations only move forward) and does nothing
-if the backup fails (unless `--skip-backup`). If the new version does not become healthy, it prints
+`irisctl upgrade` checks the new compose file, pulls the new images and takes a backup before
+changing anything. It refuses to go to an older version (migrations only move forward) and does
+nothing if the backup fails (unless `--skip-backup`). If the new version does not become healthy, it prints
 how to go back: restore the backup it just took ([respaldos](respaldos.md)), point `IRIS_VERSION`
 and `/opt/iris/current` to the previous version and `irisctl start`.
 
@@ -192,38 +215,56 @@ On the PM's server the lab is a git checkout in `/opt/iris` (tag v0.2.0) with th
 1. Keep a copy of the lab `.env` outside the server (it has `IRIS_CLAVE_CIFRADO`).
 2. Run the installer exactly as in section 2 (`sudo bash install.sh`, from any folder other than
    `/opt/iris`, e.g. your home). It detects the lab and:
-   - moves the checkout `/opt/iris` to `/opt/iris-lab` (after asking) and installs in `/opt/iris`;
+   - moves the checkout `/opt/iris` to `/opt/iris-lab` (after asking), before creating anything, and
+     installs in `/opt/iris`;
    - builds the new `/opt/iris/.env` from the lab `.env`: encryption key, database and MinIO
-     credentials, public address, Argos/Horus origins and networks, ports (`53000`, `58080`, `55432`,
-     `59000/59001`, `55000`), Docker subnet and every other `IRIS_*` value the lab set. It drops what
-     only made sense in the lab: Mailpit (`IRIS_SMTP_*`, `IRIS_CORREO_CA`, its ports), `localhost`
-     URLs, build settings;
-   - takes an encrypted backup of the lab database into `/opt/iris/backups`;
-   - starts the production containers on the same volumes and removes Mailpit;
-   - once healthy, replaces the dev database password (`iris`) with a generated one
-     (`--keep-db-password` skips this).
-3. Apache keeps pointing to `127.0.0.1:53000`: nothing to change in Virtualmin or NPM.
+     credentials, public address, Argos/Horus origins and networks, ports, Docker subnet and every
+     other `IRIS_*` value the lab set. It drops what only made sense in the lab: Mailpit
+     (`IRIS_SMTP_*`, `IRIS_CORREO_CA`, its ports), `localhost` URLs, build settings. Lab backup keys
+     are copied into `/opt/iris/backup-keys`;
+   - starts the lab database under the production compose and checks that the release is not older
+     than the database schema (it stops if the database has newer migrations than the release);
+   - takes a backup of the lab database into `/opt/iris/backups` (encrypted with age, or the plain
+     fallback above). If the backup fails, it stops before any migration;
+   - starts the production containers on the same volumes (migrations run first) and removes Mailpit;
+   - once healthy, replaces the public lab defaults with generated secrets: the database password
+     `iris` (stored as a SCRAM verifier, never sent in clear; `--keep-db-password` skips it) and the
+     MinIO secret `iris-dev-solo-local` (attachments stay readable: MinIO takes its root credentials
+     from the environment).
+3. Apache keeps pointing to `127.0.0.1:53000` (and the API stays on `58080`): nothing to change in
+   Virtualmin or NPM. Postgres (`55432`) and MinIO (`59000/59001`) are no longer published on the
+   host; see "Reverse proxy" for `IRIS_PUERTOS_ADMIN` if you used them.
 4. Check: `irisctl status`, sign in with the existing users, open an order with photos.
 5. Mailboxes created against Mailpit in the lab now fail: edit them in the panel to use the real
    SMTP/IMAP server.
-6. Do not run `make dev-app` in `/opt/iris-lab` again (it would take the containers back). When
-   everything works for a few days, delete `/opt/iris-lab` and the old images
+6. Do not run `make dev-app` in `/opt/iris-lab` again (it would take the containers back with the old
+   passwords). When everything works for a few days, delete `/opt/iris-lab` and the old images
    (`docker image rm iris/api:dev iris/worker:dev iris/web:dev`).
 
-Non-interactive: `sudo bash install.sh --yes`. If the lab `.env` is somewhere else:
-`--from-lab /path/to/.env`. The MinIO secret of the lab stays (it is only reachable from 127.0.0.1);
-changing it means changing `IRIS_S3_SECRET_KEY` and restarting MinIO with care, so it is left as a
-manual step.
+If anything stops half way (a busy port, no network, a failed backup), fix it and run
+`sudo bash install.sh` again: it resumes the migration, including the backup and the password
+changes. Non-interactive: `sudo bash install.sh --yes`. If the lab `.env` is somewhere else:
+`--from-lab /path/to/.env`.
 
 ### Back to the lab
 
-If the migration fails before Iris is healthy, the lab `.env` is still valid as is:
+Once `migrar` has run, the database schema belongs to the installed release. Going back means
+restoring the backup taken in step 2, not just starting the lab again:
 
 ```sh
-cd /opt/iris && docker compose --env-file .env -f current/docker-compose.yml down   # keeps volumes
+docker compose --env-file /opt/iris/.env -f /opt/iris/current/docker-compose.yml down   # keeps volumes
 sudo mv /opt/iris /opt/iris-failed && sudo mv /opt/iris-lab /opt/iris
-cd /opt/iris && make dev-app
+cd /opt/iris
+docker compose -f infra/docker-compose.yml --env-file .env up -d --wait postgres
+docker compose -f infra/docker-compose.yml --env-file .env exec -T postgres \
+    sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+# encrypted backup (.dump.age):
+age -d -i /opt/iris-failed/backup-keys/identity.txt /opt/iris-failed/backups/<file>.dump.age |
+    docker compose -f infra/docker-compose.yml --env-file .env exec -T postgres \
+    sh -c 'pg_restore --no-owner --exit-on-error --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# plain fallback backup (.dump): the same pg_restore, reading the file instead of age's output
 ```
 
-If the installer already finished (the database password was changed), first copy
-`IRIS_PG_CONTRASENA` from `/opt/iris-failed/.env` into `/opt/iris/.env`.
+If the installer had already replaced the lab defaults, put the values from
+`/opt/iris-failed/.env` into `/opt/iris/.env` before starting the lab: `IRIS_PG_CONTRASENA` (the
+database role keeps the new password) and `IRIS_S3_SECRET_KEY`. Then `make dev-app`.
