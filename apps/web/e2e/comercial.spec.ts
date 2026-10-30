@@ -44,6 +44,10 @@ test.describe("embudo y lista", () => {
         await expect(nuevo.getByTestId("conteo")).toHaveText("20+");
         await expect(embudo.locator('[data-columna="cotizado"]').getByTestId("conteo")).toHaveText("1");
         await expect(embudo.locator('[data-columna="perdido"]').getByText("Gloria Ríos")).toBeVisible();
+        // Cinco tarjetas por columna; «Ver 15 más» muestra el resto de la página y luego «Cargar más».
+        await expect(nuevo.getByRole("listitem")).toHaveCount(5);
+        await nuevo.getByRole("button", { name: "Ver 15 más" }).click();
+        await expect(nuevo.getByRole("listitem")).toHaveCount(20);
         await nuevo.getByRole("button", { name: "Cargar más" }).click();
         await expect(nuevo.getByTestId("conteo")).toHaveText("23");
         await sinDesbordar(page);
@@ -292,8 +296,8 @@ test.describe("del prospecto al cliente", () => {
         await page.goto("/comercial/10");
         await page.getByRole("button", { name: "Ganar" }).click();
         const dGanar = page.getByRole("dialog", { name: "Ganar el prospecto" });
-        await dGanar.getByRole("button", { name: "Ganar" }).click();
-        await expect(dGanar.getByText("Elige el router desde donde se atenderá")).toBeVisible();
+        await expect(dGanar.getByRole("button", { name: "Ganar" })).toBeDisabled();
+        await expect(dGanar.getByRole("button", { name: "Ganar" })).toHaveAccessibleDescription("Falta elegir el router del servicio para guardar.");
         expect(posts(api, "/ganar")).toHaveLength(0);
         await dGanar.getByLabel("Router del servicio").selectOption({ label: "R-Norte" });
         await dGanar.getByRole("button", { name: "Ganar" }).click();

@@ -1,7 +1,8 @@
 "use client";
 
-import { Esqueleto, EstadoVacio, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { MapPin, SearchX, UserRound } from "lucide-react";
+import { Boton, Esqueleto, EstadoVacio, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
+import { ChevronDown, MapPin, SearchX, UserRound } from "lucide-react";
+import { useState } from "react";
 import Link from "next/link";
 import { InsigniaProspecto, nombreZona, type Zona } from "@/componentes/comercial/comun";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -66,12 +67,18 @@ export function TarjetaProspecto({ p, catalogos, conEstado }: { p: Prospecto; ca
 }
 
 const LIMITE_COLUMNA = 20;
+/** Tarjetas visibles por columna antes de «Ver N más»: las filas del embudo quedan parejas. */
+const VISIBLES_COLUMNA = 5;
 
-/** Embudo: una columna por estado, cada una con su cursor y su conteo («20+» si hay más). */
+/**
+ * Embudo: una columna por estado, cada una con su cursor y su conteo («20+» si hay más). Las
+ * columnas pasan a la fila siguiente cuando no caben (sin scroll horizontal) y cada una crece
+ * con sus tarjetas (sin scroll propio): la página es lo único que se desplaza.
+ */
 export function Embudo({ filtros, catalogos }: { filtros: Filtros; catalogos: Catalogos }) {
     return (
-        <div className="-mx-1 overflow-x-auto px-1 pb-2" role="region" aria-label="Embudo comercial" tabIndex={0}>
-            <div className="grid auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3">
+        <div role="region" aria-label="Embudo comercial">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] items-start gap-3">
                 {ORDEN_ESTADOS.map((e) => (
                     <Columna key={e} estado={e} filtros={filtros} catalogos={catalogos} />
                 ))}
@@ -84,6 +91,9 @@ function Columna({ estado, filtros, catalogos }: { estado: EstadoProspecto; filt
     const paginado = usePagina(filtros, LIMITE_COLUMNA, estado);
     const { primera, items } = paginado;
     const p = ESTADOS_PROSPECTO[estado];
+    const [expandida, setExpandida] = useState(false);
+    const ocultas = expandida ? 0 : Math.max(0, items.length - VISIBLES_COLUMNA);
+    const visibles = ocultas > 0 ? items.slice(0, VISIBLES_COLUMNA) : items;
     return (
         <section className="grid content-start gap-2 rounded-lg bg-elevated/60 p-2" aria-label={`${p.texto}`} data-columna={estado}>
             <header className="flex items-center justify-between gap-2 px-1 py-1">
@@ -99,15 +109,22 @@ function Columna({ estado, filtros, catalogos }: { estado: EstadoProspecto; filt
             ) : items.length === 0 ? (
                 <p className="px-1 py-3 text-center text-xs text-muted-foreground">Nada aquí</p>
             ) : (
-                <ul className="grid max-h-[70vh] gap-2 overflow-y-auto pr-0.5" aria-label={`Prospectos en ${p.texto}`}>
-                    {items.map((x) => (
+                <ul className="grid gap-2" aria-label={`Prospectos en ${p.texto}`}>
+                    {visibles.map((x) => (
                         <li key={x.id}>
                             <TarjetaProspecto p={x} catalogos={catalogos} />
                         </li>
                     ))}
                 </ul>
             )}
-            <PieLista paginado={paginado} que="prospectos" />
+            {ocultas > 0 ? (
+                <Boton variante="fantasma" tamano="sm" className="justify-self-center" onClick={() => setExpandida(true)}>
+                    <ChevronDown />
+                    Ver {ocultas} más
+                </Boton>
+            ) : (
+                <PieLista paginado={paginado} que="prospectos" />
+            )}
         </section>
     );
 }
