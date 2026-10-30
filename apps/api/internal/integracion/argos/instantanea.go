@@ -22,20 +22,44 @@ type fichaArgos struct {
 	// completa: servicios es la lista de todas las empresas (empresas=todas); si no, solo lo del
 	// alcance del token y una lista vacía no dice nada.
 	completa bool
-	leidoEn  time.Time
+	// leidoEn: hora de Postgres (clock_timestamp()) antes de pedir a Argos.
+	leidoEn time.Time
+	// vivos: servicios de la lista con lápida que un GET por id confirmó con 200 (hora de Postgres
+	// de antes del GET); solo esos resucitan.
+	vivos map[int64]time.Time
 }
 
-// leerFichaArgos lee cliente y servicios (fuera de toda transacción).
-func leerFichaArgos(ctx context.Context, c *Cliente, clienteID int64) (fichaArgos, error) {
-	f := fichaArgos{leidoEn: time.Now().UTC()}
+// idsServicios: los ids de los servicios del cliente que se guardarían (para tomar sus candados
+// en orden).
+func (f fichaArgos) idsServicios() []int64 {
+	ids := make([]int64, 0, len(f.servicios))
+	for _, s := range f.servicios {
+		if s.ClienteID == 0 || s.ClienteID == f.cliente.ID {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}
+
+// leerFichaArgos lee cliente y servicios (fuera de toda transacción). bd da el reloj (Postgres) y
+// las lápidas: los servicios de la lista que tienen una se confirman con GET /servicios/:id.
+func leerFichaArgos(ctx context.Context, bd argosbd.DBTX, c *Cliente, clienteID int64) (fichaArgos, error) {
+	var f fichaArgos
 	var err error
+	if f.leidoEn, err = argosbd.New(bd).RelojBD(ctx); err != nil {
+		return f, err
+	}
 	if f.cliente, err = c.ObtenerCliente(ctx, clienteID); err != nil {
 		return f, err
 	}
 	if f.servicios, f.completa, err = c.ServiciosDeClienteCompletos(ctx, clienteID); err != nil {
 		return f, err
 	}
-	return f, nil
+	f.vivos, err = confirmarVivos(ctx, bd, eliminadoServicio, f.idsServicios(), func(id int64) error {
+		_, err := c.ObtenerServicio(ctx, id)
+		return err
+	})
+	return f, err
 }
 
 // empresasYPista: las empresas del cliente (las de sus servicios) y si no tiene servicios de forma
@@ -71,6 +95,11 @@ func empresasYPista(ctx context.Context, q *argosbd.Queries, c ClienteArgos, ser
 // guardarFicha escribe la instantánea del cliente y sus servicios y borra los servicios que
 // Argos ya no devuelve.
 func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fichaArgos) error {
+	// Candados de todos los servicios en orden de id, antes de tocar ninguna fila (ni la del
+	// cliente): sin interbloqueos con una eliminación del mismo cliente.
+	if err := bloquear(ctx, q, eliminadoServicio, f.idsServicios()); err != nil {
+		return err
+	}
 	c := f.cliente
 	lat, lon := c.LatLon()
 	// El cliente de Argos no tiene empresa: las suyas son las de sus servicios. empresa_id queda
@@ -105,7 +134,7 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 			RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
 			ZonaID: idDe(s.ZonaID, s.Zona), ZonaNombre: nombreDe(s.ZonaNombre, s.Zona),
 			Ip: s.IP, Direccion: s.Direccion, Lat: slat, Lon: slon, Estado: s.Estado, SincronizadoEn: f.leidoEn,
-		}); err != nil {
+		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
 		vigentes = append(vigentes, s.ID)
@@ -113,6 +142,13 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 	return q.BorrarServiciosAusentes(ctx, argosbd.BorrarServiciosAusentesParams{
 		ClienteID: c.ID, Vigentes: vigentes, SincronizadoEn: f.leidoEn,
 	})
+}
+
+func vivoEn(vivos map[int64]time.Time, id int64) *time.Time {
+	if t, ok := vivos[id]; ok {
+		return &t
+	}
+	return nil
 }
 
 func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {

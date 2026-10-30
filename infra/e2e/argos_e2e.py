@@ -574,6 +574,49 @@ def paso_caida(a, i):
               f"{servicios} servicio con codigo_externo iris:prospecto:{pid}")
 
 
+def paso_eliminacion(a, i):
+    """§2.3 servicio.eliminado (en Argos desde el contrato 0.3.2): un servicio recién creado, sin activar,
+    se elimina con DELETE /servicios/:id?version= (token de API de un admin de Argos, nunca el del usuario
+    técnico Iris) → Iris lo confirma con el 404 urn:argosisp:problema:no_encontrado, escribe la lápida y la
+    ficha lo lista en serviciosEliminados."""
+    yo = a("GET", "/me")
+    exigir(yo.status == 200, f"GET /me en Argos: {yo}")
+    uid = (yo.json.get("usuario") or yo.json).get("id")
+    tk = a("POST", "/tokens", {"usuario_id": uid, "nombre": "e2e eliminar servicio"})
+    exigir(tk.status == 201, f"token de API del admin de Argos: {tk}")
+    token, token_id = tk.json["token"], (tk.json.get("datos") or {}).get("id")
+    try:
+        desde = ultimo_entrante()
+        s = a("POST", "/servicios", {"cliente_id": estado["cliente_ana"], "router_id": estado["router"], "plan_id": estado["plan"],
+                                     "empresa_id": EMPRESA, "direccion": "Zona 1", "coordenadas": "14.6349,-90.5069"},
+              clave=f"e2e-servicio-eliminar-{uuid.uuid4()}")
+        exigir(s.status == 201, f"servicio sin uso en Argos: {s}")
+        sid = s.json["id"]
+        esperar_entrante("servicio.creado", desde)
+        version = a("GET", f"/servicios/{sid}").json["version"]
+        desde = ultimo_entrante()
+        d = pedir(urllib.request.build_opener(), "DELETE", f"{ARGOS}/api/v1/servicios/{sid}?version={version}", None,
+                  {"Authorization": "Bearer " + token, "Idempotency-Key": f"e2e-eliminar-{sid}"})
+        if d.status in (404, 405) and "problema:no_encontrado" not in d.crudo:
+            registrar("7 servicio.eliminado → lápida en Iris", False,
+                      f"Argos no tiene DELETE /servicios/:id (llega con el contrato 0.3.2): {d}")
+            return
+        exigir(d.status == 204, f"DELETE /servicios/{sid}: {d}")
+        e = esperar_entrante("servicio.eliminado", desde)
+        lapida = iris_db("SELECT cliente_id, empresa_id, de_instantanea FROM integracion.argos_eliminados "
+                         "WHERE tipo = 'servicio' AND id = :'p1'", sid)
+        f = i("GET", f"/clientes/{estado['cliente_ana']}", cabeceras=H)
+        eliminados = [x.get("id") for x in (f.json or {}).get("serviciosEliminados") or []]
+        vivos = [x.get("id") for x in (f.json or {}).get("servicios") or []]
+        registrar("7 servicio.eliminado → lápida y serviciosEliminados",
+                  e[3] == "aplicado" and bool(lapida) and sid in eliminados and sid not in vivos,
+                  f"DELETE → {d.status}; entrante {e[0]} {e[3]} {e[4]}; lápida {lapida}; ficha: servicios {vivos}, "
+                  f"serviciosEliminados {eliminados}")
+    finally:
+        if token_id:
+            a("POST", f"/tokens/{token_id}/revocar", {})
+
+
 def paso_sso(a, i):
     """«Ver en Iris» desde Argos (§1.3, autologin): Argos pide el ticket a Iris con el iris_pat_."""
     r = a("POST", "/integraciones/iris/abrir", {"destino": {"tipo": "orden", "id_externo": str(estado.get("orden") or 1)}})
@@ -591,6 +634,7 @@ PASOS = [
     ("retiro_comodato", paso_retiro_comodato),
     ("caida", paso_caida),
     ("sso", paso_sso),
+    ("eliminacion", paso_eliminacion),
 ]
 
 

@@ -31,17 +31,15 @@ ORDER BY nombre, id
 LIMIT @limite;
 
 -- name: GuardarServicio :exec
--- Un servicio que Argos eliminó no se recrea con una lectura empezada antes de confirmar la
--- eliminación (lápida con confirmado_en >= la hora de la lectura). Una lectura posterior ya
--- borró la lápida (ResucitarEliminado) y pasa. Llamar con BloquearArgos tomado.
+-- Un servicio con lápida no se guarda desde una lista: solo un GET por id con 200 lo resucita
+-- (ResucitarEliminado borra antes la lápida). Llamar con BloquearArgos tomado.
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
     ip, direccion, lat, lon, estado, sincronizado_en
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
     @ip, @direccion, @lat, @lon, @estado, @sincronizado_en
-WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e
-                  WHERE e.tipo = 'servicio' AND e.id = @id AND e.confirmado_en >= @sincronizado_en)
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
@@ -83,12 +81,11 @@ WHERE integracion.argos_zonas.sincronizado_en <= excluded.sincronizado_en;
 DELETE FROM integracion.argos_zonas WHERE sincronizado_en < @antes;
 
 -- name: GuardarRouter :exec
--- Un router que Argos eliminó no vuelve con una carga de catálogos empezada antes de confirmarlo
--- (como GuardarServicio). Llamar con BloquearArgos tomado.
+-- Como GuardarServicio: un router con lápida no vuelve desde la carga de catálogos (solo con un
+-- GET por id con 200). Llamar con BloquearArgos tomado.
 INSERT INTO integracion.argos_routers (id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en)
 SELECT @id, @empresa_id, @nombre, @zona_id, @lat, @lon, @sincronizado_en
-WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e
-                  WHERE e.tipo = 'router' AND e.id = @id AND e.confirmado_en >= @sincronizado_en)
+WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'router' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, nombre = excluded.nombre, zona_id = excluded.zona_id,
     lat = excluded.lat, lon = excluded.lon, sincronizado_en = excluded.sincronizado_en, updated_at = now()
@@ -113,15 +110,16 @@ SELECT pg_advisory_xact_lock(hashtextextended(@tipo::text || ':' || (@id::bigint
 -- name: RegistrarEliminado :execrows
 -- La lápida se escribe una vez (un webhook repetido o un segundo aviso no la cambia).
 INSERT INTO integracion.argos_eliminados (
-    tipo, id, empresa_id, cliente_id, codigo, nombre, conector_id, entrante_id, eliminado_en, confirmado_en
+    tipo, id, empresa_id, cliente_id, codigo, nombre, de_instantanea, conector_id, entrante_id, eliminado_en, confirmado_en
 ) VALUES (
-    @tipo, @id, @empresa_id, @cliente_id, @codigo, @nombre, @conector_id, @entrante_id, @eliminado_en, @confirmado_en
+    @tipo, @id, @empresa_id, @cliente_id, @codigo, @nombre, @de_instantanea, @conector_id, @entrante_id, @eliminado_en, @confirmado_en
 )
 ON CONFLICT (tipo, id) DO NOTHING;
 
 -- name: ResucitarEliminado :one
--- Una lectura directa de Argos empezada después de confirmar la eliminación devolvió el id con
--- 200: la lápida estaba mal (o Argos lo restauró) y se borra.
+-- Un GET por id pedido después de confirmar la eliminación (@leido_en: clock_timestamp() de
+-- Postgres antes de la llamada) respondió 200: la lápida estaba mal (o Argos lo restauró) y se
+-- borra.
 DELETE FROM integracion.argos_eliminados
 WHERE tipo = @tipo AND id = @id AND confirmado_en < @leido_en
 RETURNING *;
@@ -134,7 +132,17 @@ SELECT * FROM integracion.argos_eliminados WHERE tipo = @tipo AND id = @id;
 -- (visible en todas las empresas) cuando su único servicio se eliminó.
 SELECT DISTINCT empresa_id::bigint AS empresa_id FROM integracion.argos_eliminados
 WHERE tipo = 'servicio' AND cliente_id = @cliente_id AND empresa_id IS NOT NULL AND empresa_id > 0
+  -- Solo lápidas copiadas de la instantánea: empresa y cliente de un payload no son pista.
+  AND de_instantanea
 ORDER BY 1;
+
+-- name: EliminadosEntre :many
+-- Ids con lápida entre los que trae una lista de Argos (se confirman con un GET por id).
+SELECT id FROM integracion.argos_eliminados WHERE tipo = @tipo AND id = ANY(@ids::bigint[]) ORDER BY id;
+
+-- name: RelojBD :one
+-- El reloj único para comparar lecturas de Argos con lápidas (el de Postgres, no el del proceso).
+SELECT clock_timestamp()::timestamptz AS ahora;
 
 -- name: ServiciosEliminadosDeCliente :many
 -- Con @empresa_id (≠ 0), solo los de esa empresa (un servicio sin empresa no se atribuye a nadie).

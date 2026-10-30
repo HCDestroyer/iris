@@ -367,7 +367,7 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
 	if p.cliente == nil || time.Since(p.cliente.SincronizadoEn) > o.m.cfg.VigenciaInstantanea {
-		leida, err := leerFichaArgos(ctx, cli, in.ID)
+		leida, err := leerFichaArgos(ctx, nucleo.BDDe(ctx), cli, in.ID)
 		switch {
 		case err == nil:
 			f.leida = &leida
@@ -544,6 +544,7 @@ type entradaCatalogos struct {
 	zonas    []ZonaArgos
 	routers  []RouterArgos
 	inicio   time.Time
+	vivos    map[int64]time.Time
 	errArgos error
 }
 
@@ -569,14 +570,23 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 					return ResultadoCatalogos{}, err
 				}
 			}
+			ids := make([]int64, 0, len(in.routers))
+			for _, r := range in.routers {
+				ids = append(ids, r.ID)
+			}
+			// Candados en orden de id antes de guardar ninguno (sin interbloqueos).
+			if err := bloquear(ctx, q, eliminadoRouter, ids); err != nil {
+				return ResultadoCatalogos{}, err
+			}
 			for _, r := range in.routers {
 				lat, lon := r.LatLon()
 				if err := guardarRouter(ctx, t, q, argosbd.GuardarRouterParams{
 					ID: r.ID, EmpresaID: r.Empresa(), Nombre: r.Nombre, ZonaID: idDe(r.ZonaID, r.Zona), Lat: lat, Lon: lon, SincronizadoEn: in.inicio,
-				}); err != nil {
+				}, vivoEn(in.vivos, r.ID)); err != nil {
 					return ResultadoCatalogos{}, err
 				}
 			}
+			t.FijarEmpresa(0)
 			if _, err := q.BorrarZonasAnteriores(ctx, in.inicio); err != nil {
 				return ResultadoCatalogos{}, err
 			}
@@ -605,10 +615,26 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 	if err != nil {
 		return ResultadoCatalogos{}, err
 	}
-	in := entradaCatalogos{inicio: time.Now().UTC()}
+	in := entradaCatalogos{}
+	if in.inicio, err = argosbd.New(bd).RelojBD(ctx); err != nil {
+		return ResultadoCatalogos{}, err
+	}
 	cli := s.m.clienteDe(c)
 	if in.zonas, in.errArgos = cli.Zonas(ctx); in.errArgos == nil {
 		in.routers, in.errArgos = cli.Routers(ctx)
+	}
+	if in.errArgos == nil {
+		ids := make([]int64, 0, len(in.routers))
+		for _, r := range in.routers {
+			ids = append(ids, r.ID)
+		}
+		// Routers de la lista con lápida: solo resucitan con un GET /routers/:id con 200.
+		if in.vivos, err = confirmarVivos(ctx, bd, eliminadoRouter, ids, func(id int64) error {
+			_, err := cli.ObtenerRouter(ctx, id)
+			return err
+		}); err != nil {
+			return ResultadoCatalogos{}, err
+		}
 	}
 	return s.guardar.Ejecutar(ctx, in)
 }

@@ -73,28 +73,33 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **`servicio.eliminado` y `router.eliminado`** (`eliminados.go`). La lápida es difícil de
   deshacer, así que no se cree al payload:
   - el id sale solo de `servicio_id` / `router_id` (sin ellos, «ignorado», `sin_id`);
-  - si la instantánea tiene la fila, su empresa y su cliente mandan; un payload que no coincide
-    se ignora (`empresa_no_coincide`, `cliente_no_coincide`);
+  - si la instantánea tiene la fila, su empresa y su cliente mandan; si el payload no coincide se
+    anota la discrepancia (`empresa_no_coincide`, `cliente_no_coincide`) y la eliminación se
+    aplica igual con los datos de la instantánea (lápida `de_instantanea`);
   - Iris confirma con `GET /servicios/:id` o `GET /routers/:id`: solo un 404
-    `application/problem+json` con type `…no_encontrado` confirma
+    `application/problem+json` con type `urn:argosisp:problema:no_encontrado` confirma
     (`conector.EsNoEncontradoConfirmado`; no se reintenta). Otro 404 (HTML de un proxy, ruta
-    inexistente) es un error y el job se reintenta. Si Argos aún lo devuelve, «ignorado»
+    inexistente) o el 403 `empresa_no_permitida` (existe fuera del alcance; Argos nunca responde
+    404 en ese caso) son errores y el job se reintenta. Si Argos aún lo devuelve, «ignorado»
     (`no_confirmado`);
   - **no** se filtra por el alcance que informó el canje: es una foto (Argos pudo ampliarlo
-    después) y Argos solo responde dentro del alcance real del token; lo que la instantánea ya
-    conoce de otra empresa lo descarta el punto anterior;
-  - confirmado, en una transacción con el candado `pg_advisory_xact_lock` por (tipo, id) que
-    también toma todo guardado de la instantánea (`guardarServicio`, `guardarRouter`): lápida en
-    `integracion.argos_eliminados` (con la última copia, `conector_id`, `eliminado_en` de Argos y
-    `confirmado_en` de Iris, tomado antes de pedir el 404), fuera de `argos_servicios` /
-    `argos_routers`, evento interno y, del servicio, la ficha del cliente releída;
+    después) y Argos solo confirma dentro del alcance real del token;
+  - candados `pg_advisory_xact_lock` por (tipo, id), tomados todos al principio y en orden de id
+    (`bloquear`): la eliminación con los de la ficha de su cliente, `guardarFicha` antes de tocar
+    ninguna fila, la carga de catálogos antes de guardar routers. Sin interbloqueos;
+  - confirmado, en una transacción: lápida en `integracion.argos_eliminados` (última copia,
+    `de_instantanea`, `conector_id`, `eliminado_en` de Argos y `confirmado_en` = `clock_timestamp()`
+    de Postgres antes de pedir el 404), fuera de `argos_servicios` / `argos_routers`, evento interno
+    y, del servicio, la ficha del cliente releída;
   - un evento atrasado del servicio (`servicio.*`, `asignacion.cambiada`) queda «ignorado»
-    (`servicio_eliminado`) sin leer Argos; una lectura directa (ficha, catálogos) empezada antes de
-    `confirmado_en` no lo recrea; una empezada después que lo trae con 200 lo **resucita**: borra la
-    lápida, guarda la instantánea, anota `resucitado_<tipo>_<id>` en la auditoría y deja un log de
-    advertencia;
+    (`servicio_eliminado`) sin leer Argos. Una lista (ficha, catálogos) nunca guarda un id con
+    lápida: lo confirma con un GET por id y solo un 200 pedido después de `confirmado_en` (los dos
+    con el reloj de Postgres) lo **resucita**: borra la lápida, guarda la instantánea, anota
+    `resucitado_<tipo>_<id>` en la auditoría, deja un log de advertencia y emite
+    `argos.servicio_restaurado` / `argos.router_restaurado`;
   - un cliente cuyos servicios se eliminaron no queda «sin servicios» (visible en todas las
-    empresas): las empresas de sus lápidas son la pista (`empresasYPista`).
+    empresas): las empresas de sus lápidas `de_instantanea` son la pista (`empresasYPista`); una
+    lápida armada solo con el payload no cuenta.
 - **«Eliminado en Argos»:** la ficha (`GET /clientes/{id}`) trae `serviciosEliminados` (filtrados
   por la empresa activa como `servicios`); un ticket u orden cuyo `servicioId` esté ahí lo muestra
   eliminado. Para otros módulos: `argos.ServiciosEliminados(ctx, q, ids, empresa)` (empresa
@@ -110,7 +115,8 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Emite:** `conector.creado`, `conector.activado`, `conector.desactivado`,
   `argos.servicio_retirado` (gancho para la orden de retiro de I2; solo si Argos confirma el
   estado al releer `GET /servicios/:id`), `argos.servicio_eliminado` y `argos.router_eliminado`
-  (contrato 0.3.1, confirmados con el 404). Detalle en
+  (contrato 0.3.1, confirmados con el 404), `argos.servicio_restaurado` y `argos.router_restaurado`.
+  Detalle en
   `.claude/integration/contratos/eventos.md`.
 - **Consume (webhooks de Argos, §2.3):** `cliente.actualizado`, `servicio.creado`,
   `servicio.config_cambiada`, `asignacion.cambiada` y `servicio.estado_cambiado` → refrescan la

@@ -704,17 +704,18 @@ type IntegracionArgosCliente struct {
 }
 
 type IntegracionArgosEliminado struct {
-	Tipo         string
-	ID           int64
-	EmpresaID    *int64
-	ClienteID    *int64
-	Codigo       string
-	Nombre       string
-	ConectorID   int64
-	EntranteID   *int64
-	EliminadoEn  time.Time
-	ConfirmadoEn time.Time
-	CreatedAt    time.Time
+	Tipo          string
+	ID            int64
+	EmpresaID     *int64
+	ClienteID     *int64
+	Codigo        string
+	Nombre        string
+	DeInstantanea bool
+	ConectorID    int64
+	EntranteID    *int64
+	EliminadoEn   time.Time
+	ConfirmadoEn  time.Time
+	CreatedAt     time.Time
 }
 
 type IntegracionArgosRouter struct {

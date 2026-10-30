@@ -8,8 +8,8 @@
 -- «eliminado en Argos» (código, plan, cliente y empresa, copiados de la instantánea si la había).
 -- empresa_id null: un servicio sin empresa o un router compartido (sin empresa sugerida).
 -- eliminado_en es la hora de Argos (ocurrido_en del webhook, para mostrar); confirmado_en, la de
--- Iris antes de pedir el 404 que lo confirmó: una lectura de Argos empezada después (con el id en
--- un 200) resucita la instantánea y borra la lápida; una empezada antes no la recrea.
+-- Postgres (clock_timestamp()) antes de pedir el 404 que lo confirmó: solo un GET por id con 200
+-- pedido después resucita la instantánea y borra la lápida; una lista nunca la recrea.
 CREATE TABLE integracion.argos_eliminados (
     tipo          text        NOT NULL CHECK (tipo IN ('servicio', 'router')),
     id            bigint      NOT NULL,
@@ -17,6 +17,9 @@ CREATE TABLE integracion.argos_eliminados (
     cliente_id    bigint,
     codigo        text        NOT NULL DEFAULT '',
     nombre        text        NOT NULL DEFAULT '',
+    -- de_instantanea: empresa, cliente y copia salieron de la instantánea de Iris (no del payload);
+    -- solo esas lápidas sirven de pista de empresa del cliente.
+    de_instantanea boolean    NOT NULL DEFAULT false,
     conector_id   bigint      NOT NULL REFERENCES integracion.conectores (id),
     entrante_id   bigint      REFERENCES integracion.entrantes (id),
     eliminado_en  timestamptz NOT NULL,

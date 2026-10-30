@@ -46,6 +46,11 @@ type argosFalso struct {
 	alcanceGlobal *bool
 	// proxy404: rutas a las que un proxy responde 404 en HTML (no es «no encontrado» de Argos).
 	proxy404 map[string]bool
+	// fueraDeAlcance: rutas por id a las que Argos responde 403 empresa_no_permitida (el recurso
+	// existe fuera del alcance del token; nunca 404).
+	fueraDeAlcance map[string]bool
+	// sinGet: servicios que la lista todavía trae (réplica atrasada) pero el GET por id ya no.
+	sinGet map[int64]bool
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -55,7 +60,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		t: t, token: tokenArgos, codigo: "codigo-de-argos-0123456789",
 		clientes: map[int64]map[string]any{}, servicios: map[int64][]map[string]any{},
 		estados: map[int64]map[string]any{}, ips: map[string]map[string]any{}, llamadas: map[string]int{},
-		proxy404: map[string]bool{},
+		proxy404: map[string]bool{}, fueraDeAlcance: map[string]bool{}, sinGet: map[int64]bool{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", a.canjear)
@@ -144,7 +149,12 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 		}
 		sinPermiso := a.sinPermiso
 		proxy := a.proxy404[r.URL.Path]
+		fuera := a.fueraDeAlcance[r.URL.Path]
 		a.mu.Unlock()
+		if fuera {
+			problema(w, 403, "urn:argosisp:problema:empresa_no_permitida", "Fuera del alcance del token")
+			return
+		}
 		if proxy {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusNotFound)
@@ -194,7 +204,7 @@ func idDe(r *http.Request) int64 {
 func (a *argosFalso) cliente(w http.ResponseWriter, r *http.Request) {
 	c, ok := a.clientes[idDe(r)]
 	if !ok {
-		problema(w, 404, "urn:argos:no_encontrado", "No existe")
+		problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
 		return
 	}
 	escribir(w, map[string]any{"data": c})
@@ -204,7 +214,7 @@ func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
 	a.estadoPedido = r.URL.Query().Get("empresa_id")
 	e, ok := a.estados[idDe(r)]
 	if !ok {
-		problema(w, 404, "urn:argos:no_encontrado", "No existe")
+		problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
 		return
 	}
 	escribir(w, e)
@@ -242,6 +252,10 @@ func enteroDe(v any) int64 {
 }
 
 func (a *argosFalso) servicio(w http.ResponseWriter, r *http.Request) {
+	if a.sinGet[idDe(r)] {
+		problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
+		return
+	}
 	for _, lista := range a.servicios {
 		for _, s := range lista {
 			if id, _ := s["id"].(int64); id == idDe(r) {
@@ -250,7 +264,7 @@ func (a *argosFalso) servicio(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	problema(w, 404, "urn:argos:no_encontrado", "No existe")
+	problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
 }
 
 func (a *argosFalso) router(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +274,7 @@ func (a *argosFalso) router(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	problema(w, 404, "urn:argos:no_encontrado", "No existe")
+	problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
 }
 
 // quitarServicio borra un servicio como lo hace Argos al eliminarlo (0.3.1). Llamar dentro de con.
@@ -296,7 +310,7 @@ func (a *argosFalso) resolverA8(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	res, ok := a.ips[p.IP]
 	if !ok {
-		problema(w, 404, "urn:argos:no_encontrado", "IP sin cliente")
+		problema(w, 404, "urn:argosisp:problema:no_encontrado", "IP sin cliente")
 		return
 	}
 	escribir(w, res)
@@ -305,7 +319,7 @@ func (a *argosFalso) resolverA8(w http.ResponseWriter, r *http.Request) {
 func (a *argosFalso) resolverIP(w http.ResponseWriter, r *http.Request) {
 	res, ok := a.ips[r.PathValue("ip")]
 	if !ok {
-		problema(w, 404, "urn:argos:no_encontrado", "IP sin cliente")
+		problema(w, 404, "urn:argosisp:problema:no_encontrado", "IP sin cliente")
 		return
 	}
 	// El respaldo responde anidado.
