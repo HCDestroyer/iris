@@ -10,6 +10,8 @@
 #   IRIS_RESPALDO_DESTINATARIOS    archivo con las claves públicas age (age1…), una por línea
 #   IRIS_RESPALDO_DIR              carpeta de salida (./infra/respaldo/salida)
 #   IRIS_RESPALDO_DIAS             días que se conservan los respaldos (14; 0 = no borrar)
+#   IRIS_COMPOSE_ARCHIVO           compose de --compose (por defecto infra/docker-compose.yml; la
+#                                  instalación de producción usa <dir>/current/docker-compose.yml)
 #
 # Por qué age con claves públicas: el servidor que respalda solo tiene la clave pública y no puede
 # leer los respaldos; la clave privada (IRIS_RESPALDO_IDENTIDAD) vive fuera, solo para restaurar.
@@ -49,7 +51,7 @@ if [ "$compose" = 1 ]; then
     base="$(leer IRIS_PG_BASE iris)"
     usuario="$(leer IRIS_PG_USUARIO iris)"
     volcar() {
-        docker compose -f "$raiz/infra/docker-compose.yml" --env-file "$env_file" exec -T postgres \
+        docker compose -f "${IRIS_COMPOSE_ARCHIVO:-$raiz/infra/docker-compose.yml}" --env-file "$env_file" exec -T postgres \
             pg_dump --format=custom --compress=6 --username "$usuario" --dbname "$base"
     }
 else
@@ -73,6 +75,15 @@ mv "$parcial" "$dir/$nombre"
 echo "Respaldo: $dir/$nombre ($(du -h "$dir/$nombre" | cut -f1))"
 
 if [ "$dias" -gt 0 ] 2>/dev/null; then
-    find "$dir" -maxdepth 1 -type f \( -name '*.dump.age' -o -name '*.dump.age.sha256' \) \
-        -mtime +"$dias" -print -delete | sed 's/^/Borrado (más de '"$dias"' días): /'
+    # Solo los archivos de respaldo de esta base: <base>-<AAAAMMDDTHHMMSSZ>.dump.age y, del
+    # instalador de producción sin age, <base>-<…>Z.dump; cada uno con su .sha256. Nunca otro *.dump.
+    # Con un nombre de base raro (fuera de [A-Za-z0-9_-]) no se borra nada: mejor sobrar que borrar
+    # de más.
+    if [[ "$base" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        find "$dir" -maxdepth 1 -type f -regextype posix-extended \
+            -regex ".*/$base-[0-9]{8}T[0-9]{6}Z\.dump(\.age)?(\.sha256)?" \
+            -mtime +"$dias" -print -delete | sed 's/^/Borrado (más de '"$dias"' días): /'
+    else
+        echo "Aviso: la base '$base' tiene caracteres fuera de [A-Za-z0-9_-]; no se borran respaldos viejos." >&2
+    fi
 fi
