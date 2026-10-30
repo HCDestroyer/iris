@@ -123,13 +123,13 @@ SELECT * FROM agenda.tecnicos WHERE usuario_id = @usuario_id;
 SELECT * FROM agenda.tecnicos WHERE usuario_id = ANY(@usuarios::bigint[]);
 
 -- name: CrearTecnico :one
-INSERT INTO agenda.tecnicos (usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon)
-VALUES (@usuario_id, @cuadrilla_id, @bodega_id, @habilidades, @base_lat, @base_lon)
+INSERT INTO agenda.tecnicos (usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, telefono)
+VALUES (@usuario_id, @cuadrilla_id, @bodega_id, @habilidades, @base_lat, @base_lon, @telefono)
 RETURNING *;
 
 -- name: GuardarTecnico :one
 UPDATE agenda.tecnicos SET cuadrilla_id = @cuadrilla_id, bodega_id = @bodega_id, habilidades = @habilidades,
-    base_lat = @base_lat, base_lon = @base_lon, activo = @activo, version = version + 1, updated_at = now()
+    base_lat = @base_lat, base_lon = @base_lon, telefono = @telefono, activo = @activo, version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 
@@ -165,6 +165,33 @@ WHERE (sqlc.narg(despues_de)::bigint IS NULL OR t.id > sqlc.narg(despues_de))
        OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = sqlc.narg(zona_id)))
   AND (sqlc.narg(q)::text IS NULL OR u.nombre ILIKE '%' || sqlc.narg(q) || '%' OR u.correo ILIKE '%' || sqlc.narg(q) || '%')
 ORDER BY t.id
+LIMIT @limite;
+
+-- name: CandidatosTecnico :many
+-- Usuarios que pueden recibir ficha: personas activas sin ficha que trabajan sus órdenes en campo
+-- (ordenes.ver_propias por algún rol), que operan en la empresa activa (la misma regla que
+-- ListarTecnicos; sin conector, todos). Con alcance limitado del actor, solo las personas cuyo
+-- rol de técnico es de una de sus zonas o cuadrillas (un rol global no lo cubre: falla cerrado).
+SELECT u.id, u.nombre, u.correo
+FROM nucleo.usuarios u
+WHERE u.tipo = 'persona' AND u.activo
+  AND (sqlc.narg(despues_de)::bigint IS NULL OR u.id > sqlc.narg(despues_de))
+  AND NOT EXISTS (SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = u.id)
+  AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+              JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+              WHERE ur.usuario_id = u.id AND rp.permiso = 'ordenes.ver_propias'
+                AND (@alcance_global::boolean
+                     OR ur.zona_id = ANY(@zonas::bigint[])
+                     OR ur.cuadrilla_id = ANY(@cuadrillas::bigint[])))
+  AND (@todas_empresas::boolean
+       OR sqlc.narg(empresa_id)::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = sqlc.narg(empresa_id))
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                  WHERE ur.usuario_id = u.id AND rp.permiso = 'empresas.todas'
+                    AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
+  AND (sqlc.narg(q)::text IS NULL OR u.nombre ILIKE '%' || sqlc.narg(q) || '%' OR u.correo ILIKE '%' || sqlc.narg(q) || '%')
+ORDER BY u.id
 LIMIT @limite;
 
 -- name: TurnosDeTecnicos :many
@@ -311,7 +338,7 @@ WHERE c.inicio < @hasta AND c.fin > @desde
        OR o.cuadrilla_id = ANY(@cuadrillas::bigint[])
        OR t.cuadrilla_id = ANY(@cuadrillas::bigint[]))
 ORDER BY c.inicio, c.id
-LIMIT 2000;
+LIMIT @limite;
 
 -- Rutas del día ---------------------------------------------------------------------
 

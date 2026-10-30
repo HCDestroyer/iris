@@ -135,6 +135,7 @@ type AgendaTecnico struct {
 	Version     int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Telefono    string
 }
 
 type AgendaTurno struct {

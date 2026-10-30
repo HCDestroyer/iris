@@ -134,6 +134,27 @@ export function apiAgenda(ahora: number, ordenes: EscenarioOrdenes, empresa: num
         return undefined;
     }
 
+    /** Como la API: mira toda la agenda del técnico (sin filtros) y solo dice el tipo. */
+    function conflictosDe(o: OrdenDetalle): ("ausencia" | "solape")[] {
+        const vivas: readonly OrdenDetalle["estado"][] = ["programada", "en_camino", "en_sitio", "pausada"];
+        if (!vivas.includes(o.estado) || o.tecnicoId === null || !o.programadaInicio) return [];
+        const a = Date.parse(o.programadaInicio);
+        const b = Date.parse(o.programadaFin ?? o.programadaInicio);
+        const salida: ("ausencia" | "solape")[] = [];
+        if (ausenciasDe(o.tecnicoId, a, b).length > 0) salida.push("ausencia");
+        const otra = ordenes.ordenes.some(
+            (x) =>
+                x.id !== o.id &&
+                x.tecnicoId === o.tecnicoId &&
+                vivas.includes(x.estado) &&
+                x.programadaInicio !== null &&
+                Date.parse(x.programadaInicio) < b &&
+                Date.parse(x.programadaFin ?? x.programadaInicio) > a,
+        );
+        if (otra) salida.push("solape");
+        return salida;
+    }
+
     async function manejar(c: ContextoAgenda): Promise<boolean> {
         const { route, metodo, ruta, query, puede } = c;
         if (metodo !== "GET") return false;
@@ -216,11 +237,12 @@ export function apiAgenda(ahora: number, ordenes: EscenarioOrdenes, empresa: num
                         lon: o.lon,
                         clienteId: o.clienteId,
                         servicioId: o.servicioId,
+                        conflictos: conflictosDe(o),
                     };
                 });
             const visibles = new Set(TECNICOS.filter((t) => cuadrilla === undefined || t.cuadrillaId === cuadrilla).map((t) => t.usuarioId));
             const ausencias = esc.ausencias.filter((a) => visibles.has(a.tecnicoId) && Date.parse(a.inicio) < hasta && Date.parse(a.fin) > desde);
-            await json(route, { desde: iso(desde), hasta: iso(hasta), citas, ausencias } satisfies Schema<"Calendario">);
+            await json(route, { desde: iso(desde), hasta: iso(hasta), citas, ausencias, truncado: esc.truncado === true } satisfies Schema<"Calendario">);
             return true;
         }
         if (ruta === "/api/v1/campo/posiciones/ultimas") {

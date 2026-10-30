@@ -306,7 +306,7 @@ test.describe("pausa", () => {
         const o = api.ordenes.ordenes.find((x) => x.id === 3);
         if (o) Object.assign(o, { estado: "pausada", pausadaDesde: "en_camino", pausadaEn: new Date().toISOString(), pausas: [{ id: 1, motivo: "clima", nota: null, desdeEstado: "en_camino", inicio: new Date().toISOString(), fin: null, duracionSeg: null, cierre: null, pausadaPor: 3, cerradaPor: null }] });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/agenda");
+        await page.goto("/agenda?vista=dia");
         const cita = page.locator('[data-cita="OT-000003"]').filter({ visible: true });
         await expect(cita).toHaveAttribute("data-estado", "pausada");
         if (enTelefono(info)) {
