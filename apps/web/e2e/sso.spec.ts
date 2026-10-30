@@ -235,7 +235,7 @@ test.describe("conectores", () => {
         await nuevo.getByRole("button", { name: "Activar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Activar el conector de Argos" });
         await expect(dialogo.getByTestId("aviso-reemplazo")).toContainText("Reemplazará al conector activo de Argos");
-        await expect(dialogo.getByTestId("aviso-reemplazo")).toContainText("https://argos.fibra.test");
+        await expect(dialogo.getByTestId("aviso-reemplazo")).toContainText("https://panel.argos.fibra.test");
         await dialogo.getByRole("button", { name: "Activar y reemplazar" }).click();
         await expect(dialogo).toHaveCount(0);
         await expect(nuevo).toContainText("Activo");
@@ -250,7 +250,7 @@ test.describe("conectores", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/integraciones");
-        await page.getByRole("button", { name: "Conectar", exact: true }).click();
+        await page.getByRole("button", { name: "Conectar con un enlace" }).click();
         const dialogo = page.getByRole("dialog", { name: "Conectar con otro sistema" });
         await dialogo.getByLabel("Enlace de conexión").fill("https://argos.malo.test/conectar#abc123");
         await dialogo.getByRole("button", { name: "Revisar enlace" }).click();
@@ -278,7 +278,8 @@ test.describe("conectores", () => {
         await conSesion(context, baseURL ?? "", SUPERVISOR_ZONA.correo);
         await page.goto("/administracion/integraciones");
         await expect(page.locator("[data-conector]")).toHaveCount(2);
-        await expect(page.getByRole("button", { name: "Conectar", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Conectar con un enlace" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Conectar con Argos" })).toHaveCount(0);
     });
 
     test("sin integraciones.ver no aparece la sección", async ({ page, context, baseURL }) => {
