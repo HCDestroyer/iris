@@ -90,6 +90,8 @@ export function mensajeVuelta(codigo: string | undefined, estado: number): { tit
             return { titulo: "Faltan los orígenes de Argos", texto: "Iris no tiene configurado IRIS_ARGOS_ORIGENES. Pide al equipo técnico que agregue la API de Argos." };
         case "codigo_invalido":
             return { titulo: "Argos no aceptó el código", texto: "El código venció, ya se usó o no corresponde a esta autorización. Vuelve a intentarlo." };
+        case "idempotencia_en_proceso":
+            return { titulo: "Iris sigue completando la conexión", texto: "Otra pestaña o un envío anterior aún está conectando con Argos. Espera un momento y reintenta." };
         case "argos_no_disponible":
             return { titulo: "Argos no responde", texto: "No se pudo completar el canje con Argos. Vuelve a intentarlo en unos minutos." };
         default:
@@ -127,3 +129,17 @@ export const esquemaPanelArgos = z.object({
         .refine((v) => origenPanel(v) !== null, "Debe ser la dirección del panel: https://argos.tu-isp.com"),
 });
 export type DatosPanelArgos = z.infer<typeof esquemaPanelArgos>;
+
+/**
+ * El panel escrito no es el de ningún conector de Argos conocido (hay al menos uno): el panel pide
+ * confirmación antes de mandar al administrador allá. Sin conectores no hay con qué comparar.
+ */
+export function panelDesconocido(origen: string, conocidos: readonly string[]): boolean {
+    return conocidos.length > 0 && !conocidos.includes(origen);
+}
+
+/** Paneles de los conectores de Argos (sin repetir), para comparar con el que se escribe. */
+export function panelesDeArgos(conectores: readonly Conector[]): string[] {
+    const paneles = conectores.filter((c) => c.sistema === "argosisp").map((c) => panelDe(c));
+    return [...new Set(paneles.filter((p): p is string => p !== null))];
+}

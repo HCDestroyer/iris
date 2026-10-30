@@ -107,6 +107,8 @@ export type ApiSSO = {
     autorizaciones: Map<string, { panelUrl: string; usada: boolean }>;
     /** Cuerpos de `POST …/autorizaciones/completar` con su Idempotency-Key. */
     completados: { cuerpo: Schema<"EntradaCompletarAutorizacion">; idempotencia: string | undefined }[];
+    /** States cuya primera vuelta responde 409 idempotencia_en_proceso (otro envío en curso). */
+    enProceso: Set<string>;
     /** Correos con una sesión abierta por autologin (piden re-autenticarse). */
     sesionesSSO: Set<string>;
     /** Al iniciar sesión con contraseña, la sesión deja de ser `sso`. */
@@ -145,6 +147,7 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
         conectores,
         autorizaciones: new Map(),
         completados: [],
+        enProceso: new Set(),
         sesionesSSO,
         sesionConContrasena: (correo) => {
             sesionesSSO.delete(correo);
@@ -360,6 +363,9 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
                 if (sso) return (await pedirReautenticacion(), true);
                 const entrada = (cuerpo ?? {}) as Schema<"EntradaCompletarAutorizacion">;
                 api.completados.push({ cuerpo: entrada, idempotencia: idempotencia });
+                if (api.enProceso.delete(entrada.state)) {
+                    return (await problema(route, { type: "urn:iris:problema:idempotencia_en_proceso", title: "En proceso", status: 409 }), true);
+                }
                 const aut = api.autorizaciones.get(entrada.state);
                 const no = (codigo: string, title: string) => problema(route, { type: `urn:iris:problema:${codigo}`, title, status: 422 });
                 if (!aut || aut.usada) return (await no("state_invalido", "Autorización inválida"), true);

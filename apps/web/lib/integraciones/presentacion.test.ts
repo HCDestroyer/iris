@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, textoAlcance } from "./presentacion";
+import { esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, panelDesconocido, panelesDeArgos, textoAlcance, type Conector } from "./presentacion";
 
 describe("origenPanel", () => {
     it("normaliza al origen https://host[:puerto]", () => {
@@ -69,5 +69,32 @@ describe("textoAlcance", () => {
         expect(textoAlcance(true)).toContain("también las que se creen después");
         expect(textoAlcance(false)).toBe("Solo las empresas de la lista");
         expect(textoAlcance(undefined)).toBe("Argos no lo informó");
+    });
+});
+
+describe("panelDesconocido / panelesDeArgos", () => {
+    it("pide confirmar un panel que no es el de ningún conector de Argos", () => {
+        expect(panelDesconocido("https://otro.gt", ["https://argos.gt"])).toBe(true);
+        expect(panelDesconocido("https://argos.gt", ["https://argos.gt"])).toBe(false);
+        expect(panelDesconocido("https://argos.gt", [])).toBe(false);
+    });
+
+    it("solo paneles conocidos de Argos, sin repetir", () => {
+        const base = { panelUrl: null, urlPublica: "https://api.gt", apiUrl: "https://api.gt" };
+        const c = (x: Partial<Conector>) => ({ ...base, sistema: "argosisp", ...x }) as Conector;
+        expect(
+            panelesDeArgos([
+                c({ panelUrl: "https://argos.gt" }),
+                c({ panelUrl: "https://argos.gt" }),
+                c({}),
+                c({ sistema: "horus", panelUrl: "https://horus.gt" }),
+            ]),
+        ).toEqual(["https://argos.gt"]);
+    });
+});
+
+describe("mensajeVuelta en proceso", () => {
+    it("un 409 idempotencia_en_proceso invita a reintentar", () => {
+        expect(mensajeVuelta("idempotencia_en_proceso", 409).titulo).toBe("Iris sigue completando la conexión");
     });
 });

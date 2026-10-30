@@ -11,7 +11,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { activoQueReemplaza, enlaceValido, panelDe, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
+import { activoQueReemplaza, enlaceValido, panelDe, panelesDeArgos, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
@@ -58,7 +58,10 @@ export function Integraciones() {
                     {aviso}
                 </Aviso>
             ) : null}
-            {puedeConectar && lectura.estado !== "cargando" ? <ConectarArgos panelSugerido={lectura.estado === "listo" ? panelSugerido(lectura.datos) : null} /> : null}
+            {puedeConectar && lectura.estado === "listo" ? <ConectarArgos
+                    panelSugerido={panelSugerido(lectura.datos)}
+                    panelesConocidos={panelesDeArgos(lectura.datos)}
+                /> : null}
             {lectura.estado === "cargando" ? (
                 <Esqueleto className="h-32" />
             ) : lectura.estado === "error" ? (

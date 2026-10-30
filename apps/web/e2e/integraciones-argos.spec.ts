@@ -57,6 +57,7 @@ test.describe("Conectar con Argos", () => {
         await expect(tarjeta.getByRole("button", { name: "Conectar con Argos" })).toBeDisabled();
         await campo.fill(PANEL);
         await expect(tarjeta.getByRole("button", { name: "Conectar con Argos" })).toBeEnabled();
+        await expect(tarjeta.getByTestId("conectando-como")).toContainText(`Conectando como ${ADMIN.nombre}`);
         // El enlace manual de §1.3 sigue como opción avanzada.
         await expect(page.getByRole("button", { name: "Conectar con un enlace" })).toBeVisible();
         await sinDesbordar(page);
@@ -82,6 +83,7 @@ test.describe("Conectar con Argos", () => {
         expect(page.url()).not.toContain("codigo-bueno");
         await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+        await expect(resumen.getByTestId("conectando-como")).toContainText(`Conectando como ${ADMIN.nombre}`);
         await expect(resumen.getByTestId("resumen-panel")).toHaveText(PANEL);
         await expect(resumen.getByTestId("resumen-api")).toHaveText(API_ARGOS);
         await expect(resumen.getByTestId("resumen-alcance")).toHaveText("Solo las empresas de la lista");
@@ -133,6 +135,41 @@ test.describe("Conectar con Argos", () => {
         await page.goto("/administracion/integraciones");
         await page.goto(`/administracion/integraciones/argos/vuelta#codigo=x&api=${encodeURIComponent("https://argos.malo.test")}&state=${"y".repeat(43)}`);
         await expect(page.getByTestId("error-vuelta")).toContainText("La API de Argos no está permitida");
+    });
+
+    test("un panel que no es el de ningún conector pide confirmación antes de ir", async ({ page, context, baseURL }, info) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.route("https://otro-argos.test/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Otro</title>" }));
+        await page.goto("/administracion/integraciones");
+        const tarjeta = page.getByTestId("conectar-argos");
+        await tarjeta.getByLabel("Dirección del panel de Argos").fill("https://otro-argos.test");
+        await tarjeta.getByRole("button", { name: "Conectar con Argos" }).click();
+        const aviso = tarjeta.getByTestId("confirmar-panel");
+        await expect(aviso).toContainText("https://otro-argos.test no es el panel de tu conector de Argos");
+        await expect(aviso).toContainText(PANEL);
+        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/integraciones/argosisp/autorizaciones")).toHaveLength(0);
+        await sinDesbordar(page);
+        await page.screenshot({ path: path.join(carpeta, `argos-04-confirmar-panel-${info.project.name}.png`), fullPage: true });
+        await aviso.getByRole("button", { name: "Cancelar" }).click();
+        await expect(aviso).toHaveCount(0);
+        await tarjeta.getByRole("button", { name: "Conectar con Argos" }).click();
+        await tarjeta.getByTestId("confirmar-panel").getByRole("button", { name: "Sí, es mi Argos" }).click();
+        await page.waitForURL(/otro-argos\.test\/integraciones\/iris\/autorizar\?/);
+        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/integraciones/argosisp/autorizaciones")).toHaveLength(1);
+    });
+
+    test("409 idempotencia_en_proceso: espera y repite con la misma clave", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        const state = "p".repeat(43);
+        api.sso.autorizaciones.set(state, { panelUrl: PANEL, usada: false });
+        api.sso.enProceso.add(state);
+        await page.goto(`/administracion/integraciones/argos/vuelta#codigo=codigo-bueno&api=${encodeURIComponent(API_ARGOS)}&state=${state}`);
+        await expect(page.getByTestId("resumen-conexion")).toBeVisible();
+        expect(api.sso.completados).toHaveLength(2);
+        expect(api.sso.completados[0]?.idempotencia).toBeTruthy();
+        expect(api.sso.completados[1]?.idempotencia).toBe(api.sso.completados[0]?.idempotencia);
     });
 
     test("sin fragmento no hay nada que completar", async ({ page, context, baseURL }) => {

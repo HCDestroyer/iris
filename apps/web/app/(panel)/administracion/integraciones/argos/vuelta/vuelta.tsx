@@ -29,6 +29,17 @@ type Paso =
     | { paso: "resumen"; resumen: AutorizacionCompletada };
 
 const RUTA_INTEGRACIONES = "/administracion/integraciones";
+/** Esperas ante 409 idempotencia_en_proceso antes de mostrar el error (con «Reintentar»). */
+const MAX_ESPERAS = 5;
+const ESPERA_EN_PROCESO_MS = 2000;
+
+function enProceso(e: unknown): boolean {
+    return e instanceof ErrorApi && e.estado === 409 && e.codigo === "idempotencia_en_proceso";
+}
+
+function esperar(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+}
 
 function panelRecordado(): string | null {
     try {
@@ -54,18 +65,29 @@ export function VueltaArgos() {
         const v = vuelta.current;
         if (!v) return;
         setPaso({ paso: "completando" });
-        try {
-            const resumen = await resolver(
-                api().POST("/api/v1/integraciones/argosisp/autorizaciones/completar", { body: v, params: { header: { "Idempotency-Key": clave.current } } }),
-            );
-            vuelta.current = null;
-            setPaso({ paso: "resumen", resumen });
-        } catch (e) {
-            // Sin respuesta de Iris: se puede repetir con la misma clave. Lo demás gastó el state.
-            clave.current = claveTrasError(e, clave.current);
-            const estado = e instanceof ErrorApi ? e.estado : 0;
-            if (estado !== 0) vuelta.current = null;
-            setPaso({ paso: "error", codigo: e instanceof ErrorApi ? e.codigo : undefined, estado, reenviable: estado === 0 });
+        for (let intento = 1; ; intento++) {
+            try {
+                const resumen = await resolver(
+                    api().POST("/api/v1/integraciones/argosisp/autorizaciones/completar", { body: v, params: { header: { "Idempotency-Key": clave.current } } }),
+                );
+                vuelta.current = null;
+                setPaso({ paso: "resumen", resumen });
+                return;
+            } catch (e) {
+                // La misma vuelta sigue en curso en Iris (otra pestaña, o un envío anterior que no
+                // terminó): se espera y se repite con la misma clave, que devolverá su respuesta.
+                if (enProceso(e) && intento < MAX_ESPERAS) {
+                    await esperar(e instanceof ErrorApi && e.reintentarEn ? e.reintentarEn * 1000 : ESPERA_EN_PROCESO_MS);
+                    continue;
+                }
+                // Sin respuesta de Iris o aún en proceso: se puede repetir con la misma clave. Lo
+                // demás gastó el state.
+                const reenviable = enProceso(e) || !(e instanceof ErrorApi) || e.estado === 0;
+                if (!enProceso(e)) clave.current = claveTrasError(e, clave.current);
+                if (!reenviable) vuelta.current = null;
+                setPaso({ paso: "error", codigo: e instanceof ErrorApi ? e.codigo : undefined, estado: e instanceof ErrorApi ? e.estado : 0, reenviable });
+                return;
+            }
         }
     }, []);
 
@@ -163,7 +185,7 @@ function ErrorVuelta({ codigo, estado, reintentarEnvio }: { codigo: string | und
 }
 
 function Resumen({ resumen }: { resumen: AutorizacionCompletada }) {
-    const { puede } = useSesion();
+    const { puede, yo } = useSesion();
     const [conector, setConector] = useState<Conector>(resumen.conector);
     const [reemplaza, setReemplaza] = useState<Conector | null | "desconocido">(null);
     const [clave, setClave] = useState(nuevaClaveIdempotencia);
@@ -221,6 +243,10 @@ function Resumen({ resumen }: { resumen: AutorizacionCompletada }) {
                     <h2 className="font-medium">Conector de Argos</h2>
                     {activo ? <InsigniaEstado tono="success" icono={CircleCheck} texto="Activo" /> : <InsigniaEstado tono="neutral" icono={CirclePower} texto="Apagado" />}
                 </div>
+                <p className="text-sm text-muted-foreground" data-testid="conectando-como">
+                    Conectando como <span className="font-medium text-foreground">{yo.usuario.nombre}</span> ({yo.usuario.correo}) en Iris. Si no fuiste tú quien pulsó
+                    «Conectar con Argos», no lo actives.
+                </p>
                 <dl className="grid gap-x-3 gap-y-1.5 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
                     <dt className="text-muted-foreground">Panel de Argos</dt>
                     <dd className="break-all" data-testid="resumen-panel">
