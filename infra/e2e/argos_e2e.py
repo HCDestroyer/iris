@@ -591,6 +591,9 @@ def paso_eliminacion(a, i):
         cuerpo = tk.json or {}
         token_id = (cuerpo.get("datos") or {}).get("id") or cuerpo.get("id")
         token = cuerpo.get("token")
+        if token and not token_id:
+            registrar("7 token de API del admin de Argos", False,
+                      "Argos emitió un token sin id reconocible: revócalo a mano en Argos (Tokens de API)")
         exigir(tk.status == 201 and token and token_id, f"token de API del admin de Argos: status {tk.status}")
         desde = ultimo_entrante()
         s = a("POST", "/servicios", {"cliente_id": estado["cliente_ana"], "router_id": estado["router"], "plan_id": estado["plan"],
@@ -619,10 +622,12 @@ def paso_eliminacion(a, i):
                   f"DELETE → {d.status}; entrante {e[0]} {e[3]} {e[4]}; lápida {lapida}; ficha: servicios {vivos}, "
                   f"serviciosEliminados {eliminados}")
     finally:
+        # Una falla al revocar se registra sin lanzar, para no tapar la causa original del paso.
         if token_id:
             rv = a("POST", f"/tokens/{token_id}/revocar", {})
             if not 200 <= rv.status < 300:
-                raise Falla(f"revocar el token de API del admin de Argos: status {rv.status}")
+                registrar("7 revocar token de API del admin de Argos", False,
+                          f"status {rv.status}: revoca a mano el token {token_id} en Argos")
 
 
 def paso_sso(a, i):
