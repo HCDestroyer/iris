@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,9 +30,10 @@ import (
 // se responde 503 argos_no_disponible.
 
 // Multiempresa: toda lectura de clientes se filtra por la empresa activa (contexto.EmpresaDe,
-// que fija identidad.MiddlewareEmpresa con X-Iris-Empresa). Lo que Argos devuelva de otra
-// empresa, o sin empresa, se descarta (búsqueda) o es 404 (ficha, resolver IP), y nunca se pide
-// el estado de cuenta de un cliente ajeno.
+// que fija identidad.MiddlewareEmpresa con X-Iris-Empresa). En Argos el cliente no tiene empresa:
+// la tienen sus servicios. Un cliente es de la empresa si alguno de sus servicios lo es, o si no
+// tiene servicios (lo ven todas, como las listas de Argos). Lo de otra empresa se descarta
+// (búsqueda) o es 404 (ficha, resolver IP), y nunca se pide el estado de cuenta de un cliente ajeno.
 
 // empresaDeLectura devuelve la empresa por la que se filtra. Con un usuario detrás siempre es
 // ≠ 0: auditoria.Caso ya cortó «por elegir» (422) y «sin empresa» (403); queda el modo sin
@@ -75,6 +77,10 @@ type entradaBusquedaFinal struct {
 	EntradaBuscarClientes
 	pagina   Pagina[ClienteArgos]
 	errArgos error
+	// verificados: lo que se leyó en Argos de los clientes que Iris no conocía (los que no están,
+	// por el tope o un error, quedan fuera).
+	verificados map[int64]infoEmpresas
+	conectorID  int64
 }
 
 // BuscarClientes busca en Argos (GET /clientes?q=). Si Argos no responde, busca en las
@@ -95,9 +101,19 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 			r := ResultadoBusqueda{Data: []ClienteResumen{}}
 			switch {
 			case in.errArgos == nil:
+				q := argosbd.New(t)
 				for _, c := range in.pagina.Data {
-					if empresa != 0 && c.EmpresaID != empresa { // también los que llegan sin empresa
-						continue
+					if empresa != 0 {
+						info, conocido, err := m.conocido(ctx, q, in.conectorID, c)
+						if err != nil {
+							return r, err
+						}
+						if !conocido {
+							info, conocido = in.verificados[c.ID]
+						}
+						if !conocido || !enEmpresa(info.empresas, info.sinServicios, empresa) {
+							continue
+						}
 					}
 					r.Data = append(r.Data, clienteArgosAResumen(c))
 				}
@@ -144,8 +160,81 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 		return ResultadoBusqueda{}, err
 	}
 	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
-	f.pagina, f.errArgos = b.m.clienteDe(c).BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, contexto.EmpresaDe(ctx))
+	cli := b.m.clienteDe(c)
+	empresa := contexto.EmpresaDe(ctx)
+	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa)
+	f.conectorID = c.ID
+	if f.errArgos == nil && empresa != 0 {
+		// Los que Iris no conoce se verifican en Argos (sus servicios) fuera de la transacción.
+		desconocidos, err := b.desconocidos(ctx, c.ID, f.pagina.Data)
+		if err != nil {
+			return ResultadoBusqueda{}, err
+		}
+		f.verificados = b.m.verificarEnArgos(ctx, c.ID, cli, desconocidos)
+	}
 	return b.final.Ejecutar(ctx, f)
+}
+
+// desconocidos: los clientes del resultado de los que Iris no sabe sus empresas.
+func (b *BuscarClientes) desconocidos(ctx context.Context, conectorID int64, clientes []ClienteArgos) ([]ClienteArgos, error) {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return nil, nucleo.ErrSinBD
+	}
+	q := argosbd.New(bd)
+	var salida []ClienteArgos
+	for _, c := range clientes {
+		_, conocido, err := b.m.conocido(ctx, q, conectorID, c)
+		if err != nil {
+			return nil, err
+		}
+		if !conocido {
+			salida = append(salida, c)
+		}
+	}
+	return salida, nil
+}
+
+// infoEmpresas: lo que se sabe de las empresas de un cliente de Argos (las de sus servicios) y si
+// Argos dijo, con la lista de todas las empresas, que no tiene servicios.
+type infoEmpresas struct {
+	empresas     []int64
+	sinServicios bool
+}
+
+// enEmpresa: el cliente es de la empresa si alguno de sus servicios lo es, o si no tiene servicios
+// (lo ven todas, como en Argos; multiempresa.md). Una lista vacía por el alcance del token o
+// servicios sin empresa no lo hacen «de todas».
+func enEmpresa(empresas []int64, sinServicios bool, empresa int64) bool {
+	return slices.Contains(empresas, empresa) || sinServicios
+}
+
+// conocido: lo que Iris ya sabe de un cliente que devolvió Argos: lo que venga en el resultado, la
+// instantánea o una verificación reciente (caché). ok = false si no sabe nada.
+func (m *Modulo) conocido(ctx context.Context, q *argosbd.Queries, conectorID int64, c ClienteArgos) (infoEmpresas, bool, error) {
+	if conocidas := EmpresasDelCliente(c, nil); len(conocidas) > 0 {
+		return infoEmpresas{empresas: conocidas}, true, nil
+	}
+	f, err := q.ClientePorID(ctx, c.ID)
+	switch {
+	case err == nil:
+		return infoEmpresas{empresas: empresasDeFila(f), sinServicios: f.SinServicios}, true, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return infoEmpresas{}, false, err
+	}
+	if i, ok := m.verificacion.leer(conectorID, c.ID); ok {
+		return i, true, nil
+	}
+	return infoEmpresas{}, false, nil
+}
+
+// empresasDeFila: las empresas de la instantánea; una fila sin ellas pero con empresa_id (anterior
+// a la migración o escrita a mano) cuenta como [empresa_id].
+func empresasDeFila(f argosbd.IntegracionArgosCliente) []int64 {
+	if len(f.Empresas) == 0 && f.EmpresaID != 0 {
+		return []int64{f.EmpresaID}
+	}
+	return f.Empresas
 }
 
 func escaparLike(s string) string {
@@ -235,16 +324,24 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			if err != nil {
 				return Ficha{}, err
 			}
-			if e := contexto.EmpresaDe(ctx); e != 0 && cliente.EmpresaID != e {
-				// Mismo 404 que un cliente inexistente: no revela clientes de otras empresas.
-				t.Anotar(map[string]any{"empresa_cliente": cliente.EmpresaID})
-				return Ficha{}, nucleo.NoEncontrado("El cliente no existe")
-			}
 			servicios, err := q.ServiciosDeCliente(ctx, in.ClienteID)
 			if err != nil {
 				return Ficha{}, err
 			}
-			t.FijarEmpresa(cliente.EmpresaID)
+			e := contexto.EmpresaDe(ctx)
+			if e != 0 && !enEmpresa(empresasDeFila(cliente), cliente.SinServicios, e) {
+				// Mismo 404 que un cliente inexistente: no revela clientes de otras empresas.
+				t.Anotar(map[string]any{"empresas_cliente": cliente.Empresas})
+				return Ficha{}, nucleo.NoEncontrado("El cliente no existe")
+			}
+			// Los servicios de otras empresas no se muestran (salvo con empresas.todas global).
+			if e != 0 && !todasGlobal(ctx) {
+				servicios = slices.DeleteFunc(servicios, func(s argosbd.IntegracionArgosServicio) bool { return s.EmpresaID != e })
+			}
+			if e == 0 {
+				e = cliente.EmpresaID
+			}
+			t.FijarEmpresa(e)
 			t.Anotar(map[string]any{"stale": stale, "estado_cuenta": in.estado != nil})
 			return Ficha{
 				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), EstadoCuenta: in.estado,
@@ -277,8 +374,13 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	switch {
 	case f.noExiste || (f.errArgos != nil && p.cliente == nil):
 		// Sin ficha que mostrar: la respuesta será un error.
-	case deOtraEmpresa(ctx, f.leida, p.cliente):
-		// La respuesta será 404 (final): no se pide el estado de cuenta de un cliente ajeno.
+	case !estadoCuentaPermitido(ctx, f.leida, p.cliente):
+		// De otra empresa (la respuesta será 404) o sin servicios sin empresas.todas: no se pide
+		// su estado de cuenta.
+		if p.estadoCta {
+			motivo := "sin_permiso"
+			f.errEstado = &motivo
+		}
 	case f.errArgos != nil && EsCaido(f.errArgos) && p.estadoCta:
 		// Argos no responde: no se insiste con el estado de cuenta.
 		motivo := "argos_no_disponible"
@@ -289,19 +391,31 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	return o.final.Ejecutar(ctx, f)
 }
 
-// deOtraEmpresa indica si el cliente (el recién leído o, si no, la instantánea) no es de la
-// empresa activa.
-func deOtraEmpresa(ctx context.Context, leida *fichaArgos, previa *argosbd.IntegracionArgosCliente) bool {
+// estadoCuentaPermitido: el estado de cuenta se pide si el cliente tiene un servicio en la empresa
+// activa. Un cliente sin servicios (o recién creado por un alta, aún sin servicio) solo para quien
+// tiene empresas.todas global; uno de otra empresa, nunca (la ficha será 404).
+func estadoCuentaPermitido(ctx context.Context, leida *fichaArgos, previa *argosbd.IntegracionArgosCliente) bool {
 	e := contexto.EmpresaDe(ctx)
 	switch {
 	case e == 0:
-		return false
+		return true
 	case leida != nil:
-		return leida.cliente.EmpresaID != e
+		if slices.Contains(EmpresasDelCliente(leida.cliente, leida.servicios), e) {
+			return true
+		}
+		return leida.completa && len(leida.servicios) == 0 && todasGlobal(ctx)
 	case previa != nil:
-		return previa.EmpresaID != e
+		if slices.Contains(empresasDeFila(*previa), e) {
+			return true
+		}
+		return previa.SinServicios && todasGlobal(ctx)
 	}
 	return false
+}
+
+// todasGlobal: el actor tiene empresas.todas sin límite de alcance.
+func todasGlobal(ctx context.Context) bool {
+	return contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermEmpresasTodas))
 }
 
 func (o *ObtenerFicha) estadoCuenta(ctx context.Context, cli *Cliente, p fichaPrevia, id int64) (*EstadoCuenta, *string) {
@@ -309,7 +423,12 @@ func (o *ObtenerFicha) estadoCuenta(ctx context.Context, cli *Cliente, p fichaPr
 	if !p.estadoCta {
 		return nil, motivo("sin_permiso")
 	}
-	e, err := cli.EstadoCuenta(ctx, id)
+	// Solo el de la empresa activa (Argos lo separa por empresa); con empresas.todas, el consolidado.
+	empresa := contexto.EmpresaDe(ctx)
+	if todasGlobal(ctx) {
+		empresa = 0
+	}
+	e, err := cli.EstadoCuenta(ctx, id, empresa)
 	switch {
 	case err == nil:
 	case EsCaido(err):

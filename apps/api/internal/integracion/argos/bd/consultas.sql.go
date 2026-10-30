@@ -70,9 +70,11 @@ func (q *Queries) BorrarZonasAnteriores(ctx context.Context, antes time.Time) (i
 }
 
 const buscarClientesLocal = `-- name: BuscarClientesLocal :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_clientes
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes
 WHERE (nombre ILIKE '%' || $1::text || '%' OR codigo ILIKE '%' || $1::text || '%' OR telefono ILIKE '%' || $1::text || '%')
-  AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+  -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
+  AND ($2::bigint = 0 OR $2::bigint = ANY(empresas) OR sin_servicios
+       OR (cardinality(empresas) = 0 AND empresa_id = $2::bigint))
 ORDER BY nombre, id
 LIMIT $3
 `
@@ -107,6 +109,8 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Empresas,
+			&i.SinServicios,
 		); err != nil {
 			return nil, err
 		}
@@ -119,7 +123,7 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 }
 
 const clientePorID = `-- name: ClientePorID :one
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = $1
 `
 
 func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosCliente, error) {
@@ -139,6 +143,8 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Empresas,
+		&i.SinServicios,
 	)
 	return i, err
 }
@@ -146,12 +152,13 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
-    id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+    $1, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
 )
 ON CONFLICT (id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, codigo = excluded.codigo, nombre = excluded.nombre,
+    empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
+    codigo = excluded.codigo, nombre = excluded.nombre,
     telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     updated_at = now()
@@ -161,6 +168,8 @@ WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en
 type GuardarClienteParams struct {
 	ID             int64
 	EmpresaID      int64
+	Empresas       []int64
+	SinServicios   bool
 	Codigo         string
 	Nombre         string
 	Telefono       string
@@ -177,6 +186,8 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 	_, err := q.db.Exec(ctx, guardarCliente,
 		arg.ID,
 		arg.EmpresaID,
+		arg.Empresas,
+		arg.SinServicios,
 		arg.Codigo,
 		arg.Nombre,
 		arg.Telefono,
@@ -306,6 +317,24 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const pistaEmpresaAlta = `-- name: PistaEmpresaAlta :one
+SELECT empresa_id::bigint AS empresa_id FROM integracion.pendientes
+WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND empresa_id IS NOT NULL
+  -- La respuesta guardada conserva la envoltura de Argos ({"data":{"id":N}}); el id puede venir
+  -- como número o como texto.
+  AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = ($1::bigint)::text
+ORDER BY id DESC LIMIT 1
+`
+
+// Cliente recién creado desde un prospecto ganado (alta en Argos), todavía sin servicio: la
+// empresa del prospecto es la pista local hasta que exista el servicio.
+func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, pistaEmpresaAlta, clienteID)
+	var empresa_id int64
+	err := row.Scan(&empresa_id)
+	return empresa_id, err
+}
+
 const routerPorID = `-- name: RouterPorID :one
 SELECT id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en, created_at, updated_at FROM integracion.argos_routers WHERE id = $1
 `
@@ -359,7 +388,7 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 
 const servicioPorIP = `-- name: ServicioPorIP :one
 SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios
-WHERE ip = $1 AND ($2::bigint = 0 OR empresa_id = $2::bigint)
+WHERE ip = $1 AND empresa_id <> 0 AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
 
@@ -369,6 +398,7 @@ type ServicioPorIPParams struct {
 }
 
 // La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
+// Un servicio sin empresa (0) no se atribuye a nadie.
 func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (IntegracionArgosServicio, error) {
 	row := q.db.QueryRow(ctx, servicioPorIP, arg.Ip, arg.EmpresaID)
 	var i IntegracionArgosServicio

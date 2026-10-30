@@ -371,9 +371,13 @@ WHERE id = @id AND ultimo_uso < now() - interval '1 minute';
 UPDATE nucleo.portal_sesiones SET revocada_en = now(), updated_at = now()
 WHERE id = @id AND revocada_en IS NULL;
 
--- name: EmpresaDeClienteArgos :one
--- Empresa del cliente según la instantánea de Argos (sin fila si Iris nunca lo leyó).
-SELECT empresa_id FROM integracion.argos_clientes WHERE id = @id;
+-- name: EmpresasDeClienteArgos :one
+-- Empresas del cliente según la instantánea de Argos (las de sus servicios) y si Argos dijo que no
+-- tiene servicios. Una fila sin empresas pero con empresa_id (anterior) cuenta como [empresa_id].
+-- Sin fila si Iris nunca lo leyó.
+SELECT CASE WHEN cardinality(c.empresas) = 0 AND c.empresa_id <> 0 THEN ARRAY[c.empresa_id] ELSE c.empresas END::bigint[] AS empresas,
+       c.sin_servicios
+FROM integracion.argos_clientes c WHERE c.id = @id;
 
 -- name: PurgarSesionesPortal :execrows
 -- Purga (job nucleo.portal_purga): sesiones del portal vencidas o revocadas antes de @hasta, por

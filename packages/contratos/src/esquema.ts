@@ -1836,7 +1836,7 @@ export interface paths {
         put?: never;
         /**
          * Emitir un acceso al portal de soporte para un cliente de Argos
-         * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado), se emite igual y queda `cliente_validado: false` en la auditoría. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         * @description Permiso: `portal.emitir`. Solo con token (`Authorization: Bearer`; en `/api/v1/portal/` la sesión del panel no cuenta). Lo llama Argos (token de integración `iris_pat_`, pedido A9) desde su portal del cliente: devuelve `<IRIS_BASE_URL>/soporte/entrar#<ticket>`, válida 60 s y de un solo uso, a la que Argos redirige al cliente. `empresaId` debe ser una empresa en que opera quien emite (403 `empresa_no_permitida`); si Iris ya conoce al cliente (instantánea) o, si no, Argos dice que es de otra empresa, 422 `empresa_no_coincide`; si Argos no lo tiene, 422 `cliente_no_existe`; si no se pudo preguntar (conector apagado o Argos caído), solo la integración o quien tiene `empresas.todas` lo emite (queda `cliente_validado: false` en la auditoría); un usuario del panel recibe 422 `cliente_no_verificado`. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["emitirAccesoPortal"];
         delete?: never;
@@ -3823,9 +3823,11 @@ export interface components {
             direccion: string;
             /**
              * Format: int64
-             * @description Empresa en Argos
+             * @description Primera de empresas (0 sin servicios). En Argos el cliente no tiene empresa: la tienen sus servicios; usa empresas
              */
             empresaId: number;
+            /** @description Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos) */
+            empresas?: number[] | null;
             /** @description Estado del cliente en Argos */
             estado: string;
             /**

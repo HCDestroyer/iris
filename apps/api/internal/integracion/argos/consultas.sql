@@ -2,12 +2,13 @@
 
 -- name: GuardarCliente :exec
 INSERT INTO integracion.argos_clientes (
-    id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
 ) VALUES (
-    @id, @empresa_id, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en
+    @id, @empresa_id, @empresas::bigint[], @sin_servicios, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en
 )
 ON CONFLICT (id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, codigo = excluded.codigo, nombre = excluded.nombre,
+    empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
+    codigo = excluded.codigo, nombre = excluded.nombre,
     telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     updated_at = now()
@@ -23,7 +24,9 @@ DELETE FROM integracion.argos_clientes WHERE id = @id;
 -- Respaldo de la búsqueda cuando Argos no responde: solo lo que ya está en la instantánea.
 SELECT * FROM integracion.argos_clientes
 WHERE (nombre ILIKE '%' || @q::text || '%' OR codigo ILIKE '%' || @q::text || '%' OR telefono ILIKE '%' || @q::text || '%')
-  AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+  -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
+  AND (@empresa_id::bigint = 0 OR @empresa_id::bigint = ANY(empresas) OR sin_servicios
+       OR (cardinality(empresas) = 0 AND empresa_id = @empresa_id::bigint))
 ORDER BY nombre, id
 LIMIT @limite;
 
@@ -52,7 +55,8 @@ SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER B
 -- name: ServicioPorIP :one
 -- La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
 SELECT * FROM integracion.argos_servicios
-WHERE ip = @ip AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+-- Un servicio sin empresa (0) no se atribuye a nadie.
+WHERE ip = @ip AND empresa_id <> 0 AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1;
 
 -- name: BorrarServicio :exec
@@ -87,3 +91,13 @@ DELETE FROM integracion.argos_routers WHERE sincronizado_en < @antes;
 
 -- name: RouterPorID :one
 SELECT * FROM integracion.argos_routers WHERE id = @id;
+
+-- name: PistaEmpresaAlta :one
+-- Cliente recién creado desde un prospecto ganado (alta en Argos), todavía sin servicio: la
+-- empresa del prospecto es la pista local hasta que exista el servicio.
+SELECT empresa_id::bigint AS empresa_id FROM integracion.pendientes
+WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND empresa_id IS NOT NULL
+  -- La respuesta guardada conserva la envoltura de Argos ({"data":{"id":N}}); el id puede venir
+  -- como número o como texto.
+  AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = (@cliente_id::bigint)::text
+ORDER BY id DESC LIMIT 1;

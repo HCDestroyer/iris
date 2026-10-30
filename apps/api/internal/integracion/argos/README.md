@@ -72,3 +72,25 @@ comunes de conectores); aquí queda lo propio de Argos.
 
 `integracion.argos_procesar_entrante` (uno por entrante, hasta 12 intentos) e
 `integracion.argos_sincronizar_catalogos` (cada 6 h y al activar).
+
+## Empresa del cliente
+
+En Argos el cliente no tiene empresa: la tienen sus servicios (`multiempresa.md` de Argos). La
+instantánea guarda `empresas` (las de sus servicios) y `sin_servicios`; `empresa_id` queda como la
+primera.
+
+- **Servicios:** se leen con `GET /servicios?cliente_id=&empresas=todas`, el consolidado de todas
+  las empresas. Sin `todas`, Argos filtra por el alcance del token; si Argos no da el consolidado
+  (403: el token no tiene alcance global), se leen los del alcance y la lista no es concluyente.
+- **Visible en una empresa:** si alguno de sus servicios es de ella, o si no tiene servicios. «Sin
+  servicios» solo cuenta si lo dice la lista consolidada (una vacía por alcance deja al cliente
+  fuera). A un cliente sin servicios lo ve cualquier empresa (paridad con Argos), pero su estado de
+  cuenta y su acceso al portal solo los obtiene quien tiene `empresas.todas` global.
+- **Alta desde Iris:** un cliente recién creado desde un prospecto ganado, aún sin servicio, tiene
+  como pista la empresa del prospecto (el pendiente `crear_cliente`): solo se ve en ella.
+- **Ficha:** solo muestra los servicios de la empresa activa (con `empresas.todas`, todos) y pide el
+  estado de cuenta de esa empresa (`?empresa_id=` y `X-Empresa-Id`). Un servicio sin empresa no hereda
+  la del cliente y no se atribuye a nadie (resolver IP lo descarta).
+- **Búsqueda:** la empresa activa va en `X-Empresa-Id`. Los clientes que Iris no conoce (ni en la
+  instantánea ni en una caché de 5 min) se verifican en Argos: a lo sumo 20 por búsqueda (los demás
+  quedan fuera) y 10 a la vez por conector; falla cerrado.

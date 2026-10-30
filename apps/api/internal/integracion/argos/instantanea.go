@@ -2,7 +2,10 @@ package argos
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 )
@@ -15,7 +18,10 @@ import (
 type fichaArgos struct {
 	cliente   ClienteArgos
 	servicios []ServicioArgos
-	leidoEn   time.Time
+	// completa: servicios es la lista de todas las empresas (empresas=todas); si no, solo lo del
+	// alcance del token y una lista vacía no dice nada.
+	completa bool
+	leidoEn  time.Time
 }
 
 // leerFichaArgos lee cliente y servicios (fuera de toda transacción).
@@ -25,10 +31,28 @@ func leerFichaArgos(ctx context.Context, c *Cliente, clienteID int64) (fichaArgo
 	if f.cliente, err = c.ObtenerCliente(ctx, clienteID); err != nil {
 		return f, err
 	}
-	if f.servicios, err = c.ServiciosDeCliente(ctx, clienteID); err != nil {
+	if f.servicios, f.completa, err = c.ServiciosDeClienteCompletos(ctx, clienteID); err != nil {
 		return f, err
 	}
 	return f, nil
+}
+
+// empresasYPista: las empresas del cliente (las de sus servicios) y si no tiene servicios de forma
+// concluyente (la lista de todas las empresas vino vacía). Un cliente recién creado por un alta
+// desde Iris, todavía sin servicio, tiene como pista la empresa del prospecto: solo se ve en ella.
+func empresasYPista(ctx context.Context, q *argosbd.Queries, c ClienteArgos, servicios []ServicioArgos, completa bool) ([]int64, bool, error) {
+	empresas := EmpresasDelCliente(c, servicios)
+	if !completa || len(servicios) > 0 {
+		return empresas, false, nil
+	}
+	pista, err := q.PistaEmpresaAlta(ctx, c.ID)
+	switch {
+	case err == nil:
+		return []int64{pista}, false, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return empresas, len(empresas) == 0, nil
+	}
+	return nil, false, err
 }
 
 // guardarFicha escribe la instantánea del cliente y sus servicios y borra los servicios que
@@ -36,8 +60,18 @@ func leerFichaArgos(ctx context.Context, c *Cliente, clienteID int64) (fichaArgo
 func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 	c := f.cliente
 	lat, lon := c.LatLon()
+	// El cliente de Argos no tiene empresa: las suyas son las de sus servicios. empresa_id queda
+	// como la primera (0 sin servicios), por compatibilidad.
+	empresas, sinServicios, err := empresasYPista(ctx, q, c, f.servicios, f.completa)
+	if err != nil {
+		return err
+	}
+	primera := int64(0)
+	if len(empresas) > 0 {
+		primera = empresas[0]
+	}
 	if err := q.GuardarCliente(ctx, argosbd.GuardarClienteParams{
-		ID: c.ID, EmpresaID: c.EmpresaID, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
+		ID: c.ID, EmpresaID: primera, Empresas: empresas, SinServicios: sinServicios, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado, SincronizadoEn: f.leidoEn,
 	}); err != nil {
 		return err
@@ -50,9 +84,7 @@ func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 		if s.ClienteID != c.ID {
 			continue
 		}
-		if s.EmpresaID == 0 {
-			s.EmpresaID = c.EmpresaID
-		}
+		// Un servicio sin empresa no hereda la del cliente: queda en 0 y no se atribuye a nadie.
 		slat, slon := s.LatLon()
 		if err := q.GuardarServicio(ctx, argosbd.GuardarServicioParams{
 			ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
@@ -71,8 +103,12 @@ func guardarFicha(ctx context.Context, q *argosbd.Queries, f fichaArgos) error {
 }
 
 func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
+	empresas := empresasDeFila(f)
+	if empresas == nil {
+		empresas = []int64{}
+	}
 	return ClienteResumen{
-		ID: f.ID, EmpresaID: f.EmpresaID, Codigo: f.Codigo, Nombre: f.Nombre, Telefono: f.Telefono,
+		ID: f.ID, EmpresaID: f.EmpresaID, Empresas: empresas, Codigo: f.Codigo, Nombre: f.Nombre, Telefono: f.Telefono,
 		Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, ZonaID: f.ZonaID, Estado: f.Estado,
 	}
 }
@@ -80,7 +116,7 @@ func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
 func clienteArgosAResumen(c ClienteArgos) ClienteResumen {
 	lat, lon := c.LatLon()
 	return ClienteResumen{
-		ID: c.ID, EmpresaID: c.EmpresaID, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
+		ID: c.ID, EmpresaID: c.EmpresaID, Empresas: EmpresasDelCliente(c, nil), Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado,
 	}
 }

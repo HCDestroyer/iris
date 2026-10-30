@@ -85,10 +85,21 @@ type AccesoPortalEmitido struct {
 // ValidacionCliente es lo que Argos dice de un cliente (Config.ValidarCliente). Validado =
 // false: no se pudo preguntar (Motivo dice por qué).
 type ValidacionCliente struct {
-	Validado  bool
-	Existe    bool
-	EmpresaID int64
-	Motivo    string
+	Validado bool
+	Existe   bool
+	// Empresas del cliente: las de sus servicios en Argos (el cliente no tiene empresa; sus
+	// servicios sí). SinServicios: Argos dijo, con la lista de todas las empresas, que no tiene
+	// ninguno (una lista vacía por el alcance del token no cuenta).
+	Empresas     []int64
+	SinServicios bool
+	Motivo       string
+}
+
+// EnEmpresa indica si el cliente es de la empresa: uno de sus servicios lo es. Un cliente sin
+// servicios se ve en todas (como en Argos), pero su acceso al portal (y su estado de cuenta) solo
+// lo pide quien tiene empresas.todas global (todas).
+func EnEmpresa(empresas []int64, sinServicios bool, empresa int64, todas bool) bool {
+	return slices.Contains(empresas, empresa) || (sinServicios && todas)
 }
 
 // ValidadorCliente lee un cliente en Argos (lo cablea cmd/iris con el conector Argos). Solo
@@ -114,13 +125,13 @@ type EmitirAccesoPortal struct {
 
 // clienteConocido: si Iris ya conoce al cliente (instantánea de Argos), debe ser de esa empresa.
 func clienteConocido(ctx context.Context, q *identidadbd.Queries, in EntradaEmitirAccesoPortal) (bool, error) {
-	e, err := q.EmpresaDeClienteArgos(ctx, in.ClienteID)
+	c, err := q.EmpresasDeClienteArgos(ctx, in.ClienteID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return false, nil
 	case err != nil:
 		return false, err
-	case e != in.EmpresaID:
+	case !EnEmpresa(c.Empresas, c.SinServicios, in.EmpresaID, todasGlobal(ctx)):
 		return true, empresaNoCoincide()
 	}
 	return true, nil
@@ -161,10 +172,16 @@ func nuevoEmitirAccesoPortal(cfg Config) *EmitirAccesoPortal {
 				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "instantanea"})
 			case v != nil && v.Validado && !v.Existe:
 				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("cliente_no_existe", "Argos no tiene ese cliente")
-			case v != nil && v.Validado && v.EmpresaID != in.EmpresaID:
+			case v != nil && v.Validado && !EnEmpresa(v.Empresas, v.SinServicios, in.EmpresaID, todasGlobal(ctx)):
 				return AccesoPortalEmitido{}, empresaNoCoincide()
 			case v != nil && v.Validado:
 				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "argos"})
+			case v != nil && !todasGlobal(ctx) && t.Actor().Tipo != contexto.ActorIntegracion:
+				// Argos no lo pudo confirmar (caído, rechazo, conector apagado) y no está en la
+				// instantánea: un usuario del panel sin empresas.todas no lo emite, porque no sabemos
+				// si es de su empresa. La integración (Argos, la fuente de verdad) sí puede.
+				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("cliente_no_verificado",
+					"No se pudo confirmar en Argos que el cliente sea de esta empresa; intenta de nuevo en un momento")
 			case v != nil:
 				t.Anotar(map[string]any{"cliente_validado": false, "validacion": v.Motivo})
 			default:
