@@ -18,6 +18,8 @@ export const variantesBoton = cva(
                 secundario: "bg-elevated text-foreground shadow-[0_0_0_1px_var(--hx-border)] hover:bg-muted",
                 contorno: "border border-border bg-transparent text-foreground hover:bg-elevated",
                 fantasma: "bg-transparent text-foreground hover:bg-elevated",
+                // Acción destructiva (desactivar, quitar, descartar): borde y texto en tono de error.
+                peligro: "border border-error/60 bg-transparent text-error hover:bg-error/10",
                 enlace: "h-auto bg-transparent p-0 text-primary underline-offset-4 hover:underline",
             },
             tamano: {
