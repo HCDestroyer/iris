@@ -22,7 +22,9 @@ import { useSesion } from "@/lib/sesion";
  * activar avisa si reemplaza al conector activo del mismo sistema.
  */
 export function Integraciones() {
-    const { puede } = useSesion();
+    const { yo, puede } = useSesion();
+    // Como la API: conectar exige además `empresas.todas` sin alcance (rol global).
+    const puedeConectar = puede(["integraciones.conectar"]) && yo.todasLasEmpresas;
     const lectura = useLectura(async (signal) => (await resolver(api().GET("/api/v1/integraciones/conectores", { params: { query: { limit: 50 } }, signal }))).data ?? []);
     const [aviso, setAviso] = useState<string | null>(null);
 
@@ -38,7 +40,7 @@ export function Integraciones() {
                 titulo="Integraciones"
                 descripcion="Conectores con Argos y Horus Flow. A lo más uno activo por sistema."
                 acciones={
-                    puede(["integraciones.conectar"]) ? (
+                    puedeConectar ? (
                         <DialogoConectar
                             alConectar={(c) => {
                                 setAviso(`Conectado con ${SISTEMAS[c.sistema]} (${c.baseUrl}). Queda apagado hasta que lo actives.`);

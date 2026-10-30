@@ -9,6 +9,7 @@ export const COOKIE_SESION = "iris_sesion";
 export const CABECERA_CSRF = "X-CSRF-Token";
 
 const METODOS_SIN_ESTADO = new Set(["GET", "HEAD", "OPTIONS"]);
+const CABECERA_IDEMPOTENCIA = "Idempotency-Key";
 
 /** Valor de una cookie legible (`iris_csrf` no es HttpOnly; `iris_sesion` sí y no se ve aquí). */
 export function leerCookie(nombre: string, cookies: string): string | undefined {
@@ -77,6 +78,9 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
     // Copia de cada petición antes de enviarla: el cuerpo se consume al mandarla y, tras
     // re-autenticarse, hay que repetirla igual.
     const copias = new WeakMap<Request, Request>();
+    // Claves que ya se repitieron tras re-autenticarse: un «Reintentar» con la misma clave va
+    // directo a la derivada (`clave:reaut`) y recibe la respuesta guardada, nunca otra ejecución.
+    const repetidas = new Set<string>();
     const cliente = crearCliente({
         querySerializer: { array: { style: "form", explode: false } },
         baseUrl: opciones.baseUrl ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
@@ -88,12 +92,15 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
             if (empresa !== undefined && !request.headers.has(CABECERA_EMPRESA)) {
                 request.headers.set(CABECERA_EMPRESA, String(empresa));
             }
-            if (METODOS_SIN_ESTADO.has(request.method.toUpperCase())) {
-                return request;
-            }
-            const csrf = leerCookie(COOKIE_CSRF, leerCookies());
-            if (csrf && !request.headers.has(CABECERA_CSRF)) {
-                request.headers.set(CABECERA_CSRF, csrf);
+            if (!METODOS_SIN_ESTADO.has(request.method.toUpperCase())) {
+                const csrf = leerCookie(COOKIE_CSRF, leerCookies());
+                if (csrf && !request.headers.has(CABECERA_CSRF)) {
+                    request.headers.set(CABECERA_CSRF, csrf);
+                }
+                const clave = request.headers.get(CABECERA_IDEMPOTENCIA);
+                if (clave && repetidas.has(clave)) {
+                    request.headers.set(CABECERA_IDEMPOTENCIA, claveTrasReautenticar(clave));
+                }
             }
             copias.set(request, request.clone());
             return request;
@@ -107,6 +114,12 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
             } else if (codigo === CODIGO_REAUTENTICACION && response.status === 403 && new URL(request.url).pathname !== RUTA_REAUTENTICAR) {
                 const copia = copias.get(request);
                 if (copia && (await reautenticar())) {
+                    const clave = copia.headers.get(CABECERA_IDEMPOTENCIA);
+                    if (clave) {
+                        repetidas.add(clave);
+                        // Acotado: solo importan las recientes (la API guarda 24 h, el panel no tanto).
+                        if (repetidas.size > 200) repetidas.delete(repetidas.values().next().value as string);
+                    }
                     return repetir(copia, fetchBase, leerCookies);
                 }
             }
@@ -116,14 +129,24 @@ export function crearClienteIris(opciones: OpcionesCliente = {}): ClienteIris {
     return cliente;
 }
 
+const SUFIJO_REAUTENTICACION = ":reaut";
+
 /**
- * Repite una petición tras re-autenticarse. La API guardó el 403 con su `Idempotency-Key` (no hizo
- * nada), así que la repetición lleva una clave nueva; el CSRF se relee por si cambió.
+ * Clave de la repetición tras re-autenticarse, derivada de la original (`K` → `K:reaut`): la API
+ * guardó el 403 con `K` (no hizo nada) y cualquier reintento de la misma acción vuelve a `K:reaut`,
+ * así que recibe la respuesta guardada en vez de ejecutarse otra vez. Ya derivada, no cambia.
  */
+export function claveTrasReautenticar(clave: string): string {
+    return clave.endsWith(SUFIJO_REAUTENTICACION) ? clave : `${clave}${SUFIJO_REAUTENTICACION}`;
+}
+
+
+/** Repite una petición tras re-autenticarse, con la clave derivada; el CSRF se relee por si cambió. */
 async function repetir(copia: Request, fetchBase: typeof fetch, leerCookies: () => string): Promise<Response> {
     const otra = copia.clone();
-    if (otra.headers.has(CABECERA_IDEMPOTENCIA)) {
-        otra.headers.set(CABECERA_IDEMPOTENCIA, nuevaClaveIdempotencia());
+    const clave = otra.headers.get(CABECERA_IDEMPOTENCIA);
+    if (clave) {
+        otra.headers.set(CABECERA_IDEMPOTENCIA, claveTrasReautenticar(clave));
     }
     const csrf = leerCookie(COOKIE_CSRF, leerCookies());
     if (csrf && !METODOS_SIN_ESTADO.has(otra.method.toUpperCase())) {
@@ -132,7 +155,6 @@ async function repetir(copia: Request, fetchBase: typeof fetch, leerCookies: () 
     return fetchBase(otra);
 }
 
-const CABECERA_IDEMPOTENCIA = "Idempotency-Key";
 
 type Resultado<D> = { data?: D; error?: unknown; response: Response };
 

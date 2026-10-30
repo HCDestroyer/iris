@@ -171,7 +171,8 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
-    [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "tickets.ver"],
+    // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
+    [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
     [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
 };
@@ -255,7 +256,7 @@ export type ApiFalsa = {
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
-    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "sesionesSSO"> & { reautenticaciones: () => number };
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -814,6 +815,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             conectores: sso.conectores,
             sesionesSSO: sso.sesionesSSO,
             reautenticaciones: () => sso.reautenticaciones,
+            descartes: () => sso.descartes,
         },
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
         cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },

@@ -94,6 +94,8 @@ export type ApiSSO = {
     /** Vinculaciones pedidas (`POST /sso/vincular`). */
     vinculaciones: { idExterno: string; correo: string; cookie: boolean }[];
     reautenticaciones: number;
+    /** `POST /sso/descartar` recibidos («No fui yo»). */
+    descartes: number;
     vinculos: Map<number, Vinculo[]>;
     conectores: Conector[];
     /** Correos con una sesión abierta por autologin (piden re-autenticarse). */
@@ -128,6 +130,7 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
         canjes,
         vinculaciones,
         reautenticaciones: 0,
+        descartes: 0,
         vinculos,
         conectores,
         sesionesSSO,
@@ -136,6 +139,13 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
             reautenticadas.delete(correo);
         },
         async manejarPublica({ route, metodo, ruta, cabeceras, cuerpo, sesion }) {
+            if (metodo === "POST" && ruta === "/api/v1/sso/descartar") {
+                // Contrato acordado con I1: borra la cookie y anula la vinculación pendiente.
+                api.descartes += 1;
+                pendiente = null;
+                await route.fulfill({ status: 204, headers: { "Set-Cookie": "iris_sso_vincular=; Path=/api/v1/sso; Max-Age=0" } });
+                return true;
+            }
             if (metodo !== "POST" || ruta !== "/api/v1/sso/canjear") return false;
             const entrada = (cuerpo ?? {}) as Schema<"EntradaCanjearSSO">;
             canjes.push({ cuerpo: entrada, csrf: Boolean(cabeceras["x-csrf-token"]), empresa: Boolean(cabeceras["x-iris-empresa"]), sesion });

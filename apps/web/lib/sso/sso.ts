@@ -1,4 +1,5 @@
 import { crearCliente, type ClienteIris, type Schema } from "@iris/contratos";
+import { CABECERA_CSRF, COOKIE_CSRF, leerCookie } from "../api/cliente";
 import { rutaSegura } from "../tiempo";
 
 /*
@@ -61,5 +62,22 @@ export function mensajeSSO(estado: number, codigo: string | undefined): MensajeS
             if (estado === 429) return { titulo: "Demasiados intentos", detalle: "Espera un momento y vuelve a abrir el enlace desde Argos." };
             if (estado === 403) return { titulo: "Esta cuenta no puede entrar", detalle: "Habla con un administrador de Iris." };
             return { titulo: "No se pudo entrar desde Argos", detalle: "Inténtalo de nuevo o entra con tu cuenta de Iris." };
+    }
+}
+
+/**
+ * «No fui yo»: `POST /api/v1/sso/descartar` borra la cookie `iris_sso_vincular` (HttpOnly, el
+ * navegador no puede) y anula la vinculación pendiente. I1 lo está agregando (pedido en i3.md): aún
+ * no está en packages/contratos, así que va con `fetch` y el contrato acordado (sin cuerpo; con
+ * `X-CSRF-Token` si hay sesión del panel). Al regenerar el contrato pasa a `apiSSO()`. Si falla, la
+ * vinculación vence sola en 10 minutos: no se bloquea la salida.
+ */
+export async function descartarVinculacion(f: typeof fetch = fetch): Promise<boolean> {
+    const csrf = typeof document === "undefined" ? undefined : leerCookie(COOKIE_CSRF, document.cookie);
+    try {
+        const r = await f("/api/v1/sso/descartar", { method: "POST", credentials: "include", headers: csrf ? { [CABECERA_CSRF]: csrf } : {} });
+        return r.ok;
+    } catch {
+        return false;
     }
 }

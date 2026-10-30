@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
-import { crearClienteIris, leerCookie, resolver } from "./cliente";
+import { claveTrasError, crearClienteIris, leerCookie, resolver } from "./cliente";
 import { ErrorApi } from "./errores";
 
 type Llamada = { metodo: string; url: string; cabeceras: Headers; credenciales: RequestCredentials };
@@ -221,7 +221,7 @@ describe("cliente: re-autenticación (sesión desde Argos)", () => {
             headers: { "Content-Type": "application/problem+json" },
         });
 
-    it("con 403 reautenticacion_requerida pide la contraseña y repite la acción con el mismo cuerpo y otra Idempotency-Key", async () => {
+    it("con 403 reautenticacion_requerida pide la contraseña y repite la acción con el mismo cuerpo y la clave derivada", async () => {
         const cuerpos: string[] = [];
         const claves: (string | null)[] = [];
         let n = 0;
@@ -250,9 +250,7 @@ describe("cliente: re-autenticación (sesión desde Argos)", () => {
         expect(r.response.status).toBe(204);
         expect(pedidas).toBe(1);
         expect(cuerpos).toEqual(['{"motivo":"ya no uso Argos"}', '{"motivo":"ya no uso Argos"}']);
-        expect(claves[0]).toBe("k1");
-        expect(claves[1]).not.toBe("k1");
-        expect(claves[1]).toBeTruthy();
+        expect(claves).toEqual(["k1", "k1:reaut"]);
     });
 
     it("si se cancela, la acción recibe el 403; el propio reautenticar nunca se repite", async () => {
@@ -274,5 +272,61 @@ describe("cliente: re-autenticación (sesión desde Argos)", () => {
         });
         await otro.POST("/api/v1/sesion/reautenticar", { body: { contrasena: "x" } });
         expect(pedidas).toBe(0);
+    });
+
+    it.each([
+        ["la API guarda el 403", true],
+        ["la API no guarda el 403", false],
+    ])("si la respuesta de la repetición se pierde, «Reintentar» con la misma clave no ejecuta la acción otra vez (%s)", async (_caso, guardar403) => {
+        // API falsa con idempotencia como nucleo/idempotencia.go: guarda toda respuesta < 500 por clave.
+        const guardadas = new Map<string, { status: number; cuerpo: string }>();
+        let reautenticada = false;
+        let ejecuciones = 0;
+        let perderSiguiente = false;
+        const fetchFalso: typeof fetch = async (entrada) => {
+            const p = entrada as Request;
+            const clave = p.headers.get("Idempotency-Key") ?? "";
+            let r = guardadas.get(clave);
+            if (!r) {
+                if (!reautenticada) {
+                    r = { status: 403, cuerpo: JSON.stringify({ type: "urn:iris:problema:reautenticacion_requerida", title: "Re-autenticación requerida", status: 403 }) };
+                    if (guardar403) guardadas.set(clave, r);
+                } else {
+                    ejecuciones += 1;
+                    r = { status: 201, cuerpo: JSON.stringify({ id: ejecuciones }) };
+                    guardadas.set(clave, r);
+                }
+            }
+            if (perderSiguiente && r.status === 201) {
+                perderSiguiente = false;
+                throw new TypeError("La conexión se cortó");
+            }
+            return new Response(r.cuerpo, { status: r.status, headers: { "Content-Type": r.status === 403 ? "application/problem+json" : "application/json" } });
+        };
+        const api = crearClienteIris({
+            baseUrl: "http://panel.test",
+            fetch: fetchFalso,
+            leerCookies: () => "iris_csrf=tok",
+            reautenticar: async () => {
+                reautenticada = true;
+                return true;
+            },
+        });
+        const pedir = (clave: string) =>
+            resolver(
+                api.POST("/api/v1/usuarios/{id}/vinculos-sso", {
+                    params: { path: { id: 3 }, header: { "Idempotency-Key": clave } },
+                    body: { conector_id: 1, id_externo: "argos-9" },
+                }),
+            );
+        // 1.ª vez: 403 → re-autentica → la repetición (K1:reaut) corre, pero su respuesta se pierde.
+        perderSiguiente = true;
+        const error = await pedir("K1").catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(ErrorApi);
+        expect((error as ErrorApi).estado).toBe(0);
+        // «Reintentar» con la misma clave (claveTrasError la conserva sin respuesta): va a K1:reaut.
+        const otra = await pedir(claveTrasError(error, "K1"));
+        expect(otra).toEqual({ id: 1 });
+        expect(ejecuciones).toBe(1);
     });
 });

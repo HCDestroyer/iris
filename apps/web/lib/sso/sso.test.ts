@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activoQueReemplaza, enlaceValido, textoMotivoOrigen, type Conector } from "../integraciones/presentacion";
-import { destinoSeguro, mensajeSSO } from "./sso";
+import { descartarVinculacion, destinoSeguro, mensajeSSO } from "./sso";
 
 const O = "http://iris.test";
 
@@ -45,5 +45,24 @@ describe("conectores", () => {
         expect(enlaceValido("javascript:alert(1)#x")).toBe(false);
         expect(textoMotivoOrigen("origen_no_permitido")).toMatch(/no está en la lista/);
         expect(textoMotivoOrigen("origenes_no_configurados")).toMatch(/IRIS_ARGOS_ORIGENES/);
+    });
+});
+
+describe("«No fui yo»", () => {
+    it("descartar: POST sin cuerpo con cookies; si falla no bloquea la salida", async () => {
+        let pedido: { url: string; init: RequestInit | undefined } | undefined;
+        const ok: typeof fetch = async (url, init) => {
+            pedido = { url: String(url), init };
+            return new Response(null, { status: 204 });
+        };
+        expect(await descartarVinculacion(ok)).toBe(true);
+        expect(pedido?.url).toBe("/api/v1/sso/descartar");
+        expect(pedido?.init?.method).toBe("POST");
+        expect(pedido?.init?.credentials).toBe("include");
+        expect(pedido?.init?.body).toBeUndefined();
+        const caida: typeof fetch = async () => {
+            throw new TypeError("sin red");
+        };
+        expect(await descartarVinculacion(caida)).toBe(false);
     });
 });

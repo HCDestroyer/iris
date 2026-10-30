@@ -41,6 +41,8 @@ export function DialogoReautenticar() {
     );
 
     function terminar(ok: boolean) {
+        // La contraseña no se queda en el formulario: ni al confirmar ni al cancelar.
+        formulario.reset({ contrasena: "" });
         const r = pendiente.current;
         pendiente.current = null;
         setAbierto(false);
@@ -51,9 +53,10 @@ export function DialogoReautenticar() {
         setError(null);
         try {
             await resolver(api().POST("/api/v1/sesion/reautenticar", { body: { contrasena: d.contrasena } }));
-            formulario.reset({ contrasena: "" });
             terminar(true);
         } catch (e) {
+            // Ante cualquier error se borra lo escrito.
+            formulario.reset({ contrasena: "" });
             if (e instanceof ErrorApi && e.estado === 401) {
                 formulario.setError("contrasena", { message: "La contraseña no es correcta" });
                 return;

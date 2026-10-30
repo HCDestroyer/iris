@@ -12,7 +12,7 @@ import { requiereCambio, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import { esquemaCodigoMFA, esquemaInicioSesion, type DatosCodigoMFA, type DatosInicioSesion } from "@/lib/esquemas";
 import { quitarFragmentoDeLaUrl } from "@/lib/fragmento";
 import { ticketDesdeFragmento } from "@/lib/portal/fragmento";
-import { apiSSO, destinoSeguro, mensajeSSO, type CanjeSSO, type MensajeSSO, type UsuarioExterno } from "@/lib/sso/sso";
+import { apiSSO, descartarVinculacion, destinoSeguro, mensajeSSO, type CanjeSSO, type MensajeSSO, type UsuarioExterno } from "@/lib/sso/sso";
 import { formatearEspera } from "@/lib/tiempo";
 
 type Usuario = Schema<"Usuario">;
@@ -170,10 +170,13 @@ export function EntrarSSO() {
             return (
                 <Pantalla icono={Link2} titulo="Tu cuenta de Argos no está vinculada" descripcion="Para entrar desde Argos, vincúlala una vez con tu cuenta de Iris. Primero inicia sesión con tu contraseña de Iris.">
                     <DatosExterno externo={paso.externo} />
-                    <Boton className="w-full" onClick={() => setPaso({ paso: "login", externo: paso.externo, destino: paso.destino })}>
-                        <LogIn />
-                        Iniciar sesión para vincular
-                    </Boton>
+                    <div className="grid gap-2">
+                        <Boton className="w-full" onClick={() => setPaso({ paso: "login", externo: paso.externo, destino: paso.destino })}>
+                            <LogIn />
+                            Iniciar sesión para vincular
+                        </Boton>
+                        <BotonNoFuiYo texto="No fui yo / Cancelar" />
+                    </div>
                 </Pantalla>
             );
         case "login":
@@ -233,6 +236,25 @@ function Pantalla({ icono, titulo, descripcion, children }: { icono: typeof Link
             <EstadoVacio icono={icono} titulo={titulo} descripcion={descripcion} className="px-0 py-2" />
             {children}
         </div>
+    );
+}
+
+/** Descarta la vinculación pendiente (borra la cookie en la API) y vuelve al inicio, sin vincular. */
+function BotonNoFuiYo({ texto, disabled }: { texto: string; disabled?: boolean }) {
+    const [saliendo, setSaliendo] = useState(false);
+    return (
+        <Boton
+            variante="secundario"
+            className="w-full"
+            disabled={disabled || saliendo}
+            onClick={async () => {
+                setSaliendo(true);
+                await descartarVinculacion();
+                ir("/");
+            }}
+        >
+            {saliendo ? "Saliendo…" : texto}
+        </Boton>
     );
 }
 
@@ -427,10 +449,7 @@ function ConfirmarVinculo({
                     <Link2 />
                     {enviando ? "Vinculando…" : "Vincular"}
                 </Boton>
-                {/* Sin vincular: la vinculación pendiente vence sola (10 min). */}
-                <Boton variante="secundario" className="w-full" onClick={() => ir("/")} disabled={enviando}>
-                    No fui yo
-                </Boton>
+                <BotonNoFuiYo texto="No fui yo" disabled={enviando} />
             </div>
         </div>
     );

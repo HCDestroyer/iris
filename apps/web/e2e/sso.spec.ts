@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, CODIGO_OK, CONSULTA, CONTRASENA, SOPORTE, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, CODIGO_OK, CONSULTA, CONTRASENA, SOPORTE, SUPERVISOR_ZONA, conSesion, simularApi } from "./api-falsa";
 import { TICKETS } from "./api-sso";
 import { avisoError } from "./ayudas";
 
@@ -110,11 +110,23 @@ test.describe("/sso/entrar", () => {
         await page.getByRole("button", { name: "No fui yo" }).click();
         await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
         expect(api.sso.vinculaciones).toHaveLength(0);
+        expect(api.sso.descartes()).toBe(1);
 
         await hastaConfirmar(TICKETS.vincularVerificado2);
         await page.getByRole("button", { name: "Vincular", exact: true }).click();
         await expect(page).toHaveURL(/\/comercial\/4$/);
         expect(api.sso.vinculos.get(CONSULTA.id)?.map((v) => v.usuarioExterno)).toEqual(["argos-77"]);
+    });
+
+    test("vincular: «No fui yo / Cancelar» descarta la vinculación sin iniciar sesión", async ({ page }) => {
+        const api = await simularApi(page);
+        await page.goto(`/sso/entrar#${TICKETS.vincular}`);
+        await expect(page.getByRole("heading", { name: "Tu cuenta de Argos no está vinculada" })).toBeVisible();
+        await page.getByRole("button", { name: "No fui yo / Cancelar" }).click();
+        await expect(page).toHaveURL(/\/entrar/);
+        expect(api.sso.descartes()).toBe(1);
+        expect(api.sso.vinculaciones).toHaveLength(0);
+        expect(api.peticiones.filter((p) => p.ruta === "/api/v1/sesion")).toHaveLength(0);
     });
 
     test("errores con texto y enlace al login; sin ticket o con uno mal formado no se pide nada", async ({ page }) => {
@@ -166,6 +178,7 @@ test.describe("re-autenticación y cuentas vinculadas", () => {
         await reaut.getByLabel("Contraseña").fill("equivocada-1");
         await reaut.getByRole("button", { name: "Confirmar y seguir" }).click();
         await expect(reaut.getByText("La contraseña no es correcta")).toBeVisible();
+        await expect(reaut.getByLabel("Contraseña")).toHaveValue("");
         await reaut.getByLabel("Contraseña").fill(CONTRASENA);
         await reaut.getByRole("button", { name: "Confirmar y seguir" }).click();
         await expect(reaut).toHaveCount(0);
@@ -258,6 +271,14 @@ test.describe("conectores", () => {
         await expect(page.getByText("Conectado con Horus Flow (https://horus.fibra.test). Queda apagado hasta que lo actives.")).toBeVisible();
         await expect(page.locator("[data-conector]")).toHaveCount(3);
         expect(api.peticiones.filter((p) => p.ruta === "/api/v1/integraciones/horus/conectar")).toHaveLength(1);
+    });
+
+    test("con integraciones.conectar pero sin empresas.todas global no se ofrece «Conectar»", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", SUPERVISOR_ZONA.correo);
+        await page.goto("/administracion/integraciones");
+        await expect(page.locator("[data-conector]")).toHaveCount(2);
+        await expect(page.getByRole("button", { name: "Conectar", exact: true })).toHaveCount(0);
     });
 
     test("sin integraciones.ver no aparece la sección", async ({ page, context, baseURL }) => {
