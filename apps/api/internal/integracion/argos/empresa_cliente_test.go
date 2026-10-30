@@ -174,7 +174,7 @@ func TestPistaDeAltaSinServicio(t *testing.T) {
 	e.exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (2, 'Empresa 2')`)
 	e.sembrarComoArgos13(96, "Iván Recién Ganado")
 	e.exec(`INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta, empresa_id, estado, respuesta)
-		VALUES ('crear_cliente', 'iris:cliente:e2e-' || $1, 'prospecto', $1, 'POST', '/clientes', 2, 'hecho', '{"id": 96}')`, pruebas.Unico())
+		VALUES ('crear_cliente', 'iris:cliente:e2e-' || $1, 'prospecto', $1, 'POST', '/clientes', 2, 'hecho', '{"data": {"id": 96}}')`, pruebas.Unico())
 	e.usuarioEn([]int64{1}, "soporte").pedir(http.MethodGet, "/api/v1/clientes/96", nil).problema(t, 404, "no_encontrado")
 	if f := e.usuarioEn([]int64{2}, "soporte").pedir(http.MethodGet, "/api/v1/clientes/96", nil); f.status != 200 {
 		t.Fatalf("en la empresa del prospecto: %d %s", f.status, f.crudo)

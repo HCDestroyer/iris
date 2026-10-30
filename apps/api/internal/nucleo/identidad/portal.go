@@ -176,6 +176,12 @@ func nuevoEmitirAccesoPortal(cfg Config) *EmitirAccesoPortal {
 				return AccesoPortalEmitido{}, empresaNoCoincide()
 			case v != nil && v.Validado:
 				t.Anotar(map[string]any{"cliente_validado": true, "validacion": "argos"})
+			case v != nil && !todasGlobal(ctx) && t.Actor().Tipo != contexto.ActorIntegracion:
+				// Argos no lo pudo confirmar (caído, rechazo, conector apagado) y no está en la
+				// instantánea: un usuario del panel sin empresas.todas no lo emite, porque no sabemos
+				// si es de su empresa. La integración (Argos, la fuente de verdad) sí puede.
+				return AccesoPortalEmitido{}, nucleo.ReglaNegocio("cliente_no_verificado",
+					"No se pudo confirmar en Argos que el cliente sea de esta empresa; intenta de nuevo en un momento")
 			case v != nil:
 				t.Anotar(map[string]any{"cliente_validado": false, "validacion": v.Motivo})
 			default:
