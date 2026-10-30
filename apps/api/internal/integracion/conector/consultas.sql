@@ -20,8 +20,13 @@ SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
 WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL;
 
 -- name: ExisteConectorConBase :one
--- Ya hay un conector del sistema con ese origen (un enlace del mismo origen no es phishing).
-SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema AND base_url = @base_url)::boolean AS existe;
+-- El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema AND base_url = @base_url AND estado = 'activo')::boolean AS existe;
+
+-- name: TokensEntregadosDeInactivos :many
+-- Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores).
+SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
+WHERE sistema = @sistema AND id <> @excepto AND estado <> 'activo' AND token_entregado_id IS NOT NULL;
 
 -- name: ConectorPorID :one
 SELECT * FROM integracion.conectores WHERE id = @id;

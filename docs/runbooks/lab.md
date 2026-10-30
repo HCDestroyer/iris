@@ -30,7 +30,7 @@ Cambia en `.env` como mínimo:
 | `IRIS_COOKIE_SEGURA` | `true` (detrás de HTTPS) |
 | `IRIS_PROXIES_CONFIABLES` | **vacía**: el compose confía solo en la IP fija del panel (`IRIS_WEB_IP`, `172.28.10.10/32`). Si la pones, solo IPs `/32` de proxies reales: nunca una red entera ni el gateway de la red de Docker (ver «IP del cliente») |
 | `IRIS_WEB_IP` | `172.28.10.10` salvo que cambies `IRIS_RED_COMPOSE` (debe estar dentro de esa red y no ser el `.1`) |
-| `IRIS_ARGOS_ORIGENES`, `IRIS_HORUS_ORIGENES` | el origen de la API de Argos y de Horus de lab (`https://argos-lab.<dominio>`). **Obligatorias:** al conectar con un enlace, Iris entrega un token suyo al origen del enlace y solo lo hace a estos orígenes (o al de un conector que ya existe); vacías, el canje responde 422 |
+| `IRIS_ARGOS_ORIGENES`, `IRIS_HORUS_ORIGENES` | el origen de la API de Argos y de Horus de lab (`https://argos-lab.<dominio>`). **Obligatorias:** al conectar con un enlace, Iris entrega un token suyo al origen del enlace y solo lo hace a estos orígenes (o al del conector activo, para reconectar); vacías, el canje responde 422, también con `IRIS_CONECTORES_PERMITIR_HTTP=true` |
 | `IRIS_ARGOS_REDES_PERMITIDAS`, `IRIS_HORUS_REDES_PERMITIDAS` | la red interna donde viven Argos y Horus de lab (CIDR); vacía si están en IP pública |
 | `IRIS_CONECTORES_PERMITIR_HTTP` | `false` salvo que Argos/Horus de lab no tengan HTTPS |
 | `IRIS_CORREO_REDES_PERMITIDAS` | vacía para usar solo Mailpit (red del compose); la red de tu servidor de correo de lab si es interna |
@@ -64,7 +64,8 @@ Al conectar con el enlace que genera Argos (`https://<argos>/conectar#<código>`
 `iris_pat_` del usuario de integración. Por eso:
 
 - Solo se acepta un enlace cuyo origen esté en `IRIS_ARGOS_ORIGENES` / `IRIS_HORUS_ORIGENES` (o el
-  de un conector que ya existe). `POST /api/v1/integraciones/argosisp/conexion/previsualizar
+  del conector activo). Reconectar no corta la integración: el conector activo sigue hasta que actives
+  el nuevo, que lo reemplaza y revoca su token. `POST /api/v1/integraciones/argosisp/conexion/previsualizar
   { enlace }` muestra el origen sin llamar afuera: confírmalo antes de conectar.
 - Conecta un administrador con `empresas.todas` sin límite de alcance (el `admin`).
 - El token nace con **15 min** de vida: activa el conector en ese plazo. Si vence, activar responde
