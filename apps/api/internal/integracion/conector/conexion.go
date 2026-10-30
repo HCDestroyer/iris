@@ -398,17 +398,19 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	return con, err
 }
 
-// panelDelCanje es el origen del panel que informó el canje (panel_url, 0.4.0) o, si no vino o no
-// es un origen http(s) limpio, el sugerido (el que escribió el administrador en §1.4). nil si
+// panelDelCanje es el origen (esquema://host[:puerto], sin ruta) del panel que informó el canje
+// (panel_url, 0.4.0) o, si no vino o no es una URL http(s) limpia, el sugerido (el que escribió el administrador en §1.4). nil si
 // ninguno vale: los enlaces «Ver en Argos» usan entonces la API (Argos anterior a 0.4.0).
 func (c *Conexion) panelDelCanje(informado, sugerido string) *string {
 	for _, crudo := range []string{informado, sugerido} {
 		if strings.TrimSpace(crudo) == "" {
 			continue
 		}
+		// Siempre un origen (https://<panel-argos>, §1.4), igual que el que escribe el administrador.
 		if u, err := c.n.validarOrigen(crudo, "panel_url"); err == nil {
-			o := origenDe(u)
-			return &o
+			if o, err := nucleo.NormalizarOrigen(u.String()); err == nil {
+				return &o
+			}
 		}
 	}
 	return nil

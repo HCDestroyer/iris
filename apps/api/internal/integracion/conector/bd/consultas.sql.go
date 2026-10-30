@@ -10,6 +10,40 @@ import (
 	"time"
 )
 
+const anularAutorizacionesDeSesion = `-- name: AnularAutorizacionesDeSesion :many
+UPDATE integracion.autorizaciones
+SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
+WHERE sesion_id = $1 AND sistema = $2 AND usado_en IS NULL
+RETURNING id
+`
+
+type AnularAutorizacionesDeSesionParams struct {
+	SesionID int64
+	Sistema  string
+}
+
+// Al iniciar otra en la misma sesión y sistema, las anteriores sin usar quedan gastadas y sin
+// code_verifier (solo vale la última).
+func (q *Queries) AnularAutorizacionesDeSesion(ctx context.Context, arg AnularAutorizacionesDeSesionParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, anularAutorizacionesDeSesion, arg.SesionID, arg.Sistema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const autorizacionParaUsar = `-- name: AutorizacionParaUsar :one
 SELECT id, sistema, state_hash, verificador_cifrado, panel_url, usuario_id, sesion_id, expira_en, usado_en, conector_id, created_at, updated_at FROM integracion.autorizaciones WHERE state_hash = $1 AND sistema = $2 FOR UPDATE
 `
@@ -38,6 +72,19 @@ func (q *Queries) AutorizacionParaUsar(ctx context.Context, arg AutorizacionPara
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const borrarAutorizacionesViejas = `-- name: BorrarAutorizacionesViejas :execrows
+DELETE FROM integracion.autorizaciones WHERE expira_en < now() - interval '1 day'
+`
+
+// Purga: las autorizaciones vencidas hace más de un día ya no sirven ni para explicar un error.
+func (q *Queries) BorrarAutorizacionesViejas(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarAutorizacionesViejas)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const cambiarEstadoConector = `-- name: CambiarEstadoConector :one
@@ -755,6 +802,21 @@ type MarcarEntranteProcesadoParams struct {
 func (q *Queries) MarcarEntranteProcesado(ctx context.Context, arg MarcarEntranteProcesadoParams) error {
 	_, err := q.db.Exec(ctx, marcarEntranteProcesado, arg.Resultado, arg.Nota, arg.ID)
 	return err
+}
+
+const olvidarVerificadoresVencidos = `-- name: OlvidarVerificadoresVencidos :execrows
+UPDATE integracion.autorizaciones
+SET verificador_cifrado = NULL, updated_at = now()
+WHERE verificador_cifrado IS NOT NULL AND expira_en < now()
+`
+
+// Purga (job periódico): una autorización abandonada no guarda su code_verifier después de vencer.
+func (q *Queries) OlvidarVerificadoresVencidos(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, olvidarVerificadoresVencidos)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const siguienteIDAutorizacion = `-- name: SiguienteIDAutorizacion :one

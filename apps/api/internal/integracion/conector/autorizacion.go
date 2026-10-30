@@ -135,6 +135,14 @@ func nuevoAutorizar(c *Conexion) *auditoria.Caso[EntradaAutorizar, AutorizacionI
 				return AutorizacionIniciada{}, err
 			}
 			q := conectorbd.New(t)
+			// Solo vale la última de la sesión: las anteriores sin usar quedan gastadas y sin verifier.
+			anuladas, err := q.AnularAutorizacionesDeSesion(ctx, conectorbd.AnularAutorizacionesDeSesionParams{SesionID: sesion.ID, Sistema: c.s.Nombre})
+			if err != nil {
+				return AutorizacionIniciada{}, err
+			}
+			if len(anuladas) > 0 {
+				t.Anotar(map[string]any{"autorizaciones_anuladas": anuladas})
+			}
 			id, err := q.SiguienteIDAutorizacion(ctx)
 			if err != nil {
 				return AutorizacionIniciada{}, err
@@ -243,7 +251,7 @@ func nuevoCompletarAutorizacion(c *Conexion) *CompletarAutorizacion {
 			sesion := contexto.SesionDe(ctx)
 			switch {
 			case f.UsadoEn != nil:
-				return autorizacionTomada{}, stateInvalido("Esta autorización ya se usó")
+				return autorizacionTomada{}, stateInvalido("Esta autorización ya se usó o la reemplazó otra más nueva")
 			case sesion.ID == 0 || sesion.ID != f.SesionID || t.Actor().ID != f.UsuarioID:
 				// Sin gastarla: quien la inició puede terminarla desde su sesión.
 				return autorizacionTomada{}, stateInvalido("La autorización se inició desde otra sesión")
@@ -284,6 +292,11 @@ func nuevoCompletarAutorizacion(c *Conexion) *CompletarAutorizacion {
 				return reservaAutorizacion{}, problemaAutorizacion("codigo_invalido", "Código inválido",
 					"La vuelta de "+c.s.Remoto.Nombre+" no trae un código de conexión válido. Vuelve a pulsar «Conectar con "+c.s.Remoto.Nombre+"».")
 			}
+			// El api es un origen (https://host[:puerto]): con una ruta, el canje iría a otro lugar
+			// del mismo origen que el que se comparó con la lista.
+			if u, err := url.Parse(strings.TrimSpace(in.API)); err == nil && u.Path != "" && u.Path != "/" {
+				return reservaAutorizacion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "api", Message: "Debe ser un origen https://host[:puerto], sin ruta", Rule: "origen"})
+			}
 			base, err := c.validarBase(in.API, "api")
 			if err != nil {
 				return reservaAutorizacion{}, err
@@ -308,7 +321,8 @@ func nuevoCompletarAutorizacion(c *Conexion) *CompletarAutorizacion {
 				return reservaAutorizacion{}, nucleo.Prohibido("Conectar con " + c.s.Remoto.Nombre + " exige operar en todas las empresas (empresas.todas sin límite de alcance)")
 			}
 			id, err := conectorbd.New(t).SiguienteIDConector(ctx)
-			return reservaAutorizacion{ConectorID: id, Base: base}, err
+			// La base del canje es exactamente el origen que coincidió con la lista.
+			return reservaAutorizacion{ConectorID: id, Base: origen}, err
 		},
 	})
 	k.guardar = nuevoGuardarConector(c, accionCompletar)

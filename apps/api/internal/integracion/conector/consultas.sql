@@ -103,6 +103,24 @@ UPDATE integracion.autorizaciones
 SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
 WHERE id = @id;
 
+-- name: AnularAutorizacionesDeSesion :many
+-- Al iniciar otra en la misma sesión y sistema, las anteriores sin usar quedan gastadas y sin
+-- code_verifier (solo vale la última).
+UPDATE integracion.autorizaciones
+SET usado_en = now(), verificador_cifrado = NULL, updated_at = now()
+WHERE sesion_id = @sesion_id AND sistema = @sistema AND usado_en IS NULL
+RETURNING id;
+
+-- name: OlvidarVerificadoresVencidos :execrows
+-- Purga (job periódico): una autorización abandonada no guarda su code_verifier después de vencer.
+UPDATE integracion.autorizaciones
+SET verificador_cifrado = NULL, updated_at = now()
+WHERE verificador_cifrado IS NOT NULL AND expira_en < now();
+
+-- name: BorrarAutorizacionesViejas :execrows
+-- Purga: las autorizaciones vencidas hace más de un día ya no sirven ni para explicar un error.
+DELETE FROM integracion.autorizaciones WHERE expira_en < now() - interval '1 day';
+
 -- name: VincularAutorizacion :exec
 UPDATE integracion.autorizaciones SET conector_id = @conector_id, updated_at = now() WHERE id = @id;
 

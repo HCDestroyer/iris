@@ -27,7 +27,10 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   excepción del conector activo; 422 `origen_no_permitido` / `origenes_no_configurados`) y canjea con
   `code_verifier` por el mismo camino que el enlace (`canjearYGuardar`: token con vencimiento, revocado si
   falla). Un 401 o `codigo_invalido` de Argos es 422 `codigo_invalido`. El conector nace apagado con origen
-  `autorizacion`.
+  `autorizacion`. `api` debe ser un origen sin ruta (422 `validacion`) y el canje va al origen exacto que
+  coincidió con la lista. Iniciar otra en la misma sesión anula las anteriores sin usar; el job periódico
+  `integracion.autorizaciones_purga` (único por periodo, cada 10 min) borra el `code_verifier` de las vencidas
+  y las filas vencidas hace más de un día. `panel_url` siempre se guarda como origen.
 - **Panel y API por separado** (0.4.0): `panel_url` del canje (en los dos flujos; si falta en §1.4, el panel
   que escribió el administrador) va en `integracion.conectores.panel_url`; la API sigue en `base_url`. La API
   expone `panelUrl`, `apiUrl` y `urlPublica` (la configurada a mano, si no `panelUrl`, si no la API), que es la

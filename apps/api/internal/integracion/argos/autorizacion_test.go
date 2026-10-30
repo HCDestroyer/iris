@@ -264,7 +264,7 @@ func TestAutorizarValidaEntrada(t *testing.T) {
 // El canje del enlace de §1.3 también guarda panel_url (0.4.0) aparte de la API.
 func TestEnlaceGuardaPanelURL(t *testing.T) {
 	e := nuevoEntorno(t)
-	e.argos.con(func() { e.argos.panelURL = "https://argos.kns.prueba/" })
+	e.argos.con(func() { e.argos.panelURL = "https://argos.kns.prueba/panel/" })
 	admin := e.usuario("admin")
 	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.enlace()})
 	if r.status != 201 || r.cuerpo["panelUrl"] != "https://argos.kns.prueba" || r.cuerpo["apiUrl"] != e.argos.srv.URL || r.cuerpo["origen"] != "enlace_remoto" {
@@ -276,5 +276,72 @@ func TestEnlaceGuardaPanelURL(t *testing.T) {
 	r = admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.enlace()})
 	if r.status != 201 || r.cuerpo["panelUrl"] != nil || r.cuerpo["urlPublica"] != e.argos.srv.URL {
 		t.Fatalf("panel_url inválido: %d %s", r.status, r.crudo)
+	}
+}
+
+// Un api con ruta no pasa (la lista compara orígenes); con «/» final, el canje va al origen exacto.
+func TestAutorizacionAPIConRuta(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin := e.usuario("admin")
+	autorizar := e.iniciarAutorizacion(admin)
+	codigo, api, state := e.argos.aprobar(autorizar, false)
+	admin.pedir(http.MethodPost, rutaCompletar, map[string]any{"codigo": codigo, "api": api + "/otra/ruta", "state": state}).problema(t, 422, "validacion")
+	if e.canjes() != 0 {
+		t.Fatal("un api con ruta no recibe el canje")
+	}
+
+	autorizar = e.iniciarAutorizacion(admin)
+	codigo, api, state = e.argos.aprobar(autorizar, false)
+	r := admin.pedir(http.MethodPost, rutaCompletar, map[string]any{"codigo": codigo, "api": api + "/", "state": state})
+	if r.status != 201 || r.cuerpo["conector"].(map[string]any)["apiUrl"] != api {
+		t.Fatalf("api con «/» final: %d %s", r.status, r.crudo)
+	}
+}
+
+// Iniciar otra en la misma sesión anula las anteriores sin usar (sin verifier); la purga olvida
+// el verifier de las vencidas y borra las viejas.
+func TestAutorizacionesAnuladasYPurga(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin := e.usuario("admin")
+	primera := e.iniciarAutorizacion(admin)
+	codigo, api, state := e.argos.aprobar(primera, false)
+	segunda := e.iniciarAutorizacion(admin)
+	if e.contar(`SELECT count(*) FROM integracion.autorizaciones WHERE state_hash = $1 AND usado_en IS NOT NULL AND verificador_cifrado IS NULL`, conector.Hash256(state)) != 1 {
+		t.Fatal("la anterior queda anulada y sin verifier")
+	}
+	admin.pedir(http.MethodPost, rutaCompletar, map[string]any{"codigo": codigo, "api": api, "state": state}).problema(t, 422, "state_invalido")
+
+	// Otra sesión no anula la de esta.
+	_, _, stateSegunda := e.argos.aprobar(segunda, false)
+	e.iniciarAutorizacion(e.usuario("admin"))
+	if e.autorizacionUsada(stateSegunda) {
+		t.Fatal("iniciar en otra sesión no anula esta")
+	}
+
+	ctx := context.Background()
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.autorizaciones SET expira_en = now() - interval '1 minute' WHERE state_hash = $1`, conector.Hash256(stateSegunda)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := conector.PurgarAutorizaciones(ctx, e.pool); err != nil {
+		t.Fatal(err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.autorizaciones WHERE state_hash = $1 AND verificador_cifrado IS NULL`, conector.Hash256(stateSegunda)) != 1 {
+		t.Fatal("la purga olvida el verifier de una autorización vencida")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.autorizaciones WHERE verificador_cifrado IS NOT NULL AND expira_en < now()`) != 0 {
+		t.Fatal("ninguna vencida conserva su verifier")
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.autorizaciones SET expira_en = now() - interval '2 days' WHERE state_hash = $1`, conector.Hash256(stateSegunda)); err != nil {
+		t.Fatal(err)
+	}
+	if _, borradas, err := conector.PurgarAutorizaciones(ctx, e.pool); err != nil || borradas < 1 {
+		t.Fatalf("purga de las viejas: %d %v", borradas, err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.autorizaciones WHERE state_hash = $1`, conector.Hash256(stateSegunda)) != 0 {
+		t.Fatal("una autorización vencida hace más de un día se borra")
+	}
+	// Job único por periodo.
+	if (conector.ArgsPurgaAutorizaciones{}).InsertOpts().UniqueOpts.ByPeriod == 0 {
+		t.Fatal("el job de purga es único por periodo")
 	}
 }
