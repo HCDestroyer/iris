@@ -160,7 +160,9 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
             }
             if (idTexto === "candidatos") {
                 if (!puede("agenda.crear_tecnico")) return prohibido(route);
-                await json(route, { data: candidatos, nextCursor: null } satisfies Schema<"PaginaCandidatoTecnico">);
+                const q = (query.get("q") ?? "").toLowerCase();
+                const data = candidatos.filter((c) => !q || c.nombre.toLowerCase().includes(q) || c.correo.toLowerCase().includes(q));
+                await json(route, { data, nextCursor: null } satisfies Schema<"PaginaCandidatoTecnico">);
                 return true;
             }
             if (idTexto === "asignables") return false;

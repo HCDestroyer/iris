@@ -4,6 +4,7 @@ import { Aviso, Esqueleto } from "@iris/ui";
 import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { AvisoDemasiadas } from "@/componentes/agenda/vista-mes";
 import { conflictosDe, textoConflicto } from "@/lib/agenda/mes";
 import { filasDeTecnicos, type Cuadrilla, type Zona } from "@/lib/despacho/calendario";
 import { diaDesdeIso, etiquetaDia, horaDe, hoyGuatemala, type Dia } from "@/lib/despacho/fechas";
@@ -64,6 +65,10 @@ export function AgendaTecnicos({
     }
 
     const calendario = agenda.datos;
+    if (calendario.truncado) {
+        // Un calendario cortado mostraría huecos que parecen tiempo libre.
+        return <AvisoDemasiadas />;
+    }
     const filas = filasDeTecnicos(tecnicos.datos.lista, calendario.citas ?? [], calendario.ausencias ?? []);
     const pendientes = sinProgramar.estado === "listo" ? (sinProgramar.datos?.ordenes ?? []) : [];
 

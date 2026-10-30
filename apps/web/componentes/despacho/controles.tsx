@@ -54,7 +54,7 @@ export function FiltrosAgenda({
     zonas: Lectura<Zona[]>;
     cuadrillas: Lectura<Cuadrilla[]>;
     /** Con la lista, también filtra por técnico (`tecnicoId` = su usuario). */
-    tecnicos?: Lectura<Tecnico[]>;
+    tecnicos?: Lectura<{ lista: Tecnico[]; cortada: boolean }>;
 }) {
     const id = (v: string) => (v === "" ? null : Number(v));
     return (
@@ -65,12 +65,18 @@ export function FiltrosAgenda({
                     className="col-span-2 sm:w-52"
                     value={filtros.tecnicoId ?? ""}
                     disabled={tecnicos.estado !== "listo"}
-                    ayuda={tecnicos.estado === "error" ? "No se pudo leer la lista" : undefined}
+                    ayuda={
+                        tecnicos.estado === "error"
+                            ? "No se pudo leer la lista"
+                            : tecnicos.estado === "listo" && tecnicos.datos.cortada
+                              ? `Solo los primeros ${tecnicos.datos.lista.length}: elige antes la cuadrilla o la zona`
+                              : undefined
+                    }
                     onChange={(e) => alCambiar({ ...filtros, tecnicoId: id(e.target.value) })}
                 >
                     <option value="">Todos</option>
                     {tecnicos.estado === "listo"
-                        ? tecnicos.datos
+                        ? tecnicos.datos.lista
                               .filter((t) => t.activo || t.usuarioId === filtros.tecnicoId)
                               .map((t) => (
                                   <option key={t.usuarioId} value={t.usuarioId}>

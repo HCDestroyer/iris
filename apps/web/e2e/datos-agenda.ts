@@ -61,6 +61,8 @@ export type EscenarioAgenda = {
     /** Ventana acordada por orden (la API la guarda en la cita). */
     ventanas: Map<number, { inicio: string; fin: string }>;
     posiciones: Schema<"PosicionTecnico">[];
+    /** `GET /agenda` responde `truncado` (como la API con más de 2000 citas). */
+    truncado?: boolean;
 };
 
 /**

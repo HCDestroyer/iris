@@ -57,9 +57,25 @@ function useEstadoAgenda() {
     return { vista, dia, filtros, ir };
 }
 
-/** Técnicos para el filtro (activos e inactivos: un inactivo puede tener citas). */
-function useTecnicosFiltro() {
-    return useLectura<Tecnico[]>(async (signal) => (await resolver(api().GET("/api/v1/tecnicos", { params: { query: { limit: 200 } }, signal }))).data ?? []);
+/**
+ * Técnicos para el filtro (activos e inactivos: un inactivo puede tener citas), de la cuadrilla y
+ * la zona elegidas. Hasta 200: si hay más, el filtro lo dice.
+ */
+function useTecnicosFiltro(cuadrillaId: number | null, zonaId: number | null) {
+    return useLectura<{ lista: Tecnico[]; cortada: boolean }>(async (signal) => {
+        const p = await resolver(
+            api().GET("/api/v1/tecnicos", {
+                params: { query: { limit: 200, ...(cuadrillaId !== null ? { cuadrillaId } : {}), ...(zonaId !== null ? { zonaId } : {}) } },
+                signal,
+            }),
+        );
+        return { lista: p.data ?? [], cortada: p.nextCursor !== null };
+    });
+}
+
+function FiltrosConTecnicos(props: Omit<Parameters<typeof FiltrosAgenda>[0], "tecnicos">) {
+    const tecnicos = useTecnicosFiltro(props.filtros.cuadrillaId, props.filtros.zonaId);
+    return <FiltrosAgenda {...props} tecnicos={tecnicos} />;
 }
 
 /**
@@ -70,7 +86,6 @@ function useTecnicosFiltro() {
 export function PantallaAgenda() {
     const { vista, dia, filtros, ir } = useEstadoAgenda();
     const catalogos = useCatalogosAgenda();
-    const tecnicos = useTecnicosFiltro();
     const desde = vista === "semana" ? inicioSemana(dia) : dia;
     const titulo = vista === "mes" ? etiquetaMes(dia) : vista === "dia" ? etiquetaDiaLarga(dia) : `Semana del ${etiquetaDia(desde)} al ${etiquetaDia(sumarDias(desde, 6))}`;
     const claveFiltros = `${filtros.tecnicoId}|${filtros.cuadrillaId}|${filtros.zonaId}`;
@@ -95,7 +110,13 @@ export function PantallaAgenda() {
                     />
                     <NavegacionDias dia={dia} paso={vista === "dia" ? 1 : vista === "semana" ? 7 : "mes"} alCambiar={(d) => ir({ dia: d })} />
                 </div>
-                <FiltrosAgenda filtros={filtros} alCambiar={(f) => ir({ filtros: f })} zonas={catalogos.zonas} cuadrillas={catalogos.cuadrillas} tecnicos={tecnicos} />
+                <FiltrosConTecnicos
+                    key={`${filtros.cuadrillaId}|${filtros.zonaId}`}
+                    filtros={filtros}
+                    alCambiar={(f) => ir({ filtros: f })}
+                    zonas={catalogos.zonas}
+                    cuadrillas={catalogos.cuadrillas}
+                />
             </Tarjeta>
             <AvisoCatalogos {...catalogos} />
             <Tarjeta className="grid gap-3 p-4 [&>*]:min-w-0">

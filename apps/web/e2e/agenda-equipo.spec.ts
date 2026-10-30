@@ -100,6 +100,23 @@ test.describe("agenda de mes", () => {
         await expect(page.getByRole("radio", { name: "Mes" })).toBeChecked();
     });
 
+    test("si la API corta la respuesta: aviso y ningún total ni día «Sin órdenes»", async ({ page, context, baseURL }, info) => {
+        const api = await simularApi(page, { despacho: true });
+        api.agenda.truncado = true;
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/agenda");
+        await expect(page.getByTestId("agenda-truncada")).toContainText("Demasiadas citas");
+        await expect(page.getByTestId("agenda-truncada")).toContainText("Filtra por técnico, cuadrilla o zona");
+        await expect(page.locator("[data-dia]")).toHaveCount(0);
+        await expect(page.getByTestId("resumen-mes")).toHaveCount(0);
+        await expect(page.getByText("Sin órdenes")).toHaveCount(0);
+        await captura(page, info, "60-agenda-truncada");
+        await page.goto("/agenda?vista=dia");
+        await expect(page.getByTestId("agenda-truncada")).toBeVisible();
+        await expect(page.locator("[data-cita]")).toHaveCount(0);
+        await expect(page.locator("[data-fila-tecnico]")).toHaveCount(0);
+    });
+
     test("navegación por mes, semana y día", async ({ page, context, baseURL }) => {
         await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
@@ -134,6 +151,12 @@ test.describe("técnicos", () => {
         await expect(crear).toBeDisabled();
         await expect(d.getByText("Elige el usuario del técnico")).toBeVisible();
         await expect(d.getByText("Elige la cuadrilla: define las zonas que atiende")).toBeVisible();
+        // El usuario se busca en el servidor con `q`.
+        await d.getByLabel("Buscar usuario", { exact: true }).fill("marta");
+        await expect.poll(() => ultima(api, "/api/v1/tecnicos/candidatos")?.query.get("q")).toBe("marta");
+        await expect(d.getByLabel("Usuario", { exact: true }).locator("option")).toHaveText(["Elige el usuario", "Marta Cux · marta@iris.test"]);
+        await d.getByLabel("Buscar usuario", { exact: true }).fill("");
+        await expect(d.getByLabel("Usuario", { exact: true }).locator("option")).toHaveCount(3);
         await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
         await expect(crear).toBeDisabled();
         await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });

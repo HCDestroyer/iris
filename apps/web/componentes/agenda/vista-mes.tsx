@@ -1,6 +1,6 @@
 "use client";
 
-import { Boton, Esqueleto, InsigniaEstado, cn } from "@iris/ui";
+import { Aviso, Boton, Esqueleto, InsigniaEstado, cn } from "@iris/ui";
 import { CalendarOff, ChevronRight, TriangleAlert } from "lucide-react";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import type { FiltrosDespacho } from "@/componentes/despacho/datos";
@@ -13,7 +13,7 @@ import { ESTADOS_ORDEN } from "@/lib/ordenes/presentacion";
 
 const SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-type DatosMes = { citas: CitaAgenda[]; ausencias: AusenciaAgenda[] };
+type DatosMes = { citas: CitaAgenda[]; ausencias: AusenciaAgenda[]; truncado: boolean };
 
 /**
  * `GET /agenda` del mes visible (semanas completas, hasta 42 días) en trozos de 31 días. Si un
@@ -89,6 +89,10 @@ export function VistaMes({ dia, filtros, alElegirDia }: { dia: Dia; filtros: Fil
                 <Esqueleto className="h-24" />
             </div>
         );
+    }
+    if (datos.datos.truncado) {
+        // §10: nunca totales ni «Sin órdenes» sobre una lectura cortada.
+        return <AvisoDemasiadas />;
     }
     const conflictos = conflictosDe(datos.datos.citas, datos.datos.ausencias);
     const resumen = resumenPorDia(dias, datos.datos.citas, datos.datos.ausencias, conflictos);
@@ -192,5 +196,15 @@ export function VistaMes({ dia, filtros, alElegirDia }: { dia: Dia; filtros: Fil
                 })}
             </ul>
         </div>
+    );
+}
+
+/** La API cortó la respuesta (más citas de las que caben): se pide acotar, sin mostrar conteos. */
+export function AvisoDemasiadas() {
+    return (
+        <Aviso tono="warning" titulo="Demasiadas citas para mostrarlas todas" data-testid="agenda-truncada">
+            Filtra por técnico, cuadrilla o zona para ver el calendario completo. Mientras tanto no se muestran totales ni días vacíos, porque
+            faltarían citas.
+        </Aviso>
     );
 }

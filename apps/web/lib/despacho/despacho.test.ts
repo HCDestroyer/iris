@@ -23,6 +23,7 @@ const cita = (p: Partial<CitaAgenda>): CitaAgenda => ({
     lon: null,
     clienteId: null,
     servicioId: null,
+    conflictos: [],
     ...p,
 });
 

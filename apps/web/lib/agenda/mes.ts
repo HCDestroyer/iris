@@ -57,36 +57,41 @@ export function trozos(desde: Dia, dias: number, max = MAX_DIAS_AGENDA): { desde
 /** Estados en que una cita ocupa al técnico (no cuentan las terminadas ni las canceladas). */
 const VIVOS: readonly EstadoOrden[] = ["programada", "en_camino", "en_sitio", "pausada"];
 
+/**
+ * Conflicto de una cita. La API lo marca (`CitaAgenda.conflictos`) mirando toda la agenda del
+ * técnico, también lo que queda fuera del filtro; aquí se agrega el detalle si se ve.
+ */
 export type Conflicto =
-    | { tipo: "ausencia"; ordenId: number; ausencia: AusenciaAgenda }
-    | { tipo: "solape"; ordenId: number; con: CitaAgenda };
+    | { tipo: "ausencia"; ordenId: number; ausencia: AusenciaAgenda | undefined }
+    | { tipo: "solape"; ordenId: number; con: CitaAgenda | undefined };
 
 const cruzan = (a: { inicio: string; fin: string }, b: { inicio: string; fin: string }) =>
     Date.parse(a.inicio) < Date.parse(b.fin) && Date.parse(b.inicio) < Date.parse(a.fin);
 
-/**
- * Conflictos de las citas vivas: caer dentro de una ausencia del técnico (la API no mueve las
- * citas al registrar una ausencia) o cruzarse con otra cita viva del mismo técnico.
- */
+/** Conflictos que marcó la API, con la ausencia o la otra cita cuando están en lo leído. */
 export function conflictosDe(citas: readonly CitaAgenda[], ausencias: readonly AusenciaAgenda[]): Map<number, Conflicto[]> {
     const salida = new Map<number, Conflicto[]>();
-    const agregar = (c: Conflicto) => salida.set(c.ordenId, [...(salida.get(c.ordenId) ?? []), c]);
-    const vivas = citas.filter((c) => VIVOS.includes(c.estado));
-    for (const c of vivas) {
-        for (const a of ausencias) {
-            if (a.tecnicoId === c.tecnicoId && cruzan(c, a)) agregar({ tipo: "ausencia", ordenId: c.ordenId, ausencia: a });
+    for (const c of citas) {
+        const lista: Conflicto[] = [];
+        for (const tipo of c.conflictos ?? []) {
+            if (tipo === "ausencia") {
+                lista.push({ tipo, ordenId: c.ordenId, ausencia: ausencias.find((a) => a.tecnicoId === c.tecnicoId && cruzan(c, a)) });
+            } else {
+                lista.push({ tipo, ordenId: c.ordenId, con: citas.find((o) => o.ordenId !== c.ordenId && o.tecnicoId === c.tecnicoId && VIVOS.includes(o.estado) && cruzan(c, o)) });
+            }
         }
-        for (const otra of vivas) {
-            if (otra.ordenId !== c.ordenId && otra.tecnicoId === c.tecnicoId && cruzan(c, otra)) agregar({ tipo: "solape", ordenId: c.ordenId, con: otra });
-        }
+        if (lista.length > 0) salida.set(c.ordenId, lista);
     }
     return salida;
 }
 
-/** «cae en la ausencia del técnico (Vacaciones, mar 28/10 00:00 → mié 29/10 00:00)» / «se cruza con OT-000004 (10:00–11:00)». */
+/** «cae en una ausencia del técnico (Vacaciones, …)» / «se cruza con OT-000004 (10:00–11:00)»; sin detalle si quedó fuera de lo leído. */
 export function textoConflicto(c: Conflicto): string {
-    if (c.tipo === "solape") return `se cruza con ${c.con.numero} (${horaDe(c.con.inicio)}–${horaDe(c.con.fin)})`;
+    if (c.tipo === "solape") {
+        return c.con ? `se cruza con ${c.con.numero} (${horaDe(c.con.inicio)}–${horaDe(c.con.fin)})` : "se cruza con otra cita del técnico (fuera de este filtro)";
+    }
     const a = c.ausencia;
+    if (!a) return "cae en una ausencia del técnico";
     return `cae en una ausencia del técnico (${textoAusencia(a.motivo)}, ${etiquetaDia(diaDesdeIso(a.inicio) ?? "")} ${horaDe(a.inicio)} → ${etiquetaDia(diaDesdeIso(a.fin) ?? "")} ${horaDe(a.fin)})`;
 }
 
@@ -123,15 +128,19 @@ export function textoOrdenes(n: number): string {
     return n === 1 ? "1 orden" : `${n} órdenes`;
 }
 
-/** Une los calendarios de varios trozos (sin repetir citas ni ausencias). */
-export function unirCalendarios(partes: readonly { citas: CitaAgenda[] | null; ausencias: AusenciaAgenda[] | null }[]): { citas: CitaAgenda[]; ausencias: AusenciaAgenda[] } {
+/** Une los calendarios de varios trozos (sin repetir citas ni ausencias); truncado si alguno lo está. */
+export function unirCalendarios(partes: readonly { citas: CitaAgenda[] | null; ausencias: AusenciaAgenda[] | null; truncado?: boolean }[]): {
+    citas: CitaAgenda[];
+    ausencias: AusenciaAgenda[];
+    truncado: boolean;
+} {
     const citas = new Map<number, CitaAgenda>();
     const ausencias = new Map<number, AusenciaAgenda>();
     for (const p of partes) {
         for (const c of p.citas ?? []) citas.set(c.ordenId, c);
         for (const a of p.ausencias ?? []) ausencias.set(a.id, a);
     }
-    return { citas: [...citas.values()], ausencias: [...ausencias.values()] };
+    return { citas: [...citas.values()], ausencias: [...ausencias.values()], truncado: partes.some((p) => p.truncado === true) };
 }
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];

@@ -42,6 +42,7 @@ const cita = (p: Partial<Cita> & Pick<Cita, "ordenId" | "tecnicoId" | "inicio" |
     lon: null,
     clienteId: null,
     servicioId: null,
+    conflictos: [],
     ...p,
 });
 
@@ -105,26 +106,29 @@ describe("mes de la agenda", () => {
         expect(u.ausencias).toHaveLength(1);
     });
 
-    it("conflictos: cita viva en una ausencia o cruzada con otra viva del mismo técnico", () => {
+    it("conflictos: los marca la API; el detalle sale de lo leído y, si no está, se dice", () => {
         const dia = "2026-10-28";
-        const enAusencia = cita({ ordenId: 1, tecnicoId: 12, inicio: utc(dia, "10:00"), fin: utc(dia, "11:00") });
-        const a = cita({ ordenId: 2, tecnicoId: 3, inicio: utc(dia, "09:00"), fin: utc(dia, "10:30") });
-        const b = cita({ ordenId: 3, tecnicoId: 3, inicio: utc(dia, "10:00"), fin: utc(dia, "11:00"), estado: "en_camino" });
+        const enAusencia = cita({ ordenId: 1, tecnicoId: 12, inicio: utc(dia, "10:00"), fin: utc(dia, "11:00"), conflictos: ["ausencia"] });
+        const a = cita({ ordenId: 2, tecnicoId: 3, inicio: utc(dia, "09:00"), fin: utc(dia, "10:30"), conflictos: ["solape"] });
+        const b = cita({ ordenId: 3, tecnicoId: 3, inicio: utc(dia, "10:00"), fin: utc(dia, "11:00"), estado: "en_camino", conflictos: ["solape"] });
         const cerrada = cita({ ordenId: 4, tecnicoId: 3, inicio: utc(dia, "09:30"), fin: utc(dia, "10:00"), estado: "cerrada" });
-        const otroTecnico = cita({ ordenId: 5, tecnicoId: 11, inicio: utc(dia, "09:00"), fin: utc(dia, "10:30") });
-        const seguida = cita({ ordenId: 6, tecnicoId: 3, inicio: utc(dia, "11:00"), fin: utc(dia, "12:00") });
+        // Se cruza con una cita que el filtro no trajo: la API lo marca igual.
+        const fuera = cita({ ordenId: 5, tecnicoId: 11, inicio: utc(dia, "09:00"), fin: utc(dia, "10:30"), conflictos: ["solape"] });
+        const sinConflicto = cita({ ordenId: 6, tecnicoId: 3, inicio: utc(dia, "11:00"), fin: utc(dia, "12:00") });
         const aus = ausencia({ id: 9, tecnicoId: 12, inicio: utc(dia, "00:00"), fin: utc("2026-10-29", "00:00") });
-        const c = conflictosDe([enAusencia, a, b, cerrada, otroTecnico, seguida], [aus]);
-        expect([...c.keys()].sort()).toEqual([1, 2, 3]);
-        expect(c.get(1)?.[0]?.tipo).toBe("ausencia");
-        expect(c.get(2)?.[0]).toMatchObject({ tipo: "solape", con: { ordenId: 3 } });
-        expect(textoConflicto(c.get(2)?.[0] ?? { tipo: "solape", ordenId: 0, con: b })).toBe("se cruza con OT-000003 (10:00–11:00)");
-        expect(textoConflicto(c.get(1)?.[0] ?? { tipo: "ausencia", ordenId: 0, ausencia: aus })).toContain("Vacaciones");
+        const citas = [enAusencia, a, b, cerrada, fuera, sinConflicto];
+        const c = conflictosDe(citas, [aus]);
+        expect([...c.keys()].sort()).toEqual([1, 2, 3, 5]);
+        const uno = (id: number) => c.get(id)?.[0] ?? { tipo: "solape" as const, ordenId: 0, con: undefined };
+        expect(textoConflicto(uno(1))).toContain("Vacaciones");
+        expect(textoConflicto(uno(2))).toBe("se cruza con OT-000003 (10:00–11:00)");
+        expect(textoConflicto(uno(5))).toBe("se cruza con otra cita del técnico (fuera de este filtro)");
+        expect(textoConflicto({ tipo: "ausencia", ordenId: 7, ausencia: undefined })).toBe("cae en una ausencia del técnico");
 
-        const resumen = resumenPorDia([dia, "2026-10-29"], [enAusencia, a, b, cerrada, otroTecnico, seguida], [aus], c);
+        const resumen = resumenPorDia([dia, "2026-10-29"], citas, [aus], c);
         const r = resumen.get(dia);
         expect(r?.total).toBe(6);
-        expect(r?.conflictos).toBe(3);
+        expect(r?.conflictos).toBe(4);
         expect(r?.ausentes).toBe(1);
         expect(r?.porEstado).toEqual([
             { estado: "programada", cuantas: 4 },
@@ -133,6 +137,11 @@ describe("mes de la agenda", () => {
         ]);
         // La ausencia termina a las 00:00 del 29: ese día no cuenta.
         expect(resumen.get("2026-10-29")).toEqual({ total: 0, porEstado: [], ausentes: 0, conflictos: 0 });
+    });
+
+    it("unir trozos: truncado si alguno lo está", () => {
+        expect(unirCalendarios([{ citas: [], ausencias: [], truncado: false }, { citas: [], ausencias: [], truncado: true }]).truncado).toBe(true);
+        expect(unirCalendarios([{ citas: [], ausencias: [], truncado: false }]).truncado).toBe(false);
     });
 
     it("la vista y el día salen de la URL; lo inválido cae en el mes de hoy", () => {
