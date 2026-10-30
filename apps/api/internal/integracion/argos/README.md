@@ -50,6 +50,11 @@ comunes de conectores); aquí queda lo propio de Argos.
   Filtradas por la **empresa activa**: lo de otra empresa (o sin empresa) se descarta o es 404, y
   no se pide el estado de cuenta de un cliente ajeno. Sin empresas registradas: 422
   `empresas_no_registradas`.
+- **Búsqueda con servicios** (`GET /clientes?q=&servicios=true`, selector de cliente del panel):
+  cada resultado trae `servicios` (los de la empresa activa) leídos en Argos con los mismos cupos
+  y tope que la verificación de empresas (20 clientes); si Argos no responde, de la instantánea.
+  Un cliente cuyos servicios no se pudieron leer queda con `servicios: null` (el panel abre la
+  ficha). Sin el parámetro, `servicios` es null y no hay llamadas extra.
 - **Instantáneas** (`argos_clientes`, `argos_servicios`, `argos_zonas`, `argos_routers`): solo lo
   que se muestra, con `empresa_id` y `sincronizado_en`. La ficha se refresca si tiene más de 24 h;
   si Argos no responde se devuelve la última con `stale: true` (y la búsqueda cae a las

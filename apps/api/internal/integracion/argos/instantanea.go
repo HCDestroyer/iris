@@ -178,6 +178,16 @@ func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 	}
 }
 
+// servicioArgosAServicio: un servicio tal como lo devuelve Argos, en la forma de Iris.
+func servicioArgosAServicio(s ServicioArgos) Servicio {
+	lat, lon := s.LatLon()
+	return Servicio{
+		ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo, PlanID: idDe(s.PlanID, s.Plan),
+		PlanNombre: nombreDe(s.PlanNombre, s.Plan), RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
+		ZonaID: idDe(s.ZonaID, s.Zona), ZonaNombre: nombreDe(s.ZonaNombre, s.Zona), IP: s.IP, Direccion: s.Direccion, Lat: lat, Lon: lon, Estado: s.Estado,
+	}
+}
+
 func aServicios(filas []argosbd.IntegracionArgosServicio) []Servicio {
 	salida := make([]Servicio, 0, len(filas))
 	for _, f := range filas {

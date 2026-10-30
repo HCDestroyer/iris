@@ -22,6 +22,8 @@ type ClienteResumen struct {
 	Lon       *float64 `json:"lon" nullable:"true"`
 	ZonaID    *int64   `json:"zonaId" nullable:"true"`
 	Estado    string   `json:"estado" doc:"Estado del cliente en Argos"`
+	// Servicios: solo en la búsqueda con ?servicios=true (selector de cliente del panel).
+	Servicios []Servicio `json:"servicios" required:"false" nullable:"true" doc:"Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al elegir. null: no se pidieron o no se pudieron leer (la ficha GET /clientes/{id} los trae)"`
 }
 
 // Servicio de un cliente de Argos.

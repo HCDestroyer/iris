@@ -3998,6 +3998,8 @@ export interface components {
             /** Format: double */
             lon: number | null;
             nombre: string;
+            /** @description Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al elegir. null: no se pidieron o no se pudieron leer (la ficha GET /clientes/{id} los trae) */
+            servicios?: components["schemas"]["Servicio"][] | null;
             telefono: string;
             /** Format: int64 */
             zonaId: number | null;
@@ -9925,6 +9927,8 @@ export interface operations {
                 limit?: number;
                 /** @description nextCursor de la página anterior (de Argos) */
                 cursor?: string;
+                /** @description true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea */
+                servicios?: boolean;
             };
             header?: never;
             path?: never;

@@ -1338,6 +1338,16 @@
           "nombre": {
             "type": "string"
           },
+          "servicios": {
+            "description": "Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al elegir. null: no se pidieron o no se pudieron leer (la ficha GET /clientes/{id} los trae)",
+            "items": {
+              "$ref": "#/components/schemas/Servicio"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "telefono": {
             "type": "string"
           },
@@ -16332,6 +16342,16 @@
               "description": "nextCursor de la página anterior (de Argos)",
               "maxLength": 500,
               "type": "string"
+            }
+          },
+          {
+            "description": "true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea",
+            "explode": false,
+            "in": "query",
+            "name": "servicios",
+            "schema": {
+              "description": "true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea",
+              "type": "boolean"
             }
           }
         ],

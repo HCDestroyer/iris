@@ -71,6 +71,8 @@ type EntradaBuscarClientes struct {
 	Q      string `json:"q" query:"q" minLength:"2" maxLength:"100" required:"true" doc:"Nombre, código, teléfono, NIT o dirección (lo que Argos admita en su búsqueda)"`
 	Limit  int    `json:"limit" query:"limit" minimum:"1" maximum:"50" default:"20" doc:"Tamaño de página"`
 	Cursor string `json:"cursor,omitempty" query:"cursor" maxLength:"500" doc:"nextCursor de la página anterior (de Argos)"`
+	// Servicios: el selector de cliente del panel los muestra en cada resultado.
+	Servicios bool `json:"servicios,omitempty" query:"servicios" doc:"true: cada cliente trae sus servicios (de la empresa activa) para elegir uno sin abrir la ficha. Se leen en Argos (a lo sumo 20 clientes por búsqueda) o, si Argos no responde, de la instantánea"`
 }
 
 type entradaBusquedaFinal struct {
@@ -80,7 +82,10 @@ type entradaBusquedaFinal struct {
 	// verificados: lo que se leyó en Argos de los clientes que Iris no conocía (los que no están,
 	// por el tope o un error, quedan fuera).
 	verificados map[int64]infoEmpresas
-	conectorID  int64
+	// servicios: los servicios leídos en Argos (con ?servicios=true); un cliente ausente no se
+	// pudo leer y queda con servicios null.
+	servicios  map[int64][]ServicioArgos
+	conectorID int64
 }
 
 // BuscarClientes busca en Argos (GET /clientes?q=). Si Argos no responde, busca en las
@@ -115,7 +120,13 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 							continue
 						}
 					}
-					r.Data = append(r.Data, clienteArgosAResumen(c))
+					resumen := clienteArgosAResumen(c)
+					if in.Servicios {
+						if leidos, ok := in.servicios[c.ID]; ok {
+							resumen.Servicios = serviciosDeEmpresa(c.ID, leidos, empresa)
+						}
+					}
+					r.Data = append(r.Data, resumen)
 				}
 				if in.pagina.NextCursor != "" {
 					r.NextCursor = &in.pagina.NextCursor
@@ -128,7 +139,16 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 					return r, err
 				}
 				for _, f := range filas {
-					r.Data = append(r.Data, aClienteResumen(f))
+					resumen := aClienteResumen(f)
+					if in.Servicios {
+						locales, err := argosbd.New(t).ServiciosDeCliente(ctx, f.ID)
+						if err != nil {
+							return r, err
+						}
+						locales = slices.DeleteFunc(locales, func(s argosbd.IntegracionArgosServicio) bool { return empresa != 0 && s.EmpresaID != empresa })
+						resumen.Servicios = aServicios(locales)
+					}
+					r.Data = append(r.Data, resumen)
 				}
 				r.Stale = true
 			default:
@@ -138,7 +158,7 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 			for _, c := range r.Data {
 				ids = append(ids, c.ID)
 			}
-			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale})
+			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios})
 			return r, nil
 		},
 	})
@@ -164,7 +184,17 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	empresa := contexto.EmpresaDe(ctx)
 	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa)
 	f.conectorID = c.ID
-	if f.errArgos == nil && empresa != 0 {
+	if f.errArgos == nil && in.Servicios {
+		// Con servicios se leen los de todos (a lo sumo TopeVerificaciones); de paso verifican las
+		// empresas de los que Iris no conoce.
+		leidos := b.m.leerServiciosEnArgos(ctx, c.ID, cli, f.pagina.Data)
+		f.servicios = make(map[int64][]ServicioArgos, len(leidos))
+		f.verificados = make(map[int64]infoEmpresas, len(leidos))
+		for id, l := range leidos {
+			f.servicios[id] = l.servicios
+			f.verificados[id] = l.info
+		}
+	} else if f.errArgos == nil && empresa != 0 {
 		// Los que Iris no conoce se verifican en Argos (sus servicios) fuera de la transacción.
 		desconocidos, err := b.desconocidos(ctx, c.ID, f.pagina.Data)
 		if err != nil {
@@ -173,6 +203,22 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 		f.verificados = b.m.verificarEnArgos(ctx, c.ID, cli, desconocidos)
 	}
 	return b.final.Ejecutar(ctx, f)
+}
+
+// serviciosDeEmpresa: los servicios leídos del cliente, solo los de la empresa activa (todos si
+// no hay); nunca null (lista vacía = sin servicios en esa empresa).
+func serviciosDeEmpresa(clienteID int64, leidos []ServicioArgos, empresa int64) []Servicio {
+	salida := make([]Servicio, 0, len(leidos))
+	for _, s := range leidos {
+		if s.ClienteID == 0 {
+			s.ClienteID = clienteID
+		}
+		if s.ClienteID != clienteID || (empresa != 0 && s.EmpresaID != empresa) {
+			continue
+		}
+		salida = append(salida, servicioArgosAServicio(s))
+	}
+	return salida
 }
 
 // desconocidos: los clientes del resultado de los que Iris no sabe sus empresas.

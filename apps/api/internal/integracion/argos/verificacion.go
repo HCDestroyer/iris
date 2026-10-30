@@ -66,13 +66,30 @@ func (v *verificaciones) cupo(conectorID int64) chan struct{} {
 	return c
 }
 
+// leidoEnArgos: los servicios de un cliente leídos en Argos y las empresas que se deducen.
+type leidoEnArgos struct {
+	info      infoEmpresas
+	servicios []ServicioArgos
+}
+
 // verificarEnArgos lee las empresas de hasta TopeVerificaciones clientes en Argos. Falla cerrado:
 // un error de Argos (o el tope) deja al cliente fuera del resultado (no aparece en el mapa).
 func (m *Modulo) verificarEnArgos(ctx context.Context, conectorID int64, cli *Cliente, clientes []ClienteArgos) map[int64]infoEmpresas {
+	leidos := m.leerServiciosEnArgos(ctx, conectorID, cli, clientes)
+	salida := make(map[int64]infoEmpresas, len(leidos))
+	for id, l := range leidos {
+		salida[id] = l.info
+	}
+	return salida
+}
+
+// leerServiciosEnArgos lee los servicios (y con ellos las empresas) de hasta TopeVerificaciones
+// clientes en Argos, con los cupos por conector. Un cliente cuyo GET falla no queda en el mapa.
+func (m *Modulo) leerServiciosEnArgos(ctx context.Context, conectorID int64, cli *Cliente, clientes []ClienteArgos) map[int64]leidoEnArgos {
 	if len(clientes) > TopeVerificaciones {
 		clientes = clientes[:TopeVerificaciones]
 	}
-	salida := make(map[int64]infoEmpresas, len(clientes))
+	salida := make(map[int64]leidoEnArgos, len(clientes))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	cupo := m.verificacion.cupo(conectorID)
@@ -96,7 +113,7 @@ func (m *Modulo) verificarEnArgos(ctx context.Context, conectorID int64, cli *Cl
 			}
 			m.verificacion.guardar(conectorID, c.ID, info)
 			mu.Lock()
-			salida[c.ID] = info
+			salida[c.ID] = leidoEnArgos{info: info, servicios: servicios}
 			mu.Unlock()
 		}(c)
 	}

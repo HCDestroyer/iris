@@ -634,3 +634,66 @@ func secretoDelCanje(canje map[string]any) string {
 	secreto, _ := wh["secreto"].(string)
 	return secreto
 }
+
+// Selector de cliente del panel (pedido del PM): con ?servicios=true cada resultado trae sus
+// servicios de la empresa activa, leídos en Argos o, si Argos no responde, de la instantánea.
+func TestBuscarClientesConServicios(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	e.sembrarCliente(51, "Marta Ruiz")
+	e.argos.con(func() {
+		e.argos.servicios[51] = append(e.argos.servicios[51],
+			map[string]any{"id": 511, "empresa_id": 1, "cliente_id": 51, "codigo": "S-2", "plan_nombre": "Fibra 50", "ip": "10.0.1.2", "estado": "suspendido"},
+			// De otra empresa: no se muestra en la empresa activa.
+			map[string]any{"id": 512, "empresa_id": 2, "cliente_id": 51, "codigo": "S-3", "plan_nombre": "Radio 10", "estado": "activo"},
+		)
+	})
+
+	// Sin el parámetro: servicios null (como antes) y sin llamadas extra a Argos.
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	sin := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta", nil)
+	if sin.status != 200 || len(sin.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("buscar: %d %s", sin.status, sin.crudo)
+	}
+	if v, ok := sin.cuerpo["data"].([]any)[0].(map[string]any)["servicios"]; !ok || v != nil {
+		t.Fatalf("sin servicios=true debían venir null: %s", sin.crudo)
+	}
+
+	con := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta&servicios=true", nil)
+	if con.status != 200 || con.cuerpo["stale"] != false {
+		t.Fatalf("buscar con servicios: %d %s", con.status, con.crudo)
+	}
+	servicios := con.cuerpo["data"].([]any)[0].(map[string]any)["servicios"].([]any)
+	if len(servicios) != 2 {
+		t.Fatalf("esperaba los 2 servicios de la empresa 1: %s", con.crudo)
+	}
+	s0, s1 := servicios[0].(map[string]any), servicios[1].(map[string]any)
+	if s0["id"] != float64(510) || s0["planNombre"] != "Fibra 100" || s0["estado"] != "activo" || s0["ip"] != "10.0.0.51" ||
+		s1["id"] != float64(511) || s1["planNombre"] != "Fibra 50" || s1["estado"] != "suspendido" {
+		t.Fatalf("servicios mal leídos: %s", con.crudo)
+	}
+	if e.argos.llamadasA("/api/v1/servicios") <= antes {
+		t.Fatal("con servicios=true debía leer los servicios en Argos")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes`); n != 0 {
+		t.Fatal("la búsqueda no debía guardar instantáneas")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.buscar' AND resultado = 'ok' AND entrada->>'servicios' = 'true'`); n != 1 {
+		t.Fatalf("auditoría de la búsqueda con servicios: %d", n)
+	}
+
+	// Argos caído: los servicios salen de la instantánea (la que dejó la ficha), de la empresa activa.
+	if f := lectura.pedir(http.MethodGet, "/api/v1/clientes/51", nil); f.status != 200 {
+		t.Fatalf("ficha: %d %s", f.status, f.crudo)
+	}
+	e.argos.con(func() { e.argos.caido = true })
+	local := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=Ruiz&servicios=true", nil)
+	if local.status != 200 || local.cuerpo["stale"] != true || len(local.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("búsqueda local: %d %s", local.status, local.crudo)
+	}
+	locales := local.cuerpo["data"].([]any)[0].(map[string]any)["servicios"].([]any)
+	if len(locales) != 2 || locales[1].(map[string]any)["estado"] != "suspendido" {
+		t.Fatalf("servicios de la instantánea: %s", local.crudo)
+	}
+}
