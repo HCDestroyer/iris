@@ -2515,6 +2515,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sesion/reautenticar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar la contraseña dentro de la sesión
+         * @description Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (tokens, conectores, gestión de usuarios, roles y vínculos, MFA), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`).
+         */
+        post: operations["reautenticar"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/slas": {
         parameters: {
             query?: never;
@@ -2546,7 +2566,7 @@ export interface paths {
         put?: never;
         /**
          * Entrar con el ticket de autologin de Argos
-         * @description Lo llama la página `/sso/entrar#<ticket>` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre la sesión del usuario de Iris (cookies `iris_sesion` e `iris_csrf`, como `POST /api/v1/sesion`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`); cuenta vinculada desactivada: 403. Sin vínculo: responde `estado: vincular` con `externo` (id, correo y nombre en Argos, solo para mostrar) y deja la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min): el usuario inicia sesión normalmente y luego llama `POST /api/v1/sso/vincular`. `destino.ruta` es la ruta del panel a la que ir después (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global como el portal: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_intentos`.
+         * @description Lo llama la página `/sso/entrar#<ticket>` (sin CSRF, como el login). Ticket vencido, usado o inexistente: 401 `ticket_invalido`; conector apagado: 409 `conector_apagado`. Con vínculo: abre una sesión de origen `sso` del usuario de Iris (cookies `iris_sesion` e `iris_csrf`; dura a lo más 8 h y las acciones sensibles piden `POST /api/v1/sesion/reautenticar`) y responde `estado: sesion`, o `estado: mfa` si tiene MFA (falta `POST /api/v1/sesion/mfa`). Barreras del login: cuenta inactiva, de integración o sin contraseña, 403; bloqueada por fallos, 429 `demasiados_intentos`; con permisos de administración y sin MFA, 403 `sso_requiere_mfa`. Si el navegador ya tiene la sesión completa de **otro** usuario, responde `estado: confirmar_cambio` sin consumir el ticket: repetir con `confirmar: true` cierra esa sesión y entra; si es del mismo usuario, la reutiliza (`estado: sesion`, `sesionReutilizada: true`, sin `sesion`). Sin vínculo: `estado: vincular` con `externo` (id, correo y nombre en Argos) y la cookie `iris_sso_vincular` (HttpOnly, solo `/api/v1/sso`, 10 min). `destino.ruta` es la ruta del panel (`/tickets/{id}`, `/ordenes/{id}` o `/comercial/{id}`): siempre interna. Freno global propio: pasados 1000 canjes fallidos en un minuto, 429 `demasiados_canjes`.
          */
         post: operations["canjearSSO"];
         delete?: never;
@@ -2566,7 +2586,7 @@ export interface paths {
         put?: never;
         /**
          * Vincular tu usuario con el de Argos del último autologin
-         * @description Con la sesión completa del panel (después del MFA) y `X-CSRF-Token`, y la cookie `iris_sso_vincular` del canje. La sesión debe haberse abierto después del canje (422 `reautenticacion_requerida`: una sesión que ya estaba abierta en el navegador no vincula). Sin vinculación pendiente vigente, 422 `vinculacion_invalida`. 409 `vinculo_existente` si tu usuario ya está vinculado con otra cuenta de ese Argos, 409 `cuenta_externa_vinculada` si esa cuenta de Argos ya es de otro usuario, 409 `conector_apagado`. Nunca se vincula por correo. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.
+         * @description Solo tras la confirmación explícita del usuario (nunca automático): con la sesión completa del panel (después del MFA), `X-CSRF-Token`, la cookie `iris_sso_vincular` del canje y `{ id_externo }` igual al `externo.idExterno` que se le mostró (si no, o sin vinculación pendiente vigente, 422 `vinculacion_invalida`). La sesión debe haberse abierto después del canje (422 `sesion_anterior_al_canje`). Además, el correo de Argos debe ser el de la cuenta de Iris (sin distinguir mayúsculas); si no, 409 `vinculo_requiere_admin` (lo vincula un administrador con `POST /api/v1/usuarios/{id}/vinculos-sso`). Nunca se vincula solo por correo. 409 `vinculo_existente` (tu usuario ya tiene un vínculo con ese Argos), `cuenta_externa_vinculada` o `conector_apagado`. Borra la cookie y responde el vínculo y el destino. Emite `usuario.sso_vinculado`.
          */
         post: operations["vincularSSO"];
         delete?: never;
@@ -3304,7 +3324,11 @@ export interface paths {
          */
         get: operations["listarVinculosSSO"];
         put?: never;
-        post?: never;
+        /**
+         * Vincular un usuario con una cuenta de Argos (administrador)
+         * @description Permiso: `usuarios.editar`. Solo con la sesión del panel. Para cuando el correo de Argos no es el de la cuenta (409 `vinculo_requiere_admin` en `POST /sso/vincular`). Cuerpo `{ conector_id, id_externo }` (el conector de Argos; si no, 422 `conector_invalido`). Mismo alcance que editar el usuario (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). 409 `vinculo_existente` / `cuenta_externa_vinculada`. Emite `usuario.sso_vinculado` con `origen: admin`.
+         */
+        post: operations["crearVinculoSSO"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3322,7 +3346,7 @@ export interface paths {
         put?: never;
         /**
          * Quitar un vínculo de autologin
-         * @description Los propios, sin permiso; los de otro usuario, con `usuarios.editar` y la regla de la administración de usuarios (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). Con el vínculo quitado, el próximo «Ver en Iris» vuelve a pedir iniciar sesión y vincular. Emite `usuario.sso_desvinculado`.
+         * @description Solo con la sesión del panel (no con un token). Los propios, sin permiso; los de otro usuario, con `usuarios.editar` y la regla de la administración de usuarios (Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Además, sus permisos no pueden superar los tuyos). Con el vínculo quitado, el próximo «Ver en Iris» vuelve a pedir iniciar sesión y vincular. Emite `usuario.sso_desvinculado`.
          */
         post: operations["borrarVinculoSSO"];
         delete?: never;
@@ -3774,12 +3798,13 @@ export interface components {
         CanjeSSO: {
             destino: components["schemas"]["DestinoSSOResuelto"];
             /**
-             * @description sesion: entró; mfa: falta POST /api/v1/sesion/mfa; vincular: inicia sesión y luego POST /api/v1/sso/vincular
+             * @description sesion: entró (o se reutilizó la sesión del mismo usuario); mfa: falta POST /api/v1/sesion/mfa; vincular: inicia sesión, confirma y POST /api/v1/sso/vincular; confirmar_cambio: el navegador tiene la sesión de otro usuario (repetir con confirmar: true)
              * @enum {string}
              */
-            estado: "sesion" | "mfa" | "vincular";
+            estado: "sesion" | "mfa" | "vincular" | "confirmar_cambio";
             externo?: components["schemas"]["UsuarioExternoVisto"];
             sesion?: components["schemas"]["SesionIniciada"];
+            sesionReutilizada?: boolean;
             /** Format: date-time */
             vinculacionExpiraEn?: string;
         };
@@ -4443,6 +4468,8 @@ export interface components {
             url: string;
         };
         EntradaCanjearSSO: {
+            /** @description true tras estado confirmar_cambio: cerrar la sesión del otro usuario y entrar */
+            confirmar?: boolean;
             ticket: string;
         };
         EntradaCapturarFirma: {
@@ -4782,6 +4809,11 @@ export interface components {
              * @enum {string}
              */
             tipo: "persona" | "integracion";
+        };
+        EntradaCrearVinculoSSO: {
+            /** Format: int64 */
+            conector_id: number;
+            id_externo: string;
         };
         EntradaCrearZona: {
             nombre: string;
@@ -5339,6 +5371,9 @@ export interface components {
              */
             version: number;
         };
+        EntradaReautenticar: {
+            contrasena: string;
+        };
         EntradaRegistrar: {
             /** @description Ítem del checklist que respalda */
             claveChecklist?: string;
@@ -5536,6 +5571,10 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaVincularSSO: {
+            /** @description El id de Argos que se mostró al usuario (externo.idExterno del canje) */
+            id_externo: string;
         };
         EquipoComodato: {
             mac: string | null;
@@ -7427,6 +7466,10 @@ export interface components {
             /** Format: date-time */
             registradaEn: string;
         };
+        Reautenticado: {
+            /** Format: date-time */
+            validaHasta: string;
+        };
         RecorridoReal: {
             /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
             disponible: boolean;
@@ -8351,7 +8394,7 @@ export interface components {
             version: number;
         };
         UsuarioExternoSSO: {
-            /** @description Solo para mostrarlo al vincular: nunca se vincula por correo */
+            /** @description Para mostrarlo al vincular y como condición extra de la autovinculación */
             correo?: string | null;
             /** @description Id del usuario en Argos (u-<id>) */
             id_externo: string;
@@ -18736,6 +18779,78 @@ export interface operations {
             };
         };
     };
+    reautenticar: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReautenticar"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reautenticado"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarSLAs: {
         parameters: {
             query?: never;
@@ -18884,7 +18999,11 @@ export interface operations {
                 iris_sso_vincular?: string;
             };
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVincularSSO"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -21950,6 +22069,89 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearVinculoSSO: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearVinculoSSO"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VinculoSSO"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

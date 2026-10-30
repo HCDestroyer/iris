@@ -145,8 +145,8 @@ ON CONFLICT DO NOTHING;
 -- Sesiones -------------------------------------------------------------------
 
 -- name: CrearSesion :one
-INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en)
-VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en)
+INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen)
+VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en, @origen)
 RETURNING *;
 
 -- name: SesionVigentePorHash :one
@@ -417,7 +417,8 @@ SELECT (estado = 'activo')::boolean AS activo FROM integracion.conectores WHERE 
 
 -- name: CrearTicketSSO :one
 INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
-VALUES (@conector_id, @ticket_hash, @usuario_externo, @correo, @nombre, @destino_tipo, @destino_id, @emitido_token_id, @expira_en)
+VALUES (@conector_id, @ticket_hash, @usuario_externo, @correo, @nombre, @destino_tipo, @destino_id, @emitido_token_id,
+        now() + make_interval(secs => @vigencia_seg::integer))
 RETURNING *;
 
 -- name: TomarTicketSSO :one
@@ -431,9 +432,33 @@ SELECT v.id, v.usuario_id, u.activo, u.tipo
 FROM nucleo.sso_vinculos v JOIN nucleo.usuarios u ON u.id = v.usuario_id
 WHERE v.conector_id = @conector_id AND v.usuario_externo = @usuario_externo;
 
--- name: PrepararVinculacionSSO :exec
-UPDATE nucleo.sso_tickets SET vinculacion_hash = @vinculacion_hash, vinculacion_expira_en = @vinculacion_expira_en, updated_at = now()
-WHERE id = @id;
+-- name: PrepararVinculacionSSO :one
+UPDATE nucleo.sso_tickets SET vinculacion_hash = @vinculacion_hash,
+    vinculacion_expira_en = now() + make_interval(secs => @vigencia_seg::integer), updated_at = now()
+WHERE id = @id
+RETURNING vinculacion_expira_en::timestamptz;
+
+-- name: VerTicketSSO :one
+SELECT id, conector_id, usuario_externo, destino_tipo, destino_id FROM nucleo.sso_tickets
+WHERE ticket_hash = @ticket_hash AND canjeado_en IS NULL AND expira_en > now();
+
+-- name: TicketsSSORecientes :one
+-- Tickets emitidos por el conector en la ventana, id_externo distintos y edad del más viejo.
+SELECT count(id)::integer AS emitidos,
+       count(DISTINCT usuario_externo)::integer AS externos,
+       coalesce(floor(extract(epoch FROM (now() - min(created_at)))), 0)::integer AS edad_seg
+FROM nucleo.sso_tickets
+WHERE conector_id = @conector_id AND created_at > now() - make_interval(secs => @ventana_seg::integer);
+
+-- name: MarcarSesionReautenticada :execrows
+UPDATE nucleo.sesiones SET reautenticada_en = now(), updated_at = now()
+WHERE id = @id AND revocada_en IS NULL AND NOT mfa_pendiente;
+
+-- name: BorrarVinculosSSODeUsuario :many
+DELETE FROM nucleo.sso_vinculos WHERE usuario_id = @usuario_id RETURNING *;
+
+-- name: SistemaDeConector :one
+SELECT sistema FROM integracion.conectores WHERE id = @id;
 
 -- name: TomarVinculacionSSO :one
 -- La vinculación pendiente se usa una sola vez y dentro de su plazo.

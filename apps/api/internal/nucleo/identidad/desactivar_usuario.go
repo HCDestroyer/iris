@@ -52,6 +52,9 @@ func nuevoDesactivarUsuario() *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 			if _, err := q.RevocarSesionesDeUsuario(ctx, in.ID); err != nil {
 				return Usuario{}, err
 			}
+			if err := borrarVinculosSSO(ctx, t, q, in.ID, "usuario_desactivado"); err != nil {
+				return Usuario{}, err
+			}
 			roles, err := rolesDe(ctx, q, in.ID)
 			if err != nil {
 				return Usuario{}, err

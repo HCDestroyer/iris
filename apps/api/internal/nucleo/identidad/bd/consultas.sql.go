@@ -184,6 +184,37 @@ func (q *Queries) BorrarVinculoSSO(ctx context.Context, id int64) error {
 	return err
 }
 
+const borrarVinculosSSODeUsuario = `-- name: BorrarVinculosSSODeUsuario :many
+DELETE FROM nucleo.sso_vinculos WHERE usuario_id = $1 RETURNING id, conector_id, usuario_externo, usuario_id, ticket_id, created_at
+`
+
+func (q *Queries) BorrarVinculosSSODeUsuario(ctx context.Context, usuarioID int64) ([]NucleoSsoVinculo, error) {
+	rows, err := q.db.Query(ctx, borrarVinculosSSODeUsuario, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NucleoSsoVinculo
+	for rows.Next() {
+		var i NucleoSsoVinculo
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConectorID,
+			&i.UsuarioExterno,
+			&i.UsuarioID,
+			&i.TicketID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cambiarContrasenaPropia = `-- name: CambiarContrasenaPropia :one
 UPDATE nucleo.usuarios
 SET contrasena_hash = $1, debe_cambiar_contrasena = false,
@@ -362,9 +393,9 @@ func (q *Queries) CrearEmpresa(ctx context.Context, arg CrearEmpresaParams) (Nuc
 
 const crearSesion = `-- name: CrearSesion :one
 
-INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos
+INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos, origen, reautenticada_en
 `
 
 type CrearSesionParams struct {
@@ -375,6 +406,7 @@ type CrearSesionParams struct {
 	Ip           string
 	UserAgent    string
 	ExpiraEn     time.Time
+	Origen       string
 }
 
 // Sesiones -------------------------------------------------------------------
@@ -387,6 +419,7 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		arg.Ip,
 		arg.UserAgent,
 		arg.ExpiraEn,
+		arg.Origen,
 	)
 	var i NucleoSesione
 	err := row.Scan(
@@ -403,6 +436,8 @@ func (q *Queries) CrearSesion(ctx context.Context, arg CrearSesionParams) (Nucle
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MfaFallos,
+		&i.Origen,
+		&i.ReautenticadaEn,
 	)
 	return i, err
 }
@@ -459,7 +494,8 @@ func (q *Queries) CrearSesionPortal(ctx context.Context, arg CrearSesionPortalPa
 
 const crearTicketSSO = `-- name: CrearTicketSSO :one
 INSERT INTO nucleo.sso_tickets (conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+        now() + make_interval(secs => $9::integer))
 RETURNING id, conector_id, ticket_hash, usuario_externo, correo, nombre, destino_tipo, destino_id, emitido_token_id, expira_en, canjeado_en, vinculacion_hash, vinculacion_expira_en, vinculado_en, created_at, updated_at
 `
 
@@ -472,7 +508,7 @@ type CrearTicketSSOParams struct {
 	DestinoTipo    string
 	DestinoID      int64
 	EmitidoTokenID *int64
-	ExpiraEn       time.Time
+	VigenciaSeg    int32
 }
 
 func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) (NucleoSsoTicket, error) {
@@ -485,7 +521,7 @@ func (q *Queries) CrearTicketSSO(ctx context.Context, arg CrearTicketSSOParams) 
 		arg.DestinoTipo,
 		arg.DestinoID,
 		arg.EmitidoTokenID,
-		arg.ExpiraEn,
+		arg.VigenciaSeg,
 	)
 	var i NucleoSsoTicket
 	err := row.Scan(
@@ -1204,6 +1240,19 @@ func (q *Queries) ListarUsuarios(ctx context.Context, arg ListarUsuariosParams) 
 	return items, nil
 }
 
+const marcarSesionReautenticada = `-- name: MarcarSesionReautenticada :execrows
+UPDATE nucleo.sesiones SET reautenticada_en = now(), updated_at = now()
+WHERE id = $1 AND revocada_en IS NULL AND NOT mfa_pendiente
+`
+
+func (q *Queries) MarcarSesionReautenticada(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, marcarSesionReautenticada, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const permisosDeRoles = `-- name: PermisosDeRoles :many
 SELECT rol_id, permiso FROM nucleo.roles_permisos
 WHERE rol_id = ANY($1::bigint[])
@@ -1269,20 +1318,24 @@ func (q *Queries) PermisosDeUsuario(ctx context.Context, usuarioID int64) ([]Per
 	return items, nil
 }
 
-const prepararVinculacionSSO = `-- name: PrepararVinculacionSSO :exec
-UPDATE nucleo.sso_tickets SET vinculacion_hash = $1, vinculacion_expira_en = $2, updated_at = now()
+const prepararVinculacionSSO = `-- name: PrepararVinculacionSSO :one
+UPDATE nucleo.sso_tickets SET vinculacion_hash = $1,
+    vinculacion_expira_en = now() + make_interval(secs => $2::integer), updated_at = now()
 WHERE id = $3
+RETURNING vinculacion_expira_en::timestamptz
 `
 
 type PrepararVinculacionSSOParams struct {
-	VinculacionHash     []byte
-	VinculacionExpiraEn *time.Time
-	ID                  int64
+	VinculacionHash []byte
+	VigenciaSeg     int32
+	ID              int64
 }
 
-func (q *Queries) PrepararVinculacionSSO(ctx context.Context, arg PrepararVinculacionSSOParams) error {
-	_, err := q.db.Exec(ctx, prepararVinculacionSSO, arg.VinculacionHash, arg.VinculacionExpiraEn, arg.ID)
-	return err
+func (q *Queries) PrepararVinculacionSSO(ctx context.Context, arg PrepararVinculacionSSOParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, prepararVinculacionSSO, arg.VinculacionHash, arg.VigenciaSeg, arg.ID)
+	var vinculacion_expira_en time.Time
+	err := row.Scan(&vinculacion_expira_en)
+	return vinculacion_expira_en, err
 }
 
 const purgarAccesosPortal = `-- name: PurgarAccesosPortal :execrows
@@ -1784,7 +1837,7 @@ func (q *Queries) SesionPortalVigentePorHash(ctx context.Context, tokenHash []by
 }
 
 const sesionVigentePorHash = `-- name: SesionVigentePorHash :one
-SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
+SELECT s.id, s.usuario_id, s.token_hash, s.csrf_hash, s.mfa_pendiente, s.ip, s.user_agent, s.expira_en, s.ultimo_uso, s.revocada_en, s.created_at, s.updated_at, s.mfa_fallos, s.origen, s.reautenticada_en, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
 FROM nucleo.sesiones s
 JOIN nucleo.usuarios u ON u.id = s.usuario_id
 WHERE s.token_hash = $1 AND s.revocada_en IS NULL AND s.expira_en > now() AND u.activo
@@ -1812,6 +1865,8 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 		&i.NucleoSesione.CreatedAt,
 		&i.NucleoSesione.UpdatedAt,
 		&i.NucleoSesione.MfaFallos,
+		&i.NucleoSesione.Origen,
+		&i.NucleoSesione.ReautenticadaEn,
 		&i.NucleoUsuario.ID,
 		&i.NucleoUsuario.Nombre,
 		&i.NucleoUsuario.Correo,
@@ -1827,6 +1882,44 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, tokenHash []byte) (S
 		&i.NucleoUsuario.UpdatedAt,
 		&i.NucleoUsuario.DebeCambiarContrasena,
 	)
+	return i, err
+}
+
+const sistemaDeConector = `-- name: SistemaDeConector :one
+SELECT sistema FROM integracion.conectores WHERE id = $1
+`
+
+func (q *Queries) SistemaDeConector(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, sistemaDeConector, id)
+	var sistema string
+	err := row.Scan(&sistema)
+	return sistema, err
+}
+
+const ticketsSSORecientes = `-- name: TicketsSSORecientes :one
+SELECT count(id)::integer AS emitidos,
+       count(DISTINCT usuario_externo)::integer AS externos,
+       coalesce(floor(extract(epoch FROM (now() - min(created_at)))), 0)::integer AS edad_seg
+FROM nucleo.sso_tickets
+WHERE conector_id = $1 AND created_at > now() - make_interval(secs => $2::integer)
+`
+
+type TicketsSSORecientesParams struct {
+	ConectorID int64
+	VentanaSeg int32
+}
+
+type TicketsSSORecientesRow struct {
+	Emitidos int32
+	Externos int32
+	EdadSeg  int32
+}
+
+// Tickets emitidos por el conector en la ventana, id_externo distintos y edad del más viejo.
+func (q *Queries) TicketsSSORecientes(ctx context.Context, arg TicketsSSORecientesParams) (TicketsSSORecientesRow, error) {
+	row := q.db.QueryRow(ctx, ticketsSSORecientes, arg.ConectorID, arg.VentanaSeg)
+	var i TicketsSSORecientesRow
+	err := row.Scan(&i.Emitidos, &i.Externos, &i.EdadSeg)
 	return i, err
 }
 
@@ -2159,6 +2252,32 @@ func (q *Queries) UsuarioPorIDParaActualizar(ctx context.Context, id int64) (Nuc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DebeCambiarContrasena,
+	)
+	return i, err
+}
+
+const verTicketSSO = `-- name: VerTicketSSO :one
+SELECT id, conector_id, usuario_externo, destino_tipo, destino_id FROM nucleo.sso_tickets
+WHERE ticket_hash = $1 AND canjeado_en IS NULL AND expira_en > now()
+`
+
+type VerTicketSSORow struct {
+	ID             int64
+	ConectorID     int64
+	UsuarioExterno string
+	DestinoTipo    string
+	DestinoID      int64
+}
+
+func (q *Queries) VerTicketSSO(ctx context.Context, ticketHash []byte) (VerTicketSSORow, error) {
+	row := q.db.QueryRow(ctx, verTicketSSO, ticketHash)
+	var i VerTicketSSORow
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.UsuarioExterno,
+		&i.DestinoTipo,
+		&i.DestinoID,
 	)
 	return i, err
 }

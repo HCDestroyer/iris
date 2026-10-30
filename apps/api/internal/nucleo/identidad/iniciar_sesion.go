@@ -72,7 +72,7 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				return SesionIniciada{}, err
 			}
 			t.IdentificarActor(contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: u.Nombre})
-			return abrirSesion(ctx, q, cfg, u, u.TotpActivo, in.IP, in.UserAgent)
+			return abrirSesion(ctx, q, cfg, u, u.TotpActivo, in.IP, in.UserAgent, origenPassword)
 		},
 	})
 }
@@ -98,8 +98,12 @@ func contarFalloLogin(t *auditoria.Tx, cfg Config, correo string) {
 	})
 }
 
-// abrirSesion crea la fila de sesión y devuelve los valores de las cookies.
-func abrirSesion(ctx context.Context, q *identidadbd.Queries, cfg Config, u identidadbd.NucleoUsuario, mfaPendiente bool, ip, agente string) (SesionIniciada, error) {
+// Origen de una sesión (nucleo.sesiones.origen).
+const origenPassword = "password"
+
+// abrirSesion crea la fila de sesión y devuelve los valores de las cookies. Una sesión sso dura
+// a lo más DuracionSesionSSO.
+func abrirSesion(ctx context.Context, q *identidadbd.Queries, cfg Config, u identidadbd.NucleoUsuario, mfaPendiente bool, ip, agente, origen string) (SesionIniciada, error) {
 	token, err := NuevoSecreto()
 	if err != nil {
 		return SesionIniciada{}, err
@@ -109,12 +113,15 @@ func abrirSesion(ctx context.Context, q *identidadbd.Queries, cfg Config, u iden
 		return SesionIniciada{}, err
 	}
 	duracion := cfg.DuracionSesion
+	if origen == contexto.OrigenSesionSSO && cfg.DuracionSesionSSO < duracion {
+		duracion = cfg.DuracionSesionSSO
+	}
 	if mfaPendiente {
 		duracion = 10 * time.Minute // tiempo para escribir el código
 	}
 	s, err := q.CrearSesion(ctx, identidadbd.CrearSesionParams{
 		UsuarioID: u.ID, TokenHash: Hash256(token), CsrfHash: Hash256(csrf), MfaPendiente: mfaPendiente,
-		Ip: recortar(ip, 64), UserAgent: recortar(agente, 400), ExpiraEn: time.Now().Add(duracion),
+		Ip: recortar(ip, 64), UserAgent: recortar(agente, 400), ExpiraEn: time.Now().Add(duracion), Origen: origen,
 	})
 	if err != nil {
 		return SesionIniciada{}, err

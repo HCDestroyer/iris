@@ -129,6 +129,13 @@ func (m *Modulo) Registrar(api huma.API) {
 		return &salidaSesion{SetCookie: m.cookiesSesion(s), Body: s}, nil
 	})
 
+	reaut := operacion("reautenticar", http.MethodPost, "/api/v1/sesion/reautenticar", "Confirmar la contraseña dentro de la sesión", "", http.StatusOK, http.StatusForbidden, http.StatusTooManyRequests)
+	reaut.Security = []map[string][]string{{"sesion": {}}}
+	reaut.Description = "Con la sesión del panel y `X-CSRF-Token`. Una sesión abierta por el autologin desde Argos (origen `sso`) debe confirmar la contraseña antes de las acciones sensibles (tokens, conectores, gestión de usuarios, roles y vínculos, MFA), que si no responden 403 `reautenticacion_requerida`; vale 15 min. Cuenta los fallos y bloquea como el login (401 `credenciales_invalidas`, 429 `demasiados_intentos`)."
+	huma.Register(api, reaut, func(ctx context.Context, in *conClave[EntradaReautenticar]) (*cuerpo[Reautenticado], error) {
+		return responder(m.Reautenticar.Ejecutar(ctx, in.Body))
+	})
+
 	huma.Register(api, operacion("cerrarSesion", http.MethodDelete, "/api/v1/sesion", "Cerrar la sesión", "", http.StatusNoContent),
 		func(ctx context.Context, _ *vacio) (*salidaCookies, error) {
 			if _, err := m.CerrarSesion.Ejecutar(ctx, struct{}{}); err != nil {

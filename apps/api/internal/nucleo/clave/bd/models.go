@@ -969,19 +969,21 @@ type NucleoRolesPermiso struct {
 }
 
 type NucleoSesione struct {
-	ID           int64
-	UsuarioID    int64
-	TokenHash    []byte
-	CsrfHash     []byte
-	MfaPendiente bool
-	Ip           string
-	UserAgent    string
-	ExpiraEn     time.Time
-	UltimoUso    time.Time
-	RevocadaEn   *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	MfaFallos    int32
+	ID              int64
+	UsuarioID       int64
+	TokenHash       []byte
+	CsrfHash        []byte
+	MfaPendiente    bool
+	Ip              string
+	UserAgent       string
+	ExpiraEn        time.Time
+	UltimoUso       time.Time
+	RevocadaEn      *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	MfaFallos       int32
+	Origen          string
+	ReautenticadaEn *time.Time
 }
 
 type NucleoSsoTicket struct {

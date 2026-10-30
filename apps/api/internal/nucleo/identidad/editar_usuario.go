@@ -111,6 +111,12 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 				if _, err := q.RevocarSesionesDeUsuario(ctx, in.ID); err != nil {
 					return Usuario{}, err
 				}
+				// Un administrador que cambia la contraseña de otro: el autologin no se hereda.
+				if !propio {
+					if err := borrarVinculosSSO(ctx, t, q, in.ID, "contrasena_reiniciada"); err != nil {
+						return Usuario{}, err
+					}
+				}
 			}
 
 			campos := t.RegistrarCambios("usuario", in.ID, auditable(antes, rolesPrevios[in.ID]), auditable(despues, roles))

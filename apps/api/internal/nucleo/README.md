@@ -30,9 +30,13 @@ Subpaquetes:
   **Autologin desde Argos** (`sso.go`, «Ver en Iris»): Argos pide `POST /integraciones/argosisp/sso/tickets`
   (`sso.emitir`, solo con el `iris_pat_` entregado al conector activo; 60 s, un uso, SHA-256); la
   página `/sso/entrar` canjea (`POST /sso/canjear`): con vínculo abre la sesión (pendiente de MFA
-  si lo tiene), sin vínculo deja la cookie `iris_sso_vincular` y, tras un login posterior al canje,
-  `POST /sso/vincular` guarda el vínculo. Vínculos: `GET /usuarios/{id}/vinculos-sso` y
-  `POST /usuarios/{id}/vinculos-sso/{vinculoId}/borrar`. El job
+  si lo tiene; TOTP obligatorio para los privilegiados; sesión de origen `sso`, 8 h, con
+  re-autenticación `POST /sesion/reautenticar` para las acciones sensibles), sin vínculo deja la
+  cookie `iris_sso_vincular` y, tras un login posterior al canje y la confirmación del usuario,
+  `POST /sso/vincular { id_externo }` guarda el vínculo si el correo de Argos es el de la cuenta (si
+  no, lo crea un admin). Vínculos: `GET|POST /usuarios/{id}/vinculos-sso` y
+  `POST /usuarios/{id}/vinculos-sso/{vinculoId}/borrar`; se borran al desactivar al usuario o
+  reiniciar su MFA o su contraseña. El job
   `nucleo.portal_purga` (worker, cada hora) borra las sesiones vencidas o revocadas y los tickets
   vencidos sin sesiones 30 días después. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y

@@ -169,7 +169,17 @@ type Sesion struct {
 	// CambioContrasena: el usuario tiene una contraseña temporal y la sesión solo puede
 	// cambiarla, ver /yo o cerrarse (lo corta identidad.Middleware).
 	CambioContrasena bool
+	// Origen: password (login) o sso (autologin desde Argos). Una sesión sso exige
+	// re-autenticarse con contraseña (Reautenticada) para las acciones sensibles.
+	Origen        string
+	Reautenticada bool
 }
+
+// OrigenSesionSSO: la sesión la abrió el autologin desde Argos.
+const OrigenSesionSSO = "sso"
+
+// EsSSO indica si la sesión la abrió el autologin.
+func (s Sesion) EsSSO() bool { return s.Origen == OrigenSesionSSO }
 
 type clave int
 

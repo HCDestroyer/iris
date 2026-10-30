@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -127,7 +128,8 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 					}
 					s, u := fila.NucleoSesione, fila.NucleoUsuario
 					ctx = contexto.ConSesion(ctx, contexto.Sesion{ID: s.ID, UsuarioID: s.UsuarioID, MFAPendiente: s.MfaPendiente,
-						CambioContrasena: u.DebeCambiarContrasena})
+						CambioContrasena: u.DebeCambiarContrasena, Origen: s.Origen,
+						Reautenticada: s.ReautenticadaEn != nil && time.Since(*s.ReautenticadaEn) < VentanaReautenticacion})
 					if u.DebeCambiarContrasena && !s.MfaPendiente && !permitidaConTemporal(r) {
 						nucleo.EscribirProblema(w, nucleo.NuevoProblema(http.StatusForbidden, "cambio_contrasena_requerido",
 							"Cambio de contraseña requerido", "Tienes una contraseña temporal: cámbiala (POST /api/v1/yo/contrasena) antes de continuar"))

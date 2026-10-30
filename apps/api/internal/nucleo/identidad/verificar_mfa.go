@@ -67,7 +67,12 @@ func nuevoVerificarMFA(cfg Config) *auditoria.Caso[EntradaVerificarMFA, SesionIn
 				return SesionIniciada{}, err
 			}
 			t.IdentificarActor(contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: u.Nombre})
-			return abrirSesion(ctx, q, cfg, u, false, in.IP, in.UserAgent)
+			// La sesión completa conserva el origen de la pendiente (password o sso).
+			origen := s.Origen
+			if origen == "" {
+				origen = origenPassword
+			}
+			return abrirSesion(ctx, q, cfg, u, false, in.IP, in.UserAgent, origen)
 		},
 	})
 }
