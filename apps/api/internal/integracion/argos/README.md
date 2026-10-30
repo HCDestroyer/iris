@@ -204,12 +204,18 @@ partes (ficha, ticket, orden, comercial y app de campo).
 - **Convertidor único:** `AServicio(ServicioArgos, zonaCliente)` → `Servicio` (instantánea y
   lecturas en vivo).
 - **Protección de Argos** (`refrescos.go`): una sola lectura de ficha en curso por (conector,
-  cliente) (`singleflight`); las lecturas a pedido («Refrescar» y la verificación de altas) cobran
-  cuota solo cuando de verdad llaman a Argos y solo el líder del singleflight: 60 por minuto y
-  conector y 10 por minuto y usuario. Tras una caída (`fallo_en`), 1 min sin volver a llamar
-  (instantánea `stale`). Con `?refrescar=true`, `refrescoOmitido` dice por qué no se llamó
-  (`cuota`, `reciente`, `en_espera`) y el panel lo muestra. «Refrescar» de un cliente que la
-  instantánea pone en otra empresa no llama a Argos (404).
+  cliente) (`singleflight`); solo el líder, el que llama a Argos, cobra. Toda lectura que llama a
+  Argos cobra la cuota del usuario (30/min), también las de instantáneas vencidas o inexistentes.
+  Las lecturas a pedido cobran además una cuota propia según el uso, global por conector y por
+  (conector, empresa): «Refrescar» 60/20 por minuto y verificación de altas 300/100 (agotar una no
+  bloquea la otra ni a otras empresas). Pasada una cuota: «Refrescar» devuelve la instantánea con
+  `refrescoOmitido: cuota`, una vencida se sirve `stale` y sin instantánea es 429 `cuota_argos`.
+  Tras una caída con instantánea (`fallo_en`), 1 min sin volver a llamar; sin instantánea, un 404 o
+  una caída quedan 1 min en una caché negativa en memoria que respetan la ficha, «Refrescar» y la
+  verificación. Las ventanas de cuota vencidas se desalojan (nunca las vigentes). Con
+  `?refrescar=true`, `refrescoOmitido` dice por qué no se llamó (`cuota`, `reciente`,
+  `en_espera`). «Refrescar» de un cliente que la instantánea pone en otra empresa no llama a
+  Argos (404).
 - **Auditoría de la búsqueda:** una búsqueda con 4 dígitos o más (teléfono, NIT, CUI) queda con los
   dígitos ocultos salvo los dos últimos (`****-**44`).
 - **Resolución local por IP:** ignora servicios retirados.

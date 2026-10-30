@@ -448,7 +448,14 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 			f.omitido = &motivo
 		}
 	}
+	neg, hayNeg := o.m.refrescos.negativoDe(p.conector.ID, in.ID, ahora)
 	switch {
+	case p.cliente == nil && hayNeg && neg.noExiste:
+		// Argos dijo 404 hace menos de NegativoTTL: el mismo 404 sin volver a preguntar.
+		f.noExiste = true
+	case p.cliente == nil && hayNeg:
+		// Argos no respondió hace menos de NegativoTTL y no hay instantánea: 503 sin esperar otra vez.
+		f.errArgos, f.enEspera = errEnEspera(), true
 	case !vencida && !aPedido:
 		omitir(RefrescoReciente)
 	case enEspera(p.cliente, ahora):
@@ -456,15 +463,26 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 		f.errArgos, f.enEspera = errEnEspera(), true
 		omitir(RefrescoEnEspera)
 	default:
-		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, contexto.ActorDe(ctx).ID, aPedido, func(c context.Context) (fichaArgos, error) {
-			return leerFichaArgos(c, nucleo.BDDe(ctx), cli, in.ID)
+		// Toda lectura cobra la cuota del usuario; «Refrescar», además, la suya del conector y de la
+		// empresa.
+		c := cobro{usuario: contexto.ActorDe(ctx).ID, empresa: e}
+		if aPedido {
+			c.uso = usoRefrescar
+		}
+		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, c, p.cliente == nil, func(cx context.Context) (fichaArgos, error) {
+			return leerFichaArgos(cx, nucleo.BDDe(ctx), cli, in.ID)
 		})
 		switch {
 		case err == nil:
 			f.leida = &leida
-		case errors.Is(err, errCuota):
+		case errors.Is(err, errCuota) && aPedido:
 			// Sin llamar a Argos: la instantánea vigente, y el panel avisa que no se refrescó.
 			omitir(RefrescoCuota)
+		case errors.Is(err, errCuota) && p.cliente != nil:
+			// Vencida y sin cuota: la última instantánea, marcada stale (sin marcar un fallo).
+			f.errArgos, f.enEspera = errEnEspera(), true
+		case errors.Is(err, errCuota):
+			f.errArgos = errCuotaArgos()
 		case EsNoEncontrado(err):
 			f.noExiste = true
 		default:
@@ -505,6 +523,11 @@ func debeRefrescar(f *argosbd.IntegracionArgosCliente, refrescar bool, vigencia 
 // Solo con instantánea (sin ella no hay qué servir y se intenta).
 func enEspera(f *argosbd.IntegracionArgosCliente, ahora time.Time) bool {
 	return f != nil && f.FalloEn != nil && ahora.Sub(*f.FalloEn) < EsperaTrasFallo
+}
+
+// errCuotaArgos: 429 por la cuota de lecturas de Argos (sin instantánea que servir).
+func errCuotaArgos() error {
+	return nucleo.DemasiadosIntentos("cuota_argos", "Demasiadas consultas a Argos en el último minuto; intenta en un momento", time.Minute)
 }
 
 // errEnEspera: Argos no se consultó por un fallo reciente; cuenta como caído (stale).

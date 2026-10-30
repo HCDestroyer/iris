@@ -68,13 +68,24 @@ func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servi
 			return Problema(errEnEspera())
 		}
 	}
-	ficha, err := m.refrescos.leerUnaVez(ctx, c.ID, clienteID, contexto.ActorDe(ctx).ID, true, func(cx context.Context) (fichaArgos, error) {
+	if neg, ok := m.refrescos.negativoDe(c.ID, clienteID, ahora); previa == nil && ok {
+		// 404 o caída recientes de un cliente sin instantánea: no se vuelve a preguntar.
+		switch {
+		case neg.noExiste:
+			return errNoDisponible()
+		case servicioID == nil:
+			return nil
+		}
+		return Problema(errEnEspera())
+	}
+	cob := cobro{uso: usoVerificar, usuario: contexto.ActorDe(ctx).ID, empresa: e}
+	ficha, err := m.refrescos.leerUnaVez(ctx, c.ID, clienteID, cob, previa == nil, func(cx context.Context) (fichaArgos, error) {
 		return leerFichaArgos(cx, bd, m.clienteDe(c), clienteID)
 	})
 	switch {
 	case err == nil:
 	case errors.Is(err, errCuota):
-		return nucleo.DemasiadosIntentos("cuota_argos", "Demasiadas consultas a Argos en el último minuto; intenta en un momento", time.Minute)
+		return errCuotaArgos()
 	case EsNoEncontrado(err):
 		if previa != nil {
 			if _, err := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, borrar: true}); err != nil {

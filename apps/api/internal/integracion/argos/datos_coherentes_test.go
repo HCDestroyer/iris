@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -410,48 +411,90 @@ func TestServicioPorIPSinRetirados(t *testing.T) {
 	}
 }
 
-// «Refrescar»: solo se cobra la cuota cuando se llama a Argos; pasada la cuota del usuario, la
-// ficha dice refrescoOmitido «cuota» (y otro usuario sigue pudiendo); una instantánea de hace
-// menos de 30 s da «reciente» sin cobrar; una vencida se lee aunque la cuota esté agotada.
+// «Refrescar»: solo se cobra cuando se llama a Argos; una instantánea de hace menos de 30 s da
+// «reciente» sin cobrar; agotada la cuota de «Refrescar» de la empresa, la ficha dice
+// refrescoOmitido «cuota» (también para otro usuario de la empresa), pero crear tickets u órdenes
+// (verificación, cuota aparte) y leer una instantánea vencida siguen funcionando.
 func TestRefrescarCuotaYOmitido(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, _, _ = e.conectado()
 	e.sembrarComoArgos14(466)
+	e.sembrarComoArgos14(467)
 	yo := e.usuario("lectura")
 	if f := yo.pedir(http.MethodGet, "/api/v1/clientes/466", nil); f.status != 200 {
 		t.Fatalf("ficha: %s", f.crudo)
 	}
 	llamadas := func() int { return e.argos.llamadasA("/api/v1/clientes/466") }
-	// Recién leída: no se llama ni se cobra.
-	for range argos.CuotaUsuario + 2 {
+	for range 5 {
 		if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != "reciente" {
 			t.Fatalf("reciente: %s", r.crudo)
 		}
 	}
 	antes := llamadas()
-	for i := range argos.CuotaUsuario {
+	for i := range argos.CuotaRefrescarEmpresa {
 		e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
 		if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != nil {
 			t.Fatalf("refresco %d: %s", i, r.crudo)
 		}
 	}
-	if llamadas() != antes+argos.CuotaUsuario {
+	if llamadas() != antes+argos.CuotaRefrescarEmpresa {
 		t.Fatalf("cada refresco dentro de la cuota llama a Argos: %d", llamadas()-antes)
 	}
 	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute' WHERE id = 466`)
 	if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.status != 200 || r.cuerpo["refrescoOmitido"] != "cuota" || r.cuerpo["stale"] != false {
 		t.Fatalf("pasada la cuota: %s", r.crudo)
 	}
-	if llamadas() != antes+argos.CuotaUsuario {
+	if r := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != "cuota" {
+		t.Fatalf("la cuota de «Refrescar» es de la empresa: %s", r.crudo)
+	}
+	if llamadas() != antes+argos.CuotaRefrescarEmpresa {
 		t.Fatal("pasada la cuota no debía llamar a Argos")
 	}
-	if r := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/466?refrescar=true", nil); r.cuerpo["refrescoOmitido"] != nil {
-		t.Fatalf("otro usuario tiene su cuota: %s", r.crudo)
+	// La verificación de altas tiene su propia cuota: sigue funcionando.
+	srv := int64(4670)
+	if err := e.mod.AsegurarInstantanea(pruebas.ContextoUsuarioEnEmpresa(e.pool, 993, 1), 467, &srv); err != nil {
+		t.Fatalf("verificar con la cuota de «Refrescar» agotada: %v", err)
 	}
-	// Vencida (24 h): se lee aunque la cuota del usuario esté agotada.
+	// Vencida (24 h): se lee (cobra solo la cuota del usuario).
 	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '25 hours' WHERE id = 466`)
 	antes = llamadas()
 	if r := yo.pedir(http.MethodGet, "/api/v1/clientes/466", nil); r.status != 200 || llamadas() != antes+1 {
 		t.Fatalf("vencida: %s", r.crudo)
+	}
+}
+
+// Toda lectura que llama a Argos cobra la cuota del usuario (también ids que Argos no tiene), y
+// un 404 o una caída sin instantánea quedan en la caché negativa: no se vuelve a preguntar.
+func TestCacheNegativaYCuotaDeUsuario(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	yo := e.usuario("lectura")
+	yo.pedir(http.MethodGet, "/api/v1/clientes/777777", nil).problema(t, 404, "no_encontrado")
+	yo.pedir(http.MethodGet, "/api/v1/clientes/777777", nil).problema(t, 404, "no_encontrado")
+	if n := e.argos.llamadasA("/api/v1/clientes/777777"); n != 1 {
+		t.Fatalf("un 404 reciente no debía volver a preguntarse: %d llamadas", n)
+	}
+	// La verificación de altas respeta el 404 en caché.
+	s := int64(1)
+	if err := e.mod.AsegurarInstantanea(pruebas.ContextoUsuarioEnEmpresa(e.pool, 994, 1), 777777, &s); !esProblemaStatus(err, 422, "empresa_no_coincide") ||
+		e.argos.llamadasA("/api/v1/clientes/777777") != 1 {
+		t.Fatalf("verificar un cliente con 404 en caché: %v", err)
+	}
+	// Argos caído sin instantánea: 503 y no se vuelve a esperar.
+	e.argos.con(func() { e.argos.caido = true })
+	yo.pedir(http.MethodGet, "/api/v1/clientes/777778", nil).problema(t, 503, "argos_no_disponible")
+	antes := e.argos.llamadasA("/api/v1/clientes/777778")
+	yo.pedir(http.MethodGet, "/api/v1/clientes/777778", nil).problema(t, 503, "argos_no_disponible")
+	if e.argos.llamadasA("/api/v1/clientes/777778") != antes {
+		t.Fatal("una caída reciente sin instantánea no debía volver a llamar")
+	}
+	e.argos.con(func() { e.argos.caido = false })
+	// Cada id distinto es una lectura: la cuota del usuario la cubre (ya gastó 2).
+	for i := range argos.CuotaUsuario - 2 {
+		yo.pedir(http.MethodGet, "/api/v1/clientes/"+strconv.Itoa(780000+i), nil).problema(t, 404, "no_encontrado")
+	}
+	yo.pedir(http.MethodGet, "/api/v1/clientes/789999", nil).problema(t, 429, "cuota_argos")
+	if e.argos.llamadasA("/api/v1/clientes/789999") != 0 {
+		t.Fatal("pasada la cuota del usuario no debía llamar a Argos")
 	}
 }
