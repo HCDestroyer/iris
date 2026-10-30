@@ -142,7 +142,7 @@ func nuevoEmitirTicketSSO(cfg Config) *auditoria.Caso[EntradaEmitirTicketSSO, Ti
 			t.Anotar(map[string]any{"conector_id": c.ID})
 			// Alerta: un conector que pide tickets para muchos usuarios distintos en poco tiempo
 			// (Argos o su token comprometidos recorriendo cuentas).
-			reciente, err := q.TicketsSSORecientes(ctx, identidadbd.TicketsSSORecientesParams{ConectorID: c.ID, VentanaSeg: int32(cfg.SSOVentanaAlerta / time.Second)})
+			reciente, err := q.TicketsSSORecientes(ctx, identidadbd.TicketsSSORecientesParams{ConectorID: c.ID, VentanaSeg: segundos(cfg.SSOVentanaAlerta)})
 			if err != nil {
 				return TicketSSOEmitido{}, err
 			}
@@ -154,6 +154,14 @@ func nuevoEmitirTicketSSO(cfg Config) *auditoria.Caso[EntradaEmitirTicketSSO, Ti
 			return TicketSSOEmitido{URL: cfg.BaseURL + "/sso/entrar#" + ticket, ExpiraEn: f.ExpiraEn}, nil
 		},
 	})
+}
+
+// segundos convierte una ventana a segundos para la base (acotada a un día).
+func segundos(d time.Duration) int32 {
+	if d > 24*time.Hour {
+		d = 24 * time.Hour
+	}
+	return int32(d / time.Second) //nolint:gosec // acotado arriba
 }
 
 func valorODefecto(s *string) string {
