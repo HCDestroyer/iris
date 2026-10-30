@@ -283,7 +283,7 @@ jobs:
             export KEYSTORE_PASSWORD KEY_PASSWORD
             keytool -genkeypair -keystore "$keystore" -storetype PKCS12 -alias "$KEY_ALIAS" \
               -keyalg RSA -keysize 4096 -validity 30 -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD \
-              -dname "CN=Iris Campo PRUEBA, O=Iris, C=GT" >/dev/null 2>&1
+              -dname "CN=Iris Campo PRUEBA, O=Iris, C=GT" >/dev/null
             archivo="iris-campo-${VERSION}-prueba.apk"
             prueba=true
           fi
@@ -293,7 +293,9 @@ jobs:
           "$apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$destino" "$origen"
           rm -f "$keystore"
-          certificado="$("$apksigner" verify --print-certs "$destino" | grep -E 'Signer #1 certificate (DN|SHA-256)' | tr '\n' ' ')"
+          # La firma se comprueba aparte; el resumen del certificado no debe tumbar el job si cambia el formato.
+          "$apksigner" verify "$destino"
+          certificado="$("$apksigner" verify --print-certs "$destino" | grep -E 'certificate (DN|SHA-256 digest)' | tr '\n' ' ' || true)"
           sha="$(sha256sum "$destino" | cut -d' ' -f1)"
           {
             echo "## APK de Android: \`$archivo\`"
