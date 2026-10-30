@@ -62,6 +62,8 @@ type ClienteHTTP struct {
 	Plataforma string
 	// Pendientes informados por la app (X-Iris-Pendientes); nil si no vino.
 	Pendientes *int32
+	// Ruta de la petición (para saber si es de la app de campo).
+	Ruta string
 }
 
 type claveCliente struct{}
@@ -82,7 +84,7 @@ func LeerApp(valor string) (app, version, plataforma string, ok bool) {
 }
 
 func clienteDePeticion(r *http.Request) ClienteHTTP {
-	c := ClienteHTTP{IP: nucleo.HostDe(r.RemoteAddr), UserAgent: recortar(r.Header.Get("User-Agent"), 400), Canal: r.Header.Get(CabeceraCanal)}
+	c := ClienteHTTP{IP: nucleo.HostDe(r.RemoteAddr), UserAgent: recortar(r.Header.Get("User-Agent"), 400), Canal: r.Header.Get(CabeceraCanal), Ruta: r.URL.Path}
 	if app, version, plataforma, ok := LeerApp(r.Header.Get(CabeceraApp)); ok {
 		c.AppNombre, c.Version, c.Plataforma = app, version, plataforma
 		c.App = app + "/" + version + " (" + plataforma + ")"
@@ -208,11 +210,34 @@ func registrarAcceso(ctx context.Context, q *identidadbd.Queries, usuarioID *int
 	})
 }
 
+// Deduplicación de los fallos (nucleo.accesos.intentos).
+const (
+	// VentanaFallosAcceso: un fallo igual (mismo usuario o IP, canal y resultado) dentro de esta
+	// ventana suma a la fila existente. Un bloqueo cuenta una fila por ventana de bloqueo.
+	VentanaFallosAcceso = time.Minute
+	// TopeFallosSinUsuarioPorIP: filas por hora de intentos sin usuario (correos que no existen)
+	// desde una IP; pasado el tope, solo suman a la última.
+	TopeFallosSinUsuarioPorIP = 20
+)
+
 // accesoFallido registra el intento fallido en la transacción de auditoría del error (la de la
-// acción se revierte). usuarioID nil = el correo no existe.
-func accesoFallido(t *auditoria.Tx, usuarioID *int64, resultado, origen string) {
+// acción se revierte), deduplicado. usuarioID nil = el correo no existe.
+func accesoFallido(t *auditoria.Tx, cfg Config, usuarioID *int64, resultado, origen string) {
+	ventana := VentanaFallosAcceso
+	if resultado == AccesoBloqueado && cfg.LoginBloqueo > ventana {
+		ventana = cfg.LoginBloqueo
+	}
 	t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-		return registrarAcceso(ctx, identidadbd.New(tx), usuarioID, resultado, origen, nil)
+		c := ClienteHTTPDe(ctx)
+		var app *string
+		if c.App != "" {
+			app = &c.App
+		}
+		return identidadbd.New(tx).RegistrarAccesoFallido(ctx, identidadbd.RegistrarAccesoFallidoParams{
+			UsuarioID: usuarioID, Canal: canalDeAcceso(c, origen), Resultado: resultado, Ip: recortar(c.IP, 64),
+			UserAgent: c.UserAgent, Dispositivo: ResumirDispositivo(c), App: app, RequestID: contexto.RequestIDDe(ctx),
+			TopeIp: TopeFallosSinUsuarioPorIP, VentanaSeg: int64(ventana / time.Second),
+		})
 	})
 }
 
@@ -256,6 +281,7 @@ type Acceso struct {
 	App           *string   `json:"app" nullable:"true" doc:"X-Iris-App tal cual"`
 	SesionID      *int64    `json:"sesionId" nullable:"true"`
 	TokenID       *int64    `json:"tokenId" nullable:"true"`
+	Intentos      int32     `json:"intentos" doc:"Fallos iguales agrupados en esta fila (mismo usuario o IP y resultado en 1 min; un bloqueo, por ventana de bloqueo)"`
 	CreadoEn      time.Time `json:"creadoEn"`
 }
 
@@ -310,7 +336,7 @@ func nuevoListarAccesos() *auditoria.Caso[EntradaListarAccesos, nucleo.Pagina[Ac
 			return nucleo.Paginar(filas, in.Limite(), func(f identidadbd.ListarAccesosRow) Acceso {
 				return Acceso{ID: f.ID, UsuarioID: f.UsuarioID, UsuarioNombre: f.UsuarioNombre, UsuarioCorreo: f.UsuarioCorreo,
 					Canal: f.Canal, Resultado: f.Resultado, IP: f.Ip, Dispositivo: f.Dispositivo, App: f.App,
-					SesionID: f.SesionID, TokenID: f.TokenID, CreadoEn: f.CreatedAt}
+					SesionID: f.SesionID, TokenID: f.TokenID, Intentos: f.Intentos, CreadoEn: f.CreatedAt}
 			}, func(f identidadbd.ListarAccesosRow) []any { return []any{f.ID} }), nil
 		},
 	})
@@ -389,6 +415,9 @@ type EntradaCerrarSesionUsuario struct {
 type EntradaCerrarSesionesUsuario struct {
 	UsuarioID int64  `json:"-"`
 	Motivo    string `json:"motivo,omitempty" maxLength:"200" doc:"Por qué se cierran (queda en la auditoría y en el evento)"`
+	// RevocarTokens: las sesiones no incluyen los tokens iris_pat_ del usuario, que siguen valiendo
+	// salvo que se pida revocarlos aquí (exige además tokens.revocar).
+	RevocarTokens bool `json:"revocarTokens,omitempty" doc:"Revoca también sus tokens iris_pat_ (exige tokens.revocar; emite token.revocado por cada uno). Si no, los tokens siguen valiendo"`
 }
 
 // SesionesCerradas dice cuántas sesiones se cerraron.
@@ -396,6 +425,8 @@ type SesionesCerradas struct {
 	UsuarioID int64   `json:"usuarioId"`
 	Cerradas  int     `json:"cerradas"`
 	Sesiones  []int64 `json:"sesiones" doc:"Ids de las sesiones cerradas"`
+	// TokensRevocados: con revocarTokens; si no, 0 (los tokens siguen valiendo).
+	TokensRevocados int `json:"tokensRevocados" doc:"Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)"`
 }
 
 // exigirCerrarSesiones: el usuario debe estar en el alcance (404 si no) y, salvo el propio, quien
@@ -461,8 +492,23 @@ func nuevoCerrarSesionesUsuario() *auditoria.Caso[EntradaCerrarSesionesUsuario, 
 				ids = []int64{}
 			}
 			salida := SesionesCerradas{UsuarioID: in.UsuarioID, Cerradas: len(ids), Sesiones: ids}
+			if in.RevocarTokens {
+				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermTokensRevocar)) {
+					return SesionesCerradas{}, nucleo.Prohibido("Revocar sus tokens exige el permiso tokens.revocar")
+				}
+				revocados, err := q.RevocarTokensDeUsuario(ctx, in.UsuarioID)
+				if err != nil {
+					return SesionesCerradas{}, err
+				}
+				for _, id := range revocados {
+					if err := t.Emitir("token.revocado", map[string]any{"token_id": id, "usuario_id": in.UsuarioID, "motivo": "sesiones_cerradas"}); err != nil {
+						return SesionesCerradas{}, err
+					}
+				}
+				salida.TokensRevocados = len(revocados)
+			}
 			if len(ids) == 0 {
-				return salida, nil // nada que cerrar: sin evento
+				return salida, nil // ninguna sesión cerrada: sin evento de sesiones
 			}
 			return salida, emitirSesionesCerradas(t, salida, in.Motivo, true)
 		},

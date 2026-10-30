@@ -2,6 +2,7 @@ package servidor_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -172,9 +175,14 @@ func TestHistorialDeAccesos(t *testing.T) {
 		entrarCon(e.cliente(), correoBloq, "mala-mala-mala-1")
 	}
 	entrarCon(e.cliente(), correoBloq, contrasena).problema(t, 429, "demasiados_intentos")
+	entrarCon(e.cliente(), correoBloq, contrasena).problema(t, 429, "demasiados_intentos")
+	// Los 10 fallos seguidos suman a una sola fila; los dos intentos bloqueados, a otra.
+	if f := filas(t, admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/usuarios/%d/accesos?resultado=contrasena_erronea", idBloq), nil)); len(f) != 1 || f[0]["intentos"] != float64(10) {
+		t.Fatalf("fallos deduplicados: %v", f)
+	}
 	mfa := filas(t, admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/usuarios/%d/accesos?resultado=mfa_fallido", idMFA), nil))
 	bloq := filas(t, admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/usuarios/%d/accesos?resultado=bloqueado", idBloq), nil))
-	if len(mfa) != 1 || len(bloq) != 1 {
+	if len(mfa) != 1 || len(bloq) != 1 || bloq[0]["intentos"] != float64(2) {
 		t.Fatalf("mfa %v bloqueado %v", mfa, bloq)
 	}
 	// Un token deja una fila por hora, no una por petición.
@@ -188,6 +196,26 @@ func TestHistorialDeAccesos(t *testing.T) {
 	tok := filas(t, admin.pedir(http.MethodGet, fmt.Sprintf("/api/v1/usuarios/%d/accesos?canal=token", idTok), nil))
 	if len(tok) != 1 || tok[0]["tokenId"] != float64(tokenID) {
 		t.Fatalf("token: %v", tok)
+	}
+
+	// Correos que no existen desde una IP: pasado el tope por hora no se crean más filas.
+	contar := func() int {
+		var n int
+		if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT count(*) FROM nucleo.accesos WHERE usuario_id IS NULL AND ip = '127.0.0.1'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO nucleo.accesos (canal, resultado, ip, request_id, created_at)
+		SELECT 'campo_pwa', 'contrasena_erronea', '127.0.0.1', 'relleno', now() - interval '5 minutes' FROM generate_series(1, $1)`, identidad.TopeFallosSinUsuarioPorIP); err != nil {
+		t.Fatal(err)
+	}
+	antes := contar()
+	for _, canal := range []string{"campo", ""} {
+		entrarCabeceras(e.cliente(), pruebas.Correo("otro"), "lo-que-sea-1234", identidad.CabeceraCanal, canal)
+	}
+	if despues := contar(); despues != antes {
+		t.Fatalf("tope por IP: %d → %d", antes, despues)
 	}
 }
 
@@ -336,7 +364,8 @@ func TestActividadDeLaAppDeCampo(t *testing.T) {
 	// La app manda versión, plataforma y pendientes en cada petición.
 	tec := e.cliente()
 	entrarCabeceras(tec, correoTec, contrasena, identidad.CabeceraApp, "campo/1.4.0 (android)")
-	if r := tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraApp, "campo/1.4.0 (android)", identidad.CabeceraPendientes, "3"); r.status != 200 {
+	campo := []string{identidad.CabeceraCanal, "campo", identidad.CabeceraApp, "campo/1.4.0 (android)"}
+	if r := tec.pedir(http.MethodGet, "/api/v1/yo", nil, append(campo, identidad.CabeceraPendientes, "3")...); r.status != 200 {
 		t.Fatalf("yo: %d", r.status)
 	}
 
@@ -362,7 +391,15 @@ func TestActividadDeLaAppDeCampo(t *testing.T) {
 		"tel-"+pruebas.Unico(), idTec); err != nil {
 		t.Fatal(err)
 	}
-	tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraApp, "campo/1.4.0 (android)", identidad.CabeceraPendientes, "0")
+	// Como mucho una escritura cada 30 s (también si cambian los pendientes): se ve en la siguiente.
+	tec.pedir(http.MethodGet, "/api/v1/yo", nil, append(campo, identidad.CabeceraPendientes, "0")...)
+	if f := buscar(admin, "/api/v1/actividad-campo", idTec); f["pendientes"] != float64(3) {
+		t.Fatalf("throttle de 30 s: %v", f)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE nucleo.conexiones_app SET ultima_conexion = now() - interval '31 seconds' WHERE usuario_id = $1`, idTec); err != nil {
+		t.Fatal(err)
+	}
+	tec.pedir(http.MethodGet, "/api/v1/yo", nil, append(campo, identidad.CabeceraPendientes, "0")...)
 	if f := buscar(admin, "/api/v1/actividad-campo?estado=al_dia", idTec); f == nil || f["ultimaSincronizacion"] == nil || f["pendientes"] != float64(0) {
 		t.Fatalf("al día: %v", f)
 	}
@@ -403,11 +440,41 @@ func TestActividadDeLaAppDeCampo(t *testing.T) {
 		t.Fatalf("sin conexión hace 2 h: %v", f)
 	}
 
-	// Una cabecera mal formada no se registra.
-	tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraApp, "campo 1.4.0 android")
+	// No se registran: una cabecera mal formada, una plataforma o app fuera de la lista cerrada, sin
+	// X-Iris-Canal: campo, ni una ruta que no es de la app.
+	if _, err := pool.Exec(ctx, `UPDATE nucleo.conexiones_app SET ultima_conexion = now() - interval '1 minute' WHERE usuario_id = $1`, idTec); err != nil {
+		t.Fatal(err)
+	}
+	tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraCanal, "campo", identidad.CabeceraApp, "campo 1.4.0 android")
+	for i := range 20 {
+		tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraCanal, "campo", identidad.CabeceraApp, fmt.Sprintf("campo/1.0 (p%d)", i))
+		tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraCanal, "campo", identidad.CabeceraApp, fmt.Sprintf("otra%d/1.0 (pwa)", i))
+	}
+	tec.pedir(http.MethodGet, "/api/v1/yo", nil, identidad.CabeceraApp, "campo/1.0 (pwa)")
+	tec.pedir(http.MethodGet, "/api/v1/usuarios", nil, identidad.CabeceraCanal, "campo", identidad.CabeceraApp, "campo/1.0 (pwa)")
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM nucleo.conexiones_app WHERE usuario_id = $1`, idTec).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("conexiones: %d %v", n, err)
+	}
+
+	// La ubicación exige campo.ver_posiciones: con solo campo.ver_actividad no sale.
+	reautenticar(t, admin)
+	if r := admin.pedir(http.MethodPost, "/api/v1/roles", map[string]any{"codigo": "solo_actividad", "nombre": "Solo actividad",
+		"permisos": []string{"campo.ver_actividad"}}); r.status != 201 {
+		t.Fatalf("rol: %d %s", r.status, r.crudo)
+	}
+	_, correoAct := e.usuario("solo_actividad")
+	act := e.cliente()
+	act.entrar(correoAct)
+	if f := buscar(act, "/api/v1/actividad-campo", idTec); f == nil || f["ultimaPosicion"] != nil {
+		t.Fatalf("sin campo.ver_posiciones: %v", f)
+	}
+	// Y una posición de hace más de 24 h tampoco sale.
+	if _, err := pool.Exec(ctx, `UPDATE campo.posiciones_ultimas SET registrada_en = now() - interval '25 hours' WHERE tecnico_id = $1`, idTec); err != nil {
+		t.Fatal(err)
+	}
+	if f := buscar(admin, "/api/v1/actividad-campo", idTec); f["ultimaPosicion"] != nil {
+		t.Fatalf("posición vieja: %v", f)
 	}
 }
 
@@ -559,6 +626,8 @@ func TestRolesPropios(t *testing.T) {
 	}
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-rol", idLec), map[string]any{"rol": "mesa_ayuda"}).problema(t, 422, "rol_inactivo")
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/roles/%d/desactivar", idRol), map[string]any{"version": version}).problema(t, 422, "rol_inactivo")
+	admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Con rol inactivo", "correo": pruebas.Correo("inactivo"),
+		"contrasena": contrasena, "roles": []map[string]any{{"rol": "mesa_ayuda"}}}).problema(t, 422, "validacion")
 	r = admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/roles/%d/activar", idRol), map[string]any{"version": version})
 	if r.status != 200 || r.cuerpo["activo"] != true || !slices.Contains(permisos(), any("tickets.responder")) {
 		t.Fatalf("activar: %d %s", r.status, r.crudo)
@@ -637,5 +706,59 @@ func TestPurgaDelHistorialDeAccesos(t *testing.T) {
 	// Una retención menor que el mínimo se toma como 7 días.
 	if _, err := identidad.PurgarAccesos(ctx, pool, time.Hour, 0); err != nil || quedan() != 1 {
 		t.Fatalf("mínimo 7 días: %d %v", quedan(), err)
+	}
+}
+
+// Revisión de seguridad: la excepción de re-autenticación del usuario de integración es solo para
+// las llamadas internas (canje del conector, consola); por HTTP aplica la regla normal.
+func TestIntegracionPorHTTPExigeReautenticacion(t *testing.T) {
+	e := nuevoEntorno(t)
+	idAdmin, correoAdmin := e.usuario("admin")
+	bot, _ := tokenPara(t, e, idAdmin)
+	cuerpo := map[string]any{"nombre": "Argos falso", "correo": pruebas.Correo("argos"), "tipo": "integracion",
+		"roles": []map[string]any{{"rol": "integracion_argos"}}}
+	bot.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo).problema(t, 403, "requiere_sesion")
+	admin := e.cliente()
+	admin.entrar(correoAdmin)
+	admin.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo).problema(t, 403, "reautenticacion_requerida")
+	reautenticar(t, admin)
+	if r := admin.pedir(http.MethodPost, "/api/v1/usuarios", cuerpo); r.status != 201 {
+		t.Fatalf("con contraseña confirmada: %d %s", r.status, r.crudo)
+	}
+}
+
+// Nunca queda Iris sin una persona activa que administre roles.
+func TestUltimoAdministradorDeRoles(t *testing.T) {
+	e := nuevoEntorno(t)
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	idA, _ := e.usuario("admin")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Dentro de la transacción (se revierte): A es la única persona activa.
+	if _, err := tx.Exec(ctx, `UPDATE nucleo.usuarios SET activo = false WHERE tipo = 'persona' AND id <> $1`, idA); err != nil {
+		t.Fatal(err)
+	}
+	sis := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), tx)
+	_, err = e.mod.QuitarRolUsuario.Ejecutar(sis, identidad.EntradaRolUsuario{UsuarioID: idA, AsignacionRol: identidad.AsignacionRol{Rol: "admin"}})
+	var p *nucleo.Problema
+	if !errors.As(err, &p) || p.Codigo() != "ultimo_admin" {
+		t.Fatalf("quitar el último admin: %v", err)
+	}
+	var version int32
+	if err := tx.QueryRow(ctx, `SELECT version FROM nucleo.usuarios WHERE id = $1`, idA).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.mod.DesactivarUsuario.Ejecutar(sis, identidad.EntradaDesactivarUsuario{ID: idA, Version: version, Motivo: "baja"})
+	if !errors.As(err, &p) || p.Codigo() != "ultimo_admin" {
+		t.Fatalf("desactivar el último admin: %v", err)
+	}
+	vacio := []identidad.AsignacionRol{}
+	_, err = e.mod.EditarUsuario.Ejecutar(sis, identidad.EntradaEditarUsuario{ID: idA, Version: version, Roles: &vacio})
+	if !errors.As(err, &p) || p.Codigo() != "ultimo_admin" {
+		t.Fatalf("editar el último admin: %v", err)
 	}
 }

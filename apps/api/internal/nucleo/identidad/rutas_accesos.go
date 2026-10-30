@@ -57,7 +57,7 @@ func (m *Modulo) registrarAccesosYRoles(api huma.API) {
 	})
 
 	cerrarTodas := operacion("cerrarSesionesUsuario", http.MethodPost, "/api/v1/usuarios/{id}/cerrar-sesiones", "Cerrar todas las sesiones de un usuario", nucleo.PermUsuariosCerrarSesiones, http.StatusOK, http.StatusNotFound)
-	cerrarTodas.Description += " Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`."
+	cerrarTodas.Description += " Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno)."
 	huma.Register(api, cerrarTodas, func(ctx context.Context, in *conID[EntradaCerrarSesionesUsuario]) (*cuerpo[SesionesCerradas], error) {
 		e := in.Body
 		e.UsuarioID = in.ID

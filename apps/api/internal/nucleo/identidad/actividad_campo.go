@@ -3,6 +3,7 @@ package identidad
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -25,6 +26,8 @@ const (
 	UmbralAtraso = 15 * time.Minute
 	// VentanaRechazos: se cuentan las operaciones rechazadas de este tiempo.
 	VentanaRechazos = 7 * 24 * time.Hour
+	// VentanaPosicion: la última ubicación se muestra si es de este tiempo (como /campo/posiciones/ultimas).
+	VentanaPosicion = 24 * time.Hour
 	// limiteTecnicos: tope de la lista (una empresa no tiene más técnicos activos que esto).
 	limiteTecnicos = 1000
 )
@@ -36,11 +39,24 @@ const (
 	EstadoSinConexion = "sin_conexion"
 )
 
+// plataformasCampo: lista cerrada de nucleo.conexiones_app (como mucho tres filas por usuario).
+var plataformasCampo = map[string]bool{"pwa": true, "android": true, "ios": true}
+
+// esConexionDeCampo: la app de campo (X-Iris-App campo/… con plataforma conocida y X-Iris-Canal:
+// campo) en una ruta de la app (/yo, /campo/…, /sync/…, /adjuntos…). Lo demás no se registra.
+func esConexionDeCampo(c ClienteHTTP) bool {
+	if c.AppNombre != "campo" || !plataformasCampo[c.Plataforma] || contexto.Canal(c.Canal) != contexto.CanalCampo {
+		return false
+	}
+	return c.Ruta == "/api/v1/yo" || strings.HasPrefix(c.Ruta, "/api/v1/campo/") || strings.HasPrefix(c.Ruta, "/api/v1/sync/") ||
+		strings.HasPrefix(c.Ruta, "/api/v1/adjuntos")
+}
+
 // registrarConexionApp guarda la última conexión de la app (X-Iris-App) del usuario. Escribe
 // como mucho cada 30 s por usuario y plataforma; nunca falla la petición.
 func registrarConexionApp(ctx context.Context, q *identidadbd.Queries, usuarioID int64) {
 	c := ClienteHTTPDe(ctx)
-	if c.App == "" {
+	if !esConexionDeCampo(c) {
 		return
 	}
 	if err := q.RegistrarConexionApp(ctx, identidadbd.RegistrarConexionAppParams{
@@ -86,7 +102,7 @@ type ActividadTecnico struct {
 	UltimoRechazo        *time.Time     `json:"ultimoRechazo" nullable:"true"`
 	App                  *AppCampo      `json:"app,omitempty" doc:"Ausente si la app no manda X-Iris-App (versión anterior)"`
 	Plataforma           *string        `json:"plataforma" nullable:"true" doc:"La de X-Iris-App o, si no, la del último lote"`
-	UltimaPosicion       *PosicionCampo `json:"ultimaPosicion,omitempty" doc:"Ausente si nunca mandó su ubicación"`
+	UltimaPosicion       *PosicionCampo `json:"ultimaPosicion,omitempty" doc:"Ausente sin campo.ver_posiciones (con alcance sobre el técnico) o si no mandó su ubicación en las últimas 24 h"`
 }
 
 // ActividadCampo es la respuesta: la lista y los umbrales con que se calculó el estado.
@@ -170,9 +186,18 @@ func nuevoActividadCampo() *auditoria.Caso[EntradaActividadCampo, ActividadCampo
 			if err != nil {
 				return ActividadCampo{}, err
 			}
-			posiciones, err := q.UltimasPosicionesDe(ctx, identidadbd.UltimasPosicionesDeParams{Usuarios: ids, Todas: todas, EmpresaID: empresa})
-			if err != nil {
-				return ActividadCampo{}, err
+			// La ubicación solo con campo.ver_posiciones (y su alcance), de las últimas 24 h, como
+			// GET /campo/posiciones/ultimas.
+			var posiciones []identidadbd.UltimasPosicionesDeRow
+			if permisos := contexto.PermisosDe(ctx); permisos.Tiene(string(nucleo.PermCampoVerPosiciones)) {
+				gPos, zPos, cPos := permisos.Alcances(string(nucleo.PermCampoVerPosiciones))
+				posiciones, err = q.UltimasPosicionesDe(ctx, identidadbd.UltimasPosicionesDeParams{
+					Usuarios: ids, Desde: time.Now().Add(-VentanaPosicion), Todas: todas, EmpresaID: empresa,
+					AlcanceGlobal: gPos, Cuadrillas: lista(cPos), Zonas: lista(zPos),
+				})
+				if err != nil {
+					return ActividadCampo{}, err
+				}
 			}
 			porConexion := map[int64]identidadbd.NucleoConexionesApp{}
 			for _, c := range conexiones {

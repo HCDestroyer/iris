@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, CampoArea, Dialogo, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, CampoArea, Casilla, Dialogo, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LogOut, MonitorCheck } from "lucide-react";
 import { useRef, useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -93,7 +93,9 @@ export function SesionesUsuario({ usuarioId, propio }: { usuarioId: number; prop
 }
 
 function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { usuarioId: number; cierre: Cierre; propio: boolean; alCerrar: () => void; alCancelar: () => void }) {
+    const { puede } = useSesion();
     const [motivo, setMotivo] = useState("");
+    const [revocarTokens, setRevocarTokens] = useState(false);
     const [enviando, setEnviando] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const clave = useRef(nuevaClaveIdempotencia());
@@ -109,7 +111,12 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
                     api().POST("/api/v1/usuarios/{id}/sesiones/{sesionId}/cerrar", { params: { path: { id: usuarioId, sesionId: cierre.sesion.id }, header: cabecera }, body: cuerpo }),
                 );
             } else {
-                await resolver(api().POST("/api/v1/usuarios/{id}/cerrar-sesiones", { params: { path: { id: usuarioId }, header: cabecera }, body: cuerpo }));
+                await resolver(
+                    api().POST("/api/v1/usuarios/{id}/cerrar-sesiones", {
+                        params: { path: { id: usuarioId }, header: cabecera },
+                        body: { ...cuerpo, ...(revocarTokens ? { revocarTokens: true } : {}) },
+                    }),
+                );
             }
             alCerrar();
         } catch (e) {
@@ -132,6 +139,18 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
             >
                 <div className="grid gap-4">
                     <CampoArea etiqueta="Motivo (opcional)" rows={2} maxLength={200} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+                    {cierre.tipo === "todas" ? (
+                        puede(["tokens.revocar"]) ? (
+                            <Casilla
+                                etiqueta="Revocar también sus tokens de API"
+                                ayuda="Los tokens no son sesiones: si no los revocas, siguen valiendo."
+                                checked={revocarTokens}
+                                onChange={(e) => setRevocarTokens(e.target.checked)}
+                            />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Sus tokens de API no son sesiones y siguen valiendo.</p>
+                        )
+                    ) : null}
                     {error ? (
                         <Aviso tono="error" titulo="No se pudo cerrar">
                             {mensajeDeError(error).detalle}

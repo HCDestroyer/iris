@@ -1173,6 +1173,28 @@ func (q *Queries) GuardarSecretoTOTP(ctx context.Context, arg GuardarSecretoTOTP
 	return err
 }
 
+const hayAdministradorDeRoles = `-- name: HayAdministradorDeRoles :one
+SELECT EXISTS (
+    SELECT 1 FROM nucleo.usuarios u
+    WHERE u.activo AND u.tipo = 'persona'
+      AND (SELECT count(DISTINCT rp.permiso)
+           FROM nucleo.usuarios_roles ur
+           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+           WHERE ur.usuario_id = u.id AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
+             AND rp.permiso = ANY($1::text[])) = cardinality($1::text[])
+)::boolean
+`
+
+// Alguna persona activa tiene, sin límite de alcance y por roles activos, todos @permisos (los de
+// administrar roles): sin ella nadie podría volver a dar ni arreglar roles.
+func (q *Queries) HayAdministradorDeRoles(ctx context.Context, permisos []string) (bool, error) {
+	row := q.db.QueryRow(ctx, hayAdministradorDeRoles, permisos)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const hayEmpresas = `-- name: HayEmpresas :one
 SELECT EXISTS (SELECT 1 FROM nucleo.empresas)
 `
@@ -1194,7 +1216,7 @@ func (q *Queries) LimpiarIntentosLogin(ctx context.Context, correo string) error
 }
 
 const listarAccesos = `-- name: ListarAccesos :many
-SELECT a.id, a.usuario_id, a.canal, a.resultado, a.ip, a.dispositivo, a.app, a.sesion_id, a.token_id, a.created_at,
+SELECT a.id, a.usuario_id, a.canal, a.resultado, a.ip, a.dispositivo, a.app, a.sesion_id, a.token_id, a.intentos, a.created_at,
        u.nombre AS usuario_nombre, u.correo AS usuario_correo
 FROM nucleo.accesos a
 LEFT JOIN nucleo.usuarios u ON u.id = a.usuario_id
@@ -1204,9 +1226,15 @@ WHERE ($1::bigint = 0 OR a.id < $1::bigint)
   AND ($4::timestamptz IS NULL OR a.created_at < $4::timestamptz)
   AND (cardinality($5::text[]) = 0 OR a.canal = ANY($5::text[]))
   AND (cardinality($6::text[]) = 0 OR a.resultado = ANY($6::text[]))
+  -- La regla de exigirEmpresasDe: usuarios con empresas, todas del actor, y sin empresas.todas.
   AND ($7::boolean OR a.usuario_id = $8::bigint
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
-                  WHERE ue.usuario_id = a.usuario_id AND ue.empresa_id = ANY($9::bigint[])))
+       OR (EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = a.usuario_id)
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                           WHERE ue.usuario_id = a.usuario_id AND NOT (ue.empresa_id = ANY($9::bigint[])))
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                           WHERE ur.usuario_id = a.usuario_id AND rp.permiso = 'empresas.todas')))
 ORDER BY a.id DESC
 LIMIT $10
 `
@@ -1234,6 +1262,7 @@ type ListarAccesosRow struct {
 	App           *string
 	SesionID      *int64
 	TokenID       *int64
+	Intentos      int32
 	CreatedAt     time.Time
 	UsuarioNombre *string
 	UsuarioCorreo *string
@@ -1272,6 +1301,7 @@ func (q *Queries) ListarAccesos(ctx context.Context, arg ListarAccesosParams) ([
 			&i.App,
 			&i.SesionID,
 			&i.TokenID,
+			&i.Intentos,
 			&i.CreatedAt,
 			&i.UsuarioNombre,
 			&i.UsuarioCorreo,
@@ -1909,6 +1939,62 @@ func (q *Queries) RegistrarAcceso(ctx context.Context, arg RegistrarAccesoParams
 	return err
 }
 
+const registrarAccesoFallido = `-- name: RegistrarAccesoFallido :exec
+WITH previo AS (
+    UPDATE nucleo.accesos SET intentos = intentos + 1, updated_at = now()
+    WHERE id = (
+        SELECT a.id FROM nucleo.accesos a
+        WHERE a.resultado = $3 AND a.canal = $2
+          AND (CASE WHEN $1::bigint IS NULL THEN a.usuario_id IS NULL AND a.ip = $4
+                    ELSE a.usuario_id = $1::bigint END)
+          AND (a.created_at > now() - make_interval(secs => $10::bigint)
+               OR ($1::bigint IS NULL
+                   AND (SELECT count(*) FROM nucleo.accesos b
+                        WHERE b.usuario_id IS NULL AND b.ip = $4 AND b.created_at > now() - interval '1 hour') >= $9::bigint
+                   AND a.created_at > now() - interval '1 hour'))
+        ORDER BY a.id DESC LIMIT 1)
+    RETURNING id
+)
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, request_id)
+SELECT $1::bigint, $2, $3, $4, $5, $6, $7::text, $8
+WHERE NOT EXISTS (SELECT 1 FROM previo)
+  AND ($1::bigint IS NOT NULL
+       OR (SELECT count(*) FROM nucleo.accesos b
+           WHERE b.usuario_id IS NULL AND b.ip = $4 AND b.created_at > now() - interval '1 hour') < $9::bigint)
+`
+
+type RegistrarAccesoFallidoParams struct {
+	UsuarioID   *int64
+	Canal       string
+	Resultado   string
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	RequestID   string
+	TopeIp      int64
+	VentanaSeg  int64
+}
+
+// Un fallo repetido (mismo usuario o, sin usuario, misma IP; mismo canal y resultado) dentro de
+// @ventana_seg suma a la fila existente. Sin usuario, además, como mucho @tope_ip filas por IP y
+// hora: el resto solo suma a la última. Así nadie inunda el historial sin credenciales.
+func (q *Queries) RegistrarAccesoFallido(ctx context.Context, arg RegistrarAccesoFallidoParams) error {
+	_, err := q.db.Exec(ctx, registrarAccesoFallido,
+		arg.UsuarioID,
+		arg.Canal,
+		arg.Resultado,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Dispositivo,
+		arg.App,
+		arg.RequestID,
+		arg.TopeIp,
+		arg.VentanaSeg,
+	)
+	return err
+}
+
 const registrarAccesoToken = `-- name: RegistrarAccesoToken :execrows
 INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, token_id, request_id)
 SELECT $1, 'token', 'exito', $2, $3, $4, $5, $6::bigint, $7
@@ -1954,8 +2040,6 @@ ON CONFLICT (usuario_id, app, plataforma) DO UPDATE SET
     pendientes_en = coalesce(EXCLUDED.pendientes_en, c.pendientes_en),
     ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, ultima_conexion = now(), updated_at = now()
 WHERE c.ultima_conexion < now() - interval '30 seconds'
-   OR c.version IS DISTINCT FROM EXCLUDED.version
-   OR (EXCLUDED.pendientes IS NOT NULL AND c.pendientes IS DISTINCT FROM EXCLUDED.pendientes)
 `
 
 type RegistrarConexionAppParams struct {
@@ -1969,8 +2053,8 @@ type RegistrarConexionAppParams struct {
 }
 
 // Actividad de la app de campo ------------------------------------------------------
-// Última conexión por (usuario, app, plataforma). Se escribe como mucho cada 30 s, salvo que
-// cambie la versión o los pendientes informados.
+// Última conexión por (usuario, app, plataforma): como mucho una escritura cada 30 s (también si
+// cambian la versión o los pendientes; se ven en la siguiente).
 func (q *Queries) RegistrarConexionApp(ctx context.Context, arg RegistrarConexionAppParams) error {
 	_, err := q.db.Exec(ctx, registrarConexionApp,
 		arg.UsuarioID,
@@ -2670,7 +2754,7 @@ func (q *Queries) TicketsSSORecientes(ctx context.Context, arg TicketsSSORecient
 const tieneEmpresasTodasGlobal = `-- name: TieneEmpresasTodasGlobal :one
 SELECT EXISTS (
     SELECT 1 FROM nucleo.usuarios_roles ur
-    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
     WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
 )
@@ -2902,15 +2986,25 @@ func (q *Queries) TomarVinculacionSSO(ctx context.Context, vinculacionHash []byt
 const ultimasPosicionesDe = `-- name: UltimasPosicionesDe :many
 SELECT DISTINCT ON (p.tecnico_id) p.tecnico_id, p.lat, p.lon, p.precision_m, p.registrada_en, p.recibida_en
 FROM campo.posiciones_ultimas p
+JOIN agenda.tecnicos t ON t.usuario_id = p.tecnico_id
 WHERE p.tecnico_id = ANY($1::bigint[])
-  AND ($2::boolean OR $3::bigint IS NULL OR p.empresa_id = $3::bigint)
+  AND p.registrada_en >= $2
+  AND ($3::boolean OR $4::bigint IS NULL OR p.empresa_id = $4::bigint)
+  AND ($5::boolean
+       OR t.cuadrilla_id = ANY($6::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                  WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = ANY($7::bigint[])))
 ORDER BY p.tecnico_id, p.registrada_en DESC
 `
 
 type UltimasPosicionesDeParams struct {
-	Usuarios  []int64
-	Todas     bool
-	EmpresaID *int64
+	Usuarios      []int64
+	Desde         time.Time
+	Todas         bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Cuadrillas    []int64
+	Zonas         []int64
 }
 
 type UltimasPosicionesDeRow struct {
@@ -2922,8 +3016,18 @@ type UltimasPosicionesDeRow struct {
 	RecibidaEn   time.Time
 }
 
+// Como GET /campo/posiciones/ultimas: solo de las últimas 24 h (@desde) y de técnicos que cubre el
+// alcance de campo.ver_posiciones del actor (su cuadrilla o las zonas que atiende).
 func (q *Queries) UltimasPosicionesDe(ctx context.Context, arg UltimasPosicionesDeParams) ([]UltimasPosicionesDeRow, error) {
-	rows, err := q.db.Query(ctx, ultimasPosicionesDe, arg.Usuarios, arg.Todas, arg.EmpresaID)
+	rows, err := q.db.Query(ctx, ultimasPosicionesDe,
+		arg.Usuarios,
+		arg.Desde,
+		arg.Todas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Cuadrillas,
+		arg.Zonas,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2994,7 +3098,7 @@ SELECT COALESCE(
     EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = $1 AND ue.empresa_id = $2)
     OR (EXISTS (SELECT 1 FROM nucleo.empresas e WHERE e.id = $2)
         AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
-                    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                     WHERE ur.usuario_id = $1 AND rp.permiso = 'empresas.todas'
                       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
     false)::boolean AS en_empresa

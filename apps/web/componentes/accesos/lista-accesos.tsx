@@ -82,6 +82,7 @@ function FilaAcceso({ acceso: a, conUsuario }: { acceso: Acceso; conUsuario: boo
             </div>
             <div className="flex flex-wrap items-center gap-2">
                 <InsigniaResultado resultado={a.resultado} />
+                {a.intentos > 1 ? <span className="text-xs text-muted-foreground tabular-nums">× {a.intentos} intentos</span> : null}
                 <Canal canal={a.canal} />
             </div>
             <div className="grid min-w-0 gap-0.5 text-sm text-muted-foreground">

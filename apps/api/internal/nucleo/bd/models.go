@@ -875,6 +875,7 @@ type NucleoAcceso struct {
 	RequestID   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Intentos    int32
 }
 
 type NucleoAdjunto struct {

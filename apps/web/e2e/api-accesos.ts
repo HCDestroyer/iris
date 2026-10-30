@@ -60,6 +60,7 @@ const acceso = (id: number, min: number, u: Usuario | null, canal: Acceso["canal
     app: null,
     sesionId: resultado === "exito" ? id + 500 : null,
     tokenId: null,
+    intentos: 1,
     creadoEn: hace(min),
     ...extra,
 });
@@ -72,7 +73,7 @@ export function accesosIniciales(): Acceso[] {
         acceso(57, 20, null, "panel", "contrasena_erronea", "Chrome · Android"),
         acceso(56, 30, SOPORTE, "sso", "exito", "Safari · iOS"),
         acceso(55, 40, SOPORTE, "panel", "mfa_fallido", "Safari · iOS"),
-        acceso(54, 50, CONSULTA, "campo_pwa", "bloqueado", "Chrome · Android"),
+        acceso(54, 50, CONSULTA, "campo_pwa", "bloqueado", "Chrome · Android", { intentos: 3 }),
     ];
     // Relleno viejo para la segunda página.
     for (let i = 0; i < 50; i++) {
@@ -254,14 +255,15 @@ export async function simularAccesos(page: Page, usuarios: Usuario[] = [ADMIN, C
                 return problema(route, 404, "no_encontrado", "La sesión no existe, ya está cerrada o venció");
             }
             estado.sesiones = estado.sesiones.filter((s) => s.id !== id);
-            return json(route, { usuarioId: Number(cerrarUna[1]), cerradas: 1, sesiones: [id] } satisfies Schema<"SesionesCerradas">);
+            return json(route, { usuarioId: Number(cerrarUna[1]), cerradas: 1, sesiones: [id], tokensRevocados: 0 } satisfies Schema<"SesionesCerradas">);
         }
         const cerrarTodas = /^\/api\/v1\/usuarios\/(\d+)\/cerrar-sesiones$/.exec(ruta);
         if (metodo === "POST" && cerrarTodas) {
             anotar();
             const ids = estado.sesiones.filter((s) => !s.actual).map((s) => s.id);
+            const tokens = (cuerpo as Schema<"EntradaCerrarSesionesUsuario">).revocarTokens ? 1 : 0;
             estado.sesiones = estado.sesiones.filter((s) => s.actual);
-            return json(route, { usuarioId: Number(cerrarTodas[1]), cerradas: ids.length, sesiones: ids } satisfies Schema<"SesionesCerradas">);
+            return json(route, { usuarioId: Number(cerrarTodas[1]), cerradas: ids.length, sesiones: ids, tokensRevocados: tokens } satisfies Schema<"SesionesCerradas">);
         }
 
         // Actividad de la app -------------------------------------------------------------

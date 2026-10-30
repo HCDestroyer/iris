@@ -48,15 +48,24 @@ Subpaquetes:
   cabecera `X-Iris-App`. Un correo que no existe queda sin usuario y **sin el correo** (no sirve
   para enumerar cuentas; la respuesta del login es la misma). Retención:
   `IRIS_ACCESOS_RETENCION_DIAS` (180, mínimo 7), job `nucleo.accesos_purga` del worker cada hora.
+  Contra la inundación sin credenciales, un fallo igual (mismo usuario o, sin usuario, misma IP;
+  mismo canal y resultado) en 1 min suma a la fila (`intentos`); un `bloqueado`, una fila por
+  ventana de bloqueo; sin usuario, como mucho 20 filas por IP y hora. Cerrar todas las sesiones
+  no revoca los tokens `iris_pat_` salvo `revocarTokens: true` (con `tokens.revocar`). Nunca
+  queda Iris sin una persona activa con `usuarios.asignar_rol` y `roles.*` globales (422
+  `ultimo_admin`).
   `GET /accesos`, `GET /usuarios/{id}/accesos` (`accesos.ver`), `GET /usuarios/{id}/sesiones`
   y `POST /usuarios/{id}/sesiones/{sesionId}/cerrar` | `/cerrar-sesiones`
   (`usuarios.cerrar_sesiones`, exige superar al usuario salvo el propio).
   **Actividad de la app de campo** (`actividad_campo.go`): el middleware guarda en
   `nucleo.conexiones_app` la última conexión por usuario y plataforma con `X-Iris-App:
-  campo/<versión> (<plataforma>)` y `X-Iris-Pendientes: <n>` (a lo más cada 30 s);
+  campo/<versión> (<plataforma>)` y `X-Iris-Pendientes: <n>` (a lo más cada 30 s; lista cerrada: app `campo`,
+  plataforma `pwa`, `android` o `ios`, con `X-Iris-Canal: campo` y solo en `/yo`, `/campo/…`,
+  `/sync/…` y `/adjuntos…`);
   `GET /actividad-campo` (`campo.ver_actividad`, operativo: empresa activa y alcance) junta eso con
   `campo.dispositivos` (último lote), `campo.operaciones_sync` (rechazadas, 7 días) y
-  `campo.posiciones_ultimas`; estado `al_dia` / `atrasado` (pendientes y sin lote en 15 min) /
+  `campo.posiciones_ultimas` (la ubicación solo con `campo.ver_posiciones` y su alcance, de las
+  últimas 24 h); estado `al_dia` / `atrasado` (pendientes y sin lote en 15 min) /
   `sin_conexion` (nada en 30 min). **Roles propios** (`roles.go`): `POST /roles`,
   `/roles/{id}/editar|activar|desactivar`, `POST /usuarios/{id}/asignar-rol|quitar-rol` con alcance
   por zona o cuadrilla. Los base no se editan ni desactivan (422 `rol_base`) y ningún rol se borra;

@@ -33,6 +33,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "intentos": {
+            "description": "Fallos iguales agrupados en esta fila (mismo usuario o IP y resultado en 1 min; un bloqueo, por ventana de bloqueo)",
+            "format": "int32",
+            "type": "integer"
+          },
           "ip": {
             "type": "string"
           },
@@ -93,6 +98,7 @@
           "app",
           "sesionId",
           "tokenId",
+          "intentos",
           "creadoEn"
         ],
         "type": "object"
@@ -354,7 +360,7 @@
           },
           "ultimaPosicion": {
             "$ref": "#/components/schemas/PosicionCampo",
-            "description": "Ausente si nunca mandó su ubicación"
+            "description": "Ausente sin campo.ver_posiciones (con alcance sobre el técnico) o si no mandó su ubicación en las últimas 24 h"
           },
           "ultimaSincronizacion": {
             "description": "Último POST /sync/lote",
@@ -3149,6 +3155,10 @@
             "description": "Por qué se cierran (queda en la auditoría y en el evento)",
             "maxLength": 200,
             "type": "string"
+          },
+          "revocarTokens": {
+            "description": "Revoca también sus tokens iris_pat_ (exige tokens.revocar; emite token.revocado por cada uno). Si no, los tokens siguen valiendo",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -13492,6 +13502,11 @@
               "null"
             ]
           },
+          "tokensRevocados": {
+            "description": "Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)",
+            "format": "int64",
+            "type": "integer"
+          },
           "usuarioId": {
             "format": "int64",
             "type": "integer"
@@ -13500,7 +13515,8 @@
         "required": [
           "usuarioId",
           "cerradas",
-          "sesiones"
+          "sesiones",
+          "tokensRevocados"
         ],
         "type": "object"
       },
@@ -36396,7 +36412,7 @@
     },
     "/api/v1/usuarios/{id}/cerrar-sesiones": {
       "post": {
-        "description": "Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`.",
+        "description": "Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno).",
         "operationId": "cerrarSesionesUsuario",
         "parameters": [
           {

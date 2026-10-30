@@ -50,7 +50,7 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				if u, err := q.UsuarioPorCorreo(ctx, correo); err == nil {
 					id = &u.ID
 				}
-				accesoFallido(t, id, AccesoBloqueado, origenPassword)
+				accesoFallido(t, cfg, id, AccesoBloqueado, origenPassword)
 				return SesionIniciada{}, nucleo.DemasiadosIntentos("demasiados_intentos",
 					"Demasiados intentos fallidos con este correo; espera antes de volver a intentar", time.Until(hasta))
 			case !errors.Is(err, pgx.ErrNoRows):
@@ -61,11 +61,11 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				_, _ = VerificarContrasena(in.Contrasena, hashFicticio) // mismo tiempo de respuesta
 				switch {
 				case err != nil:
-					accesoFallido(t, nil, AccesoContrasenaErronea, origenPassword)
+					accesoFallido(t, cfg, nil, AccesoContrasenaErronea, origenPassword)
 				case !u.Activo:
-					accesoFallido(t, &u.ID, AccesoInactivo, origenPassword)
+					accesoFallido(t, cfg, &u.ID, AccesoInactivo, origenPassword)
 				default:
-					accesoFallido(t, &u.ID, AccesoContrasenaErronea, origenPassword)
+					accesoFallido(t, cfg, &u.ID, AccesoContrasenaErronea, origenPassword)
 				}
 				if err == nil {
 					t.FijarEntidad("usuario", u.ID)
@@ -79,7 +79,7 @@ func nuevoIniciarSesion(cfg Config) *auditoria.Caso[EntradaIniciarSesion, Sesion
 				return SesionIniciada{}, err
 			}
 			if !ok {
-				accesoFallido(t, &u.ID, AccesoContrasenaErronea, origenPassword)
+				accesoFallido(t, cfg, &u.ID, AccesoContrasenaErronea, origenPassword)
 				contarFalloLogin(t, cfg, correo)
 				return SesionIniciada{}, nucleo.CredencialesInvalidas()
 			}

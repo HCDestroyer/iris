@@ -21,7 +21,7 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 | `rol.actualizado` | `rol_id`, `campos[]` (`nombre`, `descripcion`, `permisos`), `permisos_agregados[]`, `permisos_quitados[]` | `roles.editar` (solo roles propios). Cambia los permisos de todos los usuarios con el rol. |
 | `rol.desactivado` / `rol.activado` | `rol_id`, `codigo`, `usuarios` (cuántos lo tienen asignado), `motivo` (o null) | `roles.desactivar` / `roles.activar`. Un rol desactivado no da permisos ni se asigna; las asignaciones se conservan y vuelven a valer al activarlo. Los roles nunca se borran. |
 | `token.creado` | `token_id`, `usuario_id` | Alta de un token `iris_pat_`. |
-| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`, y `usuarios.reiniciar_mfa` (uno por token, `motivo = mfa_reiniciado`). |
+| `token.revocado` | `token_id`, `usuario_id`, `motivo` | `tokens.revocar`, `usuarios.reiniciar_mfa` (uno por token, `motivo = mfa_reiniciado`) y `usuarios.cerrar_sesiones` con `revocarTokens: true` (`motivo = sesiones_cerradas`). |
 | `empresa.creada` | `empresa_id`, `origen` (`manual`) | `empresas.crear` (un administrador registra una empresa de Argos). Lleva `empresa_id` = la empresa. Las que registra el canje del conector no emiten este evento (van en `conector.creado`). |
 | `empresa.actualizada` | `empresa_id`, `campos[]` | `empresas.editar` (nombre, NIT). |
 | `usuario.empresa_asignada` | `usuario_id`, `empresa_id` | `usuarios.asignar_empresa`, y `usuarios.crear` con `empresas` (uno por empresa). Lleva `empresa_id` = la empresa asignada. |

@@ -157,7 +157,7 @@ function TarjetaTecnico({ t, ahora }: { t: ActividadTecnico; ahora: number }) {
                             {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)} · {haceCuanto(pos.registradaEn, ahora)}
                         </span>
                     ) : (
-                        "Sin ubicación"
+                        "Sin ubicación en 24 h"
                     )}
                 </Dato>
             </dl>

@@ -69,8 +69,9 @@ Una orden pausada sigue en el paquete y conserva su cita y su lugar en la ruta; 
 Toda petición de la app de campo (PWA y nativa) lleva, además de `X-Iris-Canal: campo`:
 
 - `X-Iris-App: campo/<versión> (<plataforma>)`: versión `[0-9A-Za-z.+_-]{1,40}` y plataforma
-  `pwa`, `android` o `ios` (minúsculas). La API guarda la última conexión por usuario y plataforma
-  (`nucleo.conexiones_app`, a lo más cada 30 s) y usa la plataforma para el canal del historial
+  `pwa`, `android` o `ios` (minúsculas; otra plataforma o app no se registra). La API guarda la
+  última conexión por usuario y plataforma (`nucleo.conexiones_app`, a lo más cada 30 s, solo con
+  `X-Iris-Canal: campo` en `/yo`, `/campo/…`, `/sync/…` y `/adjuntos…`) y usa la plataforma para el canal del historial
   de accesos (`campo_pwa` o `campo_nativa`). Un valor con otro formato se ignora (no es error).
 - `X-Iris-Pendientes: <n>` (opcional): operaciones de la cola local sin enviar. Con pendientes y
   sin un `POST /sync/lote` en 15 min, el técnico aparece «atrasado» en Administración → Actividad

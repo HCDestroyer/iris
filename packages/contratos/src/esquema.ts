@@ -3426,7 +3426,7 @@ export interface paths {
         put?: never;
         /**
          * Cerrar todas las sesiones de un usuario
-         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`.
+         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno).
          */
         post: operations["cerrarSesionesUsuario"];
         delete?: never;
@@ -3795,6 +3795,11 @@ export interface components {
             dispositivo: string;
             /** Format: int64 */
             id: number;
+            /**
+             * Format: int32
+             * @description Fallos iguales agrupados en esta fila (mismo usuario o IP y resultado en 1 min; un bloqueo, por ventana de bloqueo)
+             */
+            intentos: number;
             ip: string;
             /** @enum {string} */
             resultado: "exito" | "contrasena_erronea" | "mfa_fallido" | "bloqueado" | "inactivo";
@@ -3900,7 +3905,7 @@ export interface components {
              * @description La más reciente entre la app, el último lote y la última posición; null si nunca se conectó
              */
             ultimaConexion: string | null;
-            /** @description Ausente si nunca mandó su ubicación */
+            /** @description Ausente sin campo.ver_posiciones (con alcance sobre el técnico) o si no mandó su ubicación en las últimas 24 h */
             ultimaPosicion?: components["schemas"]["PosicionCampo"];
             /**
              * Format: date-time
@@ -4877,6 +4882,8 @@ export interface components {
         EntradaCerrarSesionesUsuario: {
             /** @description Por qué se cierran (queda en la auditoría y en el evento) */
             motivo?: string;
+            /** @description Revoca también sus tokens iris_pat_ (exige tokens.revocar; emite token.revocado por cada uno). Si no, los tokens siguen valiendo */
+            revocarTokens?: boolean;
         };
         EntradaCerrarTicket: {
             /** @description Obligatorio si el ticket no está resuelto */
@@ -8535,6 +8542,11 @@ export interface components {
             cerradas: number;
             /** @description Ids de las sesiones cerradas */
             sesiones: number[] | null;
+            /**
+             * Format: int64
+             * @description Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)
+             */
+            tokensRevocados: number;
             /** Format: int64 */
             usuarioId: number;
         };

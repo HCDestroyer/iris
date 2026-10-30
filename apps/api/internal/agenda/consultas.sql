@@ -12,7 +12,7 @@ SELECT id, nombre FROM nucleo.usuarios WHERE id = ANY(@ids::bigint[]);
 -- Alcances con que el usuario tiene el permiso por sus roles (zona y cuadrilla null = global).
 SELECT ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
-JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = @usuario_id AND rp.permiso = ANY(@permisos::text[]);
 
 -- name: HayEmpresas :one
@@ -145,7 +145,7 @@ WHERE (sqlc.narg(despues_de)::bigint IS NULL OR t.id > sqlc.narg(despues_de))
   AND (@todas_empresas::boolean
        OR sqlc.narg(empresa_id)::bigint IS NULL
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = sqlc.narg(empresa_id))
-       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))
   AND (@alcance_global::boolean

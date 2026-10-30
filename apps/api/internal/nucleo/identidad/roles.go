@@ -302,6 +302,10 @@ func nuevoEditarRol() *auditoria.Caso[EntradaEditarRol, Rol] {
 			if in.Descripcion != nil {
 				descripcion = strings.TrimSpace(*in.Descripcion)
 			}
+			guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
+			if err != nil {
+				return Rol{}, err
+			}
 			despues, err := q.ActualizarRol(ctx, identidadbd.ActualizarRolParams{ID: in.ID, Version: in.Version, Nombre: nombre, Descripcion: descripcion})
 			if err != nil {
 				return Rol{}, nucleo.VerificarVersion(err, "rol", in.ID)
@@ -315,6 +319,9 @@ func nuevoEditarRol() *auditoria.Caso[EntradaEditarRol, Rol] {
 				if err := q.AgregarPermisosARol(ctx, identidadbd.AgregarPermisosARolParams{RolID: in.ID, Permisos: agregados}); err != nil {
 					return Rol{}, err
 				}
+			}
+			if err := guardia.despues(ctx); err != nil {
+				return Rol{}, err
 			}
 			campos := t.RegistrarCambios("rol", in.ID,
 				rolAuditable{Nombre: antes.Nombre, Descripcion: antes.Descripcion, Activo: antes.Activo, Permisos: previos},
@@ -385,9 +392,16 @@ func nuevoCambiarActivoRol(activar bool) *auditoria.Caso[EntradaCambiarActivoRol
 					return Rol{}, err
 				}
 			}
+			guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
+			if err != nil {
+				return Rol{}, err
+			}
 			despues, err := q.CambiarActivoRol(ctx, identidadbd.CambiarActivoRolParams{ID: in.ID, Version: in.Version, Activo: activar})
 			if err != nil {
 				return Rol{}, nucleo.VerificarVersion(err, "rol", in.ID)
+			}
+			if err := guardia.despues(ctx); err != nil {
+				return Rol{}, err
 			}
 			t.RegistrarCambios("rol", in.ID, map[string]any{"activo": antes.Activo}, map[string]any{"activo": despues.Activo})
 			var motivo *string
@@ -424,7 +438,8 @@ func nuevoAsignarRolUsuario() *auditoria.Caso[EntradaRolUsuario, Usuario] {
 			if err := exigirVisible(ctx, q, in.UsuarioID, "asignar roles a este usuario"); err != nil {
 				return Usuario{}, err
 			}
-			resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "rol", []AsignacionRol{in.AsignacionRol})
+			// El rol inactivo se responde abajo con su propio código (rol_inactivo).
+			resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "rol", []AsignacionRol{in.AsignacionRol}, in.AsignacionRol)
 			if err != nil {
 				return Usuario{}, err
 			}
@@ -491,12 +506,19 @@ func nuevoQuitarRolUsuario() *auditoria.Caso[EntradaRolUsuario, Usuario] {
 			if err != nil {
 				return Usuario{}, err
 			}
+			guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
+			if err != nil {
+				return Usuario{}, err
+			}
 			n, err := q.QuitarAsignacionRol(ctx, identidadbd.QuitarAsignacionRolParams{UsuarioID: in.UsuarioID, RolID: roles[0].ID, ZonaID: in.ZonaID, CuadrillaID: in.CuadrillaID})
 			if err != nil {
 				return Usuario{}, err
 			}
 			if n == 0 {
 				return Usuario{}, nucleo.ReglaNegocio("rol_no_asignado", "El usuario no tiene ese rol con ese alcance")
+			}
+			if err := guardia.despues(ctx); err != nil {
+				return Usuario{}, err
 			}
 			return cerrarCambioRol(ctx, t, q, u, previos[in.UsuarioID], "usuario.rol_quitado", in.AsignacionRol)
 		},

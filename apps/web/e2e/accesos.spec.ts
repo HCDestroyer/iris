@@ -202,6 +202,12 @@ test.describe("accesos, actividad de la app y roles", () => {
         const sesiones = page.locator('[data-seccion="sesiones"]');
         await expect(sesiones.locator("[data-sesion]")).toHaveCount(2);
         await expect(sesiones.locator('[data-sesion="901"]')).toContainText("App de campo (Android)");
+        // «Cerrar todas»: los tokens no son sesiones; ofrece revocarlos (ADMIN tiene tokens.revocar).
+        await sesiones.getByRole("button", { name: "Cerrar todas las sesiones" }).click();
+        const todas = page.getByRole("dialog", { name: "¿Cerrar todas sus sesiones?" });
+        await expect(todas.getByText("Los tokens no son sesiones: si no los revocas, siguen valiendo.")).toBeVisible();
+        await todas.getByRole("button", { name: "Cancelar" }).click();
+        await expect(todas).toHaveCount(0);
         await sesiones.locator('[data-sesion="900"]').getByRole("button", { name: "Cerrar" }).click();
         const dialogo = page.getByRole("dialog", { name: "¿Cerrar esta sesión?" });
         await dialogo.getByLabel("Motivo (opcional)").fill("Equipo prestado");
@@ -212,6 +218,7 @@ test.describe("accesos, actividad de la app y roles", () => {
         const accesos = page.locator('[data-seccion="accesos"]');
         await expect(accesos.locator("[data-acceso]")).toHaveCount(3);
         await expect(accesos.locator('[data-acceso="54"]')).toContainText("Bloqueado por intentos");
+        await expect(accesos.locator('[data-acceso="54"]')).toContainText("× 3 intentos");
         await sinDesborde(page);
         await page.screenshot({ path: path.join(carpeta, `usuario-accesos-${info.project.name}.png`), fullPage: true });
         await accesos.getByRole("link", { name: "Ver todo el historial" }).click();

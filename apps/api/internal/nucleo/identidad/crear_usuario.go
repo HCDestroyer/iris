@@ -48,9 +48,9 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 				return Usuario{}, err
 			}
 			// Dar permisos sensibles exige re-autenticarse, salvo el usuario de integración con el
-			// rol de su contrato (lo crea el canje del enlace de conexión, que ya exige
-			// integraciones.conectar).
-			if tipo != "integracion" || !soloRolesDeIntegracion(in.Roles) {
+			// rol de su contrato creado por PrepararIntegracion o el canje del conector (marca
+			// interna del contexto, nunca por HTTP).
+			if !esIntegracionInterna(ctx) || tipo != "integracion" || !soloRolesDeIntegracion(in.Roles) {
 				permisos, err := permisosDeAsignaciones(ctx, q, roles)
 				if err != nil {
 					return Usuario{}, err

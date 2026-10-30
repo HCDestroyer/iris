@@ -88,7 +88,7 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 
 			roles := rolesPrevios[in.ID]
 			if in.Roles != nil {
-				resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", *in.Roles)
+				resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", *in.Roles, rolesPrevios[in.ID]...)
 				if err != nil {
 					return Usuario{}, err
 				}
@@ -110,10 +110,17 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 				if err := exigirReautenticacionSensibles(ctx, permisos, "Asignar estos roles"); err != nil {
 					return Usuario{}, err
 				}
+				guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
+				if err != nil {
+					return Usuario{}, err
+				}
 				if err := q.QuitarRolesDeUsuario(ctx, in.ID); err != nil {
 					return Usuario{}, err
 				}
 				if err := asignarRoles(ctx, q, in.ID, resueltos); err != nil {
+					return Usuario{}, err
+				}
+				if err := guardia.despues(ctx); err != nil {
 					return Usuario{}, err
 				}
 				roles = asignaciones(resueltos)
