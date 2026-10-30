@@ -126,6 +126,7 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 		ctx = contexto.ComoCliente(ctx, a)
 	}
 
+	rechazado := false // la autorización lo rechazó antes de ejecutar la lógica
 	err := nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		t = &Tx{Tx: tx}
 		ctx = context.WithValue(ctx, claveTxCaso, t)
@@ -135,6 +136,7 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 			t.Anotar(map[string]any{"sesion_origen": s.Origen})
 		}
 		if err := c.autorizar(ctx); err != nil {
+			rechazado = true
 			return err
 		}
 		var err error
@@ -149,6 +151,10 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 	})
 	if err != nil {
 		c.auditarError(ctx, t, entrada, err, c.AuditarError == nil || c.AuditarError(err))
+		if rechazado && externa == nil {
+			// Nada se ejecutó: la clave de idempotencia de la petición se puede liberar.
+			nucleo.AutorizacionFallida(ctx)
+		}
 		var cero Out
 		return cero, err
 	}
@@ -157,6 +163,7 @@ func (c *Caso[In, Out]) Ejecutar(ctx context.Context, in In) (Out, error) {
 		externa.ganchos = append(externa.ganchos, t.ganchos...)
 		return salida, nil
 	}
+	nucleo.CasoConfirmado(ctx)
 	for _, g := range t.ganchos {
 		correrGancho(ctx, g)
 	}

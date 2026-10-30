@@ -712,6 +712,20 @@ func (q *Queries) DesactivarUsuario(ctx context.Context, arg DesactivarUsuarioPa
 	return i, err
 }
 
+const descartarVinculacionSSO = `-- name: DescartarVinculacionSSO :one
+UPDATE nucleo.sso_tickets SET vinculacion_hash = NULL, vinculacion_expira_en = now(), updated_at = now()
+WHERE vinculacion_hash = $1 AND vinculado_en IS NULL
+RETURNING id
+`
+
+// «No fui yo»: la vinculación pendiente ya no se puede usar (se borra su hash).
+func (q *Queries) DescartarVinculacionSSO(ctx context.Context, vinculacionHash []byte) (int64, error) {
+	row := q.db.QueryRow(ctx, descartarVinculacionSSO, vinculacionHash)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const editarEmpresa = `-- name: EditarEmpresa :one
 UPDATE nucleo.empresas
 SET nombre = $1, nit = $2, version = version + 1, updated_at = now()
