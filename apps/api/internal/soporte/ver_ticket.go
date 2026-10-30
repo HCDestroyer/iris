@@ -7,7 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
 )
 
@@ -39,7 +41,15 @@ func (m *Modulo) nuevoVerTicket() *auditoria.Caso[EntradaVerTicket, Ticket] {
 			if err != nil {
 				return Ticket{}, err
 			}
-			return aTicket(f, m.ahora()), nil
+			tk := aTicket(f, m.ahora())
+			// La copia trae datos personales del cliente (documento, correo, teléfonos): solo con
+			// clientes.ver, como la ficha.
+			if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
+				if tk.DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaTicket, f.ID); err != nil {
+					return Ticket{}, err
+				}
+			}
+			return tk, nil
 		},
 	})
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -28,12 +29,14 @@ type ClienteCampo struct {
 	ID             int64     `json:"id"`
 	Codigo         string    `json:"codigo"`
 	Nombre         string    `json:"nombre"`
-	Telefono       string    `json:"telefono"`
-	Direccion      string    `json:"direccion"`
+	Telefono       string    `json:"telefono" doc:"Tal como en Argos; para mostrar y llamar, telefonos"`
+	Direccion      string    `json:"direccion" doc:"Dirección del cliente (la de instalación es la del servicio)"`
 	Lat            *float64  `json:"lat" nullable:"true"`
 	Lon            *float64  `json:"lon" nullable:"true"`
 	Estado         string    `json:"estado"`
 	SincronizadoEn time.Time `json:"sincronizadoEn"`
+	// Telefonos: teléfono y móvil normalizados (los mismos que la ficha del panel).
+	Telefonos []formato.Telefono `json:"telefonos" required:"false" doc:"Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original"`
 }
 
 // ServicioCampo es la instantánea del servicio de Argos (integracion.argos_servicios).
@@ -434,7 +437,8 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 			// Solo la instantánea de la misma empresa que la orden.
 			if d.ClienteID != nil && c.ID == *d.ClienteID && (d.EmpresaID == nil || *d.EmpresaID == c.EmpresaID) {
 				o.Cliente = &ClienteCampo{ID: c.ID, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
-					Direccion: c.Direccion, Lat: c.Lat, Lon: c.Lon, Estado: c.Estado, SincronizadoEn: c.SincronizadoEn}
+					Direccion: c.Direccion, Lat: c.Lat, Lon: c.Lon, Estado: c.Estado, SincronizadoEn: c.SincronizadoEn,
+					Telefonos: append(formato.Telefonos("telefono", c.Telefono), formato.Telefonos("movil", c.Movil)...)}
 			}
 		}
 		for _, s := range ss {

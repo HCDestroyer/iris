@@ -66,10 +66,9 @@ comunes de conectores); aquí queda lo propio de Argos.
 
 - **`cliente.actualizado` con `campos[]`** (`nombre`, `tipo`, `codigo`, `nit_cui`,
   `tipo_documento_fiscal`, `telefono`, `movil`, `direccion`, `coordenadas`, `zona_id`): refresca
-  la instantánea (teléfono, dirección, coordenadas `"lat,lng"` y zona incluidos). Si todos los que
-  cambiaron son de los que la instantánea no guarda (`tipo`, `nit_cui`, `tipo_documento_fiscal`,
-  `movil`), no relee el cliente («ignorado», `omitido: campos_sin_efecto`). Sin `campos[]` o con
-  uno desconocido, refresca.
+  la instantánea con cualquier campo: desde los datos coherentes la instantánea guarda también
+  `tipo`, `nit_cui`, `tipo_documento_fiscal` y `movil` (antes esos se omitían con
+  `campos_sin_efecto`).
 - **`servicio.eliminado` y `router.eliminado`** (`eliminados.go`). La lápida es difícil de
   deshacer, así que no se cree al payload:
   - el id sale solo de `servicio_id` / `router_id` (sin ellos, «ignorado», `sin_id`);
@@ -153,3 +152,44 @@ primera.
 - **Búsqueda:** la empresa activa va en `X-Empresa-Id`. Los clientes que Iris no conoce (ni en la
   instantánea ni en una caché de 5 min) se verifican en Argos: a lo sumo 20 por búsqueda (los demás
   quedan fuera) y 10 a la vez por conector; falla cerrado.
+
+## Datos coherentes (pedido 5 del PM)
+
+Lo que Iris muestra del cliente y del servicio coincide con Argos 1.4.0 y se ve igual en todas
+partes (ficha, ticket, orden, comercial y app de campo).
+
+- **Instantánea completa** (migración `integracion_argos_datos_coherentes`): del cliente, además,
+  `tipo`, `tipo_documento_fiscal`, `nit_cui` (sin guiones, como Argos), `movil`, `correo` (`email`
+  de Argos) y `zona_nombre` (Argos lo manda en cada servicio; sin servicios, del catálogo de zonas);
+  del servicio, `user_ppp` y `tipo_conexion`. La IP sale de `ipv4` (Argos 1.4.0 no manda `ip`:
+  antes quedaba vacía y la resolución local por IP nunca acertaba). En Argos el servicio no tiene
+  `zona_id`: toma la de su cliente.
+- **Estado del cliente:** Argos no tiene estado de cliente. `cliente.estado` es el resumen de sus
+  servicios visibles (el más grave: suspendido > limitado > activo > pendiente_instalacion >
+  retirado), el mismo criterio que Argos en `GET /clientes/:id/dependientes`.
+- **Formato para mostrar** (`formato/`, funciones puras con su espejo en
+  `apps/web/lib/datos/telefono.ts`; los dos prueban `formato/testdata/telefonos.json`):
+  - teléfonos: un campo de Argos puede traer varios números («5512-3344 / 2233-4455»); cada uno sale
+    en `telefonos[]` con `original`, `e164` (+50255123344, null si no se pudo interpretar) y
+    `mostrar` (+502 5512 3344; el original si es de otro país o no se interpreta);
+  - documento: `nitCuiMostrar` (NIT 1234567-8, CUI 1234 56789 0101, CF);
+  - coordenadas: 6 decimales y el 0,0 como «sin coordenadas».
+- **Dirección del cliente ≠ dirección de instalación:** `cliente.direccion` es el domicilio;
+  `servicio.direccion`, la de instalación (vacía si Argos no tiene una propia: entonces aplica la del
+  cliente; Iris no la inventa).
+- **Copias en tickets y órdenes** (`copias.go`, `integracion.argos_copias`, solo inserción): al
+  crear un ticket o una orden con cliente de Argos, el caso de uso que lo crea guarda en su
+  transacción lo que la instantánea tiene del cliente y del servicio (`CopiarDatos`). El detalle
+  (`GET /tickets/{id}`, `GET /ordenes/{id}`) la devuelve en `datosArgos` solo a quien tiene
+  `clientes.ver`; el panel la muestra si la ficha no se puede leer o el servicio se eliminó en
+  Argos. La orden toma la dirección y las coordenadas de instalación del servicio (o las del
+  cliente) y, si nadie indicó el contacto, el nombre del cliente y su teléfono principal (móvil
+  válido primero) en formato +502; un ticket sin contacto ya no deja la orden sin teléfono.
+  Tickets y órdenes anteriores a la migración no tienen copia.
+- **Refresco:** por webhook (`cliente.actualizado` con cualquier `campos[]`,
+  `servicio.creado`, `servicio.config_cambiada`, `asignacion.cambiada`,
+  `servicio.estado_cambiado`), al abrir la ficha si tiene más de 24 h o es de una versión anterior
+  de los datos (`version_datos` < `VersionDatos`) y con «Refrescar» (`GET /clientes/{id}?refrescar=true`,
+  que no vuelve a pedir a Argos si la instantánea es de hace menos de 30 s). Argos 1.4.0 no avisa
+  cambios de la dirección o las coordenadas de un servicio ni del correo del cliente: hasta que lo
+  haga (pedidos en `.claude/integration/i1.md`), se ven al vencer las 24 h o con «Refrescar».

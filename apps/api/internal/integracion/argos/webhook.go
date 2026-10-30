@@ -249,13 +249,9 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 				return p.aplicar.Ejecutar(ctx, in)
 			}
 		}
-	case EventoClienteActualizado:
-		// Solo cambiaron campos que la instantánea no guarda (nit, tipo, móvil…): no se relee.
-		if soloCamposSinEfecto(datos.Campos) {
-			in.omitido = omitidoCamposSinEfecto
-			return p.aplicar.Ejecutar(ctx, in)
-		}
 	}
+	// cliente.actualizado relee el cliente con cualquier campos[]: desde que la instantánea guarda
+	// tipo, documento fiscal y móvil (datos coherentes), todos los campos del contrato la cambian.
 	clienteID, err := clienteARefrescar(ctx, q, e)
 	if err != nil {
 		return ResultadoEntrante{}, err

@@ -97,8 +97,9 @@ func (q *Queries) BorrarZonasAnteriores(ctx context.Context, antes time.Time) (i
 }
 
 const buscarClientesLocal = `-- name: BuscarClientesLocal :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes
-WHERE (nombre ILIKE '%' || $1::text || '%' OR codigo ILIKE '%' || $1::text || '%' OR telefono ILIKE '%' || $1::text || '%')
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos FROM integracion.argos_clientes
+WHERE (nombre ILIKE '%' || $1::text || '%' OR codigo ILIKE '%' || $1::text || '%' OR telefono ILIKE '%' || $1::text || '%'
+       OR movil ILIKE '%' || $1::text || '%' OR nit_cui ILIKE '%' || $1::text || '%')
   -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
   AND ($2::bigint = 0 OR $2::bigint = ANY(empresas) OR sin_servicios
        OR (cardinality(empresas) = 0 AND empresa_id = $2::bigint))
@@ -138,6 +139,13 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 			&i.UpdatedAt,
 			&i.Empresas,
 			&i.SinServicios,
+			&i.Tipo,
+			&i.TipoDocumentoFiscal,
+			&i.NitCui,
+			&i.Movil,
+			&i.Correo,
+			&i.ZonaNombre,
+			&i.VersionDatos,
 		); err != nil {
 			return nil, err
 		}
@@ -150,7 +158,7 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 }
 
 const clientePorID = `-- name: ClientePorID :one
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos FROM integracion.argos_clientes WHERE id = $1
 `
 
 func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosCliente, error) {
@@ -172,6 +180,37 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 		&i.UpdatedAt,
 		&i.Empresas,
 		&i.SinServicios,
+		&i.Tipo,
+		&i.TipoDocumentoFiscal,
+		&i.NitCui,
+		&i.Movil,
+		&i.Correo,
+		&i.ZonaNombre,
+		&i.VersionDatos,
+	)
+	return i, err
+}
+
+const copiaDe = `-- name: CopiaDe :one
+SELECT entidad, entidad_id, cliente_id, servicio_id, datos, sincronizado_en, copiado_en FROM integracion.argos_copias WHERE entidad = $1 AND entidad_id = $2
+`
+
+type CopiaDeParams struct {
+	Entidad   string
+	EntidadID int64
+}
+
+func (q *Queries) CopiaDe(ctx context.Context, arg CopiaDeParams) (IntegracionArgosCopia, error) {
+	row := q.db.QueryRow(ctx, copiaDe, arg.Entidad, arg.EntidadID)
+	var i IntegracionArgosCopia
+	err := row.Scan(
+		&i.Entidad,
+		&i.EntidadID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Datos,
+		&i.SincronizadoEn,
+		&i.CopiadoEn,
 	)
 	return i, err
 }
@@ -268,33 +307,44 @@ func (q *Queries) EmpresasDeEliminadosDeCliente(ctx context.Context, clienteID *
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
-    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos
 ) VALUES (
-    $1, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+    $14, $15, $16, $17, $18, $19, $20
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
     codigo = excluded.codigo, nombre = excluded.nombre,
     telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
-    updated_at = now()
+    tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
+    movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
+    version_datos = excluded.version_datos, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en
 `
 
 type GuardarClienteParams struct {
-	ID             int64
-	EmpresaID      int64
-	Empresas       []int64
-	SinServicios   bool
-	Codigo         string
-	Nombre         string
-	Telefono       string
-	Direccion      string
-	Lat            *float64
-	Lon            *float64
-	ZonaID         *int64
-	Estado         string
-	SincronizadoEn time.Time
+	ID                  int64
+	EmpresaID           int64
+	Empresas            []int64
+	SinServicios        bool
+	Codigo              string
+	Nombre              string
+	Telefono            string
+	Direccion           string
+	Lat                 *float64
+	Lon                 *float64
+	ZonaID              *int64
+	Estado              string
+	SincronizadoEn      time.Time
+	Tipo                string
+	TipoDocumentoFiscal string
+	NitCui              string
+	Movil               string
+	Correo              string
+	ZonaNombre          string
+	VersionDatos        int16
 }
 
 // Instantáneas (§2.2) -------------------------------------------------------------------
@@ -312,6 +362,43 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 		arg.Lon,
 		arg.ZonaID,
 		arg.Estado,
+		arg.SincronizadoEn,
+		arg.Tipo,
+		arg.TipoDocumentoFiscal,
+		arg.NitCui,
+		arg.Movil,
+		arg.Correo,
+		arg.ZonaNombre,
+		arg.VersionDatos,
+	)
+	return err
+}
+
+const guardarCopia = `-- name: GuardarCopia :exec
+
+INSERT INTO integracion.argos_copias (entidad, entidad_id, cliente_id, servicio_id, datos, sincronizado_en)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (entidad, entidad_id) DO NOTHING
+`
+
+type GuardarCopiaParams struct {
+	Entidad        string
+	EntidadID      int64
+	ClienteID      int64
+	ServicioID     *int64
+	Datos          []byte
+	SincronizadoEn time.Time
+}
+
+// Copias de tickets y órdenes (datos coherentes) ------------------------------------------------
+// Solo inserción: la copia es la de cuando se creó el ticket o la orden.
+func (q *Queries) GuardarCopia(ctx context.Context, arg GuardarCopiaParams) error {
+	_, err := q.db.Exec(ctx, guardarCopia,
+		arg.Entidad,
+		arg.EntidadID,
+		arg.ClienteID,
+		arg.ServicioID,
+		arg.Datos,
 		arg.SincronizadoEn,
 	)
 	return err
@@ -355,17 +442,18 @@ func (q *Queries) GuardarRouter(ctx context.Context, arg GuardarRouterParams) er
 const guardarServicio = `-- name: GuardarServicio :exec
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion
 )
 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16
+    $11, $12, $13, $14, $15, $16, $17, $18
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
     router_nombre = excluded.router_nombre, zona_id = excluded.zona_id, zona_nombre = excluded.zona_nombre,
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
-    estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, updated_at = now()
+    estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
+    tipo_conexion = excluded.tipo_conexion, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en
 `
 
@@ -386,6 +474,8 @@ type GuardarServicioParams struct {
 	Lon            *float64
 	Estado         string
 	SincronizadoEn time.Time
+	UserPpp        string
+	TipoConexion   string
 }
 
 // Un servicio con lápida no se guarda desde una lista: solo un GET por id con 200 lo resucita
@@ -408,6 +498,8 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 		arg.Lon,
 		arg.Estado,
 		arg.SincronizadoEn,
+		arg.UserPpp,
+		arg.TipoConexion,
 	)
 	return err
 }
@@ -436,6 +528,19 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 		arg.SincronizadoEn,
 	)
 	return err
+}
+
+const nombreZona = `-- name: NombreZona :one
+
+SELECT nombre FROM integracion.argos_zonas WHERE id = $1
+`
+
+// Nombres de catálogo -------------------------------------------------------------------------
+func (q *Queries) NombreZona(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, nombreZona, id)
+	var nombre string
+	err := row.Scan(&nombre)
+	return nombre, err
 }
 
 const pistaEmpresaAlta = `-- name: PistaEmpresaAlta :one
@@ -580,7 +685,7 @@ func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRo
 }
 
 const servicioPorID = `-- name: ServicioPorID :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -605,12 +710,14 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserPpp,
+		&i.TipoConexion,
 	)
 	return i, err
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios
 WHERE ip = $1 AND empresa_id <> 0 AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
@@ -644,12 +751,14 @@ func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (I
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserPpp,
+		&i.TipoConexion,
 	)
 	return i, err
 }
 
 const serviciosDeCliente = `-- name: ServiciosDeCliente :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -680,6 +789,8 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserPpp,
+			&i.TipoConexion,
 		); err != nil {
 			return nil, err
 		}

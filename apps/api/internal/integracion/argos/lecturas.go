@@ -246,7 +246,13 @@ func escaparLike(s string) string {
 // EntradaFicha: id del cliente en Argos.
 type EntradaFicha struct {
 	ID int64 `json:"id" path:"id" minimum:"1" doc:"Id del cliente en Argos"`
+	// Refrescar: «Refrescar» del panel. Relee de Argos aunque la instantánea sea reciente, salvo
+	// que se haya leído hace menos de RefrescoMinimo (no se martilla a Argos con clics).
+	Refrescar bool `json:"refrescar,omitempty" query:"refrescar" doc:"true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay)"`
 }
+
+// RefrescoMinimo: con ?refrescar=true, una instantánea más nueva que esto no se vuelve a pedir.
+const RefrescoMinimo = 30 * time.Second
 
 type fichaPrevia struct {
 	conector  conector.Leido
@@ -349,8 +355,16 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			}
 			t.FijarEmpresa(e)
 			t.Anotar(map[string]any{"stale": stale, "estado_cuenta": in.estado != nil})
+			resumen := aClienteResumen(cliente)
+			if resumen.Estado == "" {
+				estados := make([]string, 0, len(servicios))
+				for _, s := range servicios {
+					estados = append(estados, s.Estado)
+				}
+				resumen.Estado = ResumenEstado(estados)
+			}
 			return Ficha{
-				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
+				Cliente: resumen, Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
 				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn,
 			}, nil
 		},
@@ -366,7 +380,7 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	}
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
-	if p.cliente == nil || time.Since(p.cliente.SincronizadoEn) > o.m.cfg.VigenciaInstantanea {
+	if debeRefrescar(p.cliente, in.Refrescar, o.m.cfg.VigenciaInstantanea) {
 		leida, err := leerFichaArgos(ctx, nucleo.BDDe(ctx), cli, in.ID)
 		switch {
 		case err == nil:
@@ -395,6 +409,16 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 		f.estado, f.errEstado = o.estadoCuenta(ctx, cli, p, in.ID)
 	}
 	return o.final.Ejecutar(ctx, f)
+}
+
+// debeRefrescar: sin instantánea, vencida (VigenciaInstantanea), de una versión anterior de los
+// datos (VersionDatos) o pedida con ?refrescar=true y de hace más de RefrescoMinimo.
+func debeRefrescar(f *argosbd.IntegracionArgosCliente, refrescar bool, vigencia time.Duration) bool {
+	if f == nil || f.VersionDatos < VersionDatos {
+		return true
+	}
+	edad := time.Since(f.SincronizadoEn)
+	return edad > vigencia || (refrescar && edad > RefrescoMinimo)
 }
 
 // estadoCuentaPermitido: el estado de cuenta se pide si el cliente tiene un servicio en la empresa

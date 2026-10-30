@@ -3,6 +3,7 @@ package argos
 import (
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -14,33 +15,58 @@ type ClienteResumen struct {
 	ID        int64    `json:"id" doc:"Id del cliente en Argos"`
 	EmpresaID int64    `json:"empresaId" doc:"Primera de empresas (0 sin servicios). En Argos el cliente no tiene empresa: la tienen sus servicios; usa empresas"`
 	Empresas  []int64  `json:"empresas" required:"false" doc:"Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos)"`
-	Codigo    string   `json:"codigo"`
+	Codigo    string   `json:"codigo" doc:"Código del cliente en Argos (C-000455)"`
 	Nombre    string   `json:"nombre"`
-	Telefono  string   `json:"telefono"`
-	Direccion string   `json:"direccion"`
-	Lat       *float64 `json:"lat" nullable:"true"`
+	Telefono  string   `json:"telefono" doc:"Teléfono tal como está en Argos (texto libre). Para mostrar y llamar usa telefonos"`
+	Direccion string   `json:"direccion" doc:"Dirección del cliente (su domicilio en Argos). No es la de instalación: esa es la de cada servicio"`
+	Lat       *float64 `json:"lat" nullable:"true" doc:"Coordenadas del cliente, en grados decimales con 6 decimales; null si Argos no las tiene (o son 0,0)"`
 	Lon       *float64 `json:"lon" nullable:"true"`
 	ZonaID    *int64   `json:"zonaId" nullable:"true"`
-	Estado    string   `json:"estado" doc:"Estado del cliente en Argos"`
+	Estado    string   `json:"estado" doc:"Resumen del estado de sus servicios (el más grave: suspendido, limitado, activo, pendiente_instalacion, retirado), porque Argos no tiene estado de cliente; vacío sin servicios conocidos. En la búsqueda, lo que mande Argos (hoy vacío)"`
+	// Datos de contacto y fiscales (Argos 1.4.0).
+	Tipo                string             `json:"tipo" doc:"persona o empresa (Argos); vacío si Argos no lo informó"`
+	TipoDocumentoFiscal string             `json:"tipoDocumentoFiscal" doc:"nit, cui, pasaporte o cf (Argos); vacío si no lo informó"`
+	NitCui              string             `json:"nitCui" doc:"Documento fiscal tal como en Argos: sin guiones ni espacios"`
+	NitCuiMostrar       string             `json:"nitCuiMostrar" doc:"El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF"`
+	Movil               string             `json:"movil" doc:"Móvil tal como está en Argos (texto libre)"`
+	Correo              string             `json:"correo" doc:"Correo del cliente en Argos (email)"`
+	Telefonos           []formato.Telefono `json:"telefonos" doc:"Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios"`
+	ZonaNombre          string             `json:"zonaNombre" doc:"Nombre de la zona del cliente en Argos"`
+	SincronizadoEn      *time.Time         `json:"sincronizadoEn" nullable:"true" doc:"Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo"`
 }
 
 // Servicio de un cliente de Argos.
 type Servicio struct {
-	ID           int64    `json:"id" doc:"Id del servicio en Argos"`
-	EmpresaID    int64    `json:"empresaId"`
-	ClienteID    int64    `json:"clienteId"`
-	Codigo       string   `json:"codigo"`
-	PlanID       *int64   `json:"planId" nullable:"true"`
-	PlanNombre   string   `json:"planNombre"`
-	RouterID     *int64   `json:"routerId" nullable:"true"`
-	RouterNombre string   `json:"routerNombre"`
-	ZonaID       *int64   `json:"zonaId" nullable:"true"`
-	ZonaNombre   string   `json:"zonaNombre"`
-	IP           string   `json:"ip"`
-	Direccion    string   `json:"direccion"`
-	Lat          *float64 `json:"lat" nullable:"true"`
-	Lon          *float64 `json:"lon" nullable:"true"`
-	Estado       string   `json:"estado" doc:"Estado del servicio en Argos (activo, suspendido, retirado…)"`
+	ID             int64     `json:"id" doc:"Id del servicio en Argos"`
+	EmpresaID      int64     `json:"empresaId"`
+	ClienteID      int64     `json:"clienteId"`
+	Codigo         string    `json:"codigo"`
+	PlanID         *int64    `json:"planId" nullable:"true"`
+	PlanNombre     string    `json:"planNombre"`
+	RouterID       *int64    `json:"routerId" nullable:"true"`
+	RouterNombre   string    `json:"routerNombre"`
+	ZonaID         *int64    `json:"zonaId" nullable:"true"`
+	ZonaNombre     string    `json:"zonaNombre"`
+	IP             string    `json:"ip" doc:"IPv4 vigente del servicio en Argos"`
+	Direccion      string    `json:"direccion" doc:"Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente"`
+	Lat            *float64  `json:"lat" nullable:"true" doc:"Coordenadas de instalación (6 decimales); null si Argos no las tiene"`
+	Lon            *float64  `json:"lon" nullable:"true"`
+	Estado         string    `json:"estado" doc:"Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)"`
+	UserPPP        string    `json:"userPpp" doc:"Usuario PPPoE; vacío fuera de pppoe"`
+	TipoConexion   string    `json:"tipoConexion" doc:"pppoe, ip_estatica o dhcp_fija"`
+	SincronizadoEn time.Time `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos"`
+}
+
+// CopiaArgos es lo que Iris sabía del cliente y del servicio al crear un ticket o una orden. Se
+// conserva tal cual (integracion.argos_copias): si la ficha no se puede leer (conector apagado,
+// Argos caído) o el servicio se eliminó en Argos, el ticket y la orden la muestran.
+type CopiaArgos struct {
+	Cliente        ClienteResumen    `json:"cliente"`
+	Servicio       *Servicio         `json:"servicio,omitempty" doc:"El servicio del ticket o la orden; ausente si no tenía o Iris no lo conocía"`
+	Direccion      string            `json:"direccion" doc:"La que aplica: la de instalación del servicio o, si no tiene, la del cliente"`
+	Telefono       *formato.Telefono `json:"telefono,omitempty" doc:"El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos"`
+	SincronizadoEn time.Time         `json:"sincronizadoEn" doc:"Cuándo se había leído de Argos lo copiado"`
+	CopiadoEn      time.Time         `json:"copiadoEn" doc:"Cuándo se copió (al crear el ticket o la orden)"`
 }
 
 // EstadoCuenta resumido (§2.1): solo el saldo y las facturas vencidas. Nunca se guarda: se lee

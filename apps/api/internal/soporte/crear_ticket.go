@@ -11,6 +11,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
@@ -305,6 +306,13 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	}
 	t.FijarEntidad("ticket", f.ID)
 	t.RegistrarCambios("ticket", f.ID, nil, f)
+	// Copia de los datos de Argos con los que se crea (dirección, teléfono, servicio): se conserva
+	// aunque la ficha después no se pueda leer o el servicio se elimine en Argos.
+	if f.ClienteID != nil {
+		if _, err := argos.CopiarDatos(ctx, t, argos.CopiaTicket, f.ID, *f.ClienteID, f.ServicioID, f.EmpresaID, ahora); err != nil {
+			return cero, err
+		}
+	}
 	if descripcion != "" {
 		if _, err := mensajeIdempotente(ctx, t, q, f, true, descripcion, nil); err != nil {
 			return cero, err

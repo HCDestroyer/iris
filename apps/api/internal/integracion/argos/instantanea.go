@@ -3,12 +3,14 @@ package argos
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 )
 
 // Instantáneas de lectura (§2.2): solo lo que Iris muestra, con empresa_id y sincronizado_en.
@@ -112,9 +114,15 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 	if len(empresas) > 0 {
 		primera = empresas[0]
 	}
+	zonaNombre, err := nombreZonaCliente(ctx, q, c, f.servicios)
+	if err != nil {
+		return err
+	}
 	if err := q.GuardarCliente(ctx, argosbd.GuardarClienteParams{
 		ID: c.ID, EmpresaID: primera, Empresas: empresas, SinServicios: sinServicios, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado, SincronizadoEn: f.leidoEn,
+		Tipo: c.Tipo, TipoDocumentoFiscal: c.TipoDocumentoFiscal, NitCui: c.NitCui, Movil: c.Movil, Correo: c.CorreoCliente(),
+		ZonaNombre: zonaNombre, VersionDatos: VersionDatos,
 	}); err != nil {
 		return err
 	}
@@ -128,12 +136,19 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 		}
 		// Un servicio sin empresa no hereda la del cliente: queda en 0 y no se atribuye a nadie.
 		slat, slon := s.LatLon()
+		// En Argos la zona del servicio es la de su cliente (zona_nombre sale de core.clientes):
+		// sin zona_id propio, el servicio toma la del cliente.
+		zona := idDe(s.ZonaID, s.Zona)
+		if zona == nil {
+			zona = c.IDZona()
+		}
 		if err := guardarServicio(ctx, t, q, argosbd.GuardarServicioParams{
 			ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
 			PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
 			RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
-			ZonaID: idDe(s.ZonaID, s.Zona), ZonaNombre: nombreDe(s.ZonaNombre, s.Zona),
-			Ip: s.IP, Direccion: s.Direccion, Lat: slat, Lon: slon, Estado: s.Estado, SincronizadoEn: f.leidoEn,
+			ZonaID: zona, ZonaNombre: nombreDe(s.ZonaNombre, s.Zona),
+			Ip: s.IPVigente(), Direccion: s.Direccion, Lat: slat, Lon: slon, Estado: s.Estado, SincronizadoEn: f.leidoEn,
+			UserPpp: s.UserPPP, TipoConexion: s.TipoConexion,
 		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
@@ -151,22 +166,80 @@ func vivoEn(vivos map[int64]time.Time, id int64) *time.Time {
 	return nil
 }
 
+// VersionDatos: qué guarda hoy la instantánea de un cliente (columna version_datos). Una fila
+// con una versión menor se relee de Argos aunque tenga menos de 24 h.
+const VersionDatos = 2
+
+// nombreZonaCliente: Argos manda el nombre de la zona del cliente en cada servicio (zona_nombre);
+// sin servicios, sale del catálogo de zonas de la instantánea. Vacío si no se sabe.
+func nombreZonaCliente(ctx context.Context, q *argosbd.Queries, c ClienteArgos, servicios []ServicioArgos) (string, error) {
+	if c.Zona != nil && c.Zona.Nombre != "" {
+		return c.Zona.Nombre, nil
+	}
+	for _, s := range servicios {
+		if n := nombreDe(s.ZonaNombre, s.Zona); n != "" && (s.ClienteID == 0 || s.ClienteID == c.ID) {
+			return n, nil
+		}
+	}
+	if id := c.IDZona(); id != nil {
+		n, err := q.NombreZona(ctx, *id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return n, err
+	}
+	return "", nil
+}
+
+// gravedadEstado: el estado más grave de los servicios es el que resume al cliente (el mismo
+// criterio que Argos en GET /clientes/:id/dependientes).
+var gravedadEstado = []string{"suspendido", "limitado", "activo", "pendiente_instalacion", "retirado"}
+
+// ResumenEstado resume el estado de un cliente por el de sus servicios: Argos 1.4.0 no tiene
+// estado de cliente. Vacío sin servicios.
+func ResumenEstado(estados []string) string {
+	for _, e := range gravedadEstado {
+		if slices.Contains(estados, e) {
+			return e
+		}
+	}
+	if len(estados) > 0 {
+		return estados[0]
+	}
+	return ""
+}
+
+func telefonosDe(telefono, movil string) []formato.Telefono {
+	return append(formato.Telefonos("telefono", telefono), formato.Telefonos("movil", movil)...)
+}
+
 func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
 	empresas := empresasDeFila(f)
 	if empresas == nil {
 		empresas = []int64{}
 	}
+	sinc := f.SincronizadoEn
 	return ClienteResumen{
 		ID: f.ID, EmpresaID: f.EmpresaID, Empresas: empresas, Codigo: f.Codigo, Nombre: f.Nombre, Telefono: f.Telefono,
 		Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, ZonaID: f.ZonaID, Estado: f.Estado,
+		Tipo: f.Tipo, TipoDocumentoFiscal: f.TipoDocumentoFiscal, NitCui: f.NitCui,
+		NitCuiMostrar: formato.Documento(f.TipoDocumentoFiscal, f.NitCui), Movil: f.Movil, Correo: f.Correo,
+		Telefonos: telefonosDe(f.Telefono, f.Movil), ZonaNombre: f.ZonaNombre, SincronizadoEn: &sinc,
 	}
 }
 
 func clienteArgosAResumen(c ClienteArgos) ClienteResumen {
 	lat, lon := c.LatLon()
+	zona := ""
+	if c.Zona != nil {
+		zona = c.Zona.Nombre
+	}
 	return ClienteResumen{
 		ID: c.ID, EmpresaID: c.EmpresaID, Empresas: EmpresasDelCliente(c, nil), Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado,
+		Tipo: c.Tipo, TipoDocumentoFiscal: c.TipoDocumentoFiscal, NitCui: c.NitCui,
+		NitCuiMostrar: formato.Documento(c.TipoDocumentoFiscal, c.NitCui), Movil: c.Movil, Correo: c.CorreoCliente(),
+		Telefonos: telefonosDe(c.Telefono, c.Movil), ZonaNombre: zona,
 	}
 }
 
@@ -175,6 +248,7 @@ func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 		ID: f.ID, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID, Codigo: f.Codigo, PlanID: f.PlanID,
 		PlanNombre: f.PlanNombre, RouterID: f.RouterID, RouterNombre: f.RouterNombre, ZonaID: f.ZonaID,
 		ZonaNombre: f.ZonaNombre, IP: f.Ip, Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, Estado: f.Estado,
+		UserPPP: f.UserPpp, TipoConexion: f.TipoConexion, SincronizadoEn: f.SincronizadoEn,
 	}
 }
 

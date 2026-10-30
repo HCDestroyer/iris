@@ -14,6 +14,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -102,6 +103,13 @@ func (m *Modulo) nuevoVerOrden(permiso nucleo.Permiso) *auditoria.Caso[EntradaVe
 			d, err := detalles(ctx, q, []campobd.CampoOrden{f})
 			if err != nil {
 				return OrdenDetalle{}, err
+			}
+			// La copia trae datos personales del cliente (documento, correo, teléfonos): solo con
+			// clientes.ver, como la ficha.
+			if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
+				if d[0].DatosArgos, err = argos.CopiaDe(ctx, t, argos.CopiaOrden, f.ID); err != nil {
+					return OrdenDetalle{}, err
+				}
 			}
 			return d[0], nil
 		},

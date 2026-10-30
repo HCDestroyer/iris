@@ -365,7 +365,7 @@ export interface paths {
         };
         /**
          * Ficha del cliente: datos, servicios y estado de cuenta resumido
-         * @description Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         * @description Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h, si es de una versión anterior de los datos o con `?refrescar=true` (si se leyó hace más de 30 s); si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
          */
         get: operations["obtenerFichaCliente"];
         put?: never;
@@ -3949,6 +3949,7 @@ export interface components {
         };
         ClienteCampo: {
             codigo: string;
+            /** @description Dirección del cliente (la de instalación es la del servicio) */
             direccion: string;
             estado: string;
             /** Format: int64 */
@@ -3960,7 +3961,10 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             sincronizadoEn: string;
+            /** @description Tal como en Argos; para mostrar y llamar, telefonos */
             telefono: string;
+            /** @description Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original */
+            telefonos?: components["schemas"]["Telefono"][] | null;
         };
         ClientePortal: {
             /**
@@ -3977,7 +3981,11 @@ export interface components {
             nombre: string;
         };
         ClienteResumen: {
+            /** @description Código del cliente en Argos (C-000455) */
             codigo: string;
+            /** @description Correo del cliente en Argos (email) */
+            correo: string;
+            /** @description Dirección del cliente (su domicilio en Argos). No es la de instalación: esa es la de cada servicio */
             direccion: string;
             /**
              * Format: int64
@@ -3986,21 +3994,44 @@ export interface components {
             empresaId: number;
             /** @description Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos) */
             empresas?: number[] | null;
-            /** @description Estado del cliente en Argos */
+            /** @description Resumen del estado de sus servicios (el más grave: suspendido, limitado, activo, pendiente_instalacion, retirado), porque Argos no tiene estado de cliente; vacío sin servicios conocidos. En la búsqueda, lo que mande Argos (hoy vacío) */
             estado: string;
             /**
              * Format: int64
              * @description Id del cliente en Argos
              */
             id: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Coordenadas del cliente, en grados decimales con 6 decimales; null si Argos no las tiene (o son 0,0)
+             */
             lat: number | null;
             /** Format: double */
             lon: number | null;
+            /** @description Móvil tal como está en Argos (texto libre) */
+            movil: string;
+            /** @description Documento fiscal tal como en Argos: sin guiones ni espacios */
+            nitCui: string;
+            /** @description El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF */
+            nitCuiMostrar: string;
             nombre: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo
+             */
+            sincronizadoEn: string | null;
+            /** @description Teléfono tal como está en Argos (texto libre). Para mostrar y llamar usa telefonos */
             telefono: string;
+            /** @description Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios */
+            telefonos: components["schemas"]["Telefono"][] | null;
+            /** @description persona o empresa (Argos); vacío si Argos no lo informó */
+            tipo: string;
+            /** @description nit, cui, pasaporte o cf (Argos); vacío si no lo informó */
+            tipoDocumentoFiscal: string;
             /** Format: int64 */
             zonaId: number | null;
+            /** @description Nombre de la zona del cliente en Argos */
+            zonaNombre: string;
         };
         Cobertura: {
             /** @description false = no hay datos para dibujar cobertura (motivo); nunca suponer «sin cobertura» */
@@ -4109,6 +4140,25 @@ export interface components {
             prospectoId: number;
             /** Format: int32 */
             version: number;
+        };
+        CopiaArgos: {
+            cliente: components["schemas"]["ClienteResumen"];
+            /**
+             * Format: date-time
+             * @description Cuándo se copió (al crear el ticket o la orden)
+             */
+            copiadoEn: string;
+            /** @description La que aplica: la de instalación del servicio o, si no tiene, la del cliente */
+            direccion: string;
+            /** @description El servicio del ticket o la orden; ausente si no tenía o Iris no lo conocía */
+            servicio?: components["schemas"]["Servicio"];
+            /**
+             * Format: date-time
+             * @description Cuándo se había leído de Argos lo copiado
+             */
+            sincronizadoEn: string;
+            /** @description El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos */
+            telefono?: components["schemas"]["Telefono"];
         };
         Cotizacion: {
             /** Format: date-time */
@@ -6472,6 +6522,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             descripcion: string;
             direccion: string;
             /**
@@ -6608,6 +6660,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             descripcion: string;
             direccion: string;
             /**
@@ -7997,18 +8051,23 @@ export interface components {
             /** Format: int64 */
             clienteId: number;
             codigo: string;
+            /** @description Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente */
             direccion: string;
             /** Format: int64 */
             empresaId: number;
-            /** @description Estado del servicio en Argos (activo, suspendido, retirado…) */
+            /** @description Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado) */
             estado: string;
             /**
              * Format: int64
              * @description Id del servicio en Argos
              */
             id: number;
+            /** @description IPv4 vigente del servicio en Argos */
             ip: string;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Coordenadas de instalación (6 decimales); null si Argos no las tiene
+             */
             lat: number | null;
             /** Format: double */
             lon: number | null;
@@ -8018,6 +8077,15 @@ export interface components {
             /** Format: int64 */
             routerId: number | null;
             routerNombre: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos
+             */
+            sincronizadoEn: string;
+            /** @description pppoe, ip_estatica o dhcp_fija */
+            tipoConexion: string;
+            /** @description Usuario PPPoE; vacío fuera de pppoe */
+            userPpp: string;
             /** Format: int64 */
             zonaId: number | null;
             zonaNombre: string;
@@ -8178,6 +8246,19 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        Telefono: {
+            /** @description El número en E.164 (+50255123344) para llamar o escribir; null si no se pudo interpretar */
+            e164: string | null;
+            /** @description Cómo se muestra: +502 5512 3344 para Guatemala; el original (sin espacios de más) si es de otro país o no se pudo interpretar */
+            mostrar: string;
+            /** @description El texto tal como está en Argos (de un campo con varios números, solo esta parte) */
+            original: string;
+            /**
+             * @description De qué campo de Argos viene: telefono o movil
+             * @enum {string}
+             */
+            tipo: "telefono" | "movil";
+        };
         Ticket: {
             /** Format: date-time */
             actualizadoEn: string;
@@ -8201,6 +8282,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /tickets/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear el ticket (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             /**
              * Format: int64
              * @description Empresa en Argos; null sin conector
@@ -10085,7 +10168,10 @@ export interface operations {
     };
     obtenerFichaCliente: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay) */
+                refrescar?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Id del cliente en Argos */

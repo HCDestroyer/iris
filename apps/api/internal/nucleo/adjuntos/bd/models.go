@@ -686,21 +686,38 @@ type ComercialUmbralesFactibilidad struct {
 }
 
 type IntegracionArgosCliente struct {
-	ID             int64
-	EmpresaID      int64
-	Codigo         string
-	Nombre         string
-	Telefono       string
-	Direccion      string
-	Lat            *float64
-	Lon            *float64
-	ZonaID         *int64
-	Estado         string
+	ID                  int64
+	EmpresaID           int64
+	Codigo              string
+	Nombre              string
+	Telefono            string
+	Direccion           string
+	Lat                 *float64
+	Lon                 *float64
+	ZonaID              *int64
+	Estado              string
+	SincronizadoEn      time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Empresas            []int64
+	SinServicios        bool
+	Tipo                string
+	TipoDocumentoFiscal string
+	NitCui              string
+	Movil               string
+	Correo              string
+	ZonaNombre          string
+	VersionDatos        int16
+}
+
+type IntegracionArgosCopia struct {
+	Entidad        string
+	EntidadID      int64
+	ClienteID      int64
+	ServicioID     *int64
+	Datos          []byte
 	SincronizadoEn time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Empresas       []int64
-	SinServicios   bool
+	CopiadoEn      time.Time
 }
 
 type IntegracionArgosEliminado struct {
@@ -749,6 +766,8 @@ type IntegracionArgosServicio struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	UserPpp        string
+	TipoConexion   string
 }
 
 type IntegracionArgosZona struct {

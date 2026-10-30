@@ -65,7 +65,6 @@ const (
 	omitidoSinID             = "sin_id"
 	omitidoNoConfirmado      = "no_confirmado"
 	omitidoServicioEliminado = "servicio_eliminado"
-	omitidoCamposSinEfecto   = "campos_sin_efecto"
 )
 
 // Discrepancias entre el payload de una eliminación y la instantánea (se anotan; manda la
@@ -405,21 +404,4 @@ func aEliminados(filas []argosbd.IntegracionArgosEliminado) []ServicioEliminado 
 		})
 	}
 	return salida
-}
-
-// camposSinEfecto: campos de cliente.actualizado (§2.3, 0.3.1) que la instantánea no guarda. Si
-// todos los que cambiaron son de estos, no se relee el cliente. Cualquier otro (nombre, codigo,
-// telefono, direccion, coordenadas, zona_id o uno desconocido) refresca la instantánea.
-var camposSinEfecto = map[string]bool{"tipo": true, "nit_cui": true, "tipo_documento_fiscal": true, "movil": true}
-
-func soloCamposSinEfecto(campos []string) bool {
-	if len(campos) == 0 {
-		return false
-	}
-	for _, c := range campos {
-		if !camposSinEfecto[c] {
-			return false
-		}
-	}
-	return true
 }
