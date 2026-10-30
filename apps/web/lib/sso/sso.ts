@@ -1,5 +1,4 @@
 import { crearCliente, type ClienteIris, type Schema } from "@iris/contratos";
-import { CABECERA_CSRF, COOKIE_CSRF, leerCookie } from "../api/cliente";
 import { rutaSegura } from "../tiempo";
 
 /*
@@ -66,17 +65,14 @@ export function mensajeSSO(estado: number, codigo: string | undefined): MensajeS
 }
 
 /**
- * «No fui yo»: `POST /api/v1/sso/descartar` borra la cookie `iris_sso_vincular` (HttpOnly, el
- * navegador no puede) y anula la vinculación pendiente. I1 lo está agregando (pedido en i3.md): aún
- * no está en packages/contratos, así que va con `fetch` y el contrato acordado (sin cuerpo; con
- * `X-CSRF-Token` si hay sesión del panel). Al regenerar el contrato pasa a `apiSSO()`. Si falla, la
- * vinculación vence sola en 10 minutos: no se bloquea la salida.
+ * «No fui yo»: `POST /api/v1/sso/descartar` (público, sin CSRF, siempre 204) borra la cookie
+ * `iris_sso_vincular` (HttpOnly: el navegador no puede) y anula la vinculación pendiente. Si falla,
+ * la vinculación vence sola en 10 minutos: no se bloquea la salida.
  */
-export async function descartarVinculacion(f: typeof fetch = fetch): Promise<boolean> {
-    const csrf = typeof document === "undefined" ? undefined : leerCookie(COOKIE_CSRF, document.cookie);
+export async function descartarVinculacion(c: ClienteIris = apiSSO()): Promise<boolean> {
     try {
-        const r = await f("/api/v1/sso/descartar", { method: "POST", credentials: "include", headers: csrf ? { [CABECERA_CSRF]: csrf } : {} });
-        return r.ok;
+        const r = await c.POST("/api/v1/sso/descartar");
+        return r.response.ok;
     } catch {
         return false;
     }

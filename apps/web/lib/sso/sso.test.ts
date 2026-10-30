@@ -1,3 +1,4 @@
+import { crearCliente } from "@iris/contratos";
 import { describe, expect, it } from "vitest";
 import { activoQueReemplaza, enlaceValido, textoMotivoOrigen, type Conector } from "../integraciones/presentacion";
 import { descartarVinculacion, destinoSeguro, mensajeSSO } from "./sso";
@@ -49,20 +50,29 @@ describe("conectores", () => {
 });
 
 describe("«No fui yo»", () => {
-    it("descartar: POST sin cuerpo con cookies; si falla no bloquea la salida", async () => {
-        let pedido: { url: string; init: RequestInit | undefined } | undefined;
-        const ok: typeof fetch = async (url, init) => {
-            pedido = { url: String(url), init };
-            return new Response(null, { status: 204 });
-        };
+    it("descartar: POST sin cuerpo, con cookies y sin cabeceras del panel; si falla no bloquea la salida", async () => {
+        let pedido: Request | undefined;
+        const ok = crearCliente({
+            baseUrl: "http://iris.test",
+            credentials: "include",
+            fetch: async (entrada) => {
+                pedido = entrada as Request;
+                return new Response(null, { status: 204 });
+            },
+        });
         expect(await descartarVinculacion(ok)).toBe(true);
-        expect(pedido?.url).toBe("/api/v1/sso/descartar");
-        expect(pedido?.init?.method).toBe("POST");
-        expect(pedido?.init?.credentials).toBe("include");
-        expect(pedido?.init?.body).toBeUndefined();
-        const caida: typeof fetch = async () => {
-            throw new TypeError("sin red");
-        };
+        expect(pedido?.url).toBe("http://iris.test/api/v1/sso/descartar");
+        expect(pedido?.method).toBe("POST");
+        expect(pedido?.credentials).toBe("include");
+        expect(pedido?.headers.has("X-CSRF-Token")).toBe(false);
+        expect(pedido?.headers.has("X-Iris-Empresa")).toBe(false);
+        expect(await pedido?.text()).toBe("");
+        const caida = crearCliente({
+            baseUrl: "http://iris.test",
+            fetch: async () => {
+                throw new TypeError("sin red");
+            },
+        });
         expect(await descartarVinculacion(caida)).toBe(false);
     });
 });
