@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prueba de punta a punta Iris ↔ ArgosISP (docs/runbooks/e2e-argos.md). No corre en el CI de las PR.
 #
-#   infra/e2e/argos.sh              levanta Argos (v1.3.0) e Iris, corre los pasos y apaga todo
+#   infra/e2e/argos.sh              levanta Argos (v1.4.0) e Iris, corre los pasos y apaga todo
 #   E2E_DEJAR=1 infra/e2e/argos.sh  igual, pero deja los procesos arriba para mirar
 #   infra/e2e/argos.sh parar        apaga lo que haya quedado arriba
 #   infra/e2e/argos.sh limpiar      parar + borra las bases y la carpeta de trabajo
@@ -13,7 +13,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAIZ="$(cd "$DIR/../.." && pwd)"
-ARGOS_VERSION="${ARGOS_VERSION:-1.3.0}"
+ARGOS_VERSION="${ARGOS_VERSION:-1.4.0}"
 ARGOS_REPO="${ARGOS_REPO:-https://github.com/HCDestroyer/argos-isp}"
 TRABAJO="${E2E_TRABAJO:-$DIR/.trabajo}"
 ARGOS_DIR="${E2E_ARGOS_DIR:-$TRABAJO/argos-isp}"
