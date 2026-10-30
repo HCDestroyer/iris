@@ -83,7 +83,7 @@ func (n *Nucleo) Registrar(api huma.API) {
 
 	activar := Operacion(EtiquetaIntegraciones, "activarConector", http.MethodPost, "/api/v1/integraciones/conectores/{id}/activar",
 		"Activar un conector", nucleo.PermIntegracionesActivar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	activar.Description += " A lo más uno activo por sistema (409 `otro_conector_activo`). Con Argos, encola la primera carga de zonas y routers."
+	activar.Description += " A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema (queda apagado y su token se revoca en la misma transacción, así la integración no se corta al reconectar). Con Argos, encola la primera carga de zonas y routers."
 	huma.Register(api, activar, func(ctx context.Context, in *conID[EntradaCambioConector]) (*Cuerpo[Conector], error) {
 		e := in.Body
 		e.ID = in.ID
@@ -128,7 +128,7 @@ func (c *Conexion) Registrar(api huma.API) {
 	conectar.Description += " Iris canjea el código en " + nombre + " (servidor a servidor), guarda el token `" + s.PrefijoToken +
 		"…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a " + nombre +
 		" un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `" + s.Remoto.VariableOrigenes +
-		"` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `" + s.Remoto.Codigo +
+		"` o del conector activo de este sistema (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `" + s.Remoto.Codigo +
 		"_rechazo` si " + nombre + " rechaza el código (vencido o usado)."
 	huma.Register(api, conectar, func(ctx context.Context, in *conClave[EntradaConectar]) (*Cuerpo[Conector], error) {
 		return Responder(c.Conectar.Ejecutar(ctx, in.Body))
@@ -137,7 +137,7 @@ func (c *Conexion) Registrar(api huma.API) {
 	previa := Operacion(EtiquetaIntegraciones, "previsualizarConexion"+s.Etiqueta, http.MethodPost, prefijo+"/conexion/previsualizar",
 		"Ver a qué origen irá el token antes de conectar con "+nombre, nucleo.PermIntegracionesConectar, http.StatusOK)
 	previa.Description += " No llama a " + nombre + " ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`" +
-		s.Remoto.VariableOrigenes + "` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`."
+		s.Remoto.VariableOrigenes + "` o el del conector activo). El panel lo muestra para que el administrador confirme antes de `conectar`."
 	huma.Register(api, previa, func(ctx context.Context, in *Cuerpo[EntradaConectar]) (*Cuerpo[Previsualizacion], error) {
 		return Responder(c.Previsualizar.Ejecutar(ctx, in.Body))
 	})

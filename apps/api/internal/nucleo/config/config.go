@@ -57,8 +57,8 @@ type Config struct {
 	HorusTimeout time.Duration
 	// IRIS_ARGOS_ORIGENES / IRIS_HORUS_ORIGENES: orígenes (https://host[:puerto], separados por coma)
 	// de los que Iris acepta un enlace de conexión. Iris entrega un token al canjear: sin esta lista
-	// un enlace de phishing se llevaría uno. Vacía = solo en desarrollo (IRIS_CONECTORES_PERMITIR_HTTP)
-	// o el origen de un conector que ya existe.
+	// un enlace de phishing se llevaría uno. Obligatoria (también en desarrollo): vacía, solo vale el
+	// origen del conector activo.
 	ArgosOrigenes []string
 	HorusOrigenes []string
 	// IRIS_DURACION_SESION_PORTAL: vida de una sesión del portal de soporte (2h).

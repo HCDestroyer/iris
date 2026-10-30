@@ -75,8 +75,8 @@ type Sistema struct {
 	// RedesPermitidas: redes internas a las que sí se puede llamar (dev y lab).
 	RedesPermitidas []netip.Prefix
 	// Origenes de los que se acepta un enlace de conexión (https://host[:puerto], normalizados con
-	// nucleo.NormalizarOrigen; IRIS_ARGOS_ORIGENES, IRIS_HORUS_ORIGENES). Vacía: solo en desarrollo
-	// (Config.PermitirHTTP) o el origen de un conector que ya existe.
+	// nucleo.NormalizarOrigen; IRIS_ARGOS_ORIGENES, IRIS_HORUS_ORIGENES). Obligatoria también con
+	// PermitirHTTP; fuera de ella solo vale el origen del conector activo del sistema.
 	Origenes []string
 	// Timeout de cada llamada (5 s), reintentos de las lecturas (3) y espera base (200 ms).
 	Timeout  time.Duration
@@ -178,6 +178,12 @@ func (n *Nucleo) Agregar(s Sistema) *Conexion {
 	}
 	if s.Etiqueta == "" {
 		s.Etiqueta = s.Remoto.Nombre
+	}
+	// Orígenes normalizados como los compara exigirOrigen.
+	for i, o := range s.Origenes {
+		if n, err := nucleo.NormalizarOrigen(o); err == nil {
+			s.Origenes[i] = n
+		}
 	}
 	if s.Timeout <= 0 {
 		s.Timeout = 5 * time.Second

@@ -227,8 +227,9 @@ func nuevoConectar(c *Conexion) *Conectar {
 			if err != nil {
 				return Conector{}, err
 			}
-			// Los tokens entregados por los conectores anteriores de este sistema ya no sirven.
-			anteriores, err := conectorbd.New(t).TokensEntregadosDeOtros(ctx, conectorbd.TokensEntregadosDeOtrosParams{Sistema: c.s.Nombre, Excepto: f.ID})
+			// Los tokens de intentos anteriores sin activar ya no sirven. El del conector activo se
+			// revoca al activar este (la integración no se corta mientras tanto).
+			anteriores, err := conectorbd.New(t).TokensEntregadosDeInactivos(ctx, conectorbd.TokensEntregadosDeInactivosParams{Sistema: c.s.Nombre, Excepto: f.ID})
 			if err != nil {
 				return Conector{}, err
 			}
@@ -285,8 +286,8 @@ func (k *Conectar) Ejecutar(ctx context.Context, in EntradaConectar) (con Conect
 var antesDeGuardar = func() {}
 
 // exigirOrigen: el origen (esquema://host[:puerto]) de un enlace debe estar en Sistema.Origenes o
-// ser el de un conector que ya existe para el sistema. Sin lista, solo en desarrollo
-// (IRIS_CONECTORES_PERMITIR_HTTP). Así un enlace de phishing no se lleva el token del canje.
+// ser el del conector activo del sistema. La lista es obligatoria (IRIS_CONECTORES_PERMITIR_HTTP solo
+// permite http, no cualquier origen), así un enlace de phishing no se lleva el token del canje.
 func (c *Conexion) exigirOrigen(ctx context.Context, q *conectorbd.Queries, base string) error {
 	origen, err := nucleo.NormalizarOrigen(base)
 	if err != nil {
@@ -295,17 +296,14 @@ func (c *Conexion) exigirOrigen(ctx context.Context, q *conectorbd.Queries, base
 	if slices.Contains(c.s.Origenes, origen) {
 		return nil
 	}
-	existe, err := q.ExisteConectorConBase(ctx, conectorbd.ExisteConectorConBaseParams{Sistema: c.s.Nombre, BaseUrl: base})
+	activo, err := q.ExisteConectorConBase(ctx, conectorbd.ExisteConectorConBaseParams{Sistema: c.s.Nombre, BaseUrl: base})
 	if err != nil {
 		return err
 	}
-	if existe {
+	if activo {
 		return nil
 	}
 	if len(c.s.Origenes) == 0 {
-		if c.n.cfg.PermitirHTTP {
-			return nil
-		}
 		return nucleo.ReglaNegocio("origenes_no_configurados", "Falta "+c.s.Remoto.VariableOrigenes+": configura el origen de "+
 			c.s.Remoto.Nombre+" (https://host[:puerto]) antes de conectar; Iris solo entrega su token a orígenes conocidos")
 	}
@@ -319,9 +317,9 @@ func (c *Conexion) exigirOrigen(ctx context.Context, q *conectorbd.Queries, base
 type Previsualizacion struct {
 	Sistema           string  `json:"sistema"`
 	Origen            string  `json:"origen" doc:"esquema://host[:puerto] del enlace: adónde irá el token de Iris"`
-	Permitido         bool    `json:"permitido" doc:"El origen está en la lista o ya hay un conector con él"`
+	Permitido         bool    `json:"permitido" doc:"El origen está en la lista o es el del conector activo"`
 	Motivo            *string `json:"motivo" nullable:"true" doc:"Si no se permite: origenes_no_configurados u origen_no_permitido"`
-	ConectorExistente bool    `json:"conectorExistente" doc:"Ya hay un conector de este sistema con ese origen"`
+	ConectorExistente bool    `json:"conectorExistente" doc:"El conector activo de este sistema tiene ese origen"`
 }
 
 func nuevoPrevisualizar(c *Conexion) *auditoria.Caso[EntradaConectar, Previsualizacion] {
@@ -465,12 +463,6 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			if antes.Estado == "activo" {
 				return Conector{}, nucleo.ReglaNegocio("conector_activo", "El conector ya está activo")
 			}
-			if otro, err := q.ConectorActivo(ctx, antes.Sistema); err == nil {
-				return Conector{}, nucleo.Conflicto("otro_conector_activo",
-					"Ya hay un conector activo con "+antes.Sistema+" (id "+itoa(otro.ID)+"); desactívalo primero")
-			} else if !esSinFilas(err) {
-				return Conector{}, err
-			}
 			if _, err := n.Leer(antes); err != nil {
 				return Conector{}, err
 			}
@@ -485,6 +477,34 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 					return Conector{}, err
 				}
 				t.Anotar(map[string]any{"token_entregado_confirmado": *antes.TokenEntregadoID})
+			}
+			// Reconectar: el conector activo del sistema (si hay) queda reemplazado en esta misma
+			// transacción, así la integración no se corta entre el canje y la activación. Su token, y
+			// los de otros intentos sin activar, se revocan ahora (no al canjear).
+			if otro, err := q.ConectorActivo(ctx, antes.Sistema); err == nil {
+				apagado, err := q.CambiarEstadoConector(ctx, conectorbd.CambiarEstadoConectorParams{Estado: "apagado", ID: otro.ID, Version: otro.Version})
+				if err := nucleo.VerificarVersion(err, "conector", otro.ID); err != nil {
+					return Conector{}, err
+				}
+				t.RegistrarCambios("conector", otro.ID, n.AConector(otro), n.AConector(apagado))
+				if err := t.Emitir("conector.desactivado", map[string]any{
+					"conector_id": otro.ID, "sistema": otro.Sistema, "motivo": "reemplazado por el conector " + itoa(in.ID),
+				}); err != nil {
+					return Conector{}, err
+				}
+				t.Anotar(map[string]any{"reemplaza_a": otro.ID})
+			} else if !esSinFilas(err) {
+				return Conector{}, err
+			}
+			otros, err := q.TokensEntregadosDeOtros(ctx, conectorbd.TokensEntregadosDeOtrosParams{Sistema: antes.Sistema, Excepto: in.ID})
+			if err != nil {
+				return Conector{}, err
+			}
+			for _, id := range otros {
+				n.revocarEntregado(ctx, t.Tx, id, "conector_reemplazado")
+			}
+			if len(otros) > 0 {
+				t.Anotar(map[string]any{"tokens_revocados": otros})
 			}
 			var actor *int64
 			if a := t.Actor(); a.EsUsuario() {
