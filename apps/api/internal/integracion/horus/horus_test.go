@@ -77,11 +77,12 @@ func nuevoEntorno(t *testing.T, redesHorus []netip.Prefix) *entorno {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hf, af := nuevoHorusFalso(t), nuevoArgosFalso(t)
 	am := argos.Nuevo(argos.Config{
-		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, RedesPermitidas: loopback,
+		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, RedesPermitidas: loopback, Origenes: []string{af.srv.URL},
 		Espera: 5 * time.Millisecond, Timeout: 2 * time.Second, Encolar: integracion.Encolar(cola),
 	})
-	mod := horus.Nuevo(horus.Config{Argos: am, RedesPermitidas: redesHorus, Espera: 5 * time.Millisecond, Timeout: 2 * time.Second})
+	mod := horus.Nuevo(horus.Config{Argos: am, RedesPermitidas: redesHorus, Origenes: []string{hf.srv.URL, strings.Replace(hf.srv.URL, "127.0.0.1", "localhost", 1)}, Espera: 5 * time.Millisecond, Timeout: 2 * time.Second})
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
 	// Como cmd/iris: el canje entrega el iris_pat_ del usuario de integración (contrato §1.2).
 	am.Nucleo().FijarTokens(ident)
@@ -91,7 +92,7 @@ func nuevoEntorno(t *testing.T, redesHorus []netip.Prefix) *entorno {
 	})
 	api := httptest.NewServer(h)
 	t.Cleanup(api.Close)
-	return &entorno{t: t, pool: pool, horus: nuevoHorusFalso(t), argos: nuevoArgosFalso(t), am: am, mod: mod, ident: ident, api: api}
+	return &entorno{t: t, pool: pool, horus: hf, argos: af, am: am, mod: mod, ident: ident, api: api}
 }
 
 // Cliente HTTP con sesión ---------------------------------------------------------------------
@@ -366,14 +367,22 @@ func TestConectarHorusConEnlace(t *testing.T) {
 	admin.pedir(http.MethodPost, "/api/v1/integraciones/horus/conectar", map[string]any{"enlace": e.horus.enlace()}).problema(t, 502, "horus_rechazo")
 	e.horus.con(func() { e.horus.tokenMalo = false })
 
-	// Apagado hasta activar; uno activo por sistema; Argos y Horus activos a la vez.
+	// Apagado hasta activar; uno activo por sistema (activar otro reemplaza al activo); Argos y
+	// Horus activos a la vez.
 	activar(t, admin, id)
 	otro := admin.pedir(http.MethodPost, "/api/v1/integraciones/horus/conectar", map[string]any{"enlace": e.horus.enlace()})
 	if otro.status != 201 {
 		t.Fatalf("segundo conector: %d %s", otro.status, otro.crudo)
 	}
-	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", int64(otro.cuerpo["id"].(float64))), map[string]any{"version": 1}).
-		problema(t, 409, "otro_conector_activo")
+	otroID := int64(otro.cuerpo["id"].(float64))
+	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", otroID), map[string]any{"version": 1}); a.status != 200 {
+		t.Fatalf("activar el segundo: %d %s", a.status, a.crudo)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND estado = 'apagado'`, id) != 1 ||
+		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.desactivado' AND (payload->>'conector_id')::bigint = $1
+			AND payload->>'motivo' LIKE 'reemplazado%'`, id) != 1 {
+		t.Fatal("el segundo reemplaza al primero (apagado, con conector.desactivado)")
+	}
 	e.conectarArgos(admin)
 	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE estado = 'activo'`); n != 2 {
 		t.Fatalf("activos: %d", n)

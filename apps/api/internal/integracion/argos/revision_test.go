@@ -290,11 +290,13 @@ func TestSSRFConectorYLecturas(t *testing.T) {
 	_, _, _ = e.conectado() // con loopback permitido (el Argos falso)
 	estricto := e.cfg
 	estricto.RedesPermitidas = nil
+	puerto := e.argos.srv.URL[strings.LastIndex(e.argos.srv.URL, ":")+1:]
+	// localhost en la lista de orígenes: la defensa que se prueba aquí es la del dial.
+	estricto.Origenes = []string{e.argos.srv.URL, "http://localhost:" + puerto}
 	m := argos.Nuevo(estricto)
 	m.Nucleo().FijarTokens(e.ident)
 	// Quien conecta entrega un token con permisos de integración: necesita tenerlos todos.
 	ctx := pruebas.ContextoSistema(e.pool)
-	puerto := e.argos.srv.URL[strings.LastIndex(e.argos.srv.URL, ":")+1:]
 	canjesAntes := 0
 	e.argos.con(func() { canjesAntes = len(e.argos.canjes) })
 
