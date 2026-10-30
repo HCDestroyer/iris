@@ -213,3 +213,66 @@ describe("cliente: empresa activa", () => {
         expect(url.searchParams.get("prioridad")).toBe("alta");
     });
 });
+
+describe("cliente: re-autenticación (sesión desde Argos)", () => {
+    const problemaReaut = () =>
+        new Response(JSON.stringify({ type: "urn:iris:problema:reautenticacion_requerida", title: "Re-autenticación requerida", status: 403 }), {
+            status: 403,
+            headers: { "Content-Type": "application/problem+json" },
+        });
+
+    it("con 403 reautenticacion_requerida pide la contraseña y repite la acción con el mismo cuerpo y otra Idempotency-Key", async () => {
+        const cuerpos: string[] = [];
+        const claves: (string | null)[] = [];
+        let n = 0;
+        const fetchFalso: typeof fetch = async (entrada) => {
+            const p = entrada as Request;
+            cuerpos.push(await p.text());
+            claves.push(p.headers.get("Idempotency-Key"));
+            n += 1;
+            return n === 1 ? problemaReaut() : new Response(null, { status: 204 });
+        };
+        let pedidas = 0;
+        const api = crearClienteIris({
+            baseUrl: "http://panel.test",
+            fetch: fetchFalso,
+            leerCookies: () => "iris_csrf=tok",
+            reautenticar: async () => {
+                pedidas += 1;
+                return true;
+            },
+        });
+        const r = await api.POST("/api/v1/usuarios/{id}/vinculos-sso/{vinculoId}/borrar", {
+            params: { path: { id: 3, vinculoId: 9 } },
+            body: { motivo: "ya no uso Argos" },
+            headers: { "Idempotency-Key": "k1" },
+        });
+        expect(r.response.status).toBe(204);
+        expect(pedidas).toBe(1);
+        expect(cuerpos).toEqual(['{"motivo":"ya no uso Argos"}', '{"motivo":"ya no uso Argos"}']);
+        expect(claves[0]).toBe("k1");
+        expect(claves[1]).not.toBe("k1");
+        expect(claves[1]).toBeTruthy();
+    });
+
+    it("si se cancela, la acción recibe el 403; el propio reautenticar nunca se repite", async () => {
+        const { llamadas, fetchFalso } = falso(problemaReaut);
+        const api = crearClienteIris({ baseUrl: "http://panel.test", fetch: fetchFalso, leerCookies: () => "", reautenticar: async () => false });
+        const r = await api.POST("/api/v1/usuarios/{id}/vinculos-sso/{vinculoId}/borrar", { params: { path: { id: 3, vinculoId: 9 } }, body: {} });
+        expect(r.response.status).toBe(403);
+        expect(llamadas).toHaveLength(1);
+
+        let pedidas = 0;
+        const otro = crearClienteIris({
+            baseUrl: "http://panel.test",
+            fetch: fetchFalso,
+            leerCookies: () => "",
+            reautenticar: async () => {
+                pedidas += 1;
+                return true;
+            },
+        });
+        await otro.POST("/api/v1/sesion/reautenticar", { body: { contrasena: "x" } });
+        expect(pedidas).toBe(0);
+    });
+});

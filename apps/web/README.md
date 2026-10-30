@@ -82,6 +82,22 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
     correo, «Enviada por correo».
   - Lista `/encuestas` (`encuestas.ver`, en el menú) con cursor y filtros en la URL (fechas,
     calificación, tipo, estado), y el reporte «Satisfacción» en `/reportes`.
+- **Autologin desde Argos** (`/sso/entrar#<ticket>`, `lib/sso`, fuera del middleware de sesión):
+  el ticket se lee del fragmento y se borra (`lib/fragmento.ts`); `POST /sso/canjear` con cookies
+  pero sin cabeceras del panel. Estados: `sesion` (al `destino.ruta`, solo si es
+  `/tickets|ordenes|comercial/{id}`; si no, al inicio), `mfa` (código), `confirmar_cambio` («Entrar
+  como…» repite con `confirmar: true`; «Quedarme como…»), `vincular` (datos de Argos, login normal
+  y confirmación explícita «Vincular» / «No fui yo»; 409 `vinculo_requiere_admin` → «Pide a un
+  administrador…»). Errores con texto y enlace al login.
+- **Re-autenticación**: el cliente HTTP (`lib/api/cliente.ts` + `lib/api/reautenticacion.ts`) ante
+  un 403 `reautenticacion_requerida` abre «Confirma tu contraseña» (`componentes/cuenta/
+  dialogo-reautenticar.tsx`, montado en el panel), llama `POST /sesion/reautenticar` y repite la
+  acción con el mismo cuerpo y una `Idempotency-Key` nueva (la API guardó el 403 con la anterior).
+- **Cuentas vinculadas**: en `/usuarios/[id]` (detalle nuevo, con «Vincular cuenta de Argos» para
+  `usuarios.editar`) y en «Mi perfil» (`/cuenta`, en el menú del usuario) con «Quitar».
+- **Integraciones** (`/administracion/integraciones`, `integraciones.ver`): conectores; «Activar»
+  avisa si reemplaza al activo del mismo sistema; «Conectar» revisa el origen del enlace
+  (`conexion/previsualizar`) y solo deja seguir si está permitido.
 - **Plantillas de formulario** (`/administracion/plantillas`, `lib/plantillas`, `componentes/plantillas`,
   `plantillas.ver`): lista por tipo y activas o todas; crear (borrador por omisión), editar (ítems
   `si_no`, `texto`, `numero`, `medicion`, `foto`, `seleccion` con opciones; orden con subir/bajar;

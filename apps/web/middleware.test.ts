@@ -27,6 +27,10 @@ describe("middleware", () => {
         expect(coincide("/encuesta")).toBe(false);
         expect(coincide("/encuestas")).toBe(true);
     });
+    it("el autologin desde Argos no pasa por el middleware", () => {
+        expect(coincide("/sso/entrar")).toBe(false);
+        expect(coincide("/sso")).toBe(true);
+    });
     it("/campo, su manifest y el service worker no pasan por el middleware (abren sin señal)", () => {
         expect(coincide("/campo")).toBe(false);
         expect(coincide("/campo/manifest.webmanifest")).toBe(false);

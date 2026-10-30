@@ -1,7 +1,7 @@
 "use client";
 
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, ShieldCheck, type LucideIcon } from "lucide-react";
+import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, Plug, ShieldCheck, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import type { Permiso } from "@/lib/menu";
@@ -23,6 +23,13 @@ const SECCIONES: readonly Seccion[] = [
         descripcion: "Checklists de las órdenes: ítems, versiones y cuáles se ofrecen por tipo.",
         icono: ClipboardList,
         permisos: ["plantillas.ver"],
+    },
+    {
+        href: "/administracion/integraciones",
+        titulo: "Integraciones",
+        descripcion: "Conectores con Argos y Horus Flow: conectar, activar y desactivar.",
+        icono: Plug,
+        permisos: ["integraciones.ver"],
     },
     {
         href: "/administracion/datos-sin-empresa",

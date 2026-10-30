@@ -54,7 +54,7 @@ describe("menú por permisos", () => {
     it("usuarios.ver muestra Usuarios; buzones.ver, tokens.ver, roles.ver o permisos.ver, Administración", () => {
         expect(menuVisible(["usuarios.ver"]).map((e) => e.href)).toContain("/usuarios");
         expect(menuVisible(["usuarios.ver"]).map((e) => e.href)).not.toContain("/administracion");
-        for (const p of ["buzones.ver", "tokens.ver", "roles.ver", "permisos.ver"] as const) {
+        for (const p of ["buzones.ver", "integraciones.ver", "tokens.ver", "roles.ver", "permisos.ver"] as const) {
             expect(menuVisible([p]).map((e) => e.href)).toContain("/administracion");
         }
     });

@@ -11,7 +11,7 @@ import {
     MenuDesplegableEtiqueta,
     MenuDesplegableSeparador,
 } from "@iris/ui";
-import { ChevronDown, CircleCheck, KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
@@ -24,7 +24,7 @@ type Props = {
 };
 
 /**
- * Menú del usuario en la barra superior: su nombre y correo, «Cambiar contraseña»,
+ * Menú del usuario en la barra superior: su nombre y correo, «Mi perfil», «Cambiar contraseña»,
  * «Configurar verificación en dos pasos» (si no la tiene) y «Cerrar sesión».
  */
 export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
@@ -51,6 +51,9 @@ export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
                         <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
                     </MenuDesplegableEtiqueta>
                     <MenuDesplegableSeparador />
+                    <MenuDesplegableElemento icono={CircleUserRound} onSelect={() => router.push("/cuenta")}>
+                        Mi perfil
+                    </MenuDesplegableElemento>
                     <MenuDesplegableElemento icono={KeyRound} onSelect={() => setDialogo(true)}>
                         Cambiar contraseña
                     </MenuDesplegableElemento>

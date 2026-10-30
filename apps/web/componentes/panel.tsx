@@ -16,6 +16,7 @@ import { ErrorLectura, SinEmpresa } from "./error-lectura";
 import { Navegacion } from "./navegacion";
 import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
 import { SelectorTema } from "./selector-tema";
+import { DialogoReautenticar } from "@/componentes/cuenta/dialogo-reautenticar";
 
 /**
  * Layout autenticado: lee `GET /yo` y, solo si salió bien, arma el menú con sus permisos.
@@ -86,6 +87,7 @@ export function Panel({ children }: { children: ReactNode }) {
         const clave = `${datos.modoEmpresa}-${datos.empresaActiva?.id ?? 0}`;
         return (
             <ProveedorSesion yo={datos} elegirEmpresa={elegirEmpresa} pedirEmpresa={pedirEmpresa} refrescarSesion={refrescarSesion}>
+                <DialogoReautenticar />
                 <Estructura>
                     {datos.modoEmpresa === "sin_empresa" && !administrativa ? (
                         <SinEmpresa />
