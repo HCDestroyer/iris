@@ -1,6 +1,6 @@
-Versión: 0.3.0 (borrador) · Iris ↔ ArgosISP
+Versión: 0.3.1 (borrador) · Iris ↔ ArgosISP
 
-# Contrato de integración Iris ↔ ArgosISP
+# Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
 ## Gobierno
 
@@ -31,6 +31,8 @@ Iris guarda, cifrado y de solo escritura, un token de Argos `atk_…` del usuari
 - **Comercial:** `clientes.crear` y `servicios.crear`.
 - **Autologin:** `sso.emitir`.
 
+El usuario técnico Iris solo tiene alcance por empresas (o global), nunca por zona ni router: una lista completa y vacía significa sin servicios. Argos lo hace cumplir: un token, un rol o un correo que le darían alcance por zona o router responde `422 usuario_tecnico_solo_empresas`, y el canje nunca emite un token así.
+
 ### 1.2 Argos → Iris (Argos lee de Iris)
 
 Token `iris_pat_<32B base62>` con `tickets.ver`, `tickets.crear`, `ordenes.ver` y `sso.emitir`. Argos lo usa para mostrar los tickets y las órdenes de un cliente en su ficha y para abrir tickets desde el portal del cliente.
@@ -44,9 +46,11 @@ Igual que en el contrato Argos ↔ Horus, §1.3–§1.5:
     - en Argos, `POST /api/v1/integraciones/iris/conexion/canjear`;
     - en Iris, `POST /api/v1/integraciones/argosisp/conexion/canjear`.
     - `sistema` vale `"iris"` o `"argosisp"`. El conector queda apagado hasta que un administrador lo active.
+    - El canje de Argos responde `{ token, webhook: { url, secreto }, conector_id, alcance_global, empresas[] }`. `empresas[]` son las empresas activas del alcance del usuario técnico «Iris» al canjear, en orden de id, cada una `{ id, nombre, nit }` (`nombre` = nombre comercial; `nit` sin guiones, o `null` si la empresa aún no lo tiene). `alcance_global: true` significa que Iris verá también las empresas que se creen después; `false`, solo las listadas.
 - **Autologin:** `POST /api/v1/<prefijo>/sso/tickets` devuelve una URL `/sso/entrar#<ticket>`, válida 60 s y de un solo uso, con vinculación de usuarios y sin crearlos nunca.
     - Destinos en Argos: `cliente` y `servicio`.
     - Destinos en Iris: `ticket`, `orden` y `prospecto`.
+    - Autologin desde Argos («Ver en Iris»): el cuerpo de `POST <iris>/api/v1/integraciones/argosisp/sso/tickets` es `{ usuario: { id_externo, correo, nombre, correo_verificado }, destino }`. `usuario.correo_verificado` (boolean): Argos hoy siempre manda `false` (no verifica correos); con `false` o ausente, Iris no vincula por su cuenta y el vínculo lo hace un admin de Iris.
 
 ## 2. Iris consume de Argos
 
@@ -59,7 +63,7 @@ Igual que en el contrato Argos ↔ Horus, §1.3–§1.5:
 | Estado de cuenta resumido (en la ficha del ticket) | `GET /api/v1/clientes/:id/estado-cuenta`, solo el saldo y las facturas vencidas (requiere `clientes.estado_cuenta`) |
 | Cliente por IP (ticket desde Horus o desde el portal) | `POST /api/v1/integraciones/iris/resolver` con la IP en el cuerpo (pedido A8; hoy solo existe `GET /ip/{ip}` y el resolver del conector Horus) |
 | Planes para cotizar | `GET /api/v1/planes?activo=true&router_id=<router sugerido>` (planes globales de la instalación más los implementados en ese router; `precio` como string decimal; sin `empresa_id`) |
-| Routers, zonas y coordenadas para factibilidad | `GET /api/v1/routers`, `GET /api/v1/zonas` |
+| Routers, zonas y coordenadas para factibilidad | `GET /api/v1/routers` (cada router trae `coordenadas`: `"lat,lng"` en grados decimales, sin espacios, o `null` si no está ubicado; el mismo formato que `coordenadas` de clientes y servicios) y `GET /api/v1/zonas` |
 | Equipos en comodato de un servicio | `GET /api/v1/servicios/:id/equipos` |
 | Existencias de la bodega del técnico | `GET /api/v1/inventario/existencias?bodega_id=` |
 
@@ -73,11 +77,13 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 
 | Evento | Efecto en Iris |
 | --- | --- |
-| `cliente.actualizado` | Refresca la instantánea del cliente. |
+| `cliente.actualizado`: cliente_id, empresa_id, empresas[], campos[] (los que cambiaron, solo nombres, nunca valores: `nombre`, `tipo`, `codigo`, `nit_cui`, `tipo_documento_fiscal`, `telefono`, `movil`, `direccion`, `coordenadas`, `zona_id`) | Refresca la instantánea del cliente. |
 | `servicio.creado`, `servicio.config_cambiada`, `asignacion.cambiada` | Refresca la instantánea del servicio. |
 | `servicio.estado_cambiado` | Refresca el estado. Con `a = retirado`, propone una orden de retiro si el servicio tiene equipos en comodato. |
 | `inventario.equipo_por_recuperar` | Crea una orden de retiro (`origen = argos`), si no hay una abierta para esa unidad. |
 | `servicio.caidas_repetidas` (pedido A6): servicio_id, empresa_id, cliente_id, router_id, sesion_id, sesiones, desde, hasta, umbral, ventana_minutos, causas. Por defecto 5 sesiones terminadas en 120 min, a lo sumo una vez por servicio y ventana; no cuentan los cortes que manda Argos ni los reinicios del NAS | Sugiere un ticket proactivo. |
+| `servicio.eliminado` (0.3.1): servicio_id, empresa_id, cliente_id, router_id. Solo servicios que nunca se usaron (sin facturas, pagos, sesiones ni otro historial); en Argos la fila ya no existe. Llega junto con un `asignacion.cambiada` de ips vacías. Solo si `empresa_id` está en el alcance del usuario técnico | Quita la instantánea del servicio y refresca la lista de servicios del cliente (`cliente_id`). Órdenes y tickets que lo referencian conservan su copia y lo muestran «eliminado en Argos». Un evento atrasado de ese servicio no recrea la instantánea; `GET /servicios/:id` responde 404 (esperado, no se reintenta). |
+| `router.eliminado` (0.3.1): router_id, empresa_id (empresa sugerida del router, o null = router compartido, que llega a cualquier alcance; con empresa, solo si está en el alcance). Solo routers sin historial | Quita el router de factibilidad (router o nodo sugerido); una factibilidad ya evaluada conserva el id. `GET /routers/:id` responde 404. |
 
 ## 3. Iris escribe en Argos (al cerrar órdenes y ganar prospectos)
 
@@ -85,7 +91,7 @@ Todas las llamadas llevan `Idempotency-Key`. Cada una queda en `integracion.pend
 
 | Hecho en Iris | Llamada a Argos | Idempotency-Key |
 | --- | --- | --- |
-| Instalación cerrada como exitosa | `POST /servicios/:id/activar-instalacion` (pedido A1), con `planta` si la orden la trae (pedido A9) y, por cada equipo instalado, `POST /servicios/:id/equipos` con `{ unidad_id }` o `{ serie }` | `iris:instalacion:<orden_id>` · `iris:comodato:<orden_id>:<serie>` |
+| Instalación cerrada como exitosa | `POST /servicios/:id/activar-instalacion` (pedido A1), sin `version` (§3.1), con `planta` si la orden la trae (pedido A9) y, por cada equipo instalado, `POST /servicios/:id/equipos` con `{ unidad_id }` o `{ serie }` | `iris:instalacion:<orden_id>` · `iris:comodato:<orden_id>:<serie>` |
 | Materiales usados en una orden | `POST /inventario/consumos` con `{ bodega_id: bodega del técnico, lineas[], servicio_id, origen_tipo: 'iris_orden', origen_id }` | `iris:consumo:<orden_id>` |
 | Retiro con equipo recuperado | `POST /servicios/:id/equipos/:unidad_id/devolver` con `{ bodega_id, condicion }` | `iris:devolucion:<orden_id>:<unidad_id>` |
 | Retiro sin equipo (perdido) | `POST /servicios/:id/equipos/:unidad_id/perdida` | `iris:perdida:<orden_id>:<unidad_id>` |
@@ -103,6 +109,8 @@ Iris nunca registra pagos ni asientos. Solo pide a Argos el cargo único, y Argo
 - Misma clave con otro cuerpo u otra ruta: `422 idempotency_key_reutilizada` (de negocio, no se reintenta). Primera petición aún en curso: `409 idempotencia_en_curso` (se reintenta con espera). Un `4xx` o `5xx` no guarda la clave.
 - El alcance de la clave es el actor (el usuario técnico «Iris»). Argos la conserva al menos 30 días.
 - En `activar-instalacion` la cabecera es obligatoria (`400 idempotency_key_requerida`); en el resto de §3, opcional, pero Iris siempre la manda.
+- En `activar-instalacion`, `version` es opcional e Iris no la manda: una versión leída al encolar queda vieja y el reintento nunca avanzaría. Si llega y no coincide, `409 conflicto_version`. Sin ella, Argos se protege con la máquina de estados (solo sale de `pendiente_instalacion`) y con la `Idempotency-Key`.
+- Una activación con otra clave (o cuya respuesta ya no está guardada) sobre un servicio que ya no está `pendiente_instalacion` responde `409 servicio_no_pendiente` (`type: urn:argosisp:problema:servicio_no_pendiente`, `detail` con el estado actual). Es de negocio y no se reintenta: la orden queda «cerrada con pendiente en Argos» y se avisa al supervisor. De los 409, solo `idempotencia_en_curso` se reintenta.
 
 ### 3.2 Alta desde un prospecto ganado
 
@@ -112,8 +120,9 @@ Iris nunca registra pagos ni asientos. Solo pide a Argos el cargo único, y Argo
 
 ## 4. Versionado
 
-Semver. Esta versión 0.3.0 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.3.1 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.3.1** (30 oct): pedidos de la prueba de punta a punta contra Argos 1.3.0 y de la revisión de seguridad de Iris. `activar-instalacion` con `version` opcional y `409 servicio_no_pendiente` (antes 422); `cliente.actualizado` con `telefono`, `movil`, `direccion`, `coordenadas` y `zona_id`; `coordenadas` en `GET /routers`; el usuario técnico Iris solo con alcance por empresas (§1.1); `usuario.correo_verificado: false` en el ticket de autologin hacia Iris (§1.3); el canje del enlace informa `alcance_global` y `empresas[]` (`id`, `nombre`, `nit`); `servicio.eliminado` y `router.eliminado` en §2.3 (Argos elimina solo lo que nunca se usó; con historial, el servicio se retira y el router se desactiva). En Argos, `AAA_PPP_KEY` es obligatoria al arrancar.
 - **0.3.0** (28 oct): §3.1 idempotencia de Argos y §3.2 cuerpos del alta desde un prospecto ganado; `GET /planes` filtrado por `activo` y `router_id`.
 - **0.2.1** (28 oct): `servicio.caidas_repetidas` (A6) en §2.3; A1 y A9 listos en Argos.
 - **0.2.0** (28 oct): A5 pasa a reemplazado por la integración Iris ↔ OZmap; nuevo pedido A9 (referencia de planta al activar la instalación).
