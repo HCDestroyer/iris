@@ -26,7 +26,8 @@ Emite el módulo `identidad`, con `empresa_id = null` (los usuarios de Iris no p
 
 Emiten `integracion/conector` (los `conector.*`, de Argos y de Horus) e `integracion/argos`. Los de
 conectores van con `empresa_id = null`; `argos.servicio_retirado` lleva la empresa del servicio
-según Argos.
+según Argos; `argos.servicio_eliminado` y `argos.router_eliminado`, la del webhook (o la de la
+instantánea si el webhook no la trae).
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
@@ -35,6 +36,8 @@ según Argos.
 | `conector.desactivado` | `conector_id`, `sistema`, `motivo` | `integraciones.desactivar`. |
 | `conector.actualizado` | `conector_id`, `sistema`, `campos[]` (hoy `url_publica`) | `integraciones.configurar_url` (`POST /integraciones/conectores/{id}/url-publica`), solo si cambió algo. |
 | `argos.servicio_retirado` | `servicio_id`, `cliente_id` (o null), `de`, `a` (`retirado`), `entrante_id` | Argos avisó `servicio.estado_cambiado` con `a = retirado` **y** Iris lo confirmó releyendo `GET /servicios/:id` en Argos (ids y empresa salen de esa lectura, no del payload). Gancho para que I2 proponga la orden de retiro (Fase 2) si el servicio tiene equipos en comodato. Una vez por webhook (deduplicado por el `id` firmado del cuerpo). |
+| `argos.servicio_eliminado` | `servicio_id`, `cliente_id` (o null), `empresa_id` (o null), `router_id` (o null), `entrante_id` | Contrato 0.3.1: Argos avisó `servicio.eliminado` (solo servicios que nunca se usaron), la empresa está en el alcance del canje y Iris lo confirmó con el 404 de `GET /servicios/:id`. La instantánea ya no lo tiene; queda la lápida `integracion.argos_eliminados` con su última copia (código y plan) y la ficha del cliente lo lista en `serviciosEliminados`. Órdenes y tickets que lo referencian conservan sus datos y lo muestran «eliminado en Argos» (`argos.ServiciosEliminados`). Lleva la empresa del servicio. Una vez por servicio (un segundo aviso encuentra la lápida y no emite). |
+| `argos.router_eliminado` | `router_id`, `empresa_id` (o null = router compartido), `entrante_id` | Contrato 0.3.1: Argos avisó `router.eliminado` (solo routers sin historial), la empresa es del alcance (o null) y `GET /routers/:id` respondió 404. Sale de `integracion.argos_routers` (factibilidad ya no lo usa; una factibilidad evaluada conserva el id) con lápida: la carga de catálogos no lo recrea. Una vez por router. |
 
 ## Adjuntos (núcleo, I1)
 

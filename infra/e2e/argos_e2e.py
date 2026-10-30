@@ -173,8 +173,11 @@ def paso_conexion(a, i):
     exigir(r.status == 200 and r.json["estado"] == "activo", f"activar en Iris: {r}")
     r = a("PUT", "/integraciones/iris", {"version": cfg["version"], "activo": True})
     exigir(r.status == 200 and r.json["activo"], f"activar en Argos: {r}")
-    # Argos no informa empresas en el canje (§1.4): Iris las registra a mano (hallazgo).
+    # Argos 1.3.0 no informa empresas en el canje: Iris las registra a mano (hallazgo). Desde el
+    # contrato 0.3.1 el canje trae alcance_global y empresas[] { id, nombre, nit } (§1.3) y Iris las
+    # registra con su nombre.
     empresas = con.get("empresas") or []
+    alcance = con.get("alcanceGlobal", "no informado")
     if EMPRESA not in empresas:
         r = i("POST", "/empresas", {"id": EMPRESA, "nombre": "Empresa principal de Argos"})
         exigir(r.status in (201, 409), f"registrar la empresa {EMPRESA} en Iris: {r}")
@@ -182,7 +185,7 @@ def paso_conexion(a, i):
         WHERE u.tipo = 'integracion' AND u.correo = 'integracion.argosisp@iris.local' AND t.revocado_en IS NULL""")
     registrar("1 conexión", True, f"conector Iris {con['id']} activo (remoto {con['remotoId']}); Argos activo con "
               f"receptor {cfg['webhook_salida_url']}; iris_pat_ vigentes del usuario de integración: {token_ok}; "
-              f"empresas informadas por el canje: {empresas or 'ninguna (registrada a mano)'}")
+              f"empresas informadas por el canje: {empresas or 'ninguna (registrada a mano)'}; alcance_global: {alcance}")
 
 
 def paso_datos_argos(a):
@@ -459,7 +462,8 @@ def paso_instalacion(a, i):
               f"(estado, instalado, planta) {srv}; ONU {comodato}")
 
     if not (srv and srv[0][0] == "activo"):
-        # Diagnóstico: el mismo cuerpo que manda Iris, y con la version del servicio (la exige Argos 1.3.0).
+        # Diagnóstico: el mismo cuerpo que manda Iris (sin version, contrato 0.3.1 §3.1) y con la version
+        # del servicio (Argos 1.3.0 la exigía; desde 0.3.1 es opcional).
         cuerpo = json.loads(uno(IRIS_DB, "SELECT payload::text FROM integracion.pendientes WHERE entidad = 'orden' "
                                           "AND entidad_id = :'p1' AND operacion = 'activar_instalacion'", oid) or "{}")
         sin = a("POST", f"/servicios/{sid}/activar-instalacion", cuerpo, clave=f"e2e-diag-sin-version-{oid}")
@@ -468,6 +472,15 @@ def paso_instalacion(a, i):
         registrar("4b' diagnóstico: activar-instalacion a mano en Argos", con.status == 200,
                   f"cuerpo de Iris {cuerpo} → {sin.status} {(sin.json or {}).get('errors')}; con version {version} → {con.status} "
                   f"{(con.json or {}).get('estado')}")
+
+    else:
+        # §3.1 (0.3.1): otra activación con otra clave sobre el servicio ya activo es de negocio,
+        # 409 servicio_no_pendiente (Argos 1.3.0 respondía 422: hallazgo si vuelve a pasar).
+        otra = a("POST", f"/servicios/{sid}/activar-instalacion", {"origen_tipo": "iris_orden", "origen_id": oid},
+                 clave=f"e2e-otra-activacion-{oid}")
+        tipo = str((otra.json or {}).get("type", ""))
+        registrar("4d activar-instalacion repetida → 409 servicio_no_pendiente",
+                  otra.status == 409 and tipo.endswith("servicio_no_pendiente"), f"{otra.status} {tipo}")
 
     def bienvenida():
         if CORREOS and os.path.isdir(CORREOS):
