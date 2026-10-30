@@ -216,7 +216,13 @@ compose() { compose_at "$DIR/current" "$@"; }
 require_install() {
     [ -f "$ENV_FILE" ] || die "Iris is not installed in $DIR (no .env). Install with: sudo bash install.sh"
     [ -f "$DIR/current/docker-compose.yml" ] || die "$DIR/current/docker-compose.yml is missing (broken install?)"
-    [ ! -f "$PENDING" ] || [ "$CMD" = install ] || die "the install in $DIR has not finished: run install.sh again first"
+    if [ -f "$PENDING" ] && [ "$CMD" != install ]; then
+        case "$CMD" in
+            upgrade | create-admin | start)
+                die "the install in $DIR has not finished: run install.sh again to resume it, or discard it (docs/runbooks/install.md, \"Discard an unfinished install\")" ;;
+            *) warn "the install in $DIR has not finished (run install.sh again to resume it)" ;;
+        esac
+    fi
     check_docker
 }
 
@@ -233,12 +239,19 @@ check_docker() {
     fi
 }
 
-# One lock per Docker host (the compose project is always "iris"), outside the install folder.
+# One lock per Docker host (the compose project is always "iris"), outside the install folder, in a
+# directory only root can write (as root) or in the user's home.
 lock() {
     command -v flock > /dev/null || return 0
-    local f="/run/lock/iris-install.lock"
-    [ -w /run/lock ] || f="${TMPDIR:-/tmp}/iris-install-$(id -u).lock"
-    exec 9> "$f"
+    local d
+    if [ "$(id -u)" = 0 ]; then
+        d=/run/iris
+        install -d -m 700 -o root -g root "$d"
+        [ "$(stat -c '%u %a' "$d")" = "0 700" ] && [ ! -L "$d" ] || die "$d must be a directory owned by root with mode 700"
+    else
+        d="${HOME:?}"
+    fi
+    exec 9> "$d/.iris-install.lock"
     flock -n 9 || die "another install.sh/irisctl operation is running on this server"
 }
 
@@ -307,6 +320,16 @@ fetch_release() {
         "${CURL[@]}" -o "$tmp/$pkg.sha256" "$base/$pkg.sha256" < /dev/null || { rm -rf "$tmp"; die "could not download $base/$pkg.sha256"; }
     fi
     (cd "$tmp" && sha256sum -c --quiet "$pkg.sha256") || { rm -rf "$tmp"; die "the sha256 of $pkg does not match: refusing to install it"; }
+    # Build provenance (release.yml attests every package): proves it was built by $REPO's workflow.
+    if [ -n "$SOURCE" ]; then
+        warn "local package ($SOURCE): no provenance check, sha256 only"
+    elif command -v gh > /dev/null && gh auth status > /dev/null 2>&1 < /dev/null; then
+        gh attestation verify "$tmp/$pkg" --repo "$REPO" < /dev/null > /dev/null 2>&1 ||
+            { rm -rf "$tmp"; die "the provenance attestation of $pkg does not verify (gh attestation verify --repo $REPO): refusing to install it"; }
+        log "provenance of $pkg verified (built by $REPO)"
+    else
+        warn "GitHub CLI (gh) not installed or not logged in: checking the package by sha256 only, without its provenance attestation (docs/runbooks/install.md)"
+    fi
     tar -xzf "$tmp/$pkg" -C "$tmp" --no-same-owner
     [ -f "$tmp/iris-$v/docker-compose.yml" ] || { rm -rf "$tmp"; die "$pkg does not contain iris-$v/docker-compose.yml"; }
     mkdir -p "$DIR/releases"
@@ -411,6 +434,11 @@ do_backup() {
         (cd "$dir" && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
     ) || return 1
     log "Backup: $out"
+    local days
+    days="$(env_get IRIS_RESPALDO_DIAS)"
+    if [[ "${days:-14}" =~ ^[0-9]+$ ]] && [ "${days:-14}" -gt 0 ]; then
+        find "$dir" -maxdepth 1 -type f \( -name '*.dump' -o -name '*.dump.sha256' \) -mtime +"${days:-14}" -delete
+    fi
 }
 
 # --- start and health ----------------------------------------------------------------------------
@@ -473,6 +501,8 @@ detect_lab_env() {
     while IFS=$'\t' read -r files envs; do
         case ",$files," in *"/infra/docker-compose.yml,"*) ;; *) continue ;; esac
         f="$(printf '%s' "$envs" | tr ',' '\n' | grep -E '/\.env$' | head -n1 || true)"
+        # A checkout this script already moved from $DIR to $DIR-lab (an earlier, aborted run).
+        case "$f" in "$DIR"/*) [ -f "$f" ] || f="$DIR-lab/${f#"$DIR"/}" ;; esac
         [ -n "$f" ] && [ -f "$f" ] && { printf '%s' "$f"; return 0; }
     done < <(docker ps -a --filter label=com.docker.compose.project=iris --format \
         '{{.Label "com.docker.compose.project.config_files"}}	{{.Label "com.docker.compose.project.environment_file"}}' 2> /dev/null)
@@ -535,29 +565,93 @@ import_lab_env() {
     if docker volume inspect iris_osrm > /dev/null 2>&1 && ! $WITH_OSRM; then
         warn "the lab has an osrm volume; OSRM stays off. To use it: install.sh --with-osrm"
     fi
-}
-
-# Refuses to run a release whose migrations are older than the database (it would run old code on a
-# newer schema). MIGRATION in the package is the newest goose version of that release.
-check_schema() {
-    local rel db user name
-    [ -f "$DIR/current/MIGRATION" ] || { warn "this package does not declare its schema version: skipping the check"; return 0; }
-    rel="$(tr -dc '0-9' < "$DIR/current/MIGRATION")"
-    user="$(env_get IRIS_PG_USUARIO)"; name="$(env_get IRIS_PG_BASE)"
-    db="$(compose exec -T postgres psql -XAtq -U "$user" -d "$name" -c \
-        "select coalesce(max(version_id), 0) from goose_db_version" < /dev/null 2> /dev/null | tr -dc '0-9' || true)"
-    db="${db:-0}"
-    if [ "$db" -gt "${rel:-0}" ]; then
-        die "the database is at migration $db, newer than Iris $(env_get IRIS_VERSION) (up to $rel). Install a newer version: install.sh --version X.Y.Z"
+    # MinIO root credentials: the production compose passes them in a URL (MC_HOST_local), so they
+    # must be letters and digits; the lab default secret is public. MinIO takes its root credentials
+    # from the environment, so new ones apply when minio starts under the production compose.
+    if ! [[ "$(env_get IRIS_S3_ACCESS_KEY)" =~ ^[A-Za-z0-9]{3,}$ ]]; then
+        log "the lab MinIO user has characters the production compose cannot use: replacing it with 'iris'"
+        env_set IRIS_S3_ACCESS_KEY iris
+    fi
+    if [ "$(env_get IRIS_S3_SECRET_KEY)" = iris-dev-solo-local ] || ! [[ "$(env_get IRIS_S3_SECRET_KEY)" =~ ^[A-Za-z0-9]{8,}$ ]]; then
+        log "replacing the lab MinIO secret (public default, or not letters and digits only) with a generated one"
+        env_set IRIS_S3_SECRET_KEY "$(rand_alnum 32)"
     fi
 }
 
+# MinIO credentials go in a URL (MC_HOST_local): letters and digits only.
+check_s3_credentials() {
+    [[ "$(env_get IRIS_S3_ACCESS_KEY)" =~ ^[A-Za-z0-9]{3,}$ ]] ||
+        die "IRIS_S3_ACCESS_KEY in $ENV_FILE must be 3+ letters and digits only"
+    [[ "$(env_get IRIS_S3_SECRET_KEY)" =~ ^[A-Za-z0-9]{8,}$ ]] ||
+        die "IRIS_S3_SECRET_KEY in $ENV_FILE must be 8+ letters and digits only (no / + = or symbols). Changing it is safe: MinIO takes it from the .env when it starts"
+}
+
+# Value of a lab setting: its .env, else the repo's .env.example, else the dev compose default.
+lab_get() {
+    local key="$1" def="$2" lab="$3" v
+    if env_has "$key" "$lab"; then v="$(env_get "$key" "$lab")"; else v="$(env_get "$key" "$(dirname "$lab")/.env.example")"; fi
+    printf '%s' "${v:-$def}"
+}
+
+# Refuses to run a release whose migrations are older than the database (it would run old code on a
+# newer schema). MIGRATION in the package is the newest goose version of that release. $1 runs psql
+# (arguments follow), $2 the user, $3 the database.
+schema_ahead() {
+    local run="$1" user="$2" name="$3" rel db
+    [ -f "$DIR/releases/$VERSION/MIGRATION" ] || { warn "this package does not declare its schema version: skipping the check"; return 1; }
+    rel="$(tr -dc '0-9' < "$DIR/releases/$VERSION/MIGRATION")"
+    db="$("$run" psql -XAtq -U "$user" -d "$name" -c \
+        "select coalesce(max(version_id), 0) from goose_db_version" < /dev/null 2> /dev/null | tr -dc '0-9' || true)"
+    db="${db:-0}"
+    [ "$db" -gt "${rel:-0}" ] || return 1
+    SCHEMA_DB="$db" SCHEMA_REL="$rel"
+    return 0
+}
+SCHEMA_DB="" SCHEMA_REL=""
+schema_die() {
+    die "the database is at migration $SCHEMA_DB, newer than Iris $VERSION (up to $SCHEMA_REL). Nothing was migrated. Run install.sh again with a version at least as new as the lab: install.sh --version X.Y.Z"
+}
+# Before anything is written: the lab's own postgres container (started if it was stopped).
+LAB_PG=""
+lab_psql() { docker exec -i "$LAB_PG" "$@"; }
+check_schema_lab() {
+    local lab="$1" n
+    LAB_PG="$(docker ps -aq --filter label=com.docker.compose.project=iris --filter label=com.docker.compose.service=postgres | head -n1)"
+    if [ -z "$LAB_PG" ]; then
+        warn "the lab postgres container was not found: the schema is checked later, before migrating"
+        return 0
+    fi
+    if [ "$(docker inspect -f '{{.State.Running}}' "$LAB_PG")" != true ]; then
+        docker start "$LAB_PG" > /dev/null
+    fi
+    for n in $(seq 1 30); do
+        docker exec "$LAB_PG" pg_isready -q > /dev/null 2>&1 && break
+        [ "$n" -lt 30 ] || die "the lab database did not start (docker logs $LAB_PG)"
+        sleep 2
+    done
+    if schema_ahead lab_psql "$(lab_get IRIS_PG_USUARIO iris "$lab")" "$(lab_get IRIS_PG_BASE iris "$lab")"; then
+        schema_die
+    fi
+}
+# Again under the production compose, right before migrating (also when resuming).
+compose_psql() { compose exec -T postgres "$@"; }
+check_schema() {
+    if schema_ahead compose_psql "$(env_get IRIS_PG_USUARIO)" "$(env_get IRIS_PG_BASE)"; then
+        schema_die
+    fi
+}
+
+# Marker: "<fresh|lab> <prepared|migrating> <lab .env>". prepared = nothing migrated yet (the
+# version can still change); migrating = the migrations may have run.
+set_phase() { printf '%s %s %s\n' "$1" "$2" "$3" > "$PENDING"; }
+
 # SCRAM-SHA-256 verifier of a password (what Postgres stores), so the plain password never reaches
-# the server or its logs. Computed with node in the running panel's image (no extra image, no
-# network). Password on stdin.
+# the server or its logs. Computed with node in the panel image of the release (already pulled; no
+# extra image, no network). Password on stdin.
 scram_verifier() {
     local img
-    img="$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q web < /dev/null | head -n1)")"
+    img="$(compose config --images < /dev/null | grep -E '/iris-web[:@]' | head -n1)"
+    [ -n "$img" ] || die "could not find the panel image to compute the password verifier"
     docker run --rm -i --network none --entrypoint node "$img" -e '
         const c = require("crypto");
         let pw = "";
@@ -582,22 +676,13 @@ rotate_db_password() {
         new="$(rand_alnum 32)"
         env_set IRIS_PG_CONTRASENA_NUEVA "$new"
     fi
-    log "replacing the lab database password (dev default) with a generated one"
+    log "setting the generated database password (replaces the lab default)"
     verifier="$(printf '%s\n' "$new" | scram_verifier)"
     [[ "$verifier" =~ ^SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$ ]] || die "could not compute the password verifier"
     printf "SET log_statement = 'none'; SET log_min_error_statement = 'panic'; ALTER ROLE \"%s\" PASSWORD '%s';\n" "$user" "$verifier" |
         compose exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U "$user" -d "$db" > /dev/null
     env_set IRIS_PG_CONTRASENA "$new"
     env_set IRIS_PG_CONTRASENA_NUEVA ""
-}
-
-# Replaces the lab's public default MinIO root secret. MinIO takes its root credentials from the
-# environment, so recreating minio (and the services that use it) applies the new one.
-rotate_minio_secret() {
-    log "replacing the lab MinIO secret (public dev default) with a generated one"
-    env_set IRIS_S3_SECRET_KEY "$(rand_alnum 32)"
-    compose up -d --wait minio < /dev/null
-    compose up -d minio-init api worker < /dev/null
 }
 
 # --- commands -------------------------------------------------------------------------------------
@@ -626,11 +711,11 @@ cmd_install() {
     mkdir -p "$DIR"
     chmod 755 "$DIR"
 
-    local mode=fresh resume=false
+    local mode=fresh resume=false phase=prepared
     if [ -f "$ENV_FILE" ] && [ -f "$PENDING" ]; then
         # An install or lab migration that stopped half way: resume it (same .env, same steps).
-        read -r mode FROM_LAB < "$PENDING" || true
-        case "$mode" in fresh | lab) ;; *) die "unreadable $PENDING" ;; esac
+        read -r mode phase FROM_LAB < "$PENDING" || true
+        case "$mode $phase" in "fresh prepared" | "fresh migrating" | "lab prepared" | "lab migrating") ;; *) die "unreadable $PENDING" ;; esac
         resume=true
         log "resuming the unfinished $([ "$mode" = lab ] && echo "lab migration" || echo install) in $DIR"
     elif [ -f "$ENV_FILE" ]; then
@@ -660,26 +745,37 @@ cmd_install() {
         die "--url is required when there is no terminal to ask (e.g. --url https://iris.example.com)"
     fi
 
-    # Version
+    # Version. A resumed install can still change it while nothing has been migrated.
     if [ "$mode" = existing ] || $resume; then
         local cur
         cur="$(env_get IRIS_VERSION)"
         if [ -n "$VERSION" ] && [ "$VERSION" != "$cur" ]; then
-            die "Iris $cur is $($resume && echo "being installed" || echo installed). To change version: $($resume && echo "finish it first, then ")irisctl upgrade --version $VERSION"
+            if $resume && [ "$phase" = prepared ]; then
+                log "nothing was migrated yet: switching the unfinished install from $cur to $VERSION"
+            elif $resume; then
+                die "Iris $cur is being installed and its migrations may have run: finish it (run install.sh again), then irisctl upgrade --version $VERSION"
+            else
+                die "Iris $cur is installed. To change version: irisctl upgrade --version $VERSION"
+            fi
+        else
+            VERSION="$cur"
         fi
-        VERSION="$cur"
     fi
     [ -n "$VERSION" ] || VERSION="$(latest_version)"
     is_semver "$VERSION" || die "could not tell which version to install (got '$VERSION'); use --version X.Y.Z"
     log "Iris $VERSION in $DIR ($mode)"
 
     fetch_release "$VERSION"
+    # Before writing anything for a lab: is the release at least as new as the lab database?
+    if [ "$mode" = lab ] && ! $resume; then
+        check_schema_lab "$FROM_LAB"
+    fi
     use_release "$VERSION"
     mkdir -p "$DIR/certs"
 
     # .env. The pending marker goes first: until the end, a re-run resumes this install.
     if [ "$mode" != existing ] && ! $resume; then
-        printf '%s %s\n' "$mode" "$FROM_LAB" > "$PENDING"
+        set_phase "$mode" prepared "$FROM_LAB"
         (umask 077 && cp "$DIR/current/env.example" "$ENV_FILE.new")
         mv -f "$ENV_FILE.new" "$ENV_FILE"
         env_set IRIS_DIR "$DIR"
@@ -740,6 +836,7 @@ cmd_install() {
     fi
     [ -n "$(env_get IRIS_PG_CONTRASENA)" ] || env_set IRIS_PG_CONTRASENA "$(rand_alnum 32)"
     [ -n "$(env_get IRIS_S3_SECRET_KEY)" ] || env_set IRIS_S3_SECRET_KEY "$(rand_alnum 32)"
+    check_s3_credentials
     ensure_backup_keys
     chmod 600 "$ENV_FILE"
 
@@ -760,20 +857,23 @@ cmd_install() {
         fi
     fi
 
+    # A password change interrupted after ALTER ROLE: finish it before anything connects.
+    if [ -n "$(env_get IRIS_PG_CONTRASENA_NUEVA)" ]; then
+        compose up -d --wait postgres < /dev/null || die "the database did not start"
+        rotate_db_password
+    fi
+
+    [ "$mode" = existing ] || set_phase "$mode" migrating "$FROM_LAB"
     log "starting Iris (migrations run first)"
     if ! start_all; then
         [ "$mode" != lab ] || warn "the migrations may have run already. To go back to the lab you need the backup above: docs/runbooks/install.md, \"Back to the lab\""
-        die "Iris did not become healthy. Look at: irisctl logs   (settings: $ENV_FILE; run install.sh again to resume)"
+        die "Iris did not become healthy. Look at: irisctl logs   (settings: $ENV_FILE). Run install.sh again to resume, or discard it: docs/runbooks/install.md, \"Discard an unfinished install\""
     fi
     # Lab defaults that are public (in the repository): replaced once the migrated install is healthy.
     if [ "$mode" = lab ]; then
-        if ! $KEEP_DB_PASSWORD && { [ "$(env_get IRIS_PG_CONTRASENA)" = iris ] || [ -n "$(env_get IRIS_PG_CONTRASENA_NUEVA)" ]; }; then
+        if ! $KEEP_DB_PASSWORD && [ "$(env_get IRIS_PG_CONTRASENA)" = iris ]; then
             rotate_db_password
             start_all || die "Iris did not become healthy after changing the database password. Look at: irisctl logs (run install.sh again to resume)"
-        fi
-        if [ "$(env_get IRIS_S3_SECRET_KEY)" = iris-dev-solo-local ]; then
-            rotate_minio_secret
-            start_all || die "Iris did not become healthy after changing the MinIO secret. Look at: irisctl logs (run install.sh again to resume)"
         fi
     fi
     prune_releases
@@ -890,6 +990,7 @@ cmd_upgrade() {
     fi
     version_ge "$target" "$cur" || die "$target is older than the installed $cur: migrations only move forward (restore a backup instead: docs/runbooks/respaldos.md)"
     log "upgrading Iris $cur → $target"
+    check_s3_credentials
     confirm "Continue?" y || die "cancelled"
 
     fetch_release "$target"

@@ -75,6 +75,7 @@ mv "$parcial" "$dir/$nombre"
 echo "Respaldo: $dir/$nombre ($(du -h "$dir/$nombre" | cut -f1))"
 
 if [ "$dias" -gt 0 ] 2>/dev/null; then
-    find "$dir" -maxdepth 1 -type f \( -name '*.dump.age' -o -name '*.dump.age.sha256' \) \
+    # También los volcados sin cifrar del instalador de producción (*.dump, cuando no hay age).
+    find "$dir" -maxdepth 1 -type f \( -name '*.dump.age' -o -name '*.dump.age.sha256' -o -name '*.dump' -o -name '*.dump.sha256' \) \
         -mtime +"$dias" -print -delete | sed 's/^/Borrado (más de '"$dias"' días): /'
 fi
