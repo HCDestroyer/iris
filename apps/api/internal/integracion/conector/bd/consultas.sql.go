@@ -318,7 +318,7 @@ func (q *Queries) EntrantePorWebhook(ctx context.Context, arg EntrantePorWebhook
 }
 
 const existeConectorConBase = `-- name: ExisteConectorConBase :one
-SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1 AND base_url = $2)::boolean AS existe
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1 AND base_url = $2 AND estado = 'activo')::boolean AS existe
 `
 
 type ExisteConectorConBaseParams struct {
@@ -326,7 +326,7 @@ type ExisteConectorConBaseParams struct {
 	BaseUrl string
 }
 
-// Ya hay un conector del sistema con ese origen (un enlace del mismo origen no es phishing).
+// El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).
 func (q *Queries) ExisteConectorConBase(ctx context.Context, arg ExisteConectorConBaseParams) (bool, error) {
 	row := q.db.QueryRow(ctx, existeConectorConBase, arg.Sistema, arg.BaseUrl)
 	var existe bool
@@ -609,6 +609,37 @@ UPDATE integracion.conectores SET ultimo_webhook_en = now() WHERE id = $1
 func (q *Queries) TocarWebhookConector(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, tocarWebhookConector, id)
 	return err
+}
+
+const tokensEntregadosDeInactivos = `-- name: TokensEntregadosDeInactivos :many
+SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
+WHERE sistema = $1 AND id <> $2 AND estado <> 'activo' AND token_entregado_id IS NOT NULL
+`
+
+type TokensEntregadosDeInactivosParams struct {
+	Sistema string
+	Excepto int64
+}
+
+// Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores).
+func (q *Queries) TokensEntregadosDeInactivos(ctx context.Context, arg TokensEntregadosDeInactivosParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, tokensEntregadosDeInactivos, arg.Sistema, arg.Excepto)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var token_id int64
+		if err := rows.Scan(&token_id); err != nil {
+			return nil, err
+		}
+		items = append(items, token_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const tokensEntregadosDeOtros = `-- name: TokensEntregadosDeOtros :many

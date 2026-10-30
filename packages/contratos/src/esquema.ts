@@ -819,7 +819,7 @@ export interface paths {
         put?: never;
         /**
          * Conectar con Argos usando un enlace generado en Argos
-         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Argos un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_ARGOS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Argos un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_ARGOS_ORIGENES` o del conector activo de este sistema (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).
          */
         post: operations["conectarArgos"];
         delete?: never;
@@ -879,7 +879,7 @@ export interface paths {
         put?: never;
         /**
          * Ver a qué origen irá el token antes de conectar con Argos
-         * @description Permiso: `integraciones.conectar`. No llama a Argos ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_ARGOS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.
+         * @description Permiso: `integraciones.conectar`. No llama a Argos ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_ARGOS_ORIGENES` o el del conector activo). El panel lo muestra para que el administrador confirme antes de `conectar`.
          */
         post: operations["previsualizarConexionArgos"];
         delete?: never;
@@ -959,7 +959,7 @@ export interface paths {
         put?: never;
         /**
          * Activar un conector
-         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema (409 `otro_conector_activo`). Con Argos, encola la primera carga de zonas y routers.
+         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema (queda apagado y su token se revoca en la misma transacción, así la integración no se corta al reconectar). Con Argos, encola la primera carga de zonas y routers.
          */
         post: operations["activarConector"];
         delete?: never;
@@ -1039,7 +1039,7 @@ export interface paths {
         put?: never;
         /**
          * Conectar con Horus usando un enlace generado en Horus
-         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Horus un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_HORUS_ORIGENES` o de un conector existente (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).
+         * @description Permiso: `integraciones.conectar`. Iris canjea el código en Horus (servidor a servidor), guarda el token `hf_pat_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Horus un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_HORUS_ORIGENES` o del conector activo de este sistema (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `horus_rechazo` si Horus rechaza el código (vencido o usado).
          */
         post: operations["conectarHorus"];
         delete?: never;
@@ -1099,7 +1099,7 @@ export interface paths {
         put?: never;
         /**
          * Ver a qué origen irá el token antes de conectar con Horus
-         * @description Permiso: `integraciones.conectar`. No llama a Horus ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_HORUS_ORIGENES` o un conector que ya existe con ese origen). El panel lo muestra para que el administrador confirme antes de `conectar`.
+         * @description Permiso: `integraciones.conectar`. No llama a Horus ni canjea el código: devuelve el origen (esquema://host[:puerto]) del enlace y si está permitido (`IRIS_HORUS_ORIGENES` o el del conector activo). El panel lo muestra para que el administrador confirme antes de `conectar`.
          */
         post: operations["previsualizarConexionHorus"];
         delete?: never;
@@ -7278,13 +7278,13 @@ export interface components {
             velocidad: number | null;
         };
         Previsualizacion: {
-            /** @description Ya hay un conector de este sistema con ese origen */
+            /** @description El conector activo de este sistema tiene ese origen */
             conectorExistente: boolean;
             /** @description Si no se permite: origenes_no_configurados u origen_no_permitido */
             motivo: string | null;
             /** @description esquema://host[:puerto] del enlace: adónde irá el token de Iris */
             origen: string;
-            /** @description El origen está en la lista o ya hay un conector con él */
+            /** @description El origen está en la lista o es el del conector activo */
             permitido: boolean;
             sistema: string;
         };
