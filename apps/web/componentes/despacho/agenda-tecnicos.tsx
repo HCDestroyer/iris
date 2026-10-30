@@ -65,10 +65,9 @@ export function AgendaTecnicos({
     }
 
     const calendario = agenda.datos;
-    if (calendario.truncado) {
-        // Un calendario cortado mostraría huecos que parecen tiempo libre.
-        return <AvisoDemasiadas />;
-    }
+    // Un calendario cortado mostraría huecos que parecen tiempo libre (y conteos de conflictos
+    // incompletos): se reemplaza la rejilla por el aviso. La bandeja es otra lectura y sigue.
+    const truncado = calendario.truncado;
     const filas = filasDeTecnicos(tecnicos.datos.lista, calendario.citas ?? [], calendario.ausencias ?? []);
     const pendientes = sinProgramar.estado === "listo" ? (sinProgramar.datos?.ordenes ?? []) : [];
 
@@ -112,7 +111,7 @@ export function AgendaTecnicos({
                     Se muestran los primeros {tecnicos.datos.lista.length}. Filtra por cuadrilla o zona para ver el resto.
                 </Aviso>
             ) : null}
-            {conConflicto.length > 0 ? (
+            {!truncado && conConflicto.length > 0 ? (
                 <Aviso
                     tono="error"
                     icono={TriangleAlert}
@@ -130,7 +129,7 @@ export function AgendaTecnicos({
                     <p className="mt-1 text-muted-foreground">Reprográmalas con «Mover a…» o asígnalas a otro técnico.</p>
                 </Aviso>
             ) : null}
-            <CalendarioTecnicos vista={vista} desde={desde} {...comun} />
+            {truncado ? <AvisoDemasiadas /> : <CalendarioTecnicos vista={vista} desde={desde} {...comun} />}
             {bandeja && sinProgramar.estado !== "listo" ? (
                 sinProgramar.estado === "error" ? (
                     <ErrorLectura error={sinProgramar.error} reintentar={sinProgramar.reintentar} que="las órdenes sin programar" />

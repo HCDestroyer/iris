@@ -115,6 +115,13 @@ test.describe("agenda de mes", () => {
         await expect(page.getByTestId("agenda-truncada")).toBeVisible();
         await expect(page.locator("[data-cita]")).toHaveCount(0);
         await expect(page.locator("[data-fila-tecnico]")).toHaveCount(0);
+        await expect(page.getByTestId("conflictos")).toHaveCount(0);
+        // La bandeja es otra lectura (no truncada): sigue a la vista y programa con el día puesto.
+        const bandeja = page.getByTestId("sin-programar");
+        await expect(bandeja.locator('[data-sin-programar="OT-000002"]')).toBeVisible();
+        await bandeja.getByRole("button", { name: "Programar OT-000002" }).click();
+        await expect(dialogo(page).getByLabel("Día", { exact: true })).toHaveValue(hoyGt());
+        await captura(page, info, "61-agenda-dia-truncada");
     });
 
     test("navegación por mes, semana y día", async ({ page, context, baseURL }) => {
