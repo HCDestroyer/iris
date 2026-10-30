@@ -23,6 +23,7 @@ const cita = (p: Partial<CitaAgenda>): CitaAgenda => ({
     lon: null,
     clienteId: null,
     servicioId: null,
+    conflictos: [],
     ...p,
 });
 
@@ -36,6 +37,7 @@ const tecnico = (p: Partial<Tecnico> & Pick<Tecnico, "id" | "usuarioId" | "nombr
     correo: "x@iris.test",
     cuadrillaId: 1,
     habilidades: [],
+    telefono: "",
     version: 1,
     ...p,
 });

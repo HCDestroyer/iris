@@ -41,6 +41,7 @@ type EntradaCrearTecnico struct {
 	Habilidades []string `json:"habilidades,omitempty" maxItems:"30" doc:"Códigos libres (fibra, inalambrico, altura…)"`
 	BaseLat     *float64 `json:"baseLat,omitempty" minimum:"-90" maximum:"90"`
 	BaseLon     *float64 `json:"baseLon,omitempty" minimum:"-180" maximum:"180"`
+	Telefono    string   `json:"telefono,omitempty" maxLength:"30" doc:"Teléfono de contacto: dígitos, espacios, +, -, paréntesis y puntos"`
 }
 
 // EntradaEditarTecnico reemplaza los datos de la ficha (lo ausente queda vacío).
@@ -52,6 +53,7 @@ type EntradaEditarTecnico struct {
 	Habilidades []string `json:"habilidades,omitempty" maxItems:"30"`
 	BaseLat     *float64 `json:"baseLat,omitempty" minimum:"-90" maximum:"90"`
 	BaseLon     *float64 `json:"baseLon,omitempty" minimum:"-180" maximum:"180"`
+	Telefono    string   `json:"telefono,omitempty" maxLength:"30" doc:"Teléfono de contacto (vacío = sin teléfono)"`
 }
 
 // EntradaFijarTurnos reemplaza los turnos semanales.
@@ -211,7 +213,7 @@ func aTecnico(f agendabd.AgendaTecnico, nombre, correo string) Tecnico {
 		h = []string{}
 	}
 	return Tecnico{ID: f.ID, UsuarioID: f.UsuarioID, Nombre: nombre, Correo: correo, CuadrillaID: f.CuadrillaID,
-		BodegaID: f.BodegaID, Habilidades: h, BaseLat: f.BaseLat, BaseLon: f.BaseLon, Activo: f.Activo,
+		BodegaID: f.BodegaID, Habilidades: h, BaseLat: f.BaseLat, BaseLon: f.BaseLon, Telefono: f.Telefono, Activo: f.Activo,
 		Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt}
 }
 
@@ -247,7 +249,7 @@ func (m *Modulo) nuevoListarTecnicos() *auditoria.Caso[EntradaListarTecnicos, nu
 			}
 			return nucleo.Paginar(fs, in.Limite(), func(f agendabd.ListarTecnicosRow) Tecnico {
 				tc := aTecnico(agendabd.AgendaTecnico{ID: f.ID, UsuarioID: f.UsuarioID, CuadrillaID: f.CuadrillaID, BodegaID: f.BodegaID,
-					Habilidades: f.Habilidades, BaseLat: f.BaseLat, BaseLon: f.BaseLon, Activo: f.Activo && f.UsuarioActivo,
+					Habilidades: f.Habilidades, BaseLat: f.BaseLat, BaseLon: f.BaseLon, Telefono: f.Telefono, Activo: f.Activo && f.UsuarioActivo,
 					Version: f.Version, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt}, f.Nombre, f.Correo)
 				return tc
 			}, func(f agendabd.ListarTecnicosRow) []any { return []any{f.ID} }), nil
@@ -429,8 +431,12 @@ func (m *Modulo) nuevoCrearTecnico() *auditoria.Caso[EntradaCrearTecnico, Tecnic
 			if err := exigirFichaDeLaEmpresa(ctx, q, agendabd.AgendaTecnico{CuadrillaID: in.CuadrillaID}); err != nil {
 				return TecnicoDetalle{}, err
 			}
+			telefono, err := telefonoValido(in.Telefono)
+			if err != nil {
+				return TecnicoDetalle{}, err
+			}
 			f, err := q.CrearTecnico(ctx, agendabd.CrearTecnicoParams{UsuarioID: u.ID, CuadrillaID: in.CuadrillaID, BodegaID: in.BodegaID,
-				Habilidades: habilidades, BaseLat: in.BaseLat, BaseLon: in.BaseLon})
+				Habilidades: habilidades, BaseLat: in.BaseLat, BaseLon: in.BaseLon, Telefono: telefono})
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == "23505" {
 				return TecnicoDetalle{}, nucleo.ReglaNegocio("ficha_existente", "El usuario ya tiene ficha de técnico")
@@ -450,7 +456,8 @@ func (m *Modulo) nuevoCrearTecnico() *auditoria.Caso[EntradaCrearTecnico, Tecnic
 
 func (m *Modulo) guardarTecnico(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, antes, despues agendabd.AgendaTecnico, campos []string) (TecnicoDetalle, error) {
 	f, err := q.GuardarTecnico(ctx, agendabd.GuardarTecnicoParams{ID: antes.ID, Version: antes.Version, CuadrillaID: despues.CuadrillaID,
-		BodegaID: despues.BodegaID, Habilidades: despues.Habilidades, BaseLat: despues.BaseLat, BaseLon: despues.BaseLon, Activo: despues.Activo})
+		BodegaID: despues.BodegaID, Habilidades: despues.Habilidades, BaseLat: despues.BaseLat, BaseLon: despues.BaseLon,
+		Telefono: despues.Telefono, Activo: despues.Activo})
 	if err != nil {
 		return TecnicoDetalle{}, nucleo.VerificarVersion(err, "tecnico", antes.ID)
 	}
@@ -480,6 +487,9 @@ func (m *Modulo) nuevoEditarTecnico() *auditoria.Caso[EntradaEditarTecnico, Tecn
 				return TecnicoDetalle{}, err
 			}
 			despues.BaseLat, despues.BaseLon = in.BaseLat, in.BaseLon
+			if despues.Telefono, err = telefonoValido(in.Telefono); err != nil {
+				return TecnicoDetalle{}, err
+			}
 			campos := []string{}
 			if !mismoID(antes.CuadrillaID, despues.CuadrillaID) {
 				campos = append(campos, "cuadrilla_id")
@@ -493,12 +503,38 @@ func (m *Modulo) nuevoEditarTecnico() *auditoria.Caso[EntradaEditarTecnico, Tecn
 			if !mismoFloat(antes.BaseLat, despues.BaseLat) || !mismoFloat(antes.BaseLon, despues.BaseLon) {
 				campos = append(campos, "base")
 			}
+			if antes.Telefono != despues.Telefono {
+				campos = append(campos, "telefono")
+			}
 			if len(campos) == 0 {
 				return TecnicoDetalle{}, nucleo.ReglaNegocio("sin_cambios", "La ficha ya tiene esos datos")
 			}
 			return m.guardarTecnico(ctx, t, q, antes, despues, campos)
 		},
 	})
+}
+
+// telefonoValido: recorta espacios; vacío = sin teléfono. Hasta 30 caracteres, con al menos
+// 7 dígitos, y solo dígitos, espacios, +, -, paréntesis y puntos.
+func telefonoValido(v string) (string, error) {
+	t, err := texto("telefono", v, 0, 30)
+	if err != nil || t == "" {
+		return t, err
+	}
+	digitos := 0
+	for _, r := range t {
+		switch {
+		case r >= '0' && r <= '9':
+			digitos++
+		case strings.ContainsRune(" +-().", r):
+		default:
+			return "", campoInvalido("telefono", "Usa solo dígitos, espacios, +, -, paréntesis y puntos", "telefono")
+		}
+	}
+	if digitos < 7 {
+		return "", campoInvalido("telefono", "El teléfono necesita al menos 7 dígitos", "telefono")
+	}
+	return t, nil
 }
 
 func mismoFloat(a, b *float64) bool {
@@ -637,6 +673,53 @@ func (m *Modulo) nuevoCapacidadTecnico() *auditoria.Caso[EntradaFijarCapacidad, 
 			t.RegistrarCambios("tecnico", f.ID, map[string]any{"capacidad": previo.Capacidad}, map[string]any{"capacidad": d.Capacidad})
 			return d, t.Emitir("tecnico.actualizado", map[string]any{"tecnico_id": f.ID, "usuario_id": f.UsuarioID,
 				"campos": []string{"capacidad"}, "activo": f.Activo})
+		},
+	})
+}
+
+// EntradaCandidatosTecnico: GET /tecnicos/candidatos.
+type EntradaCandidatosTecnico struct {
+	nucleo.ParamsPagina
+	Q string `query:"q" maxLength:"100" doc:"Nombre o correo"`
+}
+
+// CandidatoTecnico es un usuario que puede recibir ficha de técnico.
+type CandidatoTecnico struct {
+	UsuarioID int64  `json:"usuarioId"`
+	Nombre    string `json:"nombre"`
+	Correo    string `json:"correo"`
+}
+
+// nuevoCandidatosTecnico: usuarios a los que se les puede dar ficha (personas activas sin ficha,
+// con ordenes.ver_propias —el técnico de campo—, que operan en la empresa activa). Con el permiso
+// de crear limitado a zonas o cuadrillas, solo las personas cuyo rol de técnico es de ese alcance.
+// Es la lista del selector «Usuario» del alta: no exige usuarios.ver, sino el permiso de crear.
+func (m *Modulo) nuevoCandidatosTecnico() *auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]]{
+		Accion: "agenda.candidatos_tecnico", Permiso: nucleo.PermAgendaCrearTecnico, AuditarExito: soloLecturas[nucleo.Pagina[CandidatoTecnico]],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCandidatosTecnico) (nucleo.Pagina[CandidatoTecnico], error) {
+			var despues int64
+			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
+				return nucleo.Pagina[CandidatoTecnico]{}, err
+			}
+			todas, empresa := filtroEmpresa(ctx)
+			a := alcanceDe(ctx, nucleo.PermAgendaCrearTecnico)
+			p := agendabd.CandidatosTecnicoParams{TodasEmpresas: todas, EmpresaID: empresa,
+				AlcanceGlobal: a.global, Zonas: a.zonas, Cuadrillas: a.cuadrillas,
+				Limite: int32(in.Limite() + 1)} //nolint:gosec // Limite() está acotado a 200
+			if despues > 0 {
+				p.DespuesDe = &despues
+			}
+			if s := strings.TrimSpace(in.Q); s != "" {
+				p.Q = &s
+			}
+			fs, err := agendabd.New(t).CandidatosTecnico(ctx, p)
+			if err != nil {
+				return nucleo.Pagina[CandidatoTecnico]{}, err
+			}
+			return nucleo.Paginar(fs, in.Limite(), func(f agendabd.CandidatosTecnicoRow) CandidatoTecnico {
+				return CandidatoTecnico{UsuarioID: f.ID, Nombre: f.Nombre, Correo: f.Correo}
+			}, func(f agendabd.CandidatosTecnicoRow) []any { return []any{f.ID} }), nil
 		},
 	})
 }

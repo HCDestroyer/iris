@@ -73,6 +73,7 @@ type Tecnico struct {
 	Habilidades   []string  `json:"habilidades"`
 	BaseLat       *float64  `json:"baseLat" nullable:"true"`
 	BaseLon       *float64  `json:"baseLon" nullable:"true"`
+	Telefono      string    `json:"telefono" doc:"Teléfono de contacto de la ficha; vacío = sin teléfono"`
 	Activo        bool      `json:"activo" doc:"Ficha activa y usuario activo"`
 	Version       int32     `json:"version"`
 	CreadoEn      time.Time `json:"creadoEn"`

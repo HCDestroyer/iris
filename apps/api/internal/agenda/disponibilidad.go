@@ -336,6 +336,7 @@ type CitaAgenda struct {
 	ClienteID     *int64     `json:"clienteId" nullable:"true"`
 	ServicioID    *int64     `json:"servicioId" nullable:"true"`
 	EnSitioEn     *time.Time `json:"enSitioEn,omitempty" nullable:"true" doc:"Llegada real al sitio (ausente o null si todavía no llega)"`
+	Conflictos    []string   `json:"conflictos" enum:"ausencia,solape" doc:"Cita viva que cae en una ausencia del técnico o se cruza con otra cita viva suya (de cualquier empresa y fuera del filtro); vacío = sin conflicto"`
 }
 
 // AusenciaAgenda: una ausencia en el rango.
@@ -354,6 +355,7 @@ type Calendario struct {
 	Hasta     time.Time        `json:"hasta"`
 	Citas     []CitaAgenda     `json:"citas"`
 	Ausencias []AusenciaAgenda `json:"ausencias"`
+	Truncado  bool             `json:"truncado" doc:"Hay más citas (o técnicos) de los que caben en la respuesta: no calcules totales; acota con cuadrilla, zona o técnico"`
 }
 
 func (m *Modulo) nuevoCalendario() *auditoria.Caso[EntradaCalendario, Calendario] {
@@ -376,23 +378,34 @@ func (m *Modulo) nuevoCalendario() *auditoria.Caso[EntradaCalendario, Calendario
 			a := alcanceDe(ctx, nucleo.PermAgendaVer)
 			filas, err := q.AgendaCitas(ctx, agendabd.AgendaCitasParams{Desde: desde, Hasta: hasta, TodasEmpresas: todas, EmpresaID: empresa,
 				TecnicoID: filtro(in.TecnicoID), CuadrillaID: filtro(in.CuadrillaID), ZonaID: filtro(in.ZonaID),
-				AlcanceGlobal: a.global, Zonas: a.zonas, Cuadrillas: a.cuadrillas})
+				AlcanceGlobal: a.global, Zonas: a.zonas, Cuadrillas: a.cuadrillas, Limite: int32(m.cfg.LimiteCalendario + 1)}) //nolint:gosec // límite de configuración, pequeño
 			if err != nil {
 				return Calendario{}, err
 			}
 			salida := Calendario{Desde: desde, Hasta: hasta, Citas: []CitaAgenda{}, Ausencias: []AusenciaAgenda{}}
+			if len(filas) > m.cfg.LimiteCalendario {
+				filas, salida.Truncado = filas[:m.cfg.LimiteCalendario], true
+			}
 			for _, f := range filas {
 				salida.Citas = append(salida.Citas, CitaAgenda{OrdenID: f.OrdenID, Numero: f.Numero, Tipo: f.TipoCodigo, Estado: f.Estado,
 					OrdenVersion: f.OrdenVersion, TecnicoID: f.TecnicoID, Inicio: f.Inicio, Fin: f.Fin, VentanaInicio: f.VentanaInicio,
 					VentanaFin: f.VentanaFin, ZonaID: f.ZonaID, CuadrillaID: f.OrdenCuadrillaID, Direccion: f.Direccion, Lat: f.Lat,
-					Lon: f.Lon, ClienteID: f.ClienteID, ServicioID: f.ServicioID, EnSitioEn: f.EnSitioEn})
+					Lon: f.Lon, ClienteID: f.ClienteID, ServicioID: f.ServicioID, EnSitioEn: f.EnSitioEn, Conflictos: []string{}})
+			}
+			if err := marcarConflictos(ctx, q, salida.Citas); err != nil {
+				return Calendario{}, err
 			}
 			// Ausencias de los técnicos visibles (con los mismos filtros de técnico y cuadrilla).
 			p := m.paramsTecnicos(ctx, nucleo.PermAgendaVer)
 			p.CuadrillaID, p.UsuarioID, p.ZonaID = filtro(in.CuadrillaID), filtro(in.TecnicoID), filtro(in.ZonaID)
+			limiteTecnicos := int(p.Limite)
+			p.Limite++
 			tecs, err := q.ListarTecnicos(ctx, p)
 			if err != nil {
 				return Calendario{}, err
+			}
+			if len(tecs) > limiteTecnicos {
+				tecs, salida.Truncado = tecs[:limiteTecnicos], true
 			}
 			fichas, usuario := []int64{}, map[int64]int64{}
 			for _, tc := range tecs {
@@ -410,4 +423,68 @@ func (m *Modulo) nuevoCalendario() *auditoria.Caso[EntradaCalendario, Calendario
 			return salida, nil
 		},
 	})
+}
+
+// vivos: estados en que una cita ocupa al técnico.
+var vivos = map[string]bool{"programada": true, "en_camino": true, "en_sitio": true, "pausada": true}
+
+// marcarConflictos marca las citas vivas que caen en una ausencia vigente de su técnico o se cruzan
+// con otra cita viva suya. Mira toda la agenda del técnico (cualquier empresa, sin el filtro ni el
+// alcance de la consulta), pero solo devuelve el tipo: nunca datos de lo que no se ve.
+func marcarConflictos(ctx context.Context, q *agendabd.Queries, citas []CitaAgenda) error {
+	usuarios := []int64{}
+	var desde, hasta time.Time
+	for _, c := range citas {
+		if !vivos[c.Estado] {
+			continue
+		}
+		if !slices.Contains(usuarios, c.TecnicoID) {
+			usuarios = append(usuarios, c.TecnicoID)
+		}
+		if desde.IsZero() || c.Inicio.Before(desde) {
+			desde = c.Inicio
+		}
+		if c.Fin.After(hasta) {
+			hasta = c.Fin
+		}
+	}
+	if len(usuarios) == 0 {
+		return nil
+	}
+	ocupadas, err := q.OcupacionTecnicos(ctx, agendabd.OcupacionTecnicosParams{Tecnicos: usuarios, ExcluirOrden: 0, Desde: desde, Hasta: hasta})
+	if err != nil {
+		return err
+	}
+	fichas, err := q.TecnicosPorUsuarios(ctx, usuarios)
+	if err != nil {
+		return err
+	}
+	usuarioDe, ids := map[int64]int64{}, []int64{}
+	for _, f := range fichas {
+		usuarioDe[f.ID] = f.UsuarioID
+		ids = append(ids, f.ID)
+	}
+	ausencias, err := q.AusenciasEnRango(ctx, agendabd.AusenciasEnRangoParams{Tecnicos: ids, Desde: desde, Hasta: hasta})
+	if err != nil {
+		return err
+	}
+	for i := range citas {
+		c := &citas[i]
+		if !vivos[c.Estado] {
+			continue
+		}
+		for _, a := range ausencias {
+			if usuarioDe[a.TecnicoID] == c.TecnicoID && a.Inicio.Before(c.Fin) && c.Inicio.Before(a.Fin) {
+				c.Conflictos = append(c.Conflictos, "ausencia")
+				break
+			}
+		}
+		for _, o := range ocupadas {
+			if o.OrdenID != c.OrdenID && o.TecnicoID == c.TecnicoID && vivos[o.Estado] && o.Inicio.Before(c.Fin) && c.Inicio.Before(o.Fin) {
+				c.Conflictos = append(c.Conflictos, "solape")
+				break
+			}
+		}
+	}
+	return nil
 }

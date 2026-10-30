@@ -1,9 +1,10 @@
 "use client";
 
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, Plug, ShieldCheck, type LucideIcon } from "lucide-react";
+import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import type { Permiso } from "@/lib/menu";
 import { useSesion } from "@/lib/sesion";
 
@@ -23,6 +24,20 @@ const SECCIONES: readonly Seccion[] = [
         descripcion: "Checklists de las órdenes: ítems, versiones y cuáles se ofrecen por tipo.",
         icono: ClipboardList,
         permisos: ["plantillas.ver"],
+    },
+    {
+        href: "/administracion/cuadrillas",
+        titulo: "Cuadrillas",
+        descripcion: "Equipos de técnicos y las zonas que atienden.",
+        icono: Users,
+        permisos: PERMISOS_CUADRILLAS,
+    },
+    {
+        href: "/administracion/zonas",
+        titulo: "Zonas",
+        descripcion: "Zonas de Argos y locales: crear, renombrar, activar y desactivar.",
+        icono: IconoMapa,
+        permisos: PERMISOS_ZONAS,
     },
     {
         href: "/administracion/integraciones",
