@@ -4,10 +4,15 @@ import type { OrdenVista } from "@iris/sync";
 import { Aviso, Boton, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { ArrowLeft, FileQuestion, MapPin, MapPinCheck, Navigation, Phone, Route } from "lucide-react";
 import { useState } from "react";
+import { ListaTelefonos } from "@/componentes/clientes/telefonos";
+import { useAhora } from "@/componentes/tickets/insignias";
 import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
 import { AVISOS_SERVIDOR, OPERACIONES, TIPOS_ORDEN } from "@/lib/campo/textos";
+import { haceTiempo } from "@/lib/datos/presentacion";
+import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
+import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
 import { CerrarOrden, FallarOrden } from "./cierre";
 import { useCampo, useOrden } from "./contexto";
@@ -159,7 +164,13 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
 }
 
 function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
-    const telefono = orden.cliente?.telefono || orden.contacto.telefono;
+    // Mismo formato que el panel (+502 5512 3344): los de Argos ya vienen normalizados; el
+    // contacto capturado en la orden se normaliza igual. Primero el contacto en sitio de la orden.
+    const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
+    const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos].filter((t, i, todos) => todos.findIndex((x) => (x.e164 ?? x.original) === (t.e164 ?? t.original)) === i);
+    const paraLlamar = orden.contacto.telefono ? (lista[0] ?? null) : principal(lista);
+    const llamar = paraLlamar ? enlaceTel(paraLlamar) : null;
+    const ahora = useAhora(60_000);
     const lat = orden.lat ?? orden.cliente?.lat ?? null;
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
     const comoLlegar = enlaceComoLlegar(lat, lon, orden.direccion);
@@ -177,16 +188,16 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                 ) : null}
                 {orden.servicio ? (
                     <p className="text-muted-foreground">
-                        Servicio {orden.servicio.codigo}
+                        Servicio {orden.servicio.codigo || `#${orden.servicio.id}`}
                         {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
                         {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
                     </p>
                 ) : null}
                 {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
                 <div className="grid grid-cols-2 gap-2">
-                    {telefono ? (
+                    {llamar ? (
                         <Boton asChild variante="secundario" tamano="lg">
-                            <a href={`tel:${telefono.replace(/[^\d+]/g, "")}`}>
+                            <a href={llamar}>
                                 <Phone aria-hidden />
                                 Llamar
                             </a>
@@ -201,7 +212,12 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                         </Boton>
                     ) : null}
                 </div>
-                {telefono ? <p className="text-muted-foreground">Teléfono: {telefono}</p> : null}
+                {lista.length > 0 ? <ListaTelefonos telefonos={lista} /> : null}
+                {orden.cliente ? (
+                    <p className="text-xs text-muted-foreground" title={formatearFecha(orden.cliente.sincronizadoEn)}>
+                        Datos de Argos sincronizados {haceTiempo(orden.cliente.sincronizadoEn, ahora)}
+                    </p>
+                ) : null}
             </TarjetaContenido>
         </Tarjeta>
     );

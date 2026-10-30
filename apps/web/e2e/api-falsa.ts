@@ -648,7 +648,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
             }
             const id = Number(ruta.split("/").pop());
-            const f = ficha(id, id === 502);
+            // ?refrescar=true: Argos responde y la instantánea queda al día.
+            const f = url.searchParams.get("refrescar") === "true" ? ficha(id, false, new Date().toISOString()) : ficha(id, id === 502);
             return f ? route.fulfill({ json: f }) : noEncontrado();
         }
 
