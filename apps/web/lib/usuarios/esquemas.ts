@@ -35,6 +35,13 @@ const correo = z
     .max(MAX_CORREO, `Admite hasta ${MAX_CORREO} caracteres`)
     .pipe(z.email("Correo inválido"));
 
+/** Roles de los usuarios de tipo integración (identidad.RolesIntegracion): los únicos que admiten. */
+export const ROLES_INTEGRACION = ["integracion_argos", "integracion_horus"] as const;
+
+export function esRolIntegracion(codigo: string): boolean {
+    return (ROLES_INTEGRACION as readonly string[]).includes(codigo);
+}
+
 /** Clave de una asignación (rol + alcance) para detectar repetidas, como `AsignacionRol.clave()`. */
 export function claveAsignacion(a: Schema<"AsignacionRol">): string {
     return `${a.rol}:${a.zonaId ?? 0}:${a.cuadrillaId ?? 0}`;
@@ -67,6 +74,9 @@ export function esquemaCrearUsuario({ empresasObligatorias }: { empresasObligato
             const vistas = new Set<string>();
             d.roles.forEach((r, i) => {
                 if (!r.rol) return;
+                if (d.tipo === "integracion" && (!esRolIntegracion(r.rol) || r.alcance !== "global")) {
+                    ctx.addIssue({ code: "custom", path: ["roles", i, "rol"], message: "Una integración solo admite su rol de integración, sin alcance" });
+                }
                 const clave = claveAsignacion(cuerpoAsignarRol(r));
                 if (vistas.has(clave)) {
                     ctx.addIssue({ code: "custom", path: ["roles", i, "rol"], message: "Asignación repetida" });

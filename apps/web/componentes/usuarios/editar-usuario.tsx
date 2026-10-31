@@ -156,8 +156,13 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
                 <Campo etiqueta="Nombre" autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
                 <Campo etiqueta="Correo" type="email" autoComplete="off" spellCheck={false} autoCapitalize="off" maxLength={254} error={errors.correo?.message} {...form.register("correo")} />
                 {cambioCorreoCierraSSO({ correo }, antes, propio) ? (
-                    <Aviso tono="warning" titulo="Cambiar el correo cierra su autologin">
-                        Se borran sus vínculos con Argos y Horus: tendrá que volver a vincular su cuenta la próxima vez que entre desde allá.
+                    <Aviso tono="warning" titulo="Cambiar el correo cierra sus sesiones y su autologin">
+                        Tendrá que volver a entrar, y se borran sus vínculos con Argos y Horus: tendrá que volver a vincular su cuenta la próxima vez
+                        que entre desde allá.
+                    </Aviso>
+                ) : propio && correo.trim().toLowerCase() !== antes.correo ? (
+                    <Aviso tono="info" titulo="Te pediremos tu contraseña">
+                        Cambiar tu propio correo es una acción sensible: al guardar, confirma tu contraseña.
                     </Aviso>
                 ) : null}
                 {error ? <AvisoAccion error={error} que="guardar los cambios" recargando={recargando} recargar={recargar} /> : null}

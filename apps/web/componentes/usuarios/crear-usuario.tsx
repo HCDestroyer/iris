@@ -19,7 +19,7 @@ import {
     useCambiosSinGuardar,
     type ErrorDeCampo,
 } from "@iris/ui";
-import { Bot, CircleCheck, Plus, RotateCw, User, UserPlus, WandSparkles, X } from "lucide-react";
+import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, UserPlus, WandSparkles, X } from "lucide-react";
 import { useState } from "react";
 import { useFieldArray, useForm, useWatch, type Path, type UseFormReturn } from "react-hook-form";
 import { BotonCopiar, useBorradorPortapapeles } from "@/componentes/cuenta/boton-copiar";
@@ -34,7 +34,9 @@ import {
     cuerpoCrearUsuario,
     esquemaCrearUsuario,
     faltanEnCrear,
+    esRolIntegracion,
     ROL_VACIO,
+    ROLES_INTEGRACION,
     valoresCrearUsuario,
     type DatosCrearUsuario,
     type Usuario,
@@ -51,6 +53,8 @@ type Props = {
     textoContinuar?: string;
     alContinuar?: (u: Usuario) => void;
 };
+
+const NOMBRES_INTEGRACION: Record<(typeof ROLES_INTEGRACION)[number], string> = { integracion_argos: "Integración Argos", integracion_horus: "Integración Horus" };
 
 const CAMPOS = ["nombre", "correo", "tipo", "contrasena", "empresas"] as const;
 
@@ -113,6 +117,8 @@ function Formulario({
     const empresasDisponibles = yo.empresas ?? [];
     const conEmpresas = yo.modoEmpresa !== "sin_conector" && empresasDisponibles.length > 0;
     const empresasObligatorias = yo.modoEmpresa !== "sin_conector" && !yo.todasLasEmpresas;
+    // La API solo deja crear integraciones con empresas.todas e integraciones.conectar globales.
+    const puedeIntegracion = puede(["integraciones.conectar"]) && yo.todasLasEmpresas;
     const esquema = esquemaCrearUsuario({ empresasObligatorias });
     const iniciales = valoresCrearUsuario(rolFijo);
     // Con una sola empresa posible y obligatoria, ya va elegida.
@@ -163,13 +169,19 @@ function Formulario({
                     <Campo etiqueta="Nombre" autoFocus autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
                     <Campo etiqueta="Correo" type="email" autoComplete="off" spellCheck={false} autoCapitalize="off" maxLength={254} error={errors.correo?.message} {...form.register("correo")} />
                 </div>
-                {rolFijo ? null : (
+                {rolFijo || !puedeIntegracion ? null : (
                     <GrupoSegmentado<DatosCrearUsuario["tipo"]>
                         etiqueta="Tipo"
                         valor={valores.tipo}
                         alCambiar={(v) => {
                             form.setValue("tipo", v, { shouldDirty: true });
-                            if (v === "integracion") form.setValue("contrasena", "", { shouldValidate: form.formState.isSubmitted });
+                            // Una integración no tiene contraseña y solo lleva su rol de contrato.
+                            if (v === "integracion") {
+                                form.setValue("contrasena", "", { shouldValidate: form.formState.isSubmitted });
+                                form.setValue("roles", [{ ...ROL_VACIO, rol: ROLES_INTEGRACION[0] }], { shouldDirty: true });
+                            } else {
+                                form.setValue("roles", [], { shouldDirty: true });
+                            }
                         }}
                         opciones={[
                             { valor: "persona", etiqueta: "Persona", icono: User },
@@ -192,7 +204,7 @@ function Formulario({
                         <span className="text-muted-foreground">· todas las zonas</span>
                     </p>
                 ) : (
-                    <RolesIniciales form={form} puedeVerRoles={puede(["roles.ver"])} conAgenda={puede(["agenda.ver"])} />
+                    <RolesIniciales form={form} puedeVerRoles={puede(["roles.ver"])} conAgenda={puede(["agenda.ver"]) && valores.tipo === "persona"} integracion={valores.tipo === "integracion"} />
                 )}
                 {conEmpresas ? <EmpresasIniciales form={form} empresas={empresasDisponibles} obligatorias={empresasObligatorias} /> : null}
                 {error ? <AvisoCrear error={error} sueltos={sueltos} /> : sueltos.length > 0 ? <ErrorFormulario titulo="Revisa los datos" errores={sueltos} /> : null}
@@ -214,11 +226,13 @@ function Formulario({
 
 function CampoContrasena({ form, portapapeles }: { form: UseFormReturn<DatosCrearUsuario>; portapapeles: ReturnType<typeof useBorradorPortapapeles> }) {
     const contrasena = useWatch({ control: form.control, name: "contrasena" });
+    const [visible, setVisible] = useState(false);
     return (
         <div className="grid gap-2">
             <Campo
                 etiqueta="Contraseña temporal"
-                autoComplete="new-password"
+                type={visible ? "text" : "password"}
+                autoComplete="off"
                 spellCheck={false}
                 autoCapitalize="off"
                 className="[&_input]:font-mono [&_input]:tracking-wide"
@@ -235,13 +249,28 @@ function CampoContrasena({ form, portapapeles }: { form: UseFormReturn<DatosCrea
                     <WandSparkles />
                     Generar
                 </Boton>
+                <Boton type="button" variante="contorno" onClick={() => setVisible((v) => !v)} aria-pressed={visible}>
+                    {visible ? <EyeOff /> : <Eye />}
+                    {visible ? "Ocultar" : "Mostrar"}
+                </Boton>
                 <BotonCopiar texto={contrasena} etiqueta="Copiar" copiado="Copiada" sensible borrador={portapapeles} disabled={!contrasena} />
             </div>
         </div>
     );
 }
 
-function RolesIniciales({ form, puedeVerRoles, conAgenda }: { form: UseFormReturn<DatosCrearUsuario>; puedeVerRoles: boolean; conAgenda: boolean }) {
+function RolesIniciales({
+    form,
+    puedeVerRoles,
+    conAgenda,
+    integracion,
+}: {
+    form: UseFormReturn<DatosCrearUsuario>;
+    puedeVerRoles: boolean;
+    conAgenda: boolean;
+    /** Integración: solo sus roles de contrato, sin alcance. */
+    integracion: boolean;
+}) {
     const filas = useFieldArray({ control: form.control, name: "roles" });
     const valores = useWatch({ control: form.control, name: "roles" });
     const roles = useLectura<Rol[]>(async (signal) =>
@@ -250,8 +279,15 @@ function RolesIniciales({ form, puedeVerRoles, conAgenda }: { form: UseFormRetur
     const zonas = useLectura<Schema<"Zona">[]>(async (signal) => (conAgenda ? ((await resolver(api().GET("/api/v1/zonas", { signal }))).data ?? []) : []));
     const cuadrillas = useLectura<Schema<"Cuadrilla">[]>(async (signal) => (conAgenda ? ((await resolver(api().GET("/api/v1/cuadrillas", { signal }))).data ?? []) : []));
     const errores = form.formState.errors.roles;
+    // Una integración solo lleva su rol de contrato: lista fija, sin leer los roles.
+    const opciones: { id: string; codigo: string; nombre: string }[] = integracion
+        ? ROLES_INTEGRACION.map((codigo) => ({ id: codigo, codigo, nombre: NOMBRES_INTEGRACION[codigo] }))
+        : roles.estado === "listo"
+          ? roles.datos.filter((r) => !esRolIntegracion(r.codigo)).map((r) => ({ id: String(r.id), codigo: r.codigo, nombre: r.nombre }))
+          : [];
+    const listos = integracion || roles.estado === "listo";
 
-    if (!puedeVerRoles) {
+    if (!puedeVerRoles && !integracion) {
         return (
             <fieldset className="grid gap-2 rounded-md border p-3">
                 <legend className="px-1 text-sm font-medium">Roles</legend>
@@ -262,7 +298,7 @@ function RolesIniciales({ form, puedeVerRoles, conAgenda }: { form: UseFormRetur
     return (
         <fieldset className="grid gap-3 rounded-md border p-3" aria-label="Roles iniciales">
             <legend className="px-1 text-sm font-medium">Roles</legend>
-            {roles.estado === "error" ? (
+            {roles.estado === "error" && !integracion ? (
                 <Aviso
                     tono="error"
                     titulo="No se pudo cargar la lista de roles"
@@ -287,12 +323,12 @@ function RolesIniciales({ form, puedeVerRoles, conAgenda }: { form: UseFormRetur
                                 <CampoSelector
                                     etiqueta={`Rol ${i + 1}`}
                                     className="min-w-0 flex-1"
-                                    disabled={roles.estado !== "listo"}
+                                    disabled={!listos}
                                     error={err?.rol?.message}
                                     {...form.register(`roles.${i}.rol`)}
                                 >
-                                    <option value="">{roles.estado === "cargando" ? "Cargando roles…" : "Elige un rol…"}</option>
-                                    {(roles.estado === "listo" ? roles.datos : []).map((r) => (
+                                    <option value="">{listos ? "Elige un rol…" : roles.estado === "cargando" ? "Cargando roles…" : "Elige un rol…"}</option>
+                                    {opciones.map((r) => (
                                         <option key={r.id} value={r.codigo}>
                                             {r.nombre}
                                         </option>
@@ -436,7 +472,7 @@ function Resultado({
                             <BotonCopiar texto={contrasena} etiqueta="Copiar" copiado="Copiada" sensible borrador={portapapeles} />
                         </div>
                         <Aviso tono="warning" titulo="Se muestra solo esta vez">
-                            Entrégala en persona o por teléfono. Iris no le pedirá cambiarla al entrar: pídele que la cambie en «Mi cuenta». Si la
+                            Entrégala en persona o por teléfono. Al entrar, Iris le pedirá cambiarla antes de cualquier otra cosa. Si la
                             copiaste, se borra del portapapeles a los 45 s o al cerrar este diálogo.
                         </Aviso>
                     </div>

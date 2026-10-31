@@ -6,8 +6,9 @@ import { CSRF, PAGINA_1, PAGINA_2, type Peticion } from "./api-falsa";
  * API falsa de la administración de usuarios (identidad/crear_usuario.go, editar_usuario.go,
  * desactivar_usuario.go y empresas.go). Se registra DESPUÉS de simularApi (y de simularAccesos):
  * Playwright corre primero la última ruta, y lo que no es de aquí sigue con route.fallback().
- *  - `POST /usuarios`: 422 por campo (contraseña corta, integración con contraseña, empresas
- *    obligatorias), 409 `correo_en_uso`; responde 201 con el `Usuario`.
+ *  - `POST /usuarios`: 422 por campo (contraseña corta, integración con contraseña o con un rol
+ *    que no es de integración, empresas obligatorias), 409 `correo_en_uso`; responde 201 con el
+ *    `Usuario` (una persona, con `cambioContrasenaRequerido`).
  *  - `POST /usuarios/{id}/editar` y `/desactivar`: `version` (409), 422 `ultimo_admin`.
  *  - `POST /usuarios/{id}/asignar-empresa` y `/quitar-empresa`: 422 `empresa_ya_asignada` /
  *    `empresa_no_asignada`.
@@ -80,6 +81,11 @@ export async function simularUsuarios(page: Page, opciones: OpcionesUsuarios = {
             const errores: Schema<"ErrorCampo">[] = [];
             if (tipo === "persona" && runas(e.contrasena ?? "") < 12) errores.push({ field: "body.contrasena", message: "Mínimo 12 caracteres" });
             if (tipo === "integracion" && e.contrasena) errores.push({ field: "body.contrasena", message: "Las integraciones entran solo con token" });
+            (e.roles ?? []).forEach((r, i) => {
+                if (tipo === "integracion" && !["integracion_argos", "integracion_horus"].includes(r.rol)) {
+                    errores.push({ field: `body.roles[${i}].rol`, message: "Una integración solo admite su rol de integración (integracion_argos, integracion_horus), sin alcance" });
+                }
+            });
             if (opciones.empresasObligatorias && (e.empresas ?? []).length === 0) errores.push({ field: "body.empresas", message: "Indica al menos una empresa en que operará" });
             if (errores.length > 0) return problema(route, 422, "validacion", "Datos inválidos", errores);
             if ([...usuarios.values()].some((u) => u.correo === e.correo)) return problema(route, 409, "correo_en_uso", `Ya existe un usuario con el correo ${e.correo}`);
@@ -92,6 +98,8 @@ export async function simularUsuarios(page: Page, opciones: OpcionesUsuarios = {
                 mfaActivo: false,
                 roles: e.roles ?? [],
                 empresas: e.empresas ?? [],
+                // Una persona creada por otra entra con una contraseña temporal (crear_usuario.go).
+                ...(tipo === "persona" ? { cambioContrasenaRequerido: true } : {}),
                 version: 1,
                 creadoEn: ahora(),
                 actualizadoEn: ahora(),

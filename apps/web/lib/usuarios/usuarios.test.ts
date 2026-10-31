@@ -60,6 +60,13 @@ describe("crear usuario (espejo de crear_usuario.go)", () => {
     it("integración: sin contraseña (la API responde 422 si viene)", () => {
         expect(sinEmpresas.safeParse(base({ tipo: "integracion", contrasena: "" })).success).toBe(true);
         expect(mensajes(sinEmpresas.safeParse(base({ tipo: "integracion" })))).toEqual({ contrasena: "Las integraciones entran solo con token" });
+        // Solo su rol de contrato, sin alcance (crear_usuario.go exigirCrearIntegracion).
+        const rol = (r: string, alcance: "global" | "zona" = "global") => ({ rol: r, alcance, zonaId: alcance === "zona" ? "4" : "", cuadrillaId: "" });
+        expect(mensajes(sinEmpresas.safeParse(base({ tipo: "integracion", contrasena: "", roles: [rol("lectura")] })))).toEqual({
+            "roles.0.rol": "Una integración solo admite su rol de integración, sin alcance",
+        });
+        expect(sinEmpresas.safeParse(base({ tipo: "integracion", contrasena: "", roles: [rol("integracion_argos", "zona")] })).success).toBe(false);
+        expect(sinEmpresas.safeParse(base({ tipo: "integracion", contrasena: "", roles: [rol("integracion_horus")] })).success).toBe(true);
     });
 
     it("roles: con alcance completo y sin asignaciones repetidas", () => {

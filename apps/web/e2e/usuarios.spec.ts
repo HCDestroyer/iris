@@ -44,8 +44,16 @@ test.describe("administración de usuarios", () => {
         await d.getByLabel("Nombre", { exact: true }).fill("Marta Xol");
         await d.getByLabel("Correo", { exact: true }).fill(" Marta.Xol@IRIS.test ");
         await d.getByRole("button", { name: "Generar" }).click();
-        const contrasena = await d.getByLabel("Contraseña temporal").inputValue();
+        const campo = d.getByLabel("Contraseña temporal");
+        const contrasena = await campo.inputValue();
         expect(contrasena).toMatch(/^[2-9a-zA-Z]{4}(-[2-9a-zA-Z]{4}){3}$/);
+        // Oculta salvo «Mostrar», y sin autocompletar del navegador.
+        await expect(campo).toHaveAttribute("type", "password");
+        await expect(campo).toHaveAttribute("autocomplete", "off");
+        await d.getByRole("button", { name: "Mostrar" }).click();
+        await expect(campo).toHaveAttribute("type", "text");
+        await d.getByRole("button", { name: "Ocultar" }).click();
+        await expect(campo).toHaveAttribute("type", "password");
 
         // Un rol sin elegir impide crear y dice qué falta.
         await d.getByRole("button", { name: "Agregar rol" }).click();
@@ -61,7 +69,7 @@ test.describe("administración de usuarios", () => {
         await expect(r).toContainText("Marta Xol");
         await expect(r.getByTestId("contrasena-creada")).toHaveText(contrasena);
         await expect(r.getByRole("button", { name: "Copiar" })).toBeVisible();
-        await expect(r.getByText("Iris no le pedirá cambiarla al entrar")).toBeVisible();
+        await expect(r.getByText("Al entrar, Iris le pedirá cambiarla")).toBeVisible();
         const alta = admin.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/usuarios");
         expect(alta?.cuerpo).toEqual({ nombre: "Marta Xol", correo: "marta.xol@iris.test", tipo: "persona", contrasena, roles: [{ rol: "mesa_ayuda" }], empresas: [10] });
         expect(alta?.idempotencia).toBeTruthy();
@@ -91,16 +99,18 @@ test.describe("administración de usuarios", () => {
         await d.getByRole("button", { name: "Crear usuario" }).click();
         await expect(d.getByText("Ya existe un usuario con el correo ana@iris.test")).toBeVisible();
 
-        // Integración: sin contraseña (entra con token).
+        // Integración: sin contraseña (entra con token) y solo con su rol de contrato.
         await d.getByRole("radio", { name: "Integración" }).click();
         await expect(d.getByLabel("Contraseña temporal")).toHaveCount(0);
+        await expect(d.getByLabel("Rol 1", { exact: true }).locator("option")).toHaveText(["Elige un rol…", "Integración Argos", "Integración Horus"]);
+        await expect(d.getByLabel("Rol 1", { exact: true })).toHaveValue("integracion_argos");
         await expect(d.getByText("Una integración entra solo con un token de API")).toBeVisible();
         await d.getByLabel("Correo", { exact: true }).fill("script@iris.test");
         await d.getByRole("button", { name: "Crear usuario" }).click();
         await expect(page.getByTestId("usuario-creado")).toContainText("recibir un token de API");
         await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
         const altas = admin.peticiones.filter((p) => p.metodo === "POST" && p.ruta === "/api/v1/usuarios");
-        expect(altas.at(-1)?.cuerpo).toEqual({ nombre: "Otra Ana", correo: "script@iris.test", tipo: "integracion", empresas: [20] });
+        expect(altas.at(-1)?.cuerpo).toEqual({ nombre: "Otra Ana", correo: "script@iris.test", tipo: "integracion", roles: [{ rol: "integracion_argos" }], empresas: [20] });
         // Al cerrar, el recién creado ya está en la lista.
         await page.getByTestId("usuario-creado").press("Escape");
         await expect(page.getByTestId("usuario-creado")).toHaveCount(0);
@@ -115,7 +125,7 @@ test.describe("administración de usuarios", () => {
         const d = page.getByTestId("editar-usuario");
         await expect(d.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
         await d.getByLabel("Correo", { exact: true }).fill("mario.perez@iris.test");
-        await expect(d.getByText("Cambiar el correo cierra su autologin")).toBeVisible();
+        await expect(d.getByText("Cambiar el correo cierra sus sesiones y su autologin")).toBeVisible();
         await sinDesborde(page);
         await page.screenshot({ path: path.join(carpeta, `usuarios-editar-${info.project.name}.png`), fullPage: true });
 
