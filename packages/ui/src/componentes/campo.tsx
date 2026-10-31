@@ -32,12 +32,12 @@ export function PieCampo({ idAyuda, idError, ayuda, error }: { idAyuda: string; 
     return (
         <>
             {ayuda ? (
-                <p id={idAyuda} className="text-sm text-muted-foreground">
+                <p id={idAyuda} data-slot="ayuda" className="description text-sm text-muted-foreground">
                     {ayuda}
                 </p>
             ) : null}
             {error ? (
-                <p id={idError} className="flex items-center gap-1.5 text-sm text-error">
+                <p id={idError} data-slot="error" className="flex items-center gap-1.5 text-sm text-error">
                     <CircleAlert aria-hidden className="size-4 shrink-0" />
                     {error}
                 </p>

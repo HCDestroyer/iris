@@ -1,3 +1,4 @@
+import { inputVariants } from "@heroui/styles";
 import { ChevronDown } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
@@ -7,17 +8,18 @@ import { Etiqueta } from "./etiqueta";
 export type PropsSelector = ComponentProps<"select"> & { tamano?: "md" | "sm" };
 
 /**
- * Lista desplegable nativa con el estilo de Horus: en el teléfono abre el selector del sistema,
- * accesible y sin trampas de foco.
+ * Lista desplegable nativa con el estilo de campo de HeroUI (`input`): en el teléfono abre el
+ * selector del sistema, accesible y sin trampas de foco. Sigue nativa a propósito (fase 0):
+ * `register` de react-hook-form y `selectOption` de las pruebas la usan tal cual.
  */
 export function Selector({ className, tamano = "md", children, ...props }: PropsSelector) {
     return (
         <span data-slot="selector" className={cn("relative inline-flex w-full min-w-0", className)}>
             <select
                 className={cn(
-                    "w-full min-w-0 appearance-none rounded-md border border-input bg-background pr-8 pl-3 text-foreground",
-                    "transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-offset-0",
-                    "disabled:cursor-not-allowed disabled:opacity-55 aria-invalid:border-error",
+                    inputVariants({ fullWidth: true }),
+                    "min-w-0 cursor-pointer appearance-none py-0 pr-8 pl-3",
+                    "disabled:cursor-not-allowed aria-invalid:border-error",
                     tamano === "sm" ? "h-8 text-sm" : "h-10 text-base sm:text-sm",
                 )}
                 {...props}

@@ -31,3 +31,18 @@ export const superficiePorTono: Record<Tono, string> = {
     warning: "bg-warning/10 border-warning/30",
     error: "bg-error/10 border-error/30",
 };
+
+/**
+ * Tono de Iris → estado de HeroUI (`Alert`, `Toast`). HeroUI no tiene «info» ni «neutral» y su
+ * `accent` es el teal de la marca (nunca un estado): los dos van a `default` con el color del tono.
+ */
+export const estadoHeroui = {
+    neutral: "default",
+    info: "default",
+    success: "success",
+    warning: "warning",
+    error: "danger",
+} as const satisfies Record<Tono, string>;
+
+/** Tono de Iris → color de HeroUI `Chip`. */
+export const colorChipHeroui = estadoHeroui;

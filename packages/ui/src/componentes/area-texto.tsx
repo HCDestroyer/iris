@@ -1,21 +1,21 @@
+"use client";
+
+import { TextArea } from "@heroui/react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo, type PropsEnvolturaCampo } from "./campo";
 import { Etiqueta } from "./etiqueta";
 
-/** Texto de varias líneas (16 px para que iOS no haga zoom). */
+/** Texto de varias líneas: HeroUI `TextArea` (`<textarea>` nativo). 16 px en el teléfono. */
 export function AreaTexto({ className, rows = 4, ...props }: ComponentProps<"textarea">) {
+    const invalido = props["aria-invalid"] === true || props["aria-invalid"] === "true";
     return (
-        <textarea
+        <TextArea
             data-slot="area-texto"
             rows={rows}
-            className={cn(
-                "min-h-20 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-base text-foreground",
-                "placeholder:text-dimmed transition-[border-color,box-shadow] duration-150",
-                "focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-offset-0",
-                "disabled:cursor-not-allowed disabled:opacity-55 aria-invalid:border-error",
-                className,
-            )}
+            fullWidth
+            data-invalid={invalido ? "true" : undefined}
+            className={cn("min-h-20 min-w-0 disabled:cursor-not-allowed aria-invalid:border-error", className)}
             {...props}
         />
     );
