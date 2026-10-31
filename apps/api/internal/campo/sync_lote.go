@@ -15,6 +15,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -30,8 +31,8 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario"`
-	OrdenID     int64          `json:"ordenId" minimum:"1"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir"`
+	OrdenID     int64          `json:"ordenId,omitempty" minimum:"1" doc:"Obligatorio salvo en traslado.recibir (no es de una orden)"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
 	Datos       map[string]any `json:"datos,omitempty" doc:"Los mismos campos (camelCase) que el cuerpo de la acción del panel, sin version"`
@@ -59,6 +60,8 @@ type ResultadoOperacion struct {
 	Error  *nucleo.Problema `json:"error,omitempty" doc:"problem+json del rechazo; el código va en type (urn:iris:problema:<codigo>)"`
 	Aviso  *string          `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada"`
 	Orden  *EstadoOrden     `json:"orden,omitempty" doc:"Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo)"`
+	// Recepcion: traslado.recibir aplicada (contrato 0.5.0; I1).
+	Recepcion *inventario.EstadoRecepcion `json:"recepcion,omitempty" doc:"traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[])"`
 }
 
 // RespuestaLote es la respuesta de POST /sync/lote.
@@ -186,9 +189,12 @@ func (m *Modulo) nuevoRegistrarRechazo() *auditoria.Caso[EntradaRechazo, *Estado
 			if err != nil {
 				return nil, err
 			}
-			ordenID := in.OrdenID
+			var ordenID *int64
+			if in.OrdenID > 0 {
+				ordenID = &in.OrdenID
+			}
 			return estado, q.GuardarRechazo(ctx, campobd.GuardarRechazoParams{
-				ID: in.Op.ID, DispositivoID: in.Op.DispositivoID, UsuarioID: actor.ID, OrdenID: &ordenID, Tipo: in.Op.Tipo,
+				ID: in.Op.ID, DispositivoID: in.Op.DispositivoID, UsuarioID: actor.ID, OrdenID: ordenID, Tipo: in.Op.Tipo,
 				Resultado: crudo, VersionBase: in.Op.VersionBase, OcurridoEnTelefono: in.Op.OcurridoEnTelefono,
 				OcurridoEn: &in.Op.OcurridoEn,
 			})
@@ -203,7 +209,10 @@ var codigosNoBloqueantes = map[string]bool{"orden_reasignada": true, "orden_canc
 // serialización que Postgres cortó) no es un rechazo de la operación. No se guarda (el mismo id
 // se puede volver a mandar), y lo que sigue de esa orden en el lote tampoco se aplica (se
 // responde igual): el teléfono las deja en su cola y reintenta con espera (contratos/sync.md §3).
-var codigosReintentables = map[string]bool{"concurrencia": true}
+// traslado_sin_confirmar (Argos no respondió al confirmar el traslado) y recepcion_en_envio tampoco
+// se guardan; el teléfono espera solo esa operación (sin detener la cola).
+var codigosReintentables = map[string]bool{"concurrencia": true, inventario.CodigoTrasladoSinConfirmar: true,
+	inventario.CodigoRecepcionEnEnvio: true}
 
 // reintentable: la respuesta «vuelve a mandarla» de una operación, sin guardarla.
 func reintentable(id string, p *nucleo.Problema) ResultadoOperacion {
@@ -228,7 +237,9 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			return RespuestaLote{}, campoInvalido("operaciones["+itoa(i)+"].id", "Debe ser un uuid", "uuid")
 		}
 		ids[i] = id
-		ordenes = append(ordenes, op.OrdenID)
+		if op.OrdenID > 0 {
+			ordenes = append(ordenes, op.OrdenID)
+		}
 	}
 	inicio, err := m.RegistrarDispositivo.Ejecutar(ctx, EntradaDispositivo{
 		DispositivoID: in.DispositivoID, Plataforma: in.Plataforma, EnviadoEn: in.EnviadoEn,
@@ -268,22 +279,29 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 		s := &OpSync{ID: id, Tipo: op.Tipo, DispositivoID: in.DispositivoID, VersionBase: op.VersionBase,
 			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora)}
 		var res ResultadoOperacion
-		if choque, ok := choques[op.OrdenID]; ok {
+		// Grupo: la orden o, en traslado.recibir, el traslado (clave negativa: no choca con órdenes y
+		// no bloquea ninguna orden).
+		grupo := grupoDe(op)
+		if choque, ok := choques[grupo]; ok {
 			res = reintentable(op.ID, choque)
-		} else if bloqueo, ok := bloqueadas[op.OrdenID]; ok {
+		} else if bloqueo, ok := bloqueadas[grupo]; ok {
 			res = m.rechazar(ctx, s, op.OrdenID, nucleo.Conflicto("bloqueada_por_rechazo",
-				"Una operación anterior de esta orden ("+bloqueo+") fue rechazada; resuélvela primero"))
+				"Una operación anterior de "+queBloquea(op)+" ("+bloqueo+") fue rechazada; resuélvela primero"))
+		} else if op.Tipo == OpTrasladoRecibir {
+			res = m.aplicarTraslado(ctx, s, op)
+		} else if op.OrdenID <= 0 {
+			res = m.rechazar(ctx, s, 0, nucleo.Validacion(nucleo.ErrorCampo{Field: "ordenId", Message: "Obligatorio en " + op.Tipo, Rule: "required"}))
 		} else {
 			s.Existencia, s.Modalidad, s.pre = existencias[i], modalidades[i], comodatos[i]
 			res = m.aplicar(ctx, s, op)
 		}
 		if res.Estado == "rechazada" && res.Error != nil && codigosReintentables[res.Error.Codigo()] {
-			if _, ya := choques[op.OrdenID]; !ya {
-				choques[op.OrdenID] = res.Error
+			if _, ya := choques[grupo]; !ya {
+				choques[grupo] = res.Error
 			}
 		} else if res.Estado == "rechazada" && res.Error != nil && !codigosNoBloqueantes[res.Error.Codigo()] {
-			if _, ya := bloqueadas[op.OrdenID]; !ya {
-				bloqueadas[op.OrdenID] = op.ID
+			if _, ya := bloqueadas[grupo]; !ya {
+				bloqueadas[grupo] = op.ID
 			}
 		}
 		enEsteLote[id] = res
@@ -364,7 +382,8 @@ func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
 		esquemasDatos = map[reflect.Type]*huma.Schema{}
 		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaUsarMaterial{},
 			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{},
-			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}} {
+			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{},
+			inventario.EntradaRecibirTraslado{}} {
 			tt := reflect.TypeOf(v)
 			esquemasDatos[tt] = registroDatos.Schema(tt, true, "")
 		}

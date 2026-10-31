@@ -19,6 +19,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -109,6 +110,9 @@ type Config struct {
 	Adjuntos Adjuntos
 	// Inventario de Argos para el paquete y el aviso de existencia (nil = sin conector).
 	Inventario Inventario
+	// Recepciones de órdenes de traslado (traslado.recibir del lote y su estado en cambios;
+	// inventario.Modulo de I1). nil = la operación se rechaza con conector_apagado.
+	Recepciones Recepciones
 	// ZonaHoraria para el día del paquete (America/Guatemala por defecto).
 	ZonaHoraria *time.Location
 	// Agenda valida y guarda la cita al programar, reprogramar o cambiar el técnico (turno,
@@ -169,6 +173,7 @@ type Modulo struct {
 	// App de campo (sync_*.go).
 	LeerPaquete          *auditoria.Caso[EntradaPaquete, Paquete]
 	LeerCambios          *auditoria.Caso[EntradaCambios, Cambios]
+	RecibirTraslado      *auditoria.Caso[entradaRecibirTraslado, inventario.EstadoRecepcion]
 	RegistrarDispositivo *auditoria.Caso[EntradaDispositivo, InicioLote]
 	RegistrarRechazo     *auditoria.Caso[EntradaRechazo, *EstadoOrden]
 
@@ -251,6 +256,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ReanudarOrden = m.nuevoReanudarOrden()
 	m.LeerPaquete = m.nuevoLeerPaquete()
 	m.LeerCambios = m.nuevoLeerCambios()
+	m.RecibirTraslado = m.nuevoRecibirTraslado()
 	m.RegistrarDispositivo = m.nuevoRegistrarDispositivo()
 	m.RegistrarRechazo = m.nuevoRegistrarRechazo()
 	m.RegistrarPosiciones = m.nuevoRegistrarPosiciones()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	comercialbd "github.com/HCDestroyer/iris/apps/api/internal/comercial/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -438,4 +439,18 @@ func multiplicar(cantidad, precio int64) (int64, bool) {
 // diaLocal formatea una hora en la zona de visualización.
 func (m *Modulo) diaLocal(t time.Time) string {
 	return t.In(m.cfg.ZonaHoraria).Format("02/01/2006")
+}
+
+// telefonoArgos valida y normaliza un teléfono como Argos 1.6.0 (contrato 0.5.0 §3.2: Guatemala con
+// +502 opcional o internacional con +), para que el alta en Argos no falle con 422 validacion. nil o
+// vacío pasa igual.
+func telefonoArgos(v *string) (*string, error) {
+	if v == nil || *v == "" {
+		return v, nil
+	}
+	n, ok := formato.TelefonoArgos(*v)
+	if !ok {
+		return nil, campoInvalido("telefono", "Teléfono no válido: de Guatemala, 8 dígitos que empiezan en 2–7 (con +502 opcional), o internacional con + y de 8 a 15 dígitos", "telefono")
+	}
+	return &n, nil
 }

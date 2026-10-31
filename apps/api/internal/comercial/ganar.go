@@ -225,6 +225,11 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 				}
 				d.RouterID = router
 				evento["router_id"] = *router
+				// Argos 1.6.0 valida el teléfono (422 de negocio): uno capturado antes de la validación se
+				// normaliza o se corrige antes de encolar.
+				if antes.Telefono, err = telefonoArgos(antes.Telefono); err != nil {
+					return Prospecto{}, err
+				}
 				c, err := m.encolar(ctx, t, pendientes.Accion{
 					EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
 					Ruta: "/clientes", Cuerpo: payloadCliente(antes),

@@ -250,6 +250,51 @@ describe("conflictos (§3)", () => {
         motor.detener();
     });
 
+    it("espera de una operación (traslado_sin_confirmar): no detiene la cola ni el bucle; espera sola y a las 24 h se rechaza", async () => {
+        const { motor, transporte, reloj, almacen } = await montar({ espera: { baseMs: 1000, maximoMs: 60_000, azar: () => 0 }, intervaloMs: 30_000 });
+        const espera = await motor.registrar("orden.llegar", 1, {});
+        const detras = await motor.registrar("nota.agregar", 1, { texto: "detrás de la que espera" });
+        await motor.registrar("orden.iniciar_camino", 2, {});
+        const enEspera = (id: string): ResultadoOperacion => ({ id, estado: "rechazada", error: { ...problema("traslado_sin_confirmar"), status: 503 } });
+        let esperar = true;
+        transporte.lote = (p) => ({
+            resultados: (p.operaciones ?? []).map((op) => (op.ordenId === 1 && esperar ? enEspera(op.id) : transporte.aplicar(op))),
+        });
+
+        // La pasada no lanza: la otra orden sale; la que espera (y lo de su orden) queda en la cola.
+        await motor.sincronizar();
+        expect(motor.obtenerEstado()).toMatchObject({ rechazos: [], pendientes: 2, proximoIntento: null });
+        expect(motor.obtenerOrden(2)).toMatchObject({ estado: "en_camino", pendientes: 0 });
+        const guardada = almacen.operaciones.get(espera.operacion.id);
+        expect(guardada).toMatchObject({ estado: "pendiente", esperas: 1, esperaDesde: reloj.ahora(), esperaHasta: reloj.ahora() + 500 });
+
+        // Mientras espera no sale (ni lo de detrás); una acción nueva de otra orden sí.
+        const lotes = transporte.lotes.length;
+        const otra = await motor.registrar("nota.agregar", 2, { texto: "sigue fluyendo" });
+        await motor.sincronizar();
+        expect(transporte.lotes.slice(lotes).flatMap((l) => (l.operaciones ?? []).map((o) => o.id))).toEqual([otra.operacion.id]);
+
+        // Vencida su espera, sale con el mismo id (y lo de detrás) y, si sigue esperando, la espera crece.
+        await reloj.avanzar(500);
+        await motor.sincronizar();
+        expect(transporte.lotes.at(-1)?.operaciones?.map((o) => o.id)).toEqual([espera.operacion.id, detras.operacion.id]);
+        expect(almacen.operaciones.get(espera.operacion.id)).toMatchObject({ esperas: 2, esperaHasta: reloj.ahora() + 1000 });
+
+        // Pasadas 24 h desde la primera espera, queda rechazada (Rehacer o Descartar).
+        await reloj.avanzar(DIA_MS);
+        await motor.sincronizar();
+        expect(motor.obtenerEstado().rechazos.map((r) => r.id)).toEqual([espera.operacion.id]);
+        expect(almacen.operaciones.get(espera.operacion.id)?.esperaHasta).toBeUndefined();
+
+        // Rehacer: id nuevo, sin la espera vieja; ahora Argos responde y sale todo en orden.
+        esperar = false;
+        const nueva = await motor.rehacer(espera.operacion.id);
+        expect(nueva.esperaDesde).toBeUndefined();
+        await motor.sincronizar();
+        expect(transporte.lotes.at(-1)?.operaciones?.map((o) => o.id)).toEqual([nueva.id, detras.operacion.id]);
+        expect(motor.obtenerEstado()).toMatchObject({ rechazos: [], pendientes: 0 });
+    });
+
     it("reasignada: lo aplicado se conserva, lo posterior queda rechazado y se puede descartar", async () => {
         const { motor, transporte } = await montar();
         const nota = await motor.registrar("nota.agregar", 1, { texto: "antes de reasignar" });

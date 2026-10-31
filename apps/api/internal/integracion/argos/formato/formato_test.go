@@ -92,3 +92,21 @@ func deref[T any](p *T) any {
 	}
 	return *p
 }
+
+// TelefonoArgos: el formato que Argos 1.6.0 valida y guarda (contrato 0.5.0 §3.2).
+func TestTelefonoArgos(t *testing.T) {
+	for entrada, esperado := range map[string]string{
+		"55123344": "+502 5512-3344", "5512-3344": "+502 5512-3344", "+502 5512 3344": "+502 5512-3344",
+		"00502 2233-4455": "+502 2233-4455", "(502) 7766 5544": "+502 7766-5544", "+1 (415) 555-0100": "+14155550100",
+		"0052 55 1234 5678": "+525512345678",
+	} {
+		if v, ok := TelefonoArgos(entrada); !ok || v != esperado {
+			t.Errorf("%q: %q %v (esperaba %q)", entrada, v, ok, esperado)
+		}
+	}
+	for _, malo := range []string{"", "1234", "85123344", "15123344", "+1 234", "5512-3344 ext 2", "+0123456789", "+502 1234 5678", "+1234567890123456"} {
+		if v, ok := TelefonoArgos(malo); ok {
+			t.Errorf("%q no es válido para Argos y dio %q", malo, v)
+		}
+	}
+}

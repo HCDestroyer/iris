@@ -94,3 +94,36 @@ export const esquemaNumeroItem = z
     .min(1, "Escribe el valor")
     .transform((s) => Number(s.replace(",", ".")))
     .pipe(z.number({ message: "Número no válido" }).finite("Número no válido"));
+
+/**
+ * `datos` de `traslado.recibir` (contrato Iris ↔ ArgosISP 0.5.0 §3.3), espejo de
+ * `inventario.EntradaRecibirTraslado` en la API: traslado de Argos, firma (adjunto PNG de la entidad
+ * «traslado», puede no haber terminado de subir), hora del teléfono y, solo si faltó algo, lo recibido
+ * por línea (sin repetir líneas).
+ */
+export const esquemaRecibirTraslado = z
+    .object({
+        trasladoId: z.number().int().positive("Traslado inválido"),
+        firmaAdjuntoId: z.uuid("La firma no es válida"),
+        recibidoEn: z.iso.datetime({ offset: true, message: "Hora no válida" }),
+        lineas: z
+            .array(
+                z.object({
+                    lineaId: z.number().int().positive(),
+                    cantidadRecibida: z.number().min(0, "No puede ser negativa").max(1_000_000),
+                    seriesFaltantes: z.array(texto(100).min(1)).max(500).optional(),
+                }),
+            )
+            .max(200)
+            .optional(),
+    })
+    .superRefine((d, ctx) => {
+        const vistas = new Set<number>();
+        d.lineas?.forEach((l, i) => {
+            if (vistas.has(l.lineaId)) {
+                ctx.addIssue({ code: "custom", path: ["lineas", i, "lineaId"], message: "Línea repetida" });
+            }
+            vistas.add(l.lineaId);
+        });
+    });
+export type DatosRecibirTraslado = z.infer<typeof esquemaRecibirTraslado>;

@@ -60,7 +60,10 @@ export type Adjunto = Schema<"Adjunto">;
 
 export type EstadoOrden = OrdenCampo["estado"];
 export type TipoOrden = OrdenCampo["tipo"];
-export type TipoOperacion = OperacionLote["tipo"];
+/** Todos los tipos del lote, también los que no son de una orden (`traslado.recibir`). */
+export type TipoOperacionLote = OperacionLote["tipo"];
+/** Operaciones de una orden: llevan `ordenId` y `versionBase` (el motor las agrupa por orden). */
+export type TipoOperacion = Exclude<TipoOperacionLote, typeof TIPO_RECIBIR_TRASLADO>;
 export type TipoAdjunto = Adjunto["tipo"];
 export type TipoItem = ItemChecklist["tipo"];
 export type MotivoFalla = Schema<"EntradaFallarOrden">["motivoFalla"];
@@ -135,10 +138,34 @@ export interface DatosPorTipo {
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */
 export type OperacionCable = {
-    [T in TipoOperacion]: Omit<OperacionLote, "tipo" | "datos" | "versionBase" | "ocurridoEn"> & {
+    [T in TipoOperacion]: Omit<OperacionLote, "tipo" | "datos" | "versionBase" | "ocurridoEn" | "ordenId"> & {
         tipo: T;
+        ordenId: number;
         versionBase: number;
         ocurridoEn: string;
         datos: DatosPorTipo[T];
     };
 }[TipoOperacion];
+
+// Recepción de órdenes de traslado (contrato Iris ↔ ArgosISP 0.5.0 §3.3; `contratos/sync.md` §2 y §3).
+// No es de una orden: sin `ordenId` ni `versionBase`; el servidor la agrupa por traslado.
+
+/** Tipo de la operación que recibe una orden de traslado de Argos con firma. */
+export const TIPO_RECIBIR_TRASLADO = "traslado.recibir" as const satisfies TipoOperacionLote;
+/** `datos` de `traslado.recibir`: traslado, firma (adjunto PNG de la entidad «traslado»), hora y faltantes. */
+export type EntradaRecibirTraslado = Schema<"EntradaRecibirTraslado">;
+export type LineaRecepcion = Schema<"LineaRecepcion">;
+/** Cómo va una recepción (`ResultadoOperacion.recepcion` y `Cambios.recepciones`). */
+export type EstadoRecepcion = Schema<"EstadoRecepcion">;
+
+/** `traslado.recibir` tal como viaja en `POST /sync/lote`. */
+export type OperacionTrasladoCable = Omit<OperacionLote, "tipo" | "datos" | "versionBase" | "ocurridoEn" | "ordenId"> & {
+    tipo: typeof TIPO_RECIBIR_TRASLADO;
+    ocurridoEn: string;
+    datos: EntradaRecibirTraslado;
+};
+
+/** Arma la operación `traslado.recibir` (id = UUID v7 del teléfono; idempotente por él). */
+export function operacionRecibirTraslado(id: string, datos: EntradaRecibirTraslado, ocurridoEn: string): OperacionTrasladoCable {
+    return { id, tipo: TIPO_RECIBIR_TRASLADO, ocurridoEn, datos };
+}

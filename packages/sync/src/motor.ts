@@ -44,6 +44,28 @@ export const CODIGOS_TERMINALES: ReadonlySet<string> = new Set(["orden_cancelada
  */
 export const CODIGOS_REINTENTABLES: ReadonlySet<string> = new Set(["concurrencia"]);
 
+/**
+ * Esperas de una sola operación (§3): la API no la guardó y pide volver a mandarla más tarde
+ * (`traslado_sin_confirmar`: Argos no respondió al confirmar el traslado; `recepcion_en_envio`: la
+ * recepción de otro se está mandando). Queda en la cola con su id y su propia espera exponencial
+ * (y lo que sigue de su grupo detrás); el resto de la cola sigue saliendo y el bucle no se detiene
+ * ni lanza `ErrorTransporte`. Pasado `ESPERA_OPERACION_MAX_MS` desde la primera espera, queda
+ * `rechazada` con el último error («Rehacer» o «Descartar»).
+ */
+export const CODIGOS_ESPERA_OPERACION: ReadonlySet<string> = new Set(["traslado_sin_confirmar", "recepcion_en_envio"]);
+
+/** Tope de la espera de una operación antes de rechazarla (24 h). */
+export const ESPERA_OPERACION_MAX_MS = 24 * 60 * 60 * 1000;
+
+/** La operación sin su espera propia (al rehacerla o aplicarla). */
+function sinEspera(op: OperacionLocal): OperacionLocal {
+    const resto = { ...op };
+    delete resto.esperaHasta;
+    delete resto.esperaDesde;
+    delete resto.esperas;
+    return resto;
+}
+
 /** Rechazo que solo repite uno anterior de la misma orden en el lote: vuelve a la cola, detrás. */
 export const CODIGO_BLOQUEADA = "bloqueada_por_rechazo";
 
@@ -517,7 +539,7 @@ export class MotorSync {
         const op = this.opDecidible(id);
         const orden = this.ordenes.get(op.ordenId);
         const nueva = {
-            ...op,
+            ...sinEspera(op),
             id: this.generarId(),
             datos: datos ?? op.datos,
             versionBase: orden?.base.version ?? op.versionBase,
@@ -1056,6 +1078,7 @@ export class MotorSync {
     private seleccionarLote(sinRespuesta: ReadonlySet<string>): OperacionLocal[] {
         const lote: OperacionLocal[] = [];
         const detenidas = new Set<number>();
+        const ahora = this.reloj.ahora();
         let bytes = 0;
         for (const op of this.ordenadas()) {
             if (op.estado !== "pendiente") {
@@ -1068,7 +1091,7 @@ export class MotorSync {
             if (detenidas.has(op.ordenId)) {
                 continue;
             }
-            if (sinRespuesta.has(op.id) || this.retenida(op)) {
+            if (sinRespuesta.has(op.id) || this.retenida(op) || (op.esperaHasta !== undefined && op.esperaHasta > ahora)) {
                 detenidas.add(op.ordenId);
                 continue;
             }
@@ -1173,7 +1196,7 @@ export class MotorSync {
     }
 
     private conIdNuevo(op: OperacionLocal): OperacionLocal {
-        return { ...op, id: this.generarId(), estado: "pendiente", error: null, intentos: 0 };
+        return { ...sinEspera(op), id: this.generarId(), estado: "pendiente", error: null, intentos: 0 };
     }
 
     /**
@@ -1189,6 +1212,8 @@ export class MotorSync {
         let existencias = this.meta.existencias;
         /** Primer rechazo (no terminal) de cada orden en este lote. */
         const causas = new Set<number>();
+        /** Órdenes (grupos) con una operación en espera propia en este lote. */
+        const esperando = new Set<number>();
         const avisos: AvisoServidor[] = [];
         let avance = false;
 
@@ -1196,6 +1221,33 @@ export class MotorSync {
             const r = porId.get(op.id);
             if (!r) {
                 poner.push({ ...op, intentos: op.intentos + 1 });
+                continue;
+            }
+            if (r.estado === "rechazada" && CODIGOS_ESPERA_OPERACION.has(codigoProblema(r.error ?? null) ?? "")) {
+                // Espera de esta operación: no detiene la cola ni el bucle.
+                avance = true;
+                if (esperando.has(op.ordenId)) {
+                    // La API responde lo mismo a lo que sigue de su grupo: espera detrás, sin espera propia.
+                    poner.push({ ...op, intentos: op.intentos + 1 });
+                    continue;
+                }
+                esperando.add(op.ordenId);
+                const ahora = this.reloj.ahora();
+                const desde = op.esperaDesde ?? ahora;
+                if (ahora - desde >= ESPERA_OPERACION_MAX_MS) {
+                    causas.add(op.ordenId);
+                    poner.push({ ...sinEspera(op), estado: "rechazada", error: r.error ?? null });
+                    continue;
+                }
+                const esperas = op.esperas ?? 0;
+                poner.push({
+                    ...op,
+                    intentos: op.intentos + 1,
+                    error: r.error ?? null,
+                    esperaDesde: desde,
+                    esperas: esperas + 1,
+                    esperaHasta: ahora + calcularEspera(esperas, this.espera),
+                });
                 continue;
             }
             if (r.estado === "rechazada" && CODIGOS_REINTENTABLES.has(codigoProblema(r.error ?? null) ?? "")) {
