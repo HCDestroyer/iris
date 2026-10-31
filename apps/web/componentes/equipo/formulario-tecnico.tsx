@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { RotateCw, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -87,6 +87,7 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, volverA, usuario
                 : await resolver(api().POST("/api/v1/tecnicos", { params, body: entradaCrearTecnico(v) }));
             clave.renovar();
             avisar({ titulo: antes ? `Técnico ${t.nombre} guardado` : `Técnico ${t.nombre} creado` });
+            await liberarProteccion();
             router.replace(`/tecnicos/${t.id}`);
         } catch (e) {
             clave.trasError(e);

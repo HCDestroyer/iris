@@ -58,5 +58,5 @@ function OrdenDeTicket({ ticket: t, conAsignacion, usuarios }: { ticket: Schema<
     if (conAsignacion) {
         return <FormularioCrearOrdenTicket ticket={t} usuarios={usuarios} />;
     }
-    return <FormularioCrearOrden ticket={{ id: t.id, numero: t.numero, asunto: t.asunto }} />;
+    return <FormularioCrearOrden ticket={t} />;
 }

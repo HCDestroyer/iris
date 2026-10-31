@@ -1,7 +1,19 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, FormularioPagina, SeccionFormulario, Tarjeta } from "@iris/ui";
+import {
+    avisar,
+    Aviso,
+    Boton,
+    Campo,
+    CampoArea,
+    CampoSelector,
+    Casilla,
+    FormularioPagina,
+    liberarProteccion,
+    SeccionFormulario,
+    Tarjeta,
+} from "@iris/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -41,6 +53,7 @@ export function FormularioAusencia({ tecnico }: { tecnico: TecnicoDetalle }) {
             );
             clave.renovar();
             avisar({ titulo: `Ausencia de ${tecnico.nombre} registrada` });
+            await liberarProteccion();
             if ((r.citasEnConflicto ?? []).length > 0) {
                 setHecho(r);
             } else {

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { AvisoAccion, useEnvio, useZonas } from "@/componentes/comercial/comun";
@@ -30,6 +30,7 @@ export function NuevoProspecto() {
         );
         if (creado) {
             avisar({ titulo: `Prospecto ${creado.numero} creado` });
+            await liberarProteccion();
             router.replace(`/comercial/${creado.id}`);
         }
     }

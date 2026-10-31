@@ -14,12 +14,13 @@ import {
     ErrorFormulario,
     FormularioPagina,
     GrupoSegmentado,
+    liberarProteccion,
     SeccionFormulario,
     Tarjeta,
 } from "@iris/ui";
 import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, WandSparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFieldArray, useForm, useWatch, type Path, type UseFormReturn } from "react-hook-form";
 import { BotonCopiar, useBorradorPortapapeles } from "@/componentes/cuenta/boton-copiar";
 import type { Rol } from "@/lib/accesos/presentacion";
@@ -52,6 +53,23 @@ type Props = {
     destino: (u: Usuario) => string;
 };
 
+const MARCA_RESULTADO = "__irisUsuarioCreado";
+
+/** Vuelve de la entrada propia del resultado (si está) y espera a que el historial se asiente. */
+function quitarEntradaResultado(): Promise<void> {
+    if (!(window.history.state as Record<string, unknown> | null)?.[MARCA_RESULTADO]) return Promise.resolve();
+    return new Promise((resolver) => {
+        const listo = () => {
+            window.removeEventListener("popstate", listo);
+            window.clearTimeout(limite);
+            resolver();
+        };
+        const limite = window.setTimeout(listo, 500);
+        window.addEventListener("popstate", listo);
+        window.history.back();
+    });
+}
+
 const NOMBRES_INTEGRACION: Record<(typeof ROLES_INTEGRACION)[number], string> = { integracion_argos: "Integración Argos", integracion_horus: "Integración Horus" };
 
 const CAMPOS = ["nombre", "correo", "tipo", "contrasena", "empresas"] as const;
@@ -68,8 +86,35 @@ export function PantallaCrearUsuario({ rolFijo, volverA, textoContinuar, destino
     const [creado, setCreado] = useState<{ usuario: Usuario; contrasena: string } | null>(null);
     // De la pantalla entera: pasar al resultado no borra lo recién copiado; salir de ella sí.
     const portapapeles = useBorradorPortapapeles(true);
+
+    // Con la contraseña a la vista: «Atrás» sale a `volverA` (sin volver a mostrarla) y, si el
+    // navegador guarda la página al salir (bfcache), se va antes.
+    const hayResultado = creado !== null;
+    useEffect(() => {
+        if (!hayResultado) return undefined;
+        window.history.pushState({ ...(window.history.state as object | null), [MARCA_RESULTADO]: true }, "", window.location.href);
+        const alVolver = () => {
+            setCreado(null);
+            router.replace(volverA);
+        };
+        const alOcultar = () => setCreado(null);
+        window.addEventListener("popstate", alVolver);
+        window.addEventListener("pagehide", alOcultar);
+        return () => {
+            window.removeEventListener("popstate", alVolver);
+            window.removeEventListener("pagehide", alOcultar);
+        };
+    }, [hayResultado, router, volverA]);
+
     if (creado) {
-        return <Resultado {...creado} portapapeles={portapapeles} textoContinuar={textoContinuar} alContinuar={() => router.push(destino(creado.usuario))} />;
+        const continuar = async () => {
+            const ruta = destino(creado.usuario);
+            setCreado(null);
+            // Quita la entrada propia del resultado: «Atrás» desde la ficha no vuelve aquí.
+            await quitarEntradaResultado();
+            router.replace(ruta);
+        };
+        return <Resultado {...creado} portapapeles={portapapeles} textoContinuar={textoContinuar} alContinuar={() => void continuar()} />;
     }
     return <Formulario rolFijo={rolFijo} volverA={volverA} portapapeles={portapapeles} alCrear={(usuario, contrasena) => setCreado({ usuario, contrasena })} />;
 }
@@ -115,6 +160,8 @@ function Formulario({
             // La contraseña no se queda en el formulario: solo en el resultado, una vez.
             form.reset(valoresCrearUsuario(rolFijo));
             avisar({ titulo: `Usuario ${u.nombre} creado` });
+            // Sin la entrada propia de «cambios sin guardar» en el historial antes de mostrar la contraseña.
+            await liberarProteccion();
             alCrear(u, d.tipo === "persona" ? d.contrasena : "");
         } catch (e) {
             clave.trasError(e);
@@ -201,7 +248,7 @@ function CampoContrasena({ form, portapapeles }: { form: UseFormReturn<DatosCrea
             <Campo
                 etiqueta="Contraseña temporal"
                 type={visible ? "text" : "password"}
-                autoComplete="off"
+                autoComplete="new-password"
                 spellCheck={false}
                 autoCapitalize="off"
                 className="[&_input]:font-mono [&_input]:tracking-wide"
@@ -344,7 +391,7 @@ function RolesIniciales({
                 })}
             </ul>
             <div>
-                <Boton type="button" variante="secundario" tamano="sm" onClick={() => filas.append({ ...ROL_VACIO })} disabled={filas.fields.length >= 50}>
+                <Boton type="button" variante="secundario" tamano="sm" onClick={() => filas.append({ ...ROL_VACIO }, { shouldFocus: false })} disabled={filas.fields.length >= 50}>
                     <Plus />
                     Agregar rol
                 </Boton>

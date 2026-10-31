@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -53,6 +53,7 @@ export function NuevoTicket() {
             }
             const ticket = await resolver(api().POST("/api/v1/tickets", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             avisar({ titulo: `Ticket ${ticket.numero} creado` });
+            await liberarProteccion();
             router.replace(`/tickets/${ticket.id}`);
         } catch (error) {
             clave.current = claveTrasError(error, clave.current);

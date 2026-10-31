@@ -10,6 +10,7 @@ import {
     DialogoConfirmar,
     ErrorFormulario,
     FormularioPagina,
+    liberarProteccion,
     SeccionFormulario,
 } from "@iris/ui";
 import { Pencil, RefreshCw, UserX } from "lucide-react";
@@ -96,7 +97,7 @@ export function AccionesUsuario({ usuario, alCambiar }: Props) {
 export function FormularioEditarUsuario({ usuario }: { usuario: Usuario }) {
     const { yo } = useSesion();
     const router = useRouter();
-    return <FormularioEditar usuario={usuario} propio={usuario.id === yo.usuario.id} alGuardar={(u) => router.replace(`/usuarios/${u.id}`)} />;
+    return <FormularioEditar usuario={usuario} propio={usuario.id === yo.usuario.id} alGuardar={(u) => void liberarProteccion().then(() => router.replace(`/usuarios/${u.id}`))} />;
 }
 
 function FormularioEditar({ usuario, propio, alGuardar }: { usuario: Usuario; propio: boolean; alGuardar: (u: Usuario) => void }) {

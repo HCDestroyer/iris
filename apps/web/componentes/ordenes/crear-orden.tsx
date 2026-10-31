@@ -1,7 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Campo, CampoArea, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import type { Schema } from "@iris/contratos";
+import { avisar, Aviso, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -13,12 +14,13 @@ import { entradaCrearOrden, esquemaCrearOrden, type DatosCrearOrden, type Entrad
 import { ORDEN_TIPOS, TIPOS_ORDEN } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import { useTiposOrden } from "./catalogos";
+import { TicketOrigen } from "./ticket-origen";
 
-type TicketOrigen = { id: number; numero: string; asunto: string };
+type Ticket = Schema<"Ticket">;
 
 const CAMPOS = ["tipo", "plantillaId", "descripcion", "direccion", "zonaId", "lat", "lon", "contacto.nombre", "contacto.telefono"] as const;
 
-function vacio(ticket: TicketOrigen | undefined): EntradaFormCrearOrden {
+function vacio(ticket: Ticket | undefined): EntradaFormCrearOrden {
     return {
         tipo: ticket ? "visita" : "instalacion",
         plantillaId: "",
@@ -37,7 +39,7 @@ function vacio(ticket: TicketOrigen | undefined): EntradaFormCrearOrden {
  * empresa, cliente, servicio, zona, cuadrilla y contacto, y el ticket recibe una nota interna).
  * Al crear, aviso y ficha de la orden; «Cancelar» vuelve a la lista o al ticket.
  */
-export function FormularioCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
+export function FormularioCrearOrden({ ticket }: { ticket?: Ticket }) {
     const { puede } = useSesion();
     const router = useRouter();
     const tipos = useTiposOrden();
@@ -65,6 +67,7 @@ export function FormularioCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
             });
             const orden = await resolver(api().POST("/api/v1/ordenes", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             avisar({ titulo: `Orden ${orden.numero} creada` });
+            await liberarProteccion();
             router.replace(`/ordenes/${orden.id}`);
         } catch (error) {
             clave.current = claveTrasError(error, clave.current);
@@ -100,7 +103,8 @@ export function FormularioCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
                     La orden toma el cliente, el servicio, la zona y el contacto del ticket, y el ticket recibe una nota interna.
                 </Aviso>
             ) : null}
-            <SeccionFormulario titulo="1. Trabajo">
+            <SeccionFormulario titulo={ticket ? "1. Ticket y trabajo" : "1. Trabajo"}>
+                {ticket ? <TicketOrigen ticket={ticket} /> : null}
                 <div className="grid gap-4 sm:grid-cols-2">
                     <CampoSelector etiqueta="Tipo" autoFocus error={errores.tipo?.message} {...form.register("tipo", { onChange: () => form.setValue("plantillaId", "") })}>
                         {ORDEN_TIPOS.map((t) => (

@@ -12,6 +12,7 @@ import {
     Casilla,
     Esqueleto,
     FormularioPagina,
+    liberarProteccion,
     SeccionFormulario,
     Tabla,
     TablaCelda,
@@ -275,6 +276,7 @@ function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<
         );
         if (r) {
             avisar({ titulo: `Cotización ${r.numero} creada` });
+            await liberarProteccion();
             router.replace(`/comercial/${detalle.id}`);
         }
     }

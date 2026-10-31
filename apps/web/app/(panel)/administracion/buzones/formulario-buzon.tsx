@@ -1,6 +1,17 @@
 "use client";
 
-import { avisar, Aviso, Boton, Campo, CampoSelector, Casilla, FormularioPagina, Pestanas, SeccionFormulario } from "@iris/ui";
+import {
+    avisar,
+    Aviso,
+    Boton,
+    Campo,
+    CampoSelector,
+    Casilla,
+    FormularioPagina,
+    liberarProteccion,
+    Pestanas,
+    SeccionFormulario,
+} from "@iris/ui";
 import { Inbox, KeyRound, RotateCw, Send, ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type ReactNode } from "react";
@@ -85,6 +96,7 @@ export function FormularioBuzon({ buzon }: Props) {
                 : await resolver(api().POST("/api/v1/buzones", { params: { header: { "Idempotency-Key": clave.actual() } }, body: entrada }));
             clave.renovar();
             avisar({ titulo: antes ? `Buzón «${b.nombre}» guardado` : `Buzón «${b.nombre}» creado` });
+            await liberarProteccion();
             router.replace("/administracion/buzones");
         } catch (e) {
             clave.trasError(e);

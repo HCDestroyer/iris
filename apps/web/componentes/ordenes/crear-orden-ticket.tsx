@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -21,12 +21,13 @@ import {
     type EntradaFormCrearOrdenDeTicket,
 } from "@/lib/ordenes/ticket-orden";
 import { tecnicosDe } from "./catalogos";
+import { TicketOrigen } from "./ticket-origen";
 
-type TicketOrigen = Pick<Schema<"Ticket">, "id" | "numero" | "asunto" | "asignadoA" | "cuadrillaId">;
+type Ticket = Schema<"Ticket">;
 
 const CAMPOS = ["tipo", "tecnicoId", "cuadrillaId", "fecha", "hora", "descripcion", "direccion"] as const;
 
-function inicial(ticket: TicketOrigen, tecnicos: readonly Usuario[] | null): EntradaFormCrearOrdenDeTicket {
+function inicial(ticket: Ticket, tecnicos: readonly Usuario[] | null): EntradaFormCrearOrdenDeTicket {
     // Propone la asignación del ticket: su responsable si es técnico y su cuadrilla.
     const responsable = ticket.asignadoA !== null && (tecnicos === null || tecnicos.some((t) => t.id === ticket.asignadoA)) ? String(ticket.asignadoA) : "";
     return {
@@ -47,11 +48,11 @@ function inicial(ticket: TicketOrigen, tecnicos: readonly Usuario[] | null): Ent
  * ticket) y, si se elige fecha, la programa. No deja guardar sin técnico ni cuadrilla. Al crear,
  * aviso y ficha de la orden; «Cancelar» vuelve al ticket.
  */
-export function FormularioCrearOrdenTicket({ ticket, usuarios }: { ticket: TicketOrigen; usuarios: readonly Usuario[] | null | undefined }) {
+export function FormularioCrearOrdenTicket({ ticket, usuarios }: { ticket: Ticket; usuarios: readonly Usuario[] | null | undefined }) {
     const router = useRouter();
     // Sin la lista (sin usuarios.ver, o no se pudo leer) el técnico se escribe por número.
     const tecnicos = usuarios === null || usuarios === undefined ? null : tecnicosDe(usuarios);
-    return <Formulario ticket={ticket} tecnicos={tecnicos} usuarios={usuarios} alCrear={(orden) => router.replace(`/ordenes/${orden.id}`)} />;
+    return <Formulario ticket={ticket} tecnicos={tecnicos} usuarios={usuarios} alCrear={(orden) => void liberarProteccion().then(() => router.replace(`/ordenes/${orden.id}`))} />;
 }
 
 function Formulario({
@@ -60,7 +61,7 @@ function Formulario({
     usuarios,
     alCrear,
 }: {
-    ticket: TicketOrigen;
+    ticket: Ticket;
     tecnicos: readonly Usuario[] | null;
     usuarios: readonly Usuario[] | null | undefined;
     alCrear: (orden: Schema<"Orden">) => void;
@@ -135,7 +136,8 @@ function Formulario({
                     La orden hereda el cliente, el servicio, la zona y el contacto del ticket, y el ticket recibe una nota interna.
                 </p>
             )}
-            <SeccionFormulario titulo="1. Quién va">
+            <SeccionFormulario titulo="1. Ticket y quién va">
+            <TicketOrigen ticket={ticket} />
             <div className="grid gap-4 sm:grid-cols-2">
                 <CampoSelector etiqueta="Tipo" error={errores.tipo?.message} {...form.register("tipo")}>
                     {ORDEN_TIPOS.map((t) => (
