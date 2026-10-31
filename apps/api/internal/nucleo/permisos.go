@@ -63,22 +63,25 @@ const (
 	// Órdenes de trabajo (I2): una acción explícita por permiso, POST /ordenes/{id}/<acción>.
 	// ordenes.ver_propias: solo las órdenes asignadas al actor (técnico); ordenes.registrar:
 	// checklist, notas, materiales, equipos, firma y adjuntos de la orden.
-	PermOrdenesAsignar       Permiso = "ordenes.asignar"
-	PermOrdenesAsignarForm   Permiso = "ordenes.asignar_formulario"
-	PermOrdenesCancelar      Permiso = "ordenes.cancelar"
-	PermOrdenesCerrar        Permiso = "ordenes.cerrar"
-	PermOrdenesCrear         Permiso = "ordenes.crear"
-	PermOrdenesFallar        Permiso = "ordenes.fallar"
-	PermOrdenesIniciarCamino Permiso = "ordenes.iniciar_camino"
-	PermOrdenesLlegar        Permiso = "ordenes.llegar"
-	PermOrdenesPausar        Permiso = "ordenes.pausar"
-	PermOrdenesProgramar     Permiso = "ordenes.programar"
-	PermOrdenesReabrir       Permiso = "ordenes.reabrir"
-	PermOrdenesReanudar      Permiso = "ordenes.reanudar"
-	PermOrdenesRegistrar     Permiso = "ordenes.registrar"
-	PermOrdenesReprogramar   Permiso = "ordenes.reprogramar"
-	PermOrdenesVer           Permiso = "ordenes.ver"
-	PermOrdenesVerPropias    Permiso = "ordenes.ver_propias"
+	// ordenes.aplicar_datos_argos / ordenes.descartar_datos_argos: atender «Dato de Argos cambió».
+	PermOrdenesAplicarDatosArgos   Permiso = "ordenes.aplicar_datos_argos"
+	PermOrdenesDescartarDatosArgos Permiso = "ordenes.descartar_datos_argos"
+	PermOrdenesAsignar             Permiso = "ordenes.asignar"
+	PermOrdenesAsignarForm         Permiso = "ordenes.asignar_formulario"
+	PermOrdenesCancelar            Permiso = "ordenes.cancelar"
+	PermOrdenesCerrar              Permiso = "ordenes.cerrar"
+	PermOrdenesCrear               Permiso = "ordenes.crear"
+	PermOrdenesFallar              Permiso = "ordenes.fallar"
+	PermOrdenesIniciarCamino       Permiso = "ordenes.iniciar_camino"
+	PermOrdenesLlegar              Permiso = "ordenes.llegar"
+	PermOrdenesPausar              Permiso = "ordenes.pausar"
+	PermOrdenesProgramar           Permiso = "ordenes.programar"
+	PermOrdenesReabrir             Permiso = "ordenes.reabrir"
+	PermOrdenesReanudar            Permiso = "ordenes.reanudar"
+	PermOrdenesRegistrar           Permiso = "ordenes.registrar"
+	PermOrdenesReprogramar         Permiso = "ordenes.reprogramar"
+	PermOrdenesVer                 Permiso = "ordenes.ver"
+	PermOrdenesVerPropias          Permiso = "ordenes.ver_propias"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -296,11 +299,13 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
+	{PermOrdenesAplicarDatosArgos, "Aplicar a una orden abierta los datos nuevos de Argos (dirección, coordenadas, referencia y contacto) tras el aviso «Dato de Argos cambió»"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
+	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
 	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
@@ -390,7 +395,7 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesReprogramar, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
 	PermOrdenesAsignarForm, PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer,
-	PermTicketsCrearOrden, PermOrdenesIgualarAsignacion,
+	PermTicketsCrearOrden, PermOrdenesIgualarAsignacion, PermOrdenesAplicarDatosArgos, PermOrdenesDescartarDatosArgos,
 }
 
 // permisosPlantillas son los de administrar plantillas de formulario (supervisor).

@@ -210,6 +210,17 @@ func (m *Modulo) Registrar(api huma.API) {
 	registrarAccion(api, accion("fallarOrden", "fallar", "Marcar la orden como fallida",
 		"programada, en_camino o en_sitio → fallida, con su motivo (pausada: 422 `orden_pausada`, hay que reanudar). Se puede reprogramar. Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesFallar), m.FallarOrden.Ejecutar, func(e *EntradaFallarOrden, id int64) { e.ID, e.Sync = id, nil })
+	registrarAccion(api, accion("aplicarDatosArgosOrden", "aplicar-datos-argos", "Aplicar a la orden los datos nuevos de Argos",
+		"Atiende el aviso `datosArgosCambiados`: copia de la instantánea actual de Argos la dirección, las coordenadas, la "+
+			"referencia y el contacto (los `campos` pedidos; sin `campos`, todos; lo que Argos no tiene se queda) con la regla de la "+
+			"creación (servicio y, si no, cliente), quita el aviso y sube la versión. Orden abierta con aviso (422 "+
+			"`sin_aviso_argos`, `transicion_invalida`); 422 `sin_instantanea_argos` si Iris no tiene la instantánea; 409 por `version`. "+
+			"Auditado con el diff por campo; emite `orden.datos_argos_aplicados`; el técnico la recibe actualizada.",
+		nucleo.PermOrdenesAplicarDatosArgos), m.AplicarDatosArgos.Ejecutar, func(e *EntradaAplicarDatosArgos, id int64) { e.ID = id })
+	registrarAccion(api, accion("descartarDatosArgosOrden", "descartar-datos-argos", "Descartar el aviso «Dato de Argos cambió»",
+		"La orden se queda con sus datos: solo quita el aviso `datosArgosCambiados` y sube la versión. 422 `sin_aviso_argos` o "+
+			"`transicion_invalida`; 409 por `version`. Auditado (con el `motivo`); emite `orden.datos_argos_descartados`.",
+		nucleo.PermOrdenesDescartarDatosArgos), m.DescartarDatosArgos.Ejecutar, func(e *EntradaDescartarDatosArgos, id int64) { e.ID = id })
 	registrarAccion(api, accion("cancelarOrden", "cancelar", "Cancelar una orden",
 		"Desde cualquier estado no final (también pausada: cierra la pausa), con motivo. Emite `orden.estado_cambiada`.",
 		nucleo.PermOrdenesCancelar), m.CancelarOrden.Ejecutar, func(e *EntradaMotivo, id int64) { e.ID = id })

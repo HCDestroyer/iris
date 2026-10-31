@@ -63,6 +63,7 @@ type Orden struct {
 	Lat              *float64      `json:"lat" nullable:"true"`
 	Lon              *float64      `json:"lon" nullable:"true"`
 	Contacto         ContactoOrden `json:"contacto"`
+	Referencia       *string       `json:"referencia,omitempty" required:"false" doc:"Cómo llegar, copiada de Argos (servicio o cliente) al crear la orden o al aplicar sus datos nuevos; ausente si no hay"`
 	Descripcion      string        `json:"descripcion"`
 	TecnicoID        *int64        `json:"tecnicoId" nullable:"true" doc:"Usuario técnico asignado"`
 	AsignadaEn       *time.Time    `json:"asignadaEn" nullable:"true"`
@@ -82,8 +83,8 @@ type Orden struct {
 	PausadaDesde     *string       `json:"pausadaDesde,omitempty" enum:"en_camino,en_sitio" doc:"Solo pausada: el estado al que vuelve al reanudar"`
 	PausadaEn        *time.Time    `json:"pausadaEn,omitempty" doc:"Solo pausada: inicio de la pausa en curso"`
 	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`
-	// DatosArgos: Argos avisó que cambiaron datos que la orden copió (contrato 0.5.0).
-	DatosArgos *DatosArgosCambiados `json:"datosArgosCambiados,omitempty" doc:"«Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios"`
+	// DatosArgosCambiados: Argos avisó que cambiaron datos que la orden copió (contrato 0.5.0).
+	DatosArgosCambiados *DatosArgosCambiados `json:"datosArgosCambiados,omitempty" doc:"«Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios"`
 	// Aviso: la acción se aplicó, pero con una advertencia (checklist_no_vigente,
 	// existencia_insuficiente). Solo en la respuesta de una acción.
 	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)"`
@@ -94,13 +95,13 @@ func aOrden(f campobd.CampoOrden, tipo string) Orden {
 		ID: f.ID, Numero: f.Numero, EmpresaID: f.EmpresaID, Tipo: tipo, TipoID: f.TipoID, PlantillaID: f.PlantillaID,
 		TicketID: f.TicketID, ProspectoID: f.ProspectoID, ClienteID: f.ClienteID, ServicioID: f.ServicioID,
 		ZonaID: f.ZonaID, CuadrillaID: f.CuadrillaID, BodegaID: f.BodegaID, Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon,
-		Contacto: ContactoOrden{Nombre: f.ContactoNombre, Telefono: f.ContactoTelefono}, Descripcion: f.Descripcion,
+		Contacto: ContactoOrden{Nombre: f.ContactoNombre, Telefono: f.ContactoTelefono}, Referencia: f.Referencia, Descripcion: f.Descripcion,
 		TecnicoID: f.TecnicoID, AsignadaEn: f.AsignadaEn, Estado: f.Estado, ProgramadaInicio: f.ProgramadaInicio,
 		ProgramadaFin: f.ProgramadaFin, EnCaminoEn: f.EnCaminoEn, EnSitioEn: f.EnSitioEn, FinalizadaEn: f.FinalizadaEn,
 		Resultado: f.Resultado, MotivoFalla: f.MotivoFalla, Motivo: f.Motivo, Version: f.Version,
 		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Origen: f.Origen,
 		PausadaDesde: f.PausadaDesde, PausadaEn: f.PausadaEn, TiempoPausadoSeg: f.PausadaSeg,
-		DatosArgos: datosArgosDe(f),
+		DatosArgosCambiados: datosArgosDe(f),
 	}
 }
 
