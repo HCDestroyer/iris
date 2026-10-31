@@ -80,6 +80,7 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
     const tecnicos = opciones.tecnicos ?? [3];
     let siguiente = 1000;
     let siguienteEvento = 5000;
+    const porClave = new Map<string, Orden>();
 
     async function manejar(c: ContextoOrdenes): Promise<boolean> {
         const { route, metodo, ruta, query, cuerpo, actual, puede, empresaId } = c;
@@ -177,6 +178,84 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
             return true;
         }
 
+        // Ticket y orden de la mano: crear la orden del ticket ya asignada (y programada).
+        const crearDeTicket = /^\/api\/v1\/tickets\/(\d+)\/crear-orden$/.exec(ruta);
+        if (crearDeTicket && metodo === "POST") {
+            if (!puede("tickets.crear_orden")) return prohibido(route).then(() => true);
+            if (!c.idempotencia) {
+                await problema(route, { type: "urn:iris:problema:validacion", title: "Falta Idempotency-Key", status: 422 });
+                return true;
+            }
+            const ticket = c.tickets.find((t) => t.id === Number(crearDeTicket[1]));
+            if (!ticket) return noEncontrado(route).then(() => true);
+            const repetida = porClave.get(c.idempotencia);
+            if (repetida) {
+                await json(route, soloOrden(repetida), 201);
+                return true;
+            }
+            const e = cuerpo as Schema<"EntradaCrearOrdenDeTicket">;
+            if (e.tecnicoId === undefined && e.cuadrillaId === undefined) {
+                const error = { message: "Elige un técnico o una cuadrilla", rule: "asignacion_requerida" };
+                await problema(route, {
+                    type: "urn:iris:problema:validacion",
+                    title: "Datos inválidos",
+                    status: 422,
+                    detail: "Los datos enviados no son válidos",
+                    errors: [
+                        { ...error, field: "tecnicoId" },
+                        { ...error, field: "cuadrillaId" },
+                    ],
+                });
+                return true;
+            }
+            if (e.tecnicoId !== undefined && !tecnicos.includes(e.tecnicoId)) {
+                await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "tecnicoId", message: "El usuario no puede ver esta orden" }] });
+                return true;
+            }
+            const base = esc.ordenes[1];
+            if (!base) return noEncontrado(route).then(() => true);
+            const id = siguiente++;
+            const ahora = new Date().toISOString();
+            const tipo = e.tipo ?? "visita";
+            const dur = TIPOS_ORDEN.find((t) => t.codigo === tipo)?.duracionMin ?? 60;
+            const nueva: Orden = {
+                ...base,
+                id,
+                numero: `OT-${String(id).padStart(6, "0")}`,
+                tipo,
+                tipoId: TIPOS_ORDEN.find((t) => t.codigo === tipo)?.id ?? 1,
+                plantillaId: e.plantillaId ?? null,
+                estado: e.inicio ? "programada" : "pendiente",
+                empresaId,
+                ticketId: ticket.id,
+                clienteId: ticket.clienteId,
+                servicioId: ticket.servicioId,
+                zonaId: ticket.zonaId,
+                tecnicoId: e.tecnicoId ?? null,
+                cuadrillaId: e.cuadrillaId ?? null,
+                direccion: e.direccion ?? "Dirección del servicio en Argos",
+                contacto: { nombre: ticket.contacto.nombre, telefono: ticket.contacto.telefono },
+                descripcion: e.descripcion ?? ticket.asunto,
+                programadaInicio: e.inicio ?? null,
+                programadaFin: e.inicio ? new Date(Date.parse(e.inicio) + dur * 60_000).toISOString() : null,
+                version: e.inicio ? 3 : 2,
+                creadoEn: ahora,
+                actualizadoEn: ahora,
+                checklist: [],
+                notas: [],
+                materiales: [],
+                equipos: [],
+                adjuntos: [],
+                requiereFirma: false,
+            };
+            delete nueva.firma;
+            esc.ordenes.push(nueva);
+            porClave.set(c.idempotencia, nueva);
+            esc.eventos.push({ id: siguienteEvento++, ordenId: id, tipo: "creada", de: null, a: "pendiente", motivo: null, datos: {}, actorTipo: "usuario", actorId: actual.id, actorNombre: actual.nombre, canal: "panel", ocurridoEn: ahora, creadoEn: ahora });
+            await json(route, soloOrden(nueva), 201);
+            return true;
+        }
+
         const deOrden = /^\/api\/v1\/ordenes\/(\d+)(?:\/([a-z-]+)(?:\/[^/]+\/quitar)?)?$/.exec(ruta);
         if (deOrden) {
             if (!veTodas && !puede("ordenes.ver_propias")) return prohibido(route).then(() => true);
@@ -210,6 +289,35 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                 await json(route, soloOrden(o));
                 return true;
             };
+            if (metodo === "POST" && sub === "igualar-asignacion") {
+                if (!puede("ordenes.igualar_asignacion")) return prohibido(route).then(() => true);
+                if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");
+                const e = cuerpo as Schema<"EntradaIgualarAsignacion">;
+                const ticket = c.tickets.find((t) => t.id === o.ticketId);
+                if (!ticket) return regla("sin_ticket", "La orden no viene de un ticket");
+                if (e.version !== o.version) return conflicto();
+                if (e.versionTicket !== ticket.version) return conflicto("El ticket cambió desde que lo leíste");
+                if (ticket.asignadoA === o.tecnicoId && ticket.cuadrillaId === o.cuadrillaId) return regla("sin_cambios", "La orden y el ticket ya tienen la misma asignación");
+                if (e.desde === "ticket") {
+                    if (!puede("ordenes.asignar")) return prohibido(route).then(() => true);
+                    if (ticket.asignadoA !== null && !tecnicos.includes(ticket.asignadoA)) {
+                        await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "tecnicoId", message: "El usuario no puede ver esta orden" }] });
+                        return true;
+                    }
+                    o.tecnicoId = ticket.asignadoA;
+                    o.cuadrillaId = ticket.cuadrillaId;
+                    o.version++;
+                    evento("asignada", { tecnico_id: o.tecnicoId, cuadrilla_id: o.cuadrillaId });
+                } else {
+                    if (!puede("tickets.asignar")) return prohibido(route).then(() => true);
+                    ticket.asignadoA = o.tecnicoId;
+                    ticket.cuadrillaId = o.cuadrillaId;
+                    if (ticket.estado === "nuevo") ticket.estado = "abierto";
+                    ticket.version++;
+                }
+                await json(route, { orden: soloOrden(o), ticket } satisfies Schema<"AsignacionTicketOrden">);
+                return true;
+            }
             if (metodo === "POST" && (sub === "pausar" || sub === "reanudar")) {
                 if (!puede(`ordenes.${sub}` as Permiso)) return prohibido(route).then(() => true);
                 if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");

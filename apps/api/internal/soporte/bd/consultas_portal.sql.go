@@ -173,7 +173,7 @@ func (q *Queries) ListarMensajesPublicos(ctx context.Context, arg ListarMensajes
 
 const listarTicketsCliente = `-- name: ListarTicketsCliente :many
 
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, c.nombre AS categoria_nombre,
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id, c.nombre AS categoria_nombre,
        coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto
 FROM soporte.tickets t
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
@@ -263,6 +263,8 @@ func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsCli
 			&i.SoporteTicket.Propuesta,
 			&i.SoporteTicket.PropuestaEn,
 			&i.SoporteTicket.PropuestaMotivo,
+			&i.SoporteTicket.PropuestaOrigen,
+			&i.SoporteTicket.PropuestaOrdenID,
 			&i.CategoriaNombre,
 			&i.PadreAbierto,
 		); err != nil {

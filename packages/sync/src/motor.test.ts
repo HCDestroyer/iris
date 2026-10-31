@@ -218,6 +218,38 @@ describe("rechazos (§2)", () => {
 });
 
 describe("conflictos (§3)", () => {
+    it("concurrencia: no es rechazo; queda en la cola con el mismo id, no bloquea y se reintenta con espera", async () => {
+        const { motor, transporte, reloj } = await montar({ espera: { baseMs: 1000, maximoMs: 60_000, azar: () => 0 }, intervaloMs: 30_000 });
+        const a1 = await motor.registrar("orden.llegar", 1, {});
+        const a2 = await motor.registrar("nota.agregar", 1, { texto: "después" });
+        await motor.registrar("orden.iniciar_camino", 2, {});
+        const choque = (id: string): ResultadoOperacion => ({ id, estado: "rechazada", error: { ...problema("concurrencia"), status: 409 } });
+        let choques = 1;
+        transporte.lote = (p) => ({
+            resultados: (p.operaciones ?? []).map((op) => (op.ordenId === 1 && choques > 0 ? choque(op.id) : transporte.aplicar(op))),
+        });
+
+        // Una pasada suelta: termina con un error de transporte reintentable, sin rechazos.
+        await expect(motor.sincronizar()).rejects.toMatchObject({ status: 409, codigo: "concurrencia" });
+        expect(motor.obtenerEstado()).toMatchObject({ rechazos: [], pendientes: 2 });
+        expect(motor.obtenerOrden(1)).toMatchObject({ bloqueada: false, pendientes: 2 });
+        expect(motor.obtenerOrden(2)).toMatchObject({ estado: "en_camino", pendientes: 0 });
+        // En la misma pasada no se reenvió (un solo lote).
+        expect(transporte.lotes).toHaveLength(1);
+
+        // El bucle reintenta tras la espera corta, con los mismos ids y en orden.
+        motor.iniciar();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().proximoIntento).toBe(reloj.ahora() + 500);
+        choques = 0;
+        await reloj.avanzar(500);
+        const ultimo = transporte.lotes.at(-1)?.operaciones ?? [];
+        expect(ultimo.map((o) => o.id)).toEqual([a1.operacion.id, a2.operacion.id]);
+        expect(motor.obtenerEstado()).toMatchObject({ rechazos: [], pendientes: 0, proximoIntento: null });
+        expect(motor.obtenerOrden(1)?.estado).toBe("en_sitio");
+        motor.detener();
+    });
+
     it("reasignada: lo aplicado se conserva, lo posterior queda rechazado y se puede descartar", async () => {
         const { motor, transporte } = await montar();
         const nota = await motor.registrar("nota.agregar", 1, { texto: "antes de reasignar" });

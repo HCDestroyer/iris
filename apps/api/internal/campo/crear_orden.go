@@ -49,6 +49,9 @@ type EntradaCrearOrden struct {
 	ClaveIdempotencia string `json:"-"`
 	// Origen lo fija el caso interno (argos: retiro automático); si no, sale del canal.
 	Origen string `json:"-"`
+	// sinCuadrillaDelTicket: la cuadrilla es la indicada (o ninguna), no la del ticket
+	// (tickets.crear_orden elige la asignación explícitamente).
+	sinCuadrillaDelTicket bool
 }
 
 // origenDe: de dónde viene la orden (panel, api o sistema).
@@ -138,7 +141,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearOrden, Orden]{
 		Accion:  "ordenes.crear",
 		Permiso: nucleo.PermOrdenesCrear,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrden) (Orden, error) {
+		Logica: sinDeadlockEn(func(ctx context.Context, t *auditoria.Tx, in EntradaCrearOrden) (Orden, error) {
 			if err := sinNulos(in); err != nil {
 				return Orden{}, err
 			}
@@ -205,7 +208,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				if datos.ZonaID == nil {
 					datos.ZonaID = tk.ZonaID
 				}
-				if datos.CuadrillaID == nil {
+				if datos.CuadrillaID == nil && !in.sinCuadrillaDelTicket {
 					datos.CuadrillaID = tk.CuadrillaID
 				}
 				if pedida == nil && !contexto.ActorDe(ctx).EsUsuario() {
@@ -339,9 +342,13 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				if err := soporte.NotaDeOrden(ctx, t, ticket.ID, nota); err != nil {
 					return Orden{}, err
 				}
+				// Vuelve a haber una orden abierta: la propuesta de resolver por un cierre ya no vale.
+				if err := soporte.DescartarPropuestaDeOrden(ctx, t, ticket.ID, f.Numero); err != nil {
+					return Orden{}, err
+				}
 			}
 			return aOrden(f, tipo.Codigo), nil
-		},
+		}),
 	})
 }
 
