@@ -163,9 +163,6 @@ const (
 	// MotivoMaterialComodato: un material de modalidad comodato no va en el consumo (422
 	// producto_es_comodato): se registra como equipo, con serie, por POST /servicios/:id/equipos.
 	MotivoMaterialComodato = "material_comodato"
-	// MotivoCargoCubierto: el cargo de la orden es de un producto que Argos ya cobra por modalidad
-	// (consumible_cobro) en el consumo de la misma orden: cobrarlo otra vez sería 409 cargo_duplicado.
-	MotivoCargoCubierto = "cargo_cubierto_por_consumo"
 )
 
 func origen(ordenID string) map[string]any {
@@ -335,8 +332,9 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	// Materiales usados (cualquier tipo y resultado): un consumo por orden (lineas[], 0.5.0) desde la
 	// bodega del técnico o una bodega. Solo consumibles: un comodato va como equipo (se omite).
 	consumo := -1
-	cobrados := map[int64]bool{}  // productos consumible_cobro: Argos los cobra en el consumo
-	enConsumo := map[int64]bool{} // productos de modalidad desconocida en el consumo
+	// Productos del consumo (cualquier modalidad consumible): un cargo de la orden con uno de ellos
+	// espera al consumo; si Argos ya lo cobró por modalidad, responde 409 cargo_duplicado (conciliado).
+	enConsumo := map[int64]bool{}
 	var comodatos []string
 	materiales := make([]Material, 0, len(o.Materiales))
 	for _, mat := range o.Materiales {
@@ -378,12 +376,7 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 				bodega = b
 			}
 			if mat.ProductoID != nil {
-				switch mat.Modalidad {
-				case argos.ModalidadConsumibleCobro:
-					cobrados[int64(*mat.ProductoID)] = true
-				case "":
-					enConsumo[int64(*mat.ProductoID)] = true
-				}
+				enConsumo[int64(*mat.ProductoID)] = true
 			}
 			linea := map[string]any{"producto_id": mat.ProductoID, "cantidad": cant}
 			lineas = append(lineas, linea)
@@ -399,17 +392,13 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 
 	// Cargo único si la orden lo indica.
 	if o.Cargo != nil {
-		if o.Cargo.ProductoID != nil && cobrados[int64(*o.Cargo.ProductoID)] {
-			// Argos ya lo cobra por modalidad en el consumo de esta orden (§3.3).
-			omisiones = append(omisiones, omision{motivo: MotivoCargoCubierto, operaciones: []string{"iris:cargo:" + orden}})
-			return planes, omisiones
-		}
 		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
 			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
 		if o.Cargo.ProductoID != nil {
 			p.payload["producto_id"] = o.Cargo.ProductoID
-			// Mismo producto en el consumo con modalidad desconocida: el cargo va después del consumo,
-			// así un cobro por modalidad hace que Argos responda 409 cargo_duplicado (se concilia).
+			// Mismo producto en el consumo: el cargo va después del consumo (nunca se descarta: el consumo
+			// puede fallar o el producto cambiar de modalidad); si Argos ya lo cobró por modalidad,
+			// responde 409 cargo_duplicado y se concilia como hecho (§3.3).
 			if consumo >= 0 && enConsumo[int64(*o.Cargo.ProductoID)] {
 				p.depende = []int{consumo}
 			}

@@ -7879,7 +7879,7 @@ export interface components {
             conflicto: string | null;
             /** Format: date-time */
             conflictoEn: string | null;
-            /** @description El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual */
+            /** @description El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida) o Argos volvió a 1.5.x (bodega_id_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual o, sin la capacidad inventario_por_tecnico, la bodega de la orden */
             corregible?: boolean;
             /** Format: date-time */
             creadoEn: string;
@@ -9091,7 +9091,7 @@ export interface components {
             version: number;
         };
         TecnicoDeArgos: {
-            /** @description Sus bodegas técnico (una por empresa) dentro del alcance del usuario técnico Iris */
+            /** @description Sus bodegas técnico en las empresas que ves (la activa; todas con empresas.todas). Un usuario sin bodega en ellas no aparece */
             bodegas: components["schemas"]["BodegaTecnico"][] | null;
             correo: string;
             /** @description Tiene bodega técnico activa en la empresa activa: solo así se puede vincular */

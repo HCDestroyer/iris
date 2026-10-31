@@ -565,28 +565,34 @@ func (q *Queries) ExisteConectorConBase(ctx context.Context, arg ExisteConectorC
 
 const fijarVersionConector = `-- name: FijarVersionConector :one
 UPDATE integracion.conectores
-SET version_remota = coalesce($1, version_remota),
-    contrato_remoto = coalesce($2, contrato_remoto),
-    contrato_informado = coalesce($3, contrato_informado),
+SET version_remota = CASE WHEN $1::boolean THEN NULL ELSE coalesce($2, version_remota) END,
+    contrato_remoto = CASE WHEN $1::boolean THEN NULL ELSE coalesce($3, contrato_remoto) END,
+    contrato_informado = CASE WHEN $4::boolean THEN NULL ELSE coalesce($5, contrato_informado) END,
     version_consultada_en = now(), updated_at = now()
-WHERE id = $4
+WHERE id = $6
 RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en
 `
 
 type FijarVersionConectorParams struct {
+	SinVersion        bool
 	VersionRemota     *string
 	ContratoRemoto    *string
+	SinInformado      bool
 	ContratoInformado *string
 	ID                int64
 }
 
 // Lo que informó el otro sistema (GET /integraciones/iris/estado, 0.5.0) y el contrato que Iris le
 // informó (PUT /integraciones/iris/contrato; null = no cambia). No sube la versión de la fila: no es
-// una edición del administrador.
+// una edición del administrador. @sin_version: Argos ya no tiene GET …/estado (volvió a 1.5.x): la
+// versión y el contrato que informaba quedan en null (Iris vuelve a bodega_id). @sin_informado: Argos
+// no conoce PUT …/contrato (el contrato de Iris ya no está informado).
 func (q *Queries) FijarVersionConector(ctx context.Context, arg FijarVersionConectorParams) (IntegracionConectore, error) {
 	row := q.db.QueryRow(ctx, fijarVersionConector,
+		arg.SinVersion,
 		arg.VersionRemota,
 		arg.ContratoRemoto,
+		arg.SinInformado,
 		arg.ContratoInformado,
 		arg.ID,
 	)

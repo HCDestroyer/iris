@@ -167,7 +167,7 @@ type TecnicoDeArgos struct {
 	IDExterno string          `json:"idExterno" doc:"Id del usuario en Argos (lo que se manda como tecnico.id_externo)"`
 	Correo    string          `json:"correo"`
 	Nombre    string          `json:"nombre"`
-	Bodegas   []BodegaTecnico `json:"bodegas" doc:"Sus bodegas técnico (una por empresa) dentro del alcance del usuario técnico Iris"`
+	Bodegas   []BodegaTecnico `json:"bodegas" doc:"Sus bodegas técnico en las empresas que ves (la activa; todas con empresas.todas). Un usuario sin bodega en ellas no aparece"`
 	// EnEmpresa: tiene bodega activa en la empresa activa (sin empresa activa: en alguna).
 	EnEmpresa  bool         `json:"enEmpresa" doc:"Tiene bodega técnico activa en la empresa activa: solo así se puede vincular"`
 	VinculadoA *VinculoIris `json:"vinculadoA,omitempty" doc:"Ficha de Iris que ya lo tiene vinculado (ausente = libre)"`
@@ -214,12 +214,17 @@ func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 			if in.err != nil {
 				return PaginaTecnicosArgos{}, Problema(in.err)
 			}
+			// Empresas visibles: la activa o, con empresas.todas global, todas. Un usuario de Argos sin
+			// bodega en ellas no se muestra (nombre, correo y bodegas de otra empresa), ni un vínculo de
+			// una ficha de otra empresa.
 			empresa := contexto.EmpresaDe(ctx)
+			todas := contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermEmpresasTodas))
+			visible := func(e int64) bool { return todas || (empresa != 0 && e == empresa) }
 			ids := make([]string, 0, len(in.pagina.Data))
 			for _, x := range in.pagina.Data {
 				ids = append(ids, string(x.IDExterno))
 			}
-			vinculados, err := argosbd.New(t).TecnicosVinculadosArgos(ctx, ids)
+			vinculados, err := argosbd.New(t).TecnicosVinculadosArgos(ctx, argosbd.TecnicosVinculadosArgosParams{Ids: ids, Todas: todas, EmpresaID: empresa})
 			if err != nil {
 				return PaginaTecnicosArgos{}, err
 			}
@@ -230,7 +235,12 @@ func nuevoListarTecnicosArgos(m *Modulo) *ListarTecnicosArgos {
 					continue
 				}
 				for _, b := range x.Bodegas {
-					d.Bodegas = append(d.Bodegas, BodegaTecnico{ID: b.ID, EmpresaID: b.EmpresaID, Activa: b.EsActiva()})
+					if visible(b.EmpresaID) {
+						d.Bodegas = append(d.Bodegas, BodegaTecnico{ID: b.ID, EmpresaID: b.EmpresaID, Activa: b.EsActiva()})
+					}
+				}
+				if len(d.Bodegas) == 0 {
+					continue
 				}
 				_, d.EnEmpresa = x.BodegaActivaEn(empresa)
 				for _, v := range vinculados {

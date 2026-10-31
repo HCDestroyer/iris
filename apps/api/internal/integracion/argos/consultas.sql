@@ -254,14 +254,19 @@ WITH s AS (
 )
 SELECT (SELECT count(*) FROM s) + (SELECT count(*) FROM c);
 
--- name: CambiarZonaAgenda :execrows
--- La zona espejo de agenda (origen argos, mismo id): nombre y activa como en Argos.
+-- name: ZonaAgendaArgos :one
+-- La zona espejo de agenda (origen argos, mismo id), bloqueada para cambiarla.
+SELECT id, empresa_id, nombre, activa FROM agenda.zonas WHERE id = @id AND origen = 'argos' FOR UPDATE;
+
+-- name: CambiarZonaAgenda :one
+-- La zona espejo de agenda: nombre y activa como en Argos (sin fila = nada cambió).
 UPDATE agenda.zonas
 SET nombre = coalesce(nullif(left(btrim(coalesce(sqlc.narg(nombre)::text, '')), 120), ''), nombre),
     activa = coalesce(sqlc.narg(activo)::boolean, activa), version = version + 1, updated_at = now()
 WHERE id = @id AND origen = 'argos'
   AND (nombre, activa) IS DISTINCT FROM (coalesce(nullif(left(btrim(coalesce(sqlc.narg(nombre)::text, '')), 120), ''), nombre),
-                                         coalesce(sqlc.narg(activo)::boolean, activa));
+                                         coalesce(sqlc.narg(activo)::boolean, activa))
+RETURNING id, empresa_id, nombre, activa;
 
 -- name: CambiarRouterArgos :execrows
 UPDATE integracion.argos_routers SET nombre = coalesce(sqlc.narg(nombre)::text, nombre), activo = coalesce(sqlc.narg(activo)::boolean, activo),
@@ -281,7 +286,8 @@ WHERE plan_id = @id AND plan_nombre IS DISTINCT FROM @nombre;
 -- Órdenes de traslado (inventario.traslado_*, contrato 0.5.0) ------------------------------
 
 -- name: GuardarTraslado :one
--- Un estado final (recibido, cancelado) no vuelve a enviado: un webhook atrasado no lo reabre.
+-- Un estado final (recibido, cancelado) no se toca más (ni vuelve a enviado): solo lo actualiza el mismo
+-- estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
 INSERT INTO integracion.argos_traslados (
     id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
     recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
@@ -295,8 +301,7 @@ ON CONFLICT (id) DO UPDATE SET
     bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
     tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
     tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
-    estado = CASE WHEN integracion.argos_traslados.estado <> 'enviado' AND excluded.estado = 'enviado'
-                  THEN integracion.argos_traslados.estado ELSE excluded.estado END,
+    estado = excluded.estado,
     lineas = CASE WHEN jsonb_array_length(excluded.lineas) > 0 THEN excluded.lineas ELSE integracion.argos_traslados.lineas END,
     enviado_en = coalesce(excluded.enviado_en, integracion.argos_traslados.enviado_en),
     recibido_en = coalesce(excluded.recibido_en, integracion.argos_traslados.recibido_en),
@@ -306,6 +311,7 @@ ON CONFLICT (id) DO UPDATE SET
     cancelado_en = coalesce(excluded.cancelado_en, integracion.argos_traslados.cancelado_en),
     motivo = coalesce(excluded.motivo, integracion.argos_traslados.motivo),
     entrante_id = excluded.entrante_id, updated_at = now()
+WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
 RETURNING *;
 
 -- name: TrasladoPorID :one
@@ -330,5 +336,9 @@ ORDER BY (argos_id_externo = @id_externo::text) DESC
 LIMIT 1;
 
 -- name: TecnicosVinculadosArgos :many
--- Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo).
-SELECT id, usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo = ANY(@ids::text[]);
+-- Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo). Solo las de
+-- usuarios que operan en la empresa (@todas: quien opera en todas las ve todas).
+SELECT t.id, t.usuario_id, t.argos_id_externo::text AS id_externo FROM agenda.tecnicos t
+WHERE t.argos_id_externo = ANY(@ids::text[])
+  AND (@todas::boolean OR EXISTS (
+      SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = @empresa_id::bigint));

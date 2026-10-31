@@ -165,3 +165,7 @@ SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = @motivo
     version = version + 1, updated_at = now()
 WHERE id = @id AND por_resolver
 RETURNING *;
+
+-- name: BodegaDeOrden :one
+-- La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
+SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;

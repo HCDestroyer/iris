@@ -241,13 +241,14 @@ func (q *Queries) CambiarRouterCopiado(ctx context.Context, arg CambiarRouterCop
 	return result.RowsAffected(), nil
 }
 
-const cambiarZonaAgenda = `-- name: CambiarZonaAgenda :execrows
+const cambiarZonaAgenda = `-- name: CambiarZonaAgenda :one
 UPDATE agenda.zonas
 SET nombre = coalesce(nullif(left(btrim(coalesce($1::text, '')), 120), ''), nombre),
     activa = coalesce($2::boolean, activa), version = version + 1, updated_at = now()
 WHERE id = $3 AND origen = 'argos'
   AND (nombre, activa) IS DISTINCT FROM (coalesce(nullif(left(btrim(coalesce($1::text, '')), 120), ''), nombre),
                                          coalesce($2::boolean, activa))
+RETURNING id, empresa_id, nombre, activa
 `
 
 type CambiarZonaAgendaParams struct {
@@ -256,13 +257,24 @@ type CambiarZonaAgendaParams struct {
 	ID     int64
 }
 
-// La zona espejo de agenda (origen argos, mismo id): nombre y activa como en Argos.
-func (q *Queries) CambiarZonaAgenda(ctx context.Context, arg CambiarZonaAgendaParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cambiarZonaAgenda, arg.Nombre, arg.Activo, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+type CambiarZonaAgendaRow struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Activa    bool
+}
+
+// La zona espejo de agenda: nombre y activa como en Argos (sin fila = nada cambió).
+func (q *Queries) CambiarZonaAgenda(ctx context.Context, arg CambiarZonaAgendaParams) (CambiarZonaAgendaRow, error) {
+	row := q.db.QueryRow(ctx, cambiarZonaAgenda, arg.Nombre, arg.Activo, arg.ID)
+	var i CambiarZonaAgendaRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+	)
+	return i, err
 }
 
 const cambiarZonaArgos = `-- name: CambiarZonaArgos :execrows
@@ -718,8 +730,7 @@ ON CONFLICT (id) DO UPDATE SET
     bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
     tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
     tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
-    estado = CASE WHEN integracion.argos_traslados.estado <> 'enviado' AND excluded.estado = 'enviado'
-                  THEN integracion.argos_traslados.estado ELSE excluded.estado END,
+    estado = excluded.estado,
     lineas = CASE WHEN jsonb_array_length(excluded.lineas) > 0 THEN excluded.lineas ELSE integracion.argos_traslados.lineas END,
     enviado_en = coalesce(excluded.enviado_en, integracion.argos_traslados.enviado_en),
     recibido_en = coalesce(excluded.recibido_en, integracion.argos_traslados.recibido_en),
@@ -729,6 +740,7 @@ ON CONFLICT (id) DO UPDATE SET
     cancelado_en = coalesce(excluded.cancelado_en, integracion.argos_traslados.cancelado_en),
     motivo = coalesce(excluded.motivo, integracion.argos_traslados.motivo),
     entrante_id = excluded.entrante_id, updated_at = now()
+WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
 RETURNING id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at
 `
 
@@ -751,7 +763,8 @@ type GuardarTrasladoParams struct {
 }
 
 // Órdenes de traslado (inventario.traslado_*, contrato 0.5.0) ------------------------------
-// Un estado final (recibido, cancelado) no vuelve a enviado: un webhook atrasado no lo reabre.
+// Un estado final (recibido, cancelado) no se toca más (ni vuelve a enviado): solo lo actualiza el mismo
+// estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
 func (q *Queries) GuardarTraslado(ctx context.Context, arg GuardarTrasladoParams) (IntegracionArgosTraslado, error) {
 	row := q.db.QueryRow(ctx, guardarTraslado,
 		arg.ID,
@@ -1248,8 +1261,17 @@ func (q *Queries) ServiciosEliminadosTodasLasEmpresas(ctx context.Context, ids [
 }
 
 const tecnicosVinculadosArgos = `-- name: TecnicosVinculadosArgos :many
-SELECT id, usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo = ANY($1::text[])
+SELECT t.id, t.usuario_id, t.argos_id_externo::text AS id_externo FROM agenda.tecnicos t
+WHERE t.argos_id_externo = ANY($1::text[])
+  AND ($2::boolean OR EXISTS (
+      SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = $3::bigint))
 `
+
+type TecnicosVinculadosArgosParams struct {
+	Ids       []string
+	Todas     bool
+	EmpresaID int64
+}
 
 type TecnicosVinculadosArgosRow struct {
 	ID        int64
@@ -1257,9 +1279,10 @@ type TecnicosVinculadosArgosRow struct {
 	IDExterno string
 }
 
-// Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo).
-func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, ids []string) ([]TecnicosVinculadosArgosRow, error) {
-	rows, err := q.db.Query(ctx, tecnicosVinculadosArgos, ids)
+// Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo). Solo las de
+// usuarios que operan en la empresa (@todas: quien opera en todas las ve todas).
+func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVinculadosArgosParams) ([]TecnicosVinculadosArgosRow, error) {
+	rows, err := q.db.Query(ctx, tecnicosVinculadosArgos, arg.Ids, arg.Todas, arg.EmpresaID)
 	if err != nil {
 		return nil, err
 	}
@@ -1391,4 +1414,28 @@ func (q *Queries) UsuarioDeVinculoArgos(ctx context.Context, arg UsuarioDeVincul
 	var usuario_id int64
 	err := row.Scan(&usuario_id)
 	return usuario_id, err
+}
+
+const zonaAgendaArgos = `-- name: ZonaAgendaArgos :one
+SELECT id, empresa_id, nombre, activa FROM agenda.zonas WHERE id = $1 AND origen = 'argos' FOR UPDATE
+`
+
+type ZonaAgendaArgosRow struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Activa    bool
+}
+
+// La zona espejo de agenda (origen argos, mismo id), bloqueada para cambiarla.
+func (q *Queries) ZonaAgendaArgos(ctx context.Context, id int64) (ZonaAgendaArgosRow, error) {
+	row := q.db.QueryRow(ctx, zonaAgendaArgos, id)
+	var i ZonaAgendaArgosRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+	)
+	return i, err
 }
