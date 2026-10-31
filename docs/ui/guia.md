@@ -232,6 +232,40 @@ lectores de pantalla.
   zona, guardar vista, turnos, firmar contrato y las acciones del ticket y de la orden (pasan a un
   panel lateral en la fase 3).
 
+## Fichas con pestañas y acciones en panel lateral (fase 3, hecha)
+
+- **Pestañas en la URL** (`lib/pestanas.ts`, `usePestanaUrl`): `?pestana=` validada contra una
+  lista fija; un enlace o recargar abren la misma, cambiar de pestaña reemplaza la entrada del
+  historial y la primera no se escribe. Una pestaña elegida que no está (sin permiso) cae en la
+  primera.
+
+  | Ficha | Pestañas |
+  | --- | --- |
+  | Ticket | Resumen · Conversación · Órdenes · Historial (el cliente sigue a la derecha) |
+  | Orden | Resumen · Evidencias · Formularios · Argos (con el número de pendientes abiertos) |
+  | Técnico | Datos (con el vínculo con Argos) · Agenda · Ausencias |
+  | Prospecto | Resumen · Factibilidad · Cotización · Contrato · Actividad |
+  | Usuario | Datos · Roles · Empresas · Sesiones · Accesos |
+
+  Volver de un formulario lleva a la pestaña de donde salió (cotización → «Cotización»; ausencia →
+  «Ausencias»).
+- **Acciones del ticket y de la orden en un panel lateral** (`PanelProtegido`): a la derecha, sin
+  velo, con la ficha a la vista; en el teléfono ocupa el ancho. Misma validación, «Falta…»,
+  protección de cambios (Escape, tocar fuera, la X y «Cancelar» preguntan) y aviso al guardar.
+- **Argos 0.5.0 (#81):**
+    - técnico: «Vincular con Argos» (`agenda.vincular_argos`, selector de
+      `GET /integraciones/argosisp/tecnicos`: solo los de la empresa y libres) y «Desvincular»
+      (`agenda.desvincular_argos`). Sin la capacidad `inventario_por_tecnico` dice «Argos < 1.6.0:
+      inventario por técnico no disponible» y no ofrece vincular;
+    - orden, pestaña «Argos»: código del error, errores corregibles desde Iris con «Reintentar»,
+      cargos que Argos emitió (con la factura) y «Resolver a mano»
+      (`integraciones.resolver_pendiente`) con motivo; si responde `decision_cargo_requerida`,
+      pregunta «¿Argos ya cobró el cargo?» (Sí → `resolver_tambien`, No → `liberar`);
+    - modalidad de cada material («Se cobra al cliente», «Comodato: regístralo como equipo»,
+      «Gasto»), referencia del cliente y del servicio y contacto en sitio;
+    - «Dato de Argos cambió» en el tablero. El detalle de la orden aún no lo trae (pedido a I2 en
+      `.claude/integration/i3.md`) ni hay acción para aplicarlo: solo se avisa.
+
 ## Plan por fases
 
 Cada fase:
@@ -245,7 +279,7 @@ Cada fase:
 | 0 · Base | HeroUI instalado, tema Horus, interior de `packages/ui` en HeroUI con los mismos nombres, componentes nuevos y esta guía | I3 |
 | 1 · Navegación del panel (hecha) | Barra lateral agrupada (Operación, Equipo, Ventas, Análisis, Administración; contraíble), migas, buscador Ctrl + K, avisos emergentes al guardar y barra inferior en el teléfono (Inicio, Tickets, Órdenes, Agenda, Más) | I3 |
 | 2 · Formularios a pantalla propia (hecha) | Tickets, órdenes, usuarios, técnicos y ausencias, comercial (prospecto y cotización) y buzón en dos pasos | I3 |
-| 3 · Fichas con pestañas | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral | I3 |
+| 3 · Fichas con pestañas (hecha) | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral; Argos 0.5.0 en el panel | I3 |
 | 4 · App de campo en el navegador | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes | I4 |
 | 5 · App nativa | Las pantallas de la fase 4 con HeroUI Native | I4 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |

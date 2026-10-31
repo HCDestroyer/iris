@@ -42,6 +42,11 @@ export type ApiEquipo = {
     candidatos: Schema<"CandidatoTecnico">[];
     /** Otra persona cambió la ficha: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersionTecnico: (fichaId: number) => void;
+    /**
+     * Argos detrás de `GET /integraciones/argosisp/tecnicos` (contrato 0.5.0): sin
+     * `inventarioPorTecnico` (Argos < 1.6.0, por defecto) responde 422 `argos_sin_inventario_tecnico`.
+     */
+    argos: { inventarioPorTecnico: boolean; usuarios: Schema<"TecnicoDeArgos">[] };
     manejar: (c: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: unknown; puede: (p: Permiso) => boolean }) => Promise<boolean>;
 };
 
@@ -59,6 +64,14 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
             .map((a) => ({ id: a.id, tecnicoId: t.id, inicio: a.inicio, fin: a.fin, motivo: a.motivo as Ausencia["motivo"], detalle: "", anuladaEn: null, version: 1, creadoEn: ahora })),
     }));
     const candidatos = CANDIDATOS.map((c) => ({ ...c }));
+    const argos: ApiEquipo["argos"] = {
+        inventarioPorTecnico: false,
+        usuarios: [
+            { idExterno: "77", nombre: "Lucía Ramírez", correo: "lucia@argos.test", enEmpresa: true, bodegas: [{ id: 30, empresaId: 10, activa: true }] },
+            { idExterno: "78", nombre: "Jorge Méndez", correo: "jorge@argos.test", enEmpresa: true, bodegas: [{ id: 31, empresaId: 10, activa: true }], vinculadoA: { tecnicoId: 22, usuarioId: 11 } },
+            { idExterno: "79", nombre: "Pedro Sic", correo: "pedro@argos.test", enEmpresa: false, bodegas: [{ id: 40, empresaId: 20, activa: true }] },
+        ],
+    };
     let siguiente = 900;
 
     const tocar = <T extends { version: number; actualizadoEn: string }>(x: T) => {
@@ -136,6 +149,17 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
             } else return false;
             tocar(c);
             await json(route, c);
+            return true;
+        }
+
+        // --- Técnicos de Argos (selector del vínculo) -------------------------------------
+        if (recurso === "integraciones" && idTexto === "argosisp" && accion === "tecnicos" && metodo === "GET") {
+            if (!puede("agenda.vincular_argos")) return prohibido(route);
+            if (!argos.inventarioPorTecnico) {
+                await problema(route, { type: "urn:iris:problema:argos_sin_inventario_tecnico", title: "Argos sin inventario por técnico", status: 422, detail: "Argos < 1.6.0" });
+                return true;
+            }
+            await json(route, { data: argos.usuarios, nextCursor: null } satisfies Schema<"PaginaTecnicosArgos">);
             return true;
         }
 
@@ -252,6 +276,23 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
         } else if (accion === "activar" || accion === "desactivar") {
             if (!puede(accion === "activar" ? "agenda.activar_tecnico" : "agenda.desactivar_tecnico")) return prohibido(route);
             t.activo = accion === "activar";
+        } else if (accion === "vincular-argos") {
+            if (!puede("agenda.vincular_argos")) return prohibido(route);
+            if (!argos.inventarioPorTecnico) {
+                await problema(route, { type: "urn:iris:problema:argos_sin_inventario_tecnico", title: "Argos sin inventario por técnico", status: 422 });
+                return true;
+            }
+            const u = argos.usuarios.find((x) => x.idExterno === b.idExterno);
+            if (!u) return problema(route, { type: "urn:iris:problema:tecnico_no_encontrado", title: "No está en Argos", status: 422 }).then(() => true);
+            if (!u.enEmpresa) return problema(route, { type: "urn:iris:problema:tecnico_sin_bodega", title: "Sin bodega en la empresa", status: 422 }).then(() => true);
+            if (u.vinculadoA && u.vinculadoA.tecnicoId !== t.id) return problema(route, { type: "urn:iris:problema:argos_vinculado_a_otro", title: "Vinculado a otra ficha", status: 409 }).then(() => true);
+            for (const x of argos.usuarios) if (x.vinculadoA?.tecnicoId === t.id) delete x.vinculadoA;
+            u.vinculadoA = { tecnicoId: t.id, usuarioId: t.usuarioId };
+            t.argos = { idExterno: u.idExterno, nombre: u.nombre, correo: u.correo, vinculadoEn: new Date().toISOString() };
+        } else if (accion === "desvincular-argos") {
+            if (!puede("agenda.desvincular_argos")) return prohibido(route);
+            for (const x of argos.usuarios) if (x.vinculadoA?.tecnicoId === t.id) delete x.vinculadoA;
+            delete t.argos;
         } else if (accion === "turnos") {
             if (!puede("agenda.fijar_turnos")) return prohibido(route);
             t.turnos = Array.isArray(b.turnos) ? (b.turnos as Schema<"Turno">[]) : [];
@@ -266,6 +307,7 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
         cuadrillas,
         zonas,
         candidatos,
+        argos,
         cambiarVersionTecnico: (fichaId) => {
             const t = tecnicos.find((x) => x.id === fichaId);
             if (t) t.version++;

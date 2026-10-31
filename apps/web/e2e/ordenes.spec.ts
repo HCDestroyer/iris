@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADJ } from "./datos-ordenes";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi } from "./api-falsa";
-import { irA } from "./ayudas";
+import { irA, pestana } from "./ayudas";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -111,11 +111,19 @@ test.describe("detalle de orden", () => {
         await expect(page.getByTestId("tecnico")).toHaveText("Lucía Ramírez");
         await expect(page.getByTestId("ficha-cliente")).toContainText("María Castillo");
         await expect(page.getByTestId("ticket-vinculado").getByRole("link", { name: "TK-000101" })).toHaveAttribute("href", "/tickets/1");
+        // Resumen: materiales y equipos.
+        await expect(page.getByRole("list", { name: "Materiales" })).toContainText("Más de lo que había en bodega");
+        await expect(page.getByRole("list", { name: "Equipos" })).toContainText("AA:BB:CC:DD:EE:01");
+        await expect(page.getByRole("list", { name: "Equipos" })).toContainText("ZTEG12345678");
+
+        // Formularios: el checklist.
+        await pestana(page, "Formularios");
         await expect(page.locator('[data-item="potencia"]')).toContainText("-19.4 dBm");
         await expect(page.locator('[data-item="navega"]')).toContainText("Sí");
         await expect(page.locator('[data-item="comentario"]')).toContainText("Sin marcar");
 
-        // Galería: miniaturas descargadas del endpoint autenticado.
+        // Evidencias. Galería: miniaturas descargadas del endpoint autenticado.
+        await pestana(page, "Evidencias");
         const galeria = page.getByRole("list", { name: "Fotos de la orden" });
         await expect(galeria.getByRole("img")).toHaveCount(2);
         await expect(galeria.getByRole("img", { name: "Foto de la roseta" })).toHaveJSProperty("complete", true);
@@ -134,9 +142,6 @@ test.describe("detalle de orden", () => {
         await expect(gps).toContainText("Llegó al sitio");
         await expect(gps.getByRole("link").first()).toHaveAttribute("href", /openstreetmap\.org/);
         await expect(gps.getByRole("link").first()).toHaveAttribute("rel", "noopener noreferrer");
-        await expect(page.getByRole("list", { name: "Materiales" })).toContainText("Más de lo que había en bodega");
-        await expect(page.getByRole("list", { name: "Equipos" })).toContainText("AA:BB:CC:DD:EE:01");
-        await expect(page.getByRole("list", { name: "Equipos" })).toContainText("ZTEG12345678");
         await page.screenshot({ path: path.join(carpeta, `22-orden-detalle-${info.project.name}.png`), fullPage: true });
 
         // Visor dentro del panel: nunca otra pestaña con el contenido crudo.
@@ -144,7 +149,7 @@ test.describe("detalle de orden", () => {
         const visor = page.getByRole("dialog", { name: "Foto de la roseta" });
         await expect(visor.getByTestId("visor-foto").getByRole("img")).toHaveJSProperty("complete", true);
         await expect(visor).toContainText("Foto 1 de 2");
-        await expect(page).toHaveURL(/\/ordenes\/1$/);
+        await expect(page).toHaveURL(/\/ordenes\/1\?pestana=evidencias$/);
         expect(context.pages()).toHaveLength(1);
         await page.screenshot({ path: path.join(carpeta, `23-orden-visor-${info.project.name}.png`) });
         await visor.getByRole("button", { name: "Siguiente" }).click();
@@ -156,7 +161,7 @@ test.describe("detalle de orden", () => {
     test("pendientes en Argos: estado, error resumido, conflicto y «Reintentar» (con 409)", async ({ page, context, baseURL }, info) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/ordenes/1");
+        await page.goto("/ordenes/1?pestana=argos");
         const tarjeta = page.getByTestId("pendientes-argos");
         const consumo = tarjeta.locator('[data-pendiente="consumo"]');
         await expect(consumo).toContainText("Descontar materiales");
@@ -186,7 +191,7 @@ test.describe("detalle de orden", () => {
     test("sin integraciones.reintentar se ve el pendiente pero no «Reintentar»", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", DESPACHO.correo);
-        await page.goto("/ordenes/1");
+        await page.goto("/ordenes/1?pestana=argos");
         const consumo = page.getByTestId("pendientes-argos").locator('[data-pendiente="consumo"]');
         await expect(consumo).toContainText("Argos lo rechazó");
         await expect(consumo.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
@@ -197,7 +202,7 @@ test.describe("detalle de orden", () => {
     test("orden con conflicto de cierre repetido", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/ordenes/8");
+        await page.goto("/ordenes/8?pestana=argos");
         await expect(page.getByTestId("pendiente-argos")).toHaveText("Conflicto en Argos");
         await expect(page.getByTestId("pendientes-argos")).toContainText("Conflicto: corrígelo a mano en Argos");
     });

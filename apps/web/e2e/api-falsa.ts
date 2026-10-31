@@ -155,7 +155,11 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "integraciones.conectar",
     "integraciones.desactivar",
     "integraciones.reintentar",
+    "integraciones.resolver_pendiente",
     "integraciones.ver",
+    // Vínculo del técnico con Argos (contrato 0.5.0, #81).
+    "agenda.vincular_argos",
+    "agenda.desvincular_argos",
     "rutas.proponer",
     "rutas.publicar",
     "rutas.ver",
@@ -255,6 +259,12 @@ export type OpcionesApi = {
     despacho?: boolean;
     /** Comercial con Argos conectado: planes de Argos, cobertura con routers y alta en Argos al ganar. */
     comercialConector?: boolean;
+    /**
+     * Datos de Argos 0.5.0 (#81) en las órdenes: «dato de Argos cambió» en la OT-000002, un cargo
+     * esperando al consumo rechazado de la OT-000001 (resolver a mano pide la decisión del cargo) y,
+     * en la OT-000008, un consumo corregible (técnico sin vincular) y otro hecho con sus cargos.
+     */
+    argos050?: boolean;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -283,7 +293,7 @@ export type ApiFalsa = {
     /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
     agenda: ApiAgenda["escenario"];
     /** Técnicos, cuadrillas y zonas (se pueden cambiar en la prueba). */
-    equipo: Pick<ApiEquipo, "tecnicos" | "cuadrillas" | "zonas" | "candidatos" | "cambiarVersionTecnico">;
+    equipo: Pick<ApiEquipo, "tecnicos" | "cuadrillas" | "zonas" | "candidatos" | "cambiarVersionTecnico" | "argos">;
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
     /** Plantillas de formulario (se pueden cambiar en la prueba). */
@@ -360,6 +370,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const plantillas = apiPlantillas();
     const ordenes = apiOrdenes(empresas.map((e) => e.id), {
         plantilla: plantillas.buscar,
+        argos050: opciones.argos050 === true,
         ...(opciones.despacho ? { tecnicos: [3, 11, 12], validarCita: (o, e, accion) => enlace.agenda?.validarCita(o, e, accion) } : {}),
     });
     const agenda = apiAgenda(Date.now(), ordenes.escenario, empresas[0]?.id ?? null, opciones.despacho === true);
@@ -867,7 +878,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
-        equipo: { tecnicos: equipo.tecnicos, cuadrillas: equipo.cuadrillas, zonas: equipo.zonas, candidatos: equipo.candidatos, cambiarVersionTecnico: equipo.cambiarVersionTecnico },
+        equipo: { tecnicos: equipo.tecnicos, cuadrillas: equipo.cuadrillas, zonas: equipo.zonas, candidatos: equipo.candidatos, cambiarVersionTecnico: equipo.cambiarVersionTecnico, argos: equipo.argos },
         rutas: rutas.rutas,
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },

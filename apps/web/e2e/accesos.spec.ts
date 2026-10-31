@@ -3,7 +3,7 @@ import type { Schema } from "@iris/contratos";
 import { expect, test, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CONSULTA, CONTRASENA, conSesion, simularApi, SOPORTE } from "./api-falsa";
-import { irA } from "./ayudas";
+import { irA, pestana } from "./ayudas";
 
 // Pedido 10 del PM: Administración → Accesos, Actividad de la app y Roles; y en el usuario, sus
 // roles con alcance, sesiones activas y accesos recientes. En escritorio y teléfono, claro y oscuro.
@@ -176,7 +176,7 @@ test.describe("accesos, actividad de la app y roles", () => {
 
     test("usuario: asignar un rol con alcance, quitarlo, cerrar sesiones y ver sus accesos", async ({ page, context, baseURL }, info) => {
         const api = await preparar(page, context, baseURL);
-        await page.goto(`/usuarios/${CONSULTA.id}`);
+        await page.goto(`/usuarios/${CONSULTA.id}?pestana=roles`);
         const roles = page.locator('[data-seccion="roles"]');
         await expect(roles.getByRole("list", { name: "Roles asignados" })).toContainText("Lectura");
 
@@ -198,6 +198,7 @@ test.describe("accesos, actividad de la app y roles", () => {
         await roles.getByRole("button", { name: "Quitar Mesa de ayuda (Zona Mixco)" }).click();
         await expect(roles.getByRole("list", { name: "Roles asignados" })).not.toContainText("Mesa de ayuda");
 
+        await pestana(page, "Sesiones");
         const sesiones = page.locator('[data-seccion="sesiones"]');
         await expect(sesiones.locator("[data-sesion]")).toHaveCount(2);
         await expect(sesiones.locator('[data-sesion="901"]')).toContainText("App de campo (Android)");
@@ -214,6 +215,7 @@ test.describe("accesos, actividad de la app y roles", () => {
         await expect(sesiones.locator("[data-sesion]")).toHaveCount(1);
         expect(api.peticiones.find((p) => p.ruta === `/api/v1/usuarios/${CONSULTA.id}/sesiones/900/cerrar`)?.cuerpo).toEqual({ motivo: "Equipo prestado" });
 
+        await pestana(page, "Accesos");
         const accesos = page.locator('[data-seccion="accesos"]');
         await expect(accesos.locator("[data-acceso]")).toHaveCount(3);
         await expect(accesos.locator('[data-acceso="54"]')).toContainText("Bloqueado por intentos");

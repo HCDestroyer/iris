@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, CSRF, LECTOR, VENDEDORA, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { avisoError } from "./ayudas";
+import { avisoError, pestana } from "./ayudas";
 import { simularTeselas } from "./teselas";
 
 /*
@@ -106,7 +106,7 @@ test.describe("embudo y lista", () => {
 
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
-        await page.goto("/comercial/4");
+        await page.goto("/comercial/4?pestana=cotizacion");
         await expect(page.getByRole("heading", { name: "Diego López" })).toBeVisible();
         await expect(page.getByRole("group", { name: "Acciones del prospecto" })).toHaveCount(0);
         await expect(page.getByRole("button", { name: "El cliente la aceptó" })).toHaveCount(0);
@@ -162,8 +162,10 @@ test.describe("del prospecto al cliente", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/comercial/2");
         await expect(page.getByRole("heading", { name: "Bruno Díaz" })).toBeVisible();
+        await pestana(page, "Actividad");
         await expect(page.getByText("Próxima: Evaluar factibilidad")).toBeVisible();
 
+        await pestana(page, "Factibilidad");
         const fact = page.getByTestId("factibilidad");
         await fact.getByRole("button", { name: "Evaluar" }).click();
         await expect(fact.getByTestId("motivo-indeterminado")).toContainText("no está conectado con Argos");
@@ -182,6 +184,7 @@ test.describe("del prospecto al cliente", () => {
         expect(factibilidades).toHaveLength(1);
         expect(posts(api, "/factibilidad-manual")[0]?.cuerpo).toEqual({ version: 2, resultado: "viable", notas: "Poste con caja a 80 m, hay puertos libres" });
 
+        await pestana(page, "Cotización");
         const cot = page.getByTestId("cotizacion");
         await cot.getByRole("link", { name: "Cotizar" }).click();
         await expect(page).toHaveURL(/\/comercial\/\d+\/cotizacion$/);
@@ -209,6 +212,7 @@ test.describe("del prospecto al cliente", () => {
 
         await cot.getByRole("button", { name: "El cliente la aceptó" }).click();
         await expect(cot.getByText("Aceptada", { exact: true })).toBeVisible();
+        await pestana(page, "Contrato");
         const contrato = page.getByTestId("contrato");
         await contrato.getByRole("button", { name: "Generar contrato" }).click();
         await expect(contrato.getByText("Borrador", { exact: true })).toBeVisible();
@@ -230,6 +234,7 @@ test.describe("del prospecto al cliente", () => {
         const dGanar = page.getByRole("dialog", { name: "Ganar el prospecto" });
         await expect(dGanar.getByRole("list", { name: "Requisitos para ganar" }).getByRole("listitem")).toHaveCount(3);
         await dGanar.getByRole("button", { name: "Ganar" }).click();
+        await pestana(page, "Resumen");
         await expect(page.getByTestId("alta")).toContainText("Alta local");
         await expect(page.getByRole("link", { name: /Orden de instalación OT-000045/ })).toHaveAttribute("href", "/ordenes/45");
         await expect(page.locator("header").getByText("Ganado").first()).toBeVisible();
@@ -244,12 +249,13 @@ test.describe("del prospecto al cliente", () => {
     test("con conector: factibilidad viable con router y distancia, planes de Argos y el precio del plan no se manda", async ({ page, context, baseURL }) => {
         const api = await simularApi(page, { comercialConector: true });
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
-        await page.goto("/comercial/2");
+        await page.goto("/comercial/2?pestana=factibilidad");
         const fact = page.getByTestId("factibilidad");
         await fact.getByRole("button", { name: "Evaluar" }).click();
         await expect(fact.getByText("R-Norte")).toBeVisible();
         await expect(fact.getByTestId("distancia")).toHaveText("182 m");
         await expect(fact.getByText("viable hasta 300 m, con obra hasta 1 km")).toBeVisible();
+        await pestana(page, "Cotización");
         await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
         const dCot = page.getByRole("form", { name: "Cotizar" });
         await expect(dCot.getByLabel("Plan").locator("option", { hasText: "descontinuado" })).toHaveCount(0);
@@ -270,7 +276,7 @@ test.describe("del prospecto al cliente", () => {
     test("la visita técnica: ventas no la ofrece; una que contradice la automática «no viable» pide el motivo y lo muestra", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
-        await page.goto("/comercial/3");
+        await page.goto("/comercial/3?pestana=factibilidad");
         const fact = page.getByTestId("factibilidad");
         await expect(fact.getByTestId("motivo-indeterminado")).toContainText("Pide a un supervisor o a un técnico");
         await expect(fact.getByRole("button", { name: "Registrar visita técnica" })).toHaveCount(0);
@@ -278,7 +284,7 @@ test.describe("del prospecto al cliente", () => {
 
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/comercial/8");
+        await page.goto("/comercial/8?pestana=factibilidad");
         await expect(fact.getByText("No viable", { exact: true })).toBeVisible();
         await fact.getByRole("button", { name: "Registrar visita técnica" }).click();
         const visita = page.getByRole("dialog", { name: "Visita técnica" });
@@ -318,8 +324,9 @@ test.describe("del prospecto al cliente", () => {
     test("ganar con requiere obra pide confirmarla; con conector el alta queda en Argos", async ({ page, context, baseURL }) => {
         const api = await simularApi(page, { comercialConector: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/comercial/5");
+        await page.goto("/comercial/5?pestana=factibilidad");
         await expect(page.getByTestId("factibilidad").getByText("Requiere obra")).toBeVisible();
+        await pestana(page, "Contrato");
         await page.getByTestId("contrato").getByRole("button", { name: "Firmar con el cliente" }).click();
         await firmar(page);
         await page.getByRole("dialog", { name: /Firmar CTR-/ }).getByRole("button", { name: "Guardar firma" }).click();
@@ -332,6 +339,7 @@ test.describe("del prospecto al cliente", () => {
         expect(posts(api, "/ganar")).toHaveLength(0);
         await dGanar.getByLabel(/Confirmo que la instalación requiere obra/).check();
         await dGanar.getByRole("button", { name: "Ganar" }).click();
+        await pestana(page, "Resumen");
         const alta = page.getByTestId("alta");
         await expect(alta.getByText("Creando el cliente en Argos")).toBeVisible();
         await expect(alta.getByText("Crear el cliente en Argos")).toBeVisible();
@@ -388,7 +396,7 @@ test.describe("del prospecto al cliente", () => {
     test("actividad con próxima acción e historial", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
-        await page.goto("/comercial/1");
+        await page.goto("/comercial/1?pestana=actividad");
         const actividades = page.getByTestId("actividades");
         await actividades.getByRole("button", { name: "Registrar" }).click();
         const form = page.getByRole("form", { name: "Nueva actividad" });
@@ -423,7 +431,7 @@ test.describe("del prospecto al cliente", () => {
     test("«Generar PDF» del contrato manda Idempotency-Key y luego permite descargarlo", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/comercial/5");
+        await page.goto("/comercial/5?pestana=contrato");
         const contrato = page.getByTestId("contrato");
         await expect(contrato.getByText("El PDF no se pudo guardar.")).toBeVisible();
         await contrato.getByRole("button", { name: "Generar PDF" }).click();
@@ -437,7 +445,7 @@ test.describe("del prospecto al cliente", () => {
     test("descargar el PDF de la cotización con la sesión", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/comercial/4");
+        await page.goto("/comercial/4?pestana=cotizacion");
         const descarga = page.waitForEvent("download");
         await page.getByTestId("cotizacion").getByRole("button", { name: "Descargar PDF" }).click();
         expect((await descarga).suggestedFilename()).toBe("COT-000041-r1.pdf");
@@ -494,15 +502,16 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
         await expect(page.locator("[data-marcador-prospecto]")).toHaveCount(5);
         await page.screenshot({ path: nombre("03-mapa"), fullPage: true });
     }
-    await page.goto("/comercial/4");
+    await page.goto("/comercial/4?pestana=cotizacion");
     await expect(page.getByTestId("cotizacion").getByTestId("total-mensual")).toBeVisible();
     await page.screenshot({ path: nombre("04-detalle-cotizado"), fullPage: true });
-    await page.goto("/comercial/3");
+    await page.goto("/comercial/3?pestana=factibilidad");
     await expect(page.getByTestId("motivo-indeterminado")).toBeVisible();
     await page.screenshot({ path: nombre("05-indeterminado"), fullPage: true });
-    await page.goto("/comercial/2");
+    await page.goto("/comercial/2?pestana=factibilidad");
     await page.getByTestId("factibilidad").getByRole("button", { name: "Evaluar" }).click();
     await expect(page.getByTestId("distancia")).toBeVisible();
+    await pestana(page, "Cotización");
     await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
     const cotizar = page.getByRole("form", { name: "Cotizar" });
     await cotizar.getByRole("button", { name: "Instalación" }).click();
@@ -510,8 +519,8 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
     // Salir con cambios pregunta antes de descartar.
     await cotizar.getByRole("button", { name: "Cancelar" }).click();
     await page.getByRole("alertdialog", { name: "¿Descartar los cambios?" }).getByRole("button", { name: "Descartar cambios" }).click();
-    await expect(page).toHaveURL(/\/comercial\/2$/);
-    await page.goto("/comercial/5");
+    await expect(page).toHaveURL(/\/comercial\/2\?pestana=cotizacion$/);
+    await page.goto("/comercial/5?pestana=contrato");
     await page.getByTestId("contrato").getByRole("button", { name: "Firmar con el cliente" }).click();
     await firmar(page);
     await page.screenshot({ path: nombre("07-firmar") });

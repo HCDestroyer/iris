@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Check, CircleX, ExternalLink, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -16,6 +16,7 @@ import { ESTADOS_PROSPECTO, ORIGENES, PASOS_EMBUDO, textoEstadoCualquiera, texto
 import { telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
+import { usePestanaUrl } from "@/lib/pestanas";
 import { enlaceMapa, textoCoordenadas } from "@/lib/ordenes/adjuntos";
 import { useSesion } from "@/lib/sesion";
 import { BarraAcciones } from "./acciones";
@@ -52,6 +53,10 @@ function NoEncontrado() {
     );
 }
 
+/** Pestañas de la ficha del prospecto (`?pestana=`). */
+const PESTANAS_PROSPECTO = ["resumen", "factibilidad", "cotizacion", "contrato", "actividad"] as const;
+type PestanaProspecto = (typeof PESTANAS_PROSPECTO)[number];
+
 function Detalle({ id }: { id: number }) {
     const detalle = useLectura<ProspectoDetalle>((signal) => resolver(api().GET("/api/v1/prospectos/{id}", { params: { path: { id } }, signal })));
     useNombreEnMigas(detalle.estado === "listo" ? detalle.datos?.nombre : null);
@@ -60,6 +65,7 @@ function Detalle({ id }: { id: number }) {
     const usuarios = useUsuarios();
     const listaUsuarios = usuarios.estado === "listo" ? usuarios.datos : null;
     const { puede } = useSesion();
+    const [pestana, setPestana] = usePestanaUrl(PESTANAS_PROSPECTO, "resumen");
 
     if (detalle.estado === "cargando") {
         return (
@@ -105,22 +111,43 @@ function Detalle({ id }: { id: number }) {
                 ) : null}
                 <BarraAcciones detalle={d} usuarios={listaUsuarios} recargar={recargar} />
             </header>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
-                <div className="grid min-w-0 gap-4">
-                    <TarjetaAlta detalle={d} recargar={recargar} />
-                    <TarjetaFactibilidad detalle={d} recargar={recargar} />
-                    <TarjetaCotizacion detalle={d} recargar={recargar} />
-                    <TarjetaContrato detalle={d} recargar={recargar} />
-                    <Actividades prospectoId={d.id} usuarios={listaUsuarios} recargar={recargar} />
-                </div>
-                <div className="grid min-w-0 gap-4">
-                    {d.alta?.clienteArgosId != null && puede(["clientes.ver"]) ? (
-                        <DatosClienteServicio clienteId={d.alta.clienteArgosId} servicioId={d.alta.servicioArgosId} origen="prospecto" conEstadoCuenta={false} />
-                    ) : null}
-                    <Datos d={d} zonas={zonas.estado === "listo" ? zonas.datos : null} usuarios={listaUsuarios} />
-                    <Historial lectura={eventos} usuarios={listaUsuarios} />
-                </div>
-            </div>
+            <Pestanas<PestanaProspecto>
+                etiqueta="Secciones del prospecto"
+                seleccionada={pestana}
+                alCambiar={setPestana}
+                pestanas={[
+                    {
+                        id: "resumen",
+                        etiqueta: "Resumen",
+                        contenido: (
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
+                                <div className="grid min-w-0 gap-4">
+                                    <TarjetaAlta detalle={d} recargar={recargar} />
+                                    <Datos d={d} zonas={zonas.estado === "listo" ? zonas.datos : null} usuarios={listaUsuarios} />
+                                </div>
+                                <div className="grid min-w-0 gap-4">
+                                    {d.alta?.clienteArgosId != null && puede(["clientes.ver"]) ? (
+                                        <DatosClienteServicio clienteId={d.alta.clienteArgosId} servicioId={d.alta.servicioArgosId} origen="prospecto" conEstadoCuenta={false} />
+                                    ) : null}
+                                </div>
+                            </div>
+                        ),
+                    },
+                    { id: "factibilidad", etiqueta: "Factibilidad", contenido: <TarjetaFactibilidad detalle={d} recargar={recargar} /> },
+                    { id: "cotizacion", etiqueta: "Cotización", contenido: <TarjetaCotizacion detalle={d} recargar={recargar} /> },
+                    { id: "contrato", etiqueta: "Contrato", contenido: <TarjetaContrato detalle={d} recargar={recargar} /> },
+                    {
+                        id: "actividad",
+                        etiqueta: "Actividad",
+                        contenido: (
+                            <div className="grid gap-4 lg:grid-cols-2 lg:items-start [&>*]:min-w-0">
+                                <Actividades prospectoId={d.id} usuarios={listaUsuarios} recargar={recargar} />
+                                <Historial lectura={eventos} usuarios={listaUsuarios} />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </>
     );
 }
