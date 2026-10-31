@@ -300,11 +300,35 @@ export function Dialogo({ abierto, alCerrar, titulo, descripcion, children }: { 
     );
 }
 
-/** Superficie táctil (tarjeta de orden): rol de botón, etiqueta y realce al tocar. */
-export function Tocable({ children, alPresionar, etiqueta, estilo }: { children: ReactNode; alPresionar: () => void; etiqueta: string; estilo: StyleProp<ViewStyle> }) {
+/** Superficie táctil (tarjeta de orden, paso, pestaña): rol de botón, etiqueta y realce al tocar. */
+export function Tocable({
+    children,
+    alPresionar,
+    etiqueta,
+    estilo,
+    seleccionado,
+    rol = "button",
+    testID,
+}: {
+    children: ReactNode;
+    alPresionar: () => void;
+    etiqueta: string;
+    estilo: StyleProp<ViewStyle>;
+    /** La vista o la pestaña actual (`selected` accesible). */
+    seleccionado?: boolean;
+    rol?: "button" | "tab";
+    testID?: string;
+}) {
     const { colores } = useTema();
     return (
-        <Pressable accessibilityRole="button" accessibilityLabel={etiqueta} onPress={alPresionar} style={({ pressed }) => [estilo, pressed ? { backgroundColor: colores.fondoElevado } : null]}>
+        <Pressable
+            accessibilityRole={rol}
+            accessibilityLabel={etiqueta}
+            accessibilityState={seleccionado === undefined ? undefined : { selected: seleccionado }}
+            onPress={alPresionar}
+            testID={testID}
+            style={({ pressed }) => [estilo, pressed ? { backgroundColor: colores.fondoElevado } : null]}
+        >
             {children}
         </Pressable>
     );

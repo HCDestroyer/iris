@@ -6,6 +6,7 @@ import {
     contadoresPestanas,
     encolarFirmaYCierre,
     etiquetaPunto,
+    fechaHoraCorta,
     mismaVista,
     PASOS_ORDEN,
     partesEnvio,
@@ -22,7 +23,7 @@ import {
     vistaDeUrl,
     type Vista,
 } from "./campo";
-import { ErrorTransporte, type EstadoSync, type Traslado } from "./index";
+import { ErrorTransporte, type EstadoSync, type ItemChecklist, type Traslado } from "./index";
 import { montar } from "./pruebas/montaje";
 import { itemDePrueba, ordenDePrueba } from "./pruebas/fabricas";
 
@@ -113,7 +114,7 @@ describe("barra de estado discreta", () => {
     it("contadores de la barra inferior: lo pendiente y lo que falta por recibir (0 si no se leyó)", () => {
         const traslados: Traslado[] = [
             { id: 1, estado: "enviado", lineas: [] },
-            { id: 2, estado: "enviado", lineas: [], recepcion: { estado: "recibida" } } as Traslado,
+            { id: 2, estado: "enviado", lineas: [], recepcion: { estado: "recibida", trasladoId: 2, pendienteId: 9, actualizadoEn: "2026-10-28T15:00:00Z" } },
         ];
         const e = estado({ pendientes: 1, subidas: { pendientes: 2, bytesPendientes: 0, conError: 0, rechazadas: 1 } });
         expect(contadoresPestanas(e, null)).toEqual({ hoy: 0, recibir: 0, pendientes: 3, yo: 0 });
@@ -122,6 +123,12 @@ describe("barra de estado discreta", () => {
 });
 
 describe("«Por recibir» y «Mi bodega»: textos", () => {
+    it("fecha y hora corta en Guatemala", () => {
+        expect(fechaHoraCorta("2026-10-28T20:05:00Z")).toMatch(/28.*oct.*14:05/);
+        expect(fechaHoraCorta(null)).toBeUndefined();
+        expect(fechaHoraCorta("ayer")).toBeUndefined();
+    });
+
     it("situación local y su texto", () => {
         expect(situacionLocal({ estado: "rechazada" })).toBe("rechazado_telefono");
         expect(situacionLocal({ estado: "pendiente" })).toBe("en_telefono");
@@ -140,14 +147,14 @@ describe("«Firma del cliente y cierre»", () => {
     it("resumen del trabajo en palabras del cliente", () => {
         const orden = ordenDePrueba(1, {
             tipo: "visita",
-            checklist: [itemDePrueba(1, { etiqueta: "Señal", valor: true }), itemDePrueba(2, { etiqueta: "Potencia", tipo: "numero", unidad: "dBm", valor: -18.5 }), itemDePrueba(3)],
+            checklist: [itemDePrueba(1, { etiqueta: "Señal", valor: true as unknown as ItemChecklist["valor"] }), itemDePrueba(2, { etiqueta: "Potencia", tipo: "numero", unidad: "dBm", valor: -18.5 as unknown as ItemChecklist["valor"] }), itemDePrueba(3)],
         });
         const r = resumenTrabajo(orden);
         expect(r.descripcion).toBe("Visita técnica · checklist 2/3 · 0 fotos · 0 materiales · 0 equipos");
         expect(r.checklist.map((i) => i.etiqueta)).toEqual(["Señal", "Potencia"]);
         expect(r.checklist[0]?.valor).toBe("Sí");
         expect(r.checklist[1]?.valor).toMatch(/^-18[.,]5 dBm$/);
-        expect(textoValorItem(itemDePrueba(9, { tipo: "si_no", valor: false }))).toBe("No");
+        expect(textoValorItem(itemDePrueba(9, { tipo: "si_no", valor: false as unknown as ItemChecklist["valor"] }))).toBe("No");
     });
 
     it("encola la firma y el cierre juntos, en orden; sin firma, solo el cierre", async () => {

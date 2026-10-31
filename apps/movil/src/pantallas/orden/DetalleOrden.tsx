@@ -1,17 +1,36 @@
-// Detalle de una orden con todas las acciones (las mismas reglas que la PWA: `accionesDe`).
+// La orden paso a paso, como la PWA (fase 4): resumen → «Empezar trabajo» → Llegada · Checklist ·
+// Materiales y equipos · Fotos, cada paso en su propia vista (se guarda en el teléfono al tocar,
+// con avance, «Anterior» / «Siguiente» y «Atrás» de Android) → «Firma del cliente y cierre», el
+// paso final y único. Las reglas vienen de `@iris/sync/campo` y de `campo/pasos.ts`.
 import type { OrdenVista } from "@iris/sync";
-import { accionesDe, AVISOS_SERVIDOR, horaCorta, OPERACIONES, TIPOS_ORDEN, ventanaCita } from "@iris/sync/campo";
-import { ArrowLeft, FileQuestion, MapPin, MapPinCheck, Navigation, Phone, Route } from "lucide-react-native";
+import { accionesDe, AVISOS_SERVIDOR, horaCorta, llego, OPERACIONES, TIPOS_ORDEN, TITULOS_PASO, ventanaCita, type PasoOrden } from "@iris/sync/campo";
+import {
+    ArrowLeft,
+    ArrowRight,
+    CircleCheck,
+    CircleDashed,
+    FileQuestion,
+    ListChecks,
+    Lock,
+    MapPin,
+    MapPinCheck,
+    Navigation,
+    PenLine,
+    Phone,
+    Play,
+    Route,
+    type LucideIcon,
+} from "lucide-react-native";
 import { useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
-import { Aviso, Boton, Pila, Tarjeta, Texto, Titulo } from "../../componentes";
+import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
+import { Aviso, Boton, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
 import { useCampo, useOrden } from "../../campo/contexto";
+import { avanceOrden, botonTrabajo, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
 import { InsigniaOrden } from "../ListaOrdenes";
 import { Checklist } from "./Checklist";
-import { CerrarOrden, FallarOrden } from "./Cierre";
+import { FallarOrden, PasoCierre } from "./Cierre";
 import { Equipos } from "./Equipos";
-import { Firma } from "./Firma";
 import { FotosOrden } from "./Fotos";
 import { Materiales } from "./Materiales";
 import { Notas } from "./Notas";
@@ -26,33 +45,43 @@ export function enlaceComoLlegar(lat: number | null, lon: number | null, direcci
     return d ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d)}` : null;
 }
 
-export function DetalleOrden({ id }: { id: number }) {
-    const { navegar } = useCampo();
+export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
+    const { navegar, estado } = useCampo();
     const orden = useOrden(id);
-    const volver = (
-        <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "lista" })} estilo={estilos.volver}>
-            Mis órdenes
-        </Boton>
-    );
+    if (!orden && estado.fecha === null && estado.ultimaSincronizacion === null) {
+        return <ActivityIndicator accessibilityLabel="Cargando la orden" />;
+    }
     if (!orden) {
         return (
             <Pila>
-                {volver}
+                <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "lista" })} estilo={estilos.volver}>
+                    Mis órdenes
+                </Boton>
                 <Aviso tono="neutral" icono={FileQuestion} titulo="La orden ya no está en el teléfono">
                     Puede que se haya reasignado o que no sea de hoy.
                 </Aviso>
             </Pila>
         );
     }
+    return paso ? <PasoDeOrden orden={orden} paso={paso} /> : <ResumenOrden orden={orden} />;
+}
+
+/** Resumen: cliente, avisos, pausa, avance, notas, «No se pudo» y «Empezar trabajo» (o «Continuar»). */
+function ResumenOrden({ orden }: { orden: OrdenVista }) {
+    const { navegar } = useCampo();
     const acciones = accionesDe(orden);
     const inicio = orden.cita?.inicio ?? orden.programadaInicio;
     const fin = orden.cita?.fin ?? orden.programadaFin;
     const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
+    const trabajable = acciones.iniciarCamino || acciones.llegar || acciones.trabajo;
+    const trabajo = botonTrabajo(orden);
 
     return (
         <Pila espacio={14}>
-            {volver}
+            <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "lista" })} estilo={estilos.volver}>
+                Mis órdenes
+            </Boton>
             <View style={estilos.encabezado}>
                 <Titulo>{orden.numero}</Titulo>
                 <InsigniaOrden estado={orden.estado} />
@@ -64,39 +93,189 @@ export function DetalleOrden({ id }: { id: number }) {
             </Texto>
 
             <AvisosOrden orden={orden} />
-            <Cliente orden={orden} nombre={nombre} />
-            {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
                 </Aviso>
             ) : null}
-            {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
-                <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
+            {trabajable ? (
+                <Boton icono={llego(orden) ? ListChecks : Play} alPresionar={() => navegar(trabajo.vista)}>
+                    {trabajo.texto}
+                </Boton>
             ) : null}
-            {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
-            <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
-            {acciones.trabajo || orden.firma ? <Firma orden={orden} editable={acciones.trabajo} /> : null}
-            {acciones.notas ? <FotosOrden orden={orden} /> : null}
-            <Comodato orden={orden} />
+            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+            <Cliente orden={orden} nombre={nombre} />
+            {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} />
-            {acciones.cerrar || acciones.fallar ? (
-                <View style={estilos.cierre}>
-                    {acciones.fallar ? (
-                        <View style={estilos.flex}>
-                            <FallarOrden orden={orden} />
-                        </View>
+            {acciones.fallar ? <FallarOrden orden={orden} /> : null}
+        </Pila>
+    );
+}
+
+/** Un paso de trabajo: su contenido, el avance y «Anterior» / «Siguiente». Todo se guarda solo. */
+function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
+    const { navegar } = useCampo();
+    const acciones = accionesDe(orden);
+    const nav = navegacionPaso(orden, paso);
+    const estadoPaso = avanceOrden(orden).pasos.find((p) => p.paso === paso);
+    const sinLlegar = !acciones.trabajo && !llego(orden);
+    const irALlegada = sinLlegar ? (
+        <Aviso
+            tono="neutral"
+            titulo="Marca tu llegada para llenar este paso"
+            accion={
+                <Boton variante="secundario" alPresionar={() => navegar({ tipo: "orden", id: orden.id, paso: "llegada" })}>
+                    Ir a la llegada
+                </Boton>
+            }
+        />
+    ) : null;
+
+    return (
+        <Pila espacio={14}>
+            <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "orden", id: orden.id })} estilo={estilos.volver}>
+                {`Resumen de ${orden.numero}`}
+            </Boton>
+            <View style={estilos.encabezado}>
+                <Texto suave>
+                    <Texto mono suave>
+                        {orden.numero}
+                    </Texto>
+                    {` · ${nav.posicion}`}
+                </Texto>
+                <InsigniaOrden estado={orden.estado} />
+            </View>
+            <View style={estilos.encabezado}>
+                <Titulo>{TITULOS_PASO[paso]}</Titulo>
+                {estadoPaso && paso !== "cierre" ? (
+                    <Insignia
+                        tono={estadoPaso.marca === "falta" ? "warning" : "success"}
+                        icono={estadoPaso.marca === "falta" ? CircleDashed : CircleCheck}
+                        texto={estadoPaso.detalle}
+                        testID="estado-paso"
+                    />
+                ) : null}
+            </View>
+            <ProgresoOrden orden={orden} actual={paso} compacto />
+            <AvisosOrden orden={orden} />
+
+            {paso === "llegada" ? (
+                <>
+                    {orden.estado === "pendiente" ? (
+                        <Aviso tono="neutral" titulo="Esperando programación">
+                            Despacho todavía no le dio hora a esta orden.
+                        </Aviso>
                     ) : null}
-                    {acciones.cerrar ? (
+                    {llego(orden) ? (
+                        <Aviso tono="success" icono={MapPinCheck} titulo="Llegaste al sitio">
+                            {orden.enSitioEn ? `Llegada registrada a las ${horaCorta(orden.enSitioEn) ?? ""}.` : "Llegada registrada."}
+                        </Aviso>
+                    ) : null}
+                    {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
+                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+                </>
+            ) : null}
+            {paso === "checklist" ? (
+                <>
+                    {irALlegada}
+                    {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
+                        <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
+                    ) : null}
+                </>
+            ) : null}
+            {paso === "materiales" ? (
+                <>
+                    {irALlegada}
+                    {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
+                    <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
+                    <Comodato orden={orden} />
+                </>
+            ) : null}
+            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} /> : <Texto suave>Esta orden ya no admite fotos.</Texto> : null}
+            {paso === "cierre" ? <PasoCierre orden={orden} /> : null}
+
+            {paso !== "cierre" ? (
+                <View accessibilityLabel="Pasos" style={estilos.pie}>
+                    <View style={estilos.flex}>
+                        <Boton variante="secundario" icono={ArrowLeft} alPresionar={() => navegar(nav.anterior.vista)}>
+                            {nav.anterior.texto}
+                        </Boton>
+                    </View>
+                    {nav.siguiente ? (
                         <View style={estilos.flex}>
-                            <CerrarOrden orden={orden} />
+                            <Boton icono={ArrowRight} alPresionar={() => nav.siguiente && navegar(nav.siguiente.vista)}>
+                                {nav.siguiente.texto}
+                            </Boton>
                         </View>
                     ) : null}
                 </View>
             ) : null}
         </Pila>
     );
+}
+
+const ICONO_MARCA: Record<MarcaPaso, LucideIcon> = {
+    listo: CircleCheck,
+    opcional: CircleCheck,
+    hecho: CircleCheck,
+    falta: CircleDashed,
+    bloqueado: Lock,
+    para_firmar: PenLine,
+};
+
+/**
+ * Avance de la orden: barra con los pasos listos y cada paso como botón (se puede volver a
+ * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada.
+ */
+function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista; actual?: PasoOrden; compacto?: boolean }) {
+    const { navegar } = useCampo();
+    const { colores, radio } = useTema();
+    const avance = avanceOrden(orden);
+    const contenido = (
+        <>
+            <Fila entre>
+                <Texto negrita>{compacto ? "Avance" : "Trabajo en la orden"}</Texto>
+                <Texto suave testID="avance-orden">
+                    {avance.texto}
+                </Texto>
+            </Fila>
+            <View
+                accessibilityRole="progressbar"
+                accessibilityLabel="Avance de la orden"
+                accessibilityValue={{ min: 0, max: avance.total, now: avance.listos, text: avance.texto }}
+                style={[estilos.barra, { backgroundColor: colores.fondoElevado }]}
+            >
+                <View style={[estilos.relleno, { backgroundColor: colores.primario, width: `${Math.round((avance.listos / avance.total) * 100)}%` }]} />
+            </View>
+            <View style={compacto ? estilos.pasosCompactos : estilos.pasos}>
+                {avance.pasos.map((p) => {
+                    const Icono = ICONO_MARCA[p.marca];
+                    const esActual = actual === p.paso;
+                    const color = esActual ? colores.primario : p.marca === "listo" || p.marca === "hecho" ? colores.tono.success : colores.textoSuave;
+                    return (
+                        <Tocable
+                            key={p.paso}
+                            etiqueta={p.etiqueta}
+                            seleccionado={esActual}
+                            alPresionar={() => navegar({ tipo: "orden", id: orden.id, paso: p.paso })}
+                            estilo={[compacto ? estilos.pasoCompacto : estilos.paso, { borderRadius: radio }, esActual ? { backgroundColor: colores.fondoTono.info } : null]}
+                        >
+                            <Icono size={20} color={color} />
+                            {compacto ? (
+                                <Texto suave>{String(p.numero)}</Texto>
+                            ) : (
+                                <>
+                                    <Texto estilo={estilos.flex}>{p.titulo}</Texto>
+                                    <Texto suave>{p.detalle}</Texto>
+                                </>
+                            )}
+                        </Tocable>
+                    );
+                })}
+            </View>
+        </>
+    );
+    return compacto ? <View style={estilos.progreso}>{contenido}</View> : <Tarjeta>{contenido}</Tarjeta>;
 }
 
 function AvisosOrden({ orden }: { orden: OrdenVista }) {
@@ -277,5 +456,12 @@ const estilos = StyleSheet.create({
     volver: { alignSelf: "flex-start", paddingHorizontal: 0 },
     encabezado: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
     fila: { flexDirection: "row", alignItems: "center", gap: 8 },
-    cierre: { flexDirection: "row", gap: 8, paddingVertical: 8 },
+    pie: { flexDirection: "row", gap: 8, paddingTop: 8 },
+    progreso: { gap: 8 },
+    barra: { height: 8, borderRadius: 999, overflow: "hidden" },
+    relleno: { height: "100%", borderRadius: 999 },
+    pasos: { gap: 4 },
+    pasosCompactos: { flexDirection: "row", gap: 4 },
+    paso: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8 },
+    pasoCompacto: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 2 },
 });

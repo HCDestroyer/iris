@@ -3,6 +3,7 @@ export const ZONA = "America/Guatemala";
 
 const dia = new Intl.DateTimeFormat("en-CA", { timeZone: ZONA, year: "numeric", month: "2-digit", day: "2-digit" });
 const hora = new Intl.DateTimeFormat("es-GT", { timeZone: ZONA, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const fechaHora = new Intl.DateTimeFormat("es-GT", { timeZone: ZONA, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const largo = new Intl.DateTimeFormat("es-GT", { timeZone: ZONA, weekday: "long", day: "numeric", month: "long" });
 
 /** Día de hoy en Guatemala (`YYYY-MM-DD`), el del paquete. */
@@ -14,6 +15,12 @@ export function hoyEnGuatemala(ms = Date.now()): string {
 export function horaCorta(iso: string | null | undefined): string | undefined {
     const ms = iso ? Date.parse(iso) : Number.NaN;
     return Number.isNaN(ms) ? undefined : hora.format(ms);
+}
+
+/** «28 oct, 14:05» en Guatemala (o `undefined`): envío de un traslado, movimientos de bodega. */
+export function fechaHoraCorta(iso: string | null | undefined): string | undefined {
+    const ms = iso ? Date.parse(iso) : Number.NaN;
+    return Number.isNaN(ms) ? undefined : fechaHora.format(ms);
 }
 
 /** «miércoles, 28 de octubre» para el encabezado del día. */
