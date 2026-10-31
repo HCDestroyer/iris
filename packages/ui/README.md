@@ -96,9 +96,10 @@ Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos
 - `MenuEnLinea`: las mismas opciones de `MenuDesplegable`, siempre a la vista (p. ej. la cuenta en
   «Más» del teléfono), con `role="menu"`.
 - `BarraGuardar`: pie fijo con «Cancelar» y «Guardar», con el área segura del teléfono.
-- `FormularioPagina` + `SeccionFormulario`: formulario en pantalla propia, con migas, título,
-  secciones y barra. Al salir con cambios sin guardar (enlaces, «Cancelar», «Atrás» o recargar)
-  pregunta antes, con `useProteccionSalida`.
+- `FormularioPagina` + `SeccionFormulario`: formulario en pantalla propia, con título (que nombra
+  al `<form>`), secciones, barra y migas propias opcionales (en el panel las pone el layout). Al
+  salir con cambios sin guardar (enlaces, «Cancelar», «Atrás» o recargar) pregunta antes, con
+  `useProteccionSalida`; la protección sigue mientras se envía, por si el envío falla.
 
 App de campo: `Camara` (botón que abre la cámara del teléfono con `<input type="file"
 capture>`, oculto pero enfocable), `LienzoFirma` (firma con el dedo por pointer events, tinta del
