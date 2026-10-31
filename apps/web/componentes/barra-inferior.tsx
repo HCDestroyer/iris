@@ -32,6 +32,7 @@ export function BarraInferior({ entradas, masAbierto, alCambiarMas, children }: 
     return (
         <nav
             aria-label="Accesos rápidos"
+            data-slot="barra-inferior"
             className="glass-material fixed inset-x-0 bottom-0 z-30 border-t px-2 pb-[env(safe-area-inset-bottom)] lg:hidden"
         >
             <ul className="mx-auto flex max-w-xl items-stretch">

@@ -1,52 +1,27 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-    avisar,
-    Boton,
-    Campo,
-    CampoArea,
-    CampoSelector,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoDisparador,
-    DialogoPie,
-    DialogoProtegido,
-    useCambiosSinGuardar,
-} from "@iris/ui";
-import { Plus } from "lucide-react";
+import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { AvisoAccion, useEnvio, type Zona } from "@/componentes/comercial/comun";
+import { AvisoAccion, useEnvio, useZonas } from "@/componentes/comercial/comun";
 import { api, resolver } from "@/lib/api/cliente";
 import { cuerpoCrearProspecto, esquemaProspecto, PROSPECTO_VACIO, type DatosProspecto } from "@/lib/comercial/esquemas";
 import { ORIGENES, ORIGENES_ELEGIBLES } from "@/lib/comercial/presentacion";
 
 const CAMPOS = ["nombre", "direccion", "telefono", "correo", "documento", "origen", "origenDetalle", "zonaId", "planInteresNombre", "notas", "lat", "lon"] as const;
 
-/** Alta rápida de prospecto (`prospectos.crear`): lo mínimo es nombre y dirección. */
-export function AltaProspecto({ zonas }: { zonas: readonly Zona[] | null }) {
-    const [abierto, setAbierto] = useState(false);
-    return (
-        <DialogoProtegido open={abierto} onOpenChange={setAbierto}>
-            <DialogoDisparador asChild>
-                <Boton>
-                    <Plus />
-                    Nuevo prospecto
-                </Boton>
-            </DialogoDisparador>
-            {abierto ? <FormularioAlta zonas={zonas} /> : null}
-        </DialogoProtegido>
-    );
-}
-
-function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
+/**
+ * «Nuevo prospecto» en pantalla propia (`/comercial/nuevo`, `prospectos.crear`): lo mínimo es
+ * nombre y dirección. Al crear, aviso y ficha del prospecto.
+ */
+export function NuevoProspecto() {
     const router = useRouter();
+    const lecturaZonas = useZonas();
+    const zonas = lecturaZonas.estado === "listo" ? lecturaZonas.datos : null;
     const envio = useEnvio();
     const formulario = useForm<DatosProspecto>({ resolver: zodResolver(esquemaProspecto), defaultValues: PROSPECTO_VACIO });
-    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
-    const { errors, isSubmitting } = formulario.formState;
+    const { errors, isSubmitting, isDirty } = formulario.formState;
 
     async function enviar(datos: DatosProspecto) {
         const creado = await envio.enviar(
@@ -55,20 +30,35 @@ function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
         );
         if (creado) {
             avisar({ titulo: `Prospecto ${creado.numero} creado` });
-            router.push(`/comercial/${creado.id}`);
+            await liberarProteccion();
+            router.replace(`/comercial/${creado.id}`);
         }
     }
 
     return (
-        <DialogoContenido titulo="Nuevo prospecto" descripcion="Con nombre y dirección basta para empezar; lo demás se completa después.">
-            <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-4" aria-label="Nuevo prospecto">
-                <AvisoAccion envio={envio} que="crear el prospecto" recargar={async () => undefined} />
+        <FormularioPagina
+            titulo="Nuevo prospecto"
+            descripcion="Con nombre y dirección basta para empezar; lo demás se completa después."
+            alEnviar={formulario.handleSubmit(enviar)}
+            navegar={router.push}
+            volverA="/comercial"
+            sucio={isDirty}
+            barra={{ textoGuardar: "Crear prospecto", textoEnviando: "Creando…", enviando: isSubmitting }}
+            error={<AvisoAccion envio={envio} que="crear el prospecto" recargar={async () => undefined} />}
+        >
+            <SeccionFormulario titulo="1. Quién y dónde">
                 <Campo etiqueta="Nombre" autoComplete="off" error={errors.nombre?.message} {...formulario.register("nombre")} />
                 <Campo etiqueta="Dirección" autoComplete="off" error={errors.direccion?.message} {...formulario.register("direccion")} />
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Campo etiqueta="Teléfono" type="tel" inputMode="tel" error={errors.telefono?.message} {...formulario.register("telefono")} />
                     <Campo etiqueta="Correo" type="email" inputMode="email" error={errors.correo?.message} {...formulario.register("correo")} />
                 </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <Campo etiqueta="Latitud" inputMode="decimal" placeholder="14.6349" error={errors.lat?.message} {...formulario.register("lat")} />
+                    <Campo etiqueta="Longitud" inputMode="decimal" placeholder="-90.5133" error={errors.lon?.message} {...formulario.register("lon")} />
+                </div>
+            </SeccionFormulario>
+            <SeccionFormulario titulo="2. Origen e interés">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <CampoSelector etiqueta="Origen" error={errors.origen?.message} {...formulario.register("origen")}>
                         {ORIGENES_ELEGIBLES.map((o) => (
@@ -93,24 +83,9 @@ function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
                     </CampoSelector>
                 </div>
                 <Campo etiqueta="Detalle del origen" ayuda="Quién lo refirió, campaña…" error={errors.origenDetalle?.message} {...formulario.register("origenDetalle")} />
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <Campo etiqueta="Latitud" inputMode="decimal" placeholder="14.6349" error={errors.lat?.message} {...formulario.register("lat")} />
-                    <Campo etiqueta="Longitud" inputMode="decimal" placeholder="-90.5133" error={errors.lon?.message} {...formulario.register("lon")} />
-                </div>
                 <Campo etiqueta="Plan de interés" error={errors.planInteresNombre?.message} {...formulario.register("planInteresNombre")} />
-                <CampoArea etiqueta="Notas" rows={2} error={errors.notas?.message} {...formulario.register("notas")} />
-                <DialogoPie>
-                    <DialogoCerrar asChild>
-                        <Boton variante="contorno" disabled={isSubmitting}>
-                            Cancelar
-                        </Boton>
-                    </DialogoCerrar>
-                    <Boton type="submit" disabled={isSubmitting}>
-                        <Plus />
-                        {isSubmitting ? "Creando…" : "Crear prospecto"}
-                    </Boton>
-                </DialogoPie>
-            </form>
-        </DialogoContenido>
+                <CampoArea etiqueta="Notas" rows={3} error={errors.notas?.message} {...formulario.register("notas")} />
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }

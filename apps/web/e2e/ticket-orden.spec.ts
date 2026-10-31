@@ -16,17 +16,17 @@ test.describe("ticket y orden de la mano", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
-        await page.getByRole("button", { name: "Crear orden y asignar" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Crear orden y asignar" });
+        await page.getByRole("link", { name: "Crear orden y asignar" }).click();
+        await expect(page).toHaveURL(/\/ordenes\/nueva\?ticket=1$/);
+        const dialogo = page.getByRole("form", { name: "Crear orden y asignar" });
         await expect(dialogo.getByLabel("Tipo")).toHaveValue("visita");
         await expect(dialogo.getByLabel("Trabajo a realizar")).toHaveValue("Sin internet desde la mañana");
         await expect(dialogo.getByLabel("Técnico")).toHaveValue("");
         await expect(dialogo.getByLabel("Cuadrilla")).toHaveValue("");
 
-        // Sin técnico ni cuadrilla: lo avisa y no llama a la API.
-        await dialogo.getByRole("button", { name: "Crear y asignar" }).click();
-        await expect(dialogo.getByTestId("aviso-asignacion")).toContainText("Elige un técnico, una cuadrilla o los dos");
-        await expect(dialogo.getByText("Elige un técnico o una cuadrilla")).toHaveCount(2);
+        // Sin técnico ni cuadrilla: no deja guardar y lo explica junto al botón.
+        await expect(dialogo.getByRole("button", { name: "Crear y asignar" })).toBeDisabled();
+        await expect(dialogo.getByRole("button", { name: "Crear y asignar" })).toHaveAccessibleDescription("Falta elegir el técnico o la cuadrilla para guardar.");
         await page.screenshot({ path: path.join(carpeta, `25-orden-ticket-sin-asignacion-${info.project.name}.png`) });
         expect(api.peticiones.some((p) => p.metodo === "POST" && p.ruta.endsWith("/crear-orden"))).toBe(false);
 
@@ -36,7 +36,6 @@ test.describe("ticket y orden de la mano", () => {
         await dialogo.getByLabel("Hora").fill("10:30");
         await dialogo.getByRole("button", { name: "Crear y asignar" }).click();
         await expect(dialogo.getByText("Para programar la visita elige el técnico")).toBeVisible();
-        await expect(dialogo.getByTestId("aviso-asignacion")).toHaveCount(0);
 
         await dialogo.getByLabel("Técnico").selectOption(String(LUCIA));
         await page.screenshot({ path: path.join(carpeta, `25-orden-desde-ticket-${info.project.name}.png`) });
@@ -79,8 +78,9 @@ test.describe("ticket y orden de la mano", () => {
         await page.goto("/tickets/1");
 
         // El modal propone el técnico del ticket; se deja solo la cuadrilla.
-        await page.getByRole("button", { name: "Crear orden y asignar" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Crear orden y asignar" });
+        await page.getByRole("link", { name: "Crear orden y asignar" }).click();
+        await expect(page).toHaveURL(/\/ordenes\/nueva\?ticket=1$/);
+        const dialogo = page.getByRole("form", { name: "Crear orden y asignar" });
         await expect(dialogo.getByLabel("Técnico")).toHaveValue(String(LUCIA));
         await dialogo.getByLabel("Técnico").selectOption("");
         await dialogo.getByLabel("Cuadrilla").selectOption("2");

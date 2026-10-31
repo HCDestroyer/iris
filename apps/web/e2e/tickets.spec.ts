@@ -179,8 +179,9 @@ test.describe("alta rápida", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets");
-        await page.getByRole("button", { name: "Nuevo ticket" }).click();
-        const dialogo = page.getByRole("dialog");
+        await page.getByRole("link", { name: "Nuevo ticket" }).click();
+        await expect(page).toHaveURL(/\/tickets\/nuevo$/);
+        const dialogo = page.getByRole("form", { name: "Nuevo ticket" });
         await dialogo.getByRole("button", { name: "Crear ticket" }).click();
         await expect(dialogo.getByText("Escribe el asunto")).toBeVisible();
         await dialogo.getByLabel("Asunto").fill("Sin señal en todo el sector");
@@ -203,8 +204,9 @@ test.describe("alta rápida", () => {
         const api = await simularApi(page, { conectorApagado: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets");
-        await page.getByRole("button", { name: "Nuevo ticket" }).click();
-        const dialogo = page.getByRole("dialog");
+        await page.getByRole("link", { name: "Nuevo ticket" }).click();
+        await expect(page).toHaveURL(/\/tickets\/nuevo$/);
+        const dialogo = page.getByRole("form", { name: "Nuevo ticket" });
         await dialogo.getByLabel("Asunto").fill("Cliente sin registro");
         await dialogo.getByLabel("Cliente en Argos").click();
         await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Pérez");

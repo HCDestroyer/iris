@@ -110,9 +110,9 @@ test.describe("embudo y lista", () => {
         await expect(page.getByRole("heading", { name: "Diego López" })).toBeVisible();
         await expect(page.getByRole("group", { name: "Acciones del prospecto" })).toHaveCount(0);
         await expect(page.getByRole("button", { name: "El cliente la aceptó" })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: /Nueva revisión|Cotizar/ })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: /Nueva revisión|Cotizar/ })).toHaveCount(0);
         await expect(page.getByText("Descargar el PDF requiere el permiso de ver adjuntos.")).toBeVisible();
-        await expect(page.getByRole("button", { name: "Nuevo prospecto" })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Nuevo prospecto" })).toHaveCount(0);
     });
 
     test("un prospecto inexistente o fuera de alcance", async ({ page, context, baseURL }) => {
@@ -128,8 +128,9 @@ test.describe("alta rápida", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", VENDEDORA.correo);
         await page.goto("/comercial");
-        await page.getByRole("button", { name: "Nuevo prospecto" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Nuevo prospecto" });
+        await page.getByRole("link", { name: "Nuevo prospecto" }).click();
+        await expect(page).toHaveURL(/\/comercial\/nuevo$/);
+        const dialogo = page.getByRole("form", { name: "Nuevo prospecto" });
         await dialogo.getByRole("button", { name: "Crear prospecto" }).click();
         await expect(dialogo.getByText("Escribe el nombre")).toBeVisible();
         await expect(dialogo.getByText("Escribe la dirección")).toBeVisible();
@@ -182,8 +183,9 @@ test.describe("del prospecto al cliente", () => {
         expect(posts(api, "/factibilidad-manual")[0]?.cuerpo).toEqual({ version: 2, resultado: "viable", notas: "Poste con caja a 80 m, hay puertos libres" });
 
         const cot = page.getByTestId("cotizacion");
-        await cot.getByRole("button", { name: "Cotizar" }).click();
-        const dCot = page.getByRole("dialog", { name: "Cotizar" });
+        await cot.getByRole("link", { name: "Cotizar" }).click();
+        await expect(page).toHaveURL(/\/comercial\/\d+\/cotizacion$/);
+        const dCot = page.getByRole("form", { name: "Cotizar" });
         await expect(dCot.getByText("Sin conexión con Argos")).toBeVisible();
         await dCot.getByRole("button", { name: "Instalación" }).click();
         await dCot.getByRole("button", { name: "Guardar cotización" }).click();
@@ -248,8 +250,8 @@ test.describe("del prospecto al cliente", () => {
         await expect(fact.getByText("R-Norte")).toBeVisible();
         await expect(fact.getByTestId("distancia")).toHaveText("182 m");
         await expect(fact.getByText("viable hasta 300 m, con obra hasta 1 km")).toBeVisible();
-        await page.getByTestId("cotizacion").getByRole("button", { name: "Cotizar" }).click();
-        const dCot = page.getByRole("dialog", { name: "Cotizar" });
+        await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
+        const dCot = page.getByRole("form", { name: "Cotizar" });
         await expect(dCot.getByLabel("Plan").locator("option", { hasText: "descontinuado" })).toHaveCount(0);
         await dCot.getByLabel("Plan").selectOption("72");
         await expect(dCot.getByText(/Precio de Argos: Q\s?400\.00 al mes/)).toBeVisible();
@@ -501,10 +503,14 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
     await page.goto("/comercial/2");
     await page.getByTestId("factibilidad").getByRole("button", { name: "Evaluar" }).click();
     await expect(page.getByTestId("distancia")).toBeVisible();
-    await page.getByTestId("cotizacion").getByRole("button", { name: "Cotizar" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Instalación" }).click();
+    await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
+    const cotizar = page.getByRole("form", { name: "Cotizar" });
+    await cotizar.getByRole("button", { name: "Instalación" }).click();
     await page.screenshot({ path: nombre("06-cotizar") });
-    await page.keyboard.press("Escape");
+    // Salir con cambios pregunta antes de descartar.
+    await cotizar.getByRole("button", { name: "Cancelar" }).click();
+    await page.getByRole("alertdialog", { name: "¿Descartar los cambios?" }).getByRole("button", { name: "Descartar cambios" }).click();
+    await expect(page).toHaveURL(/\/comercial\/2$/);
     await page.goto("/comercial/5");
     await page.getByTestId("contrato").getByRole("button", { name: "Firmar con el cliente" }).click();
     await firmar(page);

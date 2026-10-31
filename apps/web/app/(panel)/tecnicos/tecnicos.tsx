@@ -8,7 +8,7 @@ import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
 import { useCatalogosAgenda } from "@/componentes/despacho/datos";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
-import { FormularioTecnico, textoZonas } from "@/componentes/equipo/formulario-tecnico";
+import { textoZonas } from "@/componentes/equipo/formulario-tecnico";
 import { InsigniaActivo } from "@/componentes/equipo/insignias";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { PieLista } from "@/componentes/pie-lista";
@@ -31,7 +31,6 @@ export function PantallaTecnicos() {
     const catalogos = useCatalogosAgenda();
     const [filtros, setFiltros] = useState<Filtros>({ q: "", cuadrillaId: "", activo: "true" });
     const q = useDiferido(filtros.q.trim(), 300);
-    const [formulario, setFormulario] = useState<{ tecnico?: Tecnico } | null>(null);
     const [version, setVersion] = useState(0);
     const cuadrillas = catalogos.cuadrillas.estado === "listo" ? catalogos.cuadrillas.datos : undefined;
     const zonas = catalogos.zonas.estado === "listo" ? catalogos.zonas.datos : undefined;
@@ -61,9 +60,11 @@ export function PantallaTecnicos() {
                             </Boton>
                         ) : null}
                         {puede(["agenda.crear_tecnico"]) ? (
-                            <Boton onClick={() => setFormulario({})} disabled={!cuadrillas}>
-                                <Plus />
-                                Nuevo técnico
+                            <Boton asChild>
+                                <Link href="/tecnicos/nuevo">
+                                    <Plus />
+                                    Nuevo técnico
+                                </Link>
                             </Boton>
                         ) : null}
                     </div>
@@ -103,22 +104,8 @@ export function PantallaTecnicos() {
                 activo={filtros.activo}
                 cuadrillas={cuadrillas}
                 zonas={zonas}
-                alEditar={(t) => setFormulario({ tecnico: t })}
                 alCambiar={() => setVersion((n) => n + 1)}
             />
-            {formulario && cuadrillas ? (
-                <FormularioTecnico
-                    key={formulario.tecnico?.id ?? "nuevo"}
-                    tecnico={formulario.tecnico}
-                    cuadrillas={cuadrillas}
-                    zonas={zonas}
-                    alCerrar={() => setFormulario(null)}
-                    alGuardar={() => {
-                        setFormulario(null);
-                        setVersion((n) => n + 1);
-                    }}
-                />
-            ) : null}
         </>
     );
 }
@@ -129,7 +116,6 @@ function Lista({
     activo,
     cuadrillas,
     zonas,
-    alEditar,
     alCambiar,
 }: {
     q: string;
@@ -137,7 +123,6 @@ function Lista({
     activo: Estado;
     cuadrillas: readonly Cuadrilla[] | undefined;
     zonas: readonly Zona[] | undefined;
-    alEditar: (t: Tecnico) => void;
     alCambiar: () => void;
 }) {
     const paginado = usePaginado<Tecnico>((cursor, signal) =>
@@ -184,7 +169,7 @@ function Lista({
             <ul className="grid gap-3 lg:grid-cols-2" aria-label="Técnicos">
                 {paginado.items.map((t) => (
                     <li key={t.id} className="min-w-0">
-                        <TarjetaTecnico tecnico={t} cuadrillas={cuadrillas} zonas={zonas} alEditar={() => alEditar(t)} alCambiar={alCambiar} />
+                        <TarjetaTecnico tecnico={t} cuadrillas={cuadrillas} zonas={zonas} alCambiar={alCambiar} />
                     </li>
                 ))}
             </ul>
@@ -197,13 +182,11 @@ function TarjetaTecnico({
     tecnico: t,
     cuadrillas,
     zonas,
-    alEditar,
     alCambiar,
 }: {
     tecnico: Tecnico;
     cuadrillas: readonly Cuadrilla[] | undefined;
     zonas: readonly Zona[] | undefined;
-    alEditar: () => void;
     alCambiar: () => void;
 }) {
     const { puede } = useSesion();
@@ -256,9 +239,11 @@ function TarjetaTecnico({
                     <Link href={`/tecnicos/${t.id}`}>Ver ficha</Link>
                 </Boton>
                 {puede(["agenda.editar_tecnico"]) && cuadrillas ? (
-                    <Boton variante="contorno" tamano="sm" onClick={alEditar} aria-label={`Editar a ${t.nombre}`}>
-                        <Pencil />
-                        Editar
+                    <Boton asChild variante="contorno" tamano="sm">
+                        <Link href={`/tecnicos/${t.id}/editar?desde=lista`} aria-label={`Editar a ${t.nombre}`}>
+                            <Pencil />
+                            Editar
+                        </Link>
                     </Boton>
                 ) : null}
                 <CambiarEstado
