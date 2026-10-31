@@ -123,7 +123,9 @@ func correr() error {
 	// almacenamiento de adjuntos.
 	almacen, err := almacenAdjuntos(cfg)
 	if err != nil {
-		return err
+		// Sin almacenamiento las recepciones esperan la firma (no tumba el worker).
+		log.Warn("adjuntos: sin almacenamiento en el worker; las recepciones de traslados esperarán la firma", "err", err)
+		almacen = nil
 	}
 	inventario.RegistrarAdjuntos()
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Almacen: almacen,
