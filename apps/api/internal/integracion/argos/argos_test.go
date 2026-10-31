@@ -516,7 +516,8 @@ func TestFichaInstantaneaYStale(t *testing.T) {
 	// Sin instantánea y sin Argos: 503, nunca una ficha vacía.
 	lectura.pedir(http.MethodGet, "/api/v1/clientes/99", nil).problema(t, 503, "argos_no_disponible")
 
-	// Argos vuelve: se refresca y deja de ser stale.
+	// Argos vuelve y pasó la espera tras el fallo (EsperaTrasFallo): se refresca y deja de ser stale.
+	e.exec(`UPDATE integracion.argos_clientes SET fallo_en = now() - interval '2 minutes' WHERE id = 41`)
 	e.argos.con(func() {
 		e.argos.caido = false
 		e.argos.clientes[41]["nombre"] = "Ana López de Pérez"
@@ -733,5 +734,40 @@ func TestBuscarClientesConServiciosTope(t *testing.T) {
 	}
 	if conServicios != argos.TopeServiciosBusqueda || conServicios+sinServicios != 10 {
 		t.Fatalf("esperaba %d con servicios de 10: %d con, %d sin", argos.TopeServiciosBusqueda, conServicios, sinServicios)
+	}
+}
+
+// Las lecturas de servicios de la búsqueda se cobran a la cuota de verificación de refrescos.go
+// (CuotaUsuario por minuto, sin un sistema de cuotas propio): agotada, no se llama más a Argos y
+// los clientes que no se pudieron leer quedan con servicios null.
+func TestBuscarClientesConServiciosCobraCuota(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	grupos := []string{"a", "b", "c", "d"}
+	for g, letra := range grupos {
+		for i := range 8 {
+			e.sembrarCliente(int64(200+g*10+i), "Lote "+letra+" "+strconv.Itoa(i))
+		}
+	}
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	var ultimos int
+	for _, letra := range grupos {
+		r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=lote%20"+letra+"&servicios=true&limit=8", nil)
+		if r.status != 200 {
+			t.Fatalf("buscar %s: %d %s", letra, r.status, r.crudo)
+		}
+		ultimos = 0
+		for _, d := range r.cuerpo["data"].([]any) {
+			if d.(map[string]any)["servicios"] != nil {
+				ultimos++
+			}
+		}
+	}
+	if n := e.argos.llamadasA("/api/v1/servicios") - antes; n != argos.CuotaUsuario {
+		t.Fatalf("esperaba %d lecturas de servicios (la cuota del usuario), hubo %d", argos.CuotaUsuario, n)
+	}
+	if ultimos != argos.CuotaUsuario-3*8 {
+		t.Fatalf("la última búsqueda debía traer servicios solo de los %d clientes que alcanzó a leer: %d", argos.CuotaUsuario-3*8, ultimos)
 	}
 }

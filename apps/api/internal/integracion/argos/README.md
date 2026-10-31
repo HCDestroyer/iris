@@ -53,9 +53,12 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Búsqueda con servicios** (`GET /clientes?q=&servicios=true`, selector de cliente del panel):
   exige `q` de 3 caracteres o más (422) y solo los primeros 8 resultados
   (`TopeServiciosBusqueda`) traen `servicios` (los de la empresa activa; sin zona, heredan la del
-  cliente). Se leen en Argos con los cupos por conector y una caché de 5 min por cliente
-  compartida con la verificación de empresas (solo se pide lo que no está en caché); si Argos no
-  responde, de la instantánea. `servicios: null` = no se leyeron. Es solo informativo: el panel
+  cliente; con el convertidor único `AServicio`). Se leen en Argos con los cupos por conector y una
+  caché de 5 min por cliente compartida con la verificación de empresas (solo se pide lo que no
+  está en caché). Cada lectura (también la verificación de clientes desconocidos de la búsqueda)
+  se cobra a la cuota de verificación de `refrescos.go` (usuario, conector y empresa) y respeta la
+  caché negativa y `fallo_en`; agotada la cuota, el resto queda sin leer. Si Argos no responde, de
+  la instantánea. `servicios: null` = no se leyeron. Es solo informativo: el panel
   toma el servicio elegido de la ficha (`GET /clientes/{id}`, que guarda la instantánea). Sin el
   parámetro no hay llamadas extra.
 - **Instantáneas** (`argos_clientes`, `argos_servicios`, `argos_zonas`, `argos_routers`): solo lo
@@ -74,10 +77,9 @@ comunes de conectores); aquí queda lo propio de Argos.
 
 - **`cliente.actualizado` con `campos[]`** (`nombre`, `tipo`, `codigo`, `nit_cui`,
   `tipo_documento_fiscal`, `telefono`, `movil`, `direccion`, `coordenadas`, `zona_id`): refresca
-  la instantánea (teléfono, dirección, coordenadas `"lat,lng"` y zona incluidos). Si todos los que
-  cambiaron son de los que la instantánea no guarda (`tipo`, `nit_cui`, `tipo_documento_fiscal`,
-  `movil`), no relee el cliente («ignorado», `omitido: campos_sin_efecto`). Sin `campos[]` o con
-  uno desconocido, refresca.
+  la instantánea con cualquier campo: desde los datos coherentes la instantánea guarda también
+  `tipo`, `nit_cui`, `tipo_documento_fiscal` y `movil` (antes esos se omitían con
+  `campos_sin_efecto`).
 - **`servicio.eliminado` y `router.eliminado`** (`eliminados.go`). La lápida es difícil de
   deshacer, así que no se cree al payload:
   - el id sale solo de `servicio_id` / `router_id` (sin ellos, «ignorado», `sin_id`);
@@ -161,3 +163,80 @@ primera.
 - **Búsqueda:** la empresa activa va en `X-Empresa-Id`. Los clientes que Iris no conoce (ni en la
   instantánea ni en una caché de 5 min) se verifican en Argos: a lo sumo 20 por búsqueda (los demás
   quedan fuera) y 10 a la vez por conector; falla cerrado.
+
+## Datos coherentes (pedido 5 del PM)
+
+Lo que Iris muestra del cliente y del servicio coincide con Argos 1.4.0 y se ve igual en todas
+partes (ficha, ticket, orden, comercial y app de campo).
+
+- **Instantánea completa** (migración `integracion_argos_datos_coherentes`): del cliente, además,
+  `tipo`, `tipo_documento_fiscal`, `nit_cui` (sin guiones, como Argos), `movil`, `correo` (`email`
+  de Argos) y `zona_nombre` (Argos lo manda en cada servicio; sin servicios, del catálogo de zonas);
+  del servicio, `user_ppp` y `tipo_conexion`. La IP sale de `ipv4` (Argos 1.4.0 no manda `ip`:
+  antes quedaba vacía y la resolución local por IP nunca acertaba). En Argos el servicio no tiene
+  `zona_id`: toma la de su cliente.
+- **Estado del cliente:** Argos no tiene estado de cliente. `cliente.estado` es el resumen de sus
+  servicios visibles (el más grave: suspendido > limitado > activo > pendiente_instalacion >
+  retirado), el mismo criterio que Argos en `GET /clientes/:id/dependientes`.
+- **Formato para mostrar** (`formato/`, funciones puras, solo espacios y tabuladores ASCII y mayúsculas a–z para dar lo mismo que su espejo en
+  `apps/web/lib/datos/telefono.ts`; los dos prueban `formato/testdata/telefonos.json`):
+  - teléfonos: un campo de Argos puede traer varios números («5512-3344 / 2233-4455»); cada uno sale
+    en `telefonos[]` con `original`, `e164` (+50255123344, null si no se pudo interpretar) y
+    `mostrar` (+502 5512 3344; el original si es de otro país o no se interpreta);
+  - documento: `nitCuiMostrar` (NIT 1234567-8, CUI 1234 56789 0101, CF);
+  - coordenadas: 6 decimales y el 0,0 como «sin coordenadas».
+- **Dirección del cliente ≠ dirección de instalación:** `cliente.direccion` es el domicilio;
+  `servicio.direccion`, la de instalación (vacía si Argos no tiene una propia: entonces aplica la del
+  cliente; Iris no la inventa).
+- **Copias en tickets y órdenes** (`copias.go`, `integracion.argos_copias`, solo inserción): al
+  crear un ticket o una orden con cliente de Argos, el caso de uso que lo crea guarda en su
+  transacción **solo lo operativo** (nombre, código, dirección del cliente y de instalación,
+  teléfono principal, servicio, plan, IP, router, zona; nunca documento fiscal, correo ni
+  empresas) con la empresa de la entidad (`CopiarDatos`). No se copia un cliente que la instantánea
+  pone en otra empresa, y al leer (`CopiaDe`) se descarta si la empresa ya no coincide. El detalle
+  (`GET /tickets/{id}`, `GET /ordenes/{id}`) la devuelve en `datosArgos` solo a quien tiene
+  `clientes.ver`. Si Argos elimina al cliente (404 al leerlo o webhook), sus copias se anonimizan
+  (solo ids, `anonimizada: true`). Una copia de una fila anterior a los datos coherentes va con
+  `completa: false`. Tickets y órdenes anteriores a la migración no tienen copia.
+- **Cliente y servicio de la empresa** (revisión de seguridad): `ValidarClienteEnEmpresa` en
+  `crearTicket` (panel, API, portal, correo, Horus) y `CrearOrden`: con instantánea, el cliente
+  debe ser de la empresa (`enEmpresa`) y el servicio, de ese cliente y de esa empresa (422
+  `empresa_no_coincide` o 422 `servicioId`). Horus con un cliente de otra empresa abre el ticket
+  sin cliente (`otra_empresa`). Antes de la transacción, `ConInstantanea` (envoltura de
+  `CrearTicket` y `CrearOrden` para usuarios, tokens e integraciones con el permiso) llama a
+  `AsegurarInstantanea`: valida primero con la instantánea y solo relee de Argos si no basta y
+  tiene más de 30 s, con la protección de la ficha (singleflight, cuota por usuario y conector →
+  429 `cuota_argos`, espera tras una caída). Lo leído se valida antes de guardarlo (un cliente de
+  otra empresa no entra a la instantánea; auditado como `clientes.sincronizar`); un 404 borra la
+  instantánea y anonimiza las copias. Con Argos caído y un servicio pedido, 503
+  `argos_no_disponible`. Cliente inexistente, de otra empresa o servicio ajeno dan el mismo 422
+  `empresa_no_coincide` (sin oráculo de enumeración). El sistema (retiro automático, alta
+  comercial) no consulta.
+- **Convertidor único:** `AServicio(ServicioArgos, zonaCliente)` → `Servicio` (instantánea y
+  lecturas en vivo).
+- **Protección de Argos** (`refrescos.go`): una sola lectura de ficha en curso por (conector,
+  cliente) (`singleflight`); solo el líder, el que llama a Argos, cobra. Toda lectura que llama a
+  Argos cobra la cuota del usuario (30/min), también las de instantáneas vencidas o inexistentes.
+  Las lecturas a pedido cobran además una cuota propia según el uso, global por conector y por
+  (conector, empresa): «Refrescar» 60/20 por minuto y verificación de altas 300/100 (agotar una no
+  bloquea la otra ni a otras empresas). Pasada una cuota: «Refrescar» devuelve la instantánea con
+  `refrescoOmitido: cuota`, una vencida se sirve `stale` y sin instantánea es 429 `cuota_argos`.
+  Tras una caída con instantánea (`fallo_en`), 1 min sin volver a llamar; sin instantánea, un 404
+  (10 s) o una caída (1 min) quedan en una caché negativa en memoria que respetan la ficha,
+  «Refrescar» y la verificación, y que se descarta si desde entonces hubo noticia del cliente en la
+  base (webhook `cliente.creado`/`cliente.actualizado` procesado o pendiente `crear_cliente` hecho,
+  en cualquier proceso). Un usuario tiene además 5 «Refrescar» por minuto, para no agotar los de su
+  empresa. Las ventanas de cuota vencidas se desalojan (nunca las vigentes). Con
+  `?refrescar=true`, `refrescoOmitido` dice por qué no se llamó (`cuota`, `reciente`,
+  `en_espera`). «Refrescar» de un cliente que la instantánea pone en otra empresa no llama a
+  Argos (404).
+- **Auditoría de la búsqueda:** una búsqueda con 4 dígitos o más (teléfono, NIT, CUI) queda con los
+  dígitos ocultos salvo los dos últimos (`****-**44`).
+- **Resolución local por IP:** ignora servicios retirados.
+- **Refresco:** por webhook (`cliente.actualizado` con cualquier `campos[]`,
+  `servicio.creado`, `servicio.config_cambiada`, `asignacion.cambiada`,
+  `servicio.estado_cambiado`), al abrir la ficha si tiene más de 24 h o es de una versión anterior
+  de los datos (`version_datos` < `VersionDatos`) y con «Refrescar» (`GET /clientes/{id}?refrescar=true`,
+  que no vuelve a pedir a Argos si la instantánea es de hace menos de 30 s). Argos 1.4.0 no avisa
+  cambios de la dirección o las coordenadas de un servicio ni del correo del cliente: hasta que lo
+  haga (pedidos en `.claude/integration/i1.md`), se ven al vencer las 24 h o con «Refrescar».
