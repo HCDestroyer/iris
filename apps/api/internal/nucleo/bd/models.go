@@ -429,6 +429,8 @@ type CampoOrdene struct {
 	PausadaSeg            int64
 	DatosArgosCambiadosEn *time.Time
 	DatosArgosCampos      []string
+	Referencia            *string
+	DatosArgosEntranteID  *int64
 }
 
 type CampoPlantillaItem struct {

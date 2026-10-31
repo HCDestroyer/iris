@@ -184,6 +184,9 @@ type Modulo struct {
 	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
 	// MarcarDatosArgos: argos.datos_cambiados marca las órdenes abiertas (contrato 0.5.0; I1).
 	MarcarDatosArgos *auditoria.Caso[EntradaDatosArgos, ResultadoDatosArgos]
+	// AplicarDatosArgos / DescartarDatosArgos: despacho atiende «Dato de Argos cambió».
+	AplicarDatosArgos   *auditoria.Caso[EntradaAplicarDatosArgos, Orden]
+	DescartarDatosArgos *auditoria.Caso[EntradaDescartarDatosArgos, Orden]
 
 	// Ticket y orden de la mano (ticket_orden.go).
 	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
@@ -264,6 +267,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
 	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
 	m.MarcarDatosArgos = m.nuevoMarcarDatosArgos()
+	m.AplicarDatosArgos = m.nuevoAplicarDatosArgos()
+	m.DescartarDatosArgos = m.nuevoDescartarDatosArgos()
 	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()
 	m.IgualarAsignacion = m.nuevoIgualarAsignacion()
 	return m
