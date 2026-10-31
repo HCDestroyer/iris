@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    Aviso,
     Boton,
     Campo,
     CampoSelector,
@@ -15,6 +16,7 @@ import {
     Tarjeta,
 } from "@iris/ui";
 import { BookmarkPlus, Search, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -36,18 +38,35 @@ import { ESTADOS, ORDEN_ESTADOS, ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/ti
 import { AltaRapida } from "./alta-rapida";
 import { ListaTickets } from "./lista-tickets";
 
-export function Bandeja() {
+type ClienteFiltro = { id: number; nombre: string };
+
+/** `?clienteId=&cliente=` (desde el buscador global): los tickets de un cliente de Argos. */
+function clienteDeParametros(params: URLSearchParams): ClienteFiltro | null {
+    const id = Number(params.get("clienteId"));
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    return { id, nombre: params.get("cliente")?.trim() || `Cliente ${id}` };
+}
+
+/** Bandeja de tickets; con un cliente en la URL, la historia de ese cliente (todos los estados). */
+export function PantallaTickets() {
+    const params = useSearchParams();
+    const cliente = clienteDeParametros(params);
+    return <Bandeja key={cliente?.id ?? "todos"} cliente={cliente} />;
+}
+
+function Bandeja({ cliente }: { cliente: ClienteFiltro | null }) {
     const { yo, puede } = useSesion();
+    const router = useRouter();
     const categorias = useCategorias();
     const usuarios = useUsuarios();
-    const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
+    const [filtros, setFiltros] = useState<Filtros>(() => (cliente ? { ...FILTROS_INICIALES, estado: "todos" } : FILTROS_INICIALES));
     const [propias, setPropias] = useState<Vista[]>(() => leerVistas(yo.usuario.id));
     const [guardando, setGuardando] = useState(false);
     const idBuscar = useId();
     const q = useDiferido(filtros.q, 350);
 
     const efectivos: Filtros = { ...filtros, q };
-    const consulta = consultaDeFiltros(efectivos, yo.usuario.id);
+    const consulta = { ...consultaDeFiltros(efectivos, yo.usuario.id), ...(cliente ? { clienteId: cliente.id } : {}) };
     const vistas = [...VISTAS_PREDEFINIDAS, ...propias];
     const vistaActiva = vistas.find((v) => mismosFiltros(v.filtros, filtros));
     const cambiar = (parcial: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parcial }));
@@ -66,6 +85,23 @@ export function Bandeja() {
                 descripcion="Soporte con SLA: lo urgente primero."
                 acciones={puede(["tickets.crear"]) ? <AltaRapida categorias={listaCategorias} /> : null}
             />
+
+            {cliente ? (
+                <Aviso
+                    tono="info"
+                    titulo={`Tickets de ${cliente.nombre}`}
+                    className="mb-3"
+                    data-testid="filtro-cliente"
+                    accion={
+                        <Boton variante="secundario" tamano="sm" onClick={() => router.replace("/tickets")}>
+                            <X />
+                            Ver todos los tickets
+                        </Boton>
+                    }
+                >
+                    Solo los de este cliente, en cualquier estado.
+                </Aviso>
+            ) : null}
 
             <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Vistas">
                 {vistas.map((v) => {
@@ -170,7 +206,7 @@ export function Bandeja() {
                 categorias={categorias.estado === "listo" ? categorias.datos : undefined}
                 usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
                 yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
-                hayFiltros={!mismosFiltros(efectivos, FILTROS_INICIALES)}
+                hayFiltros={cliente !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
             />
 
             <DialogoGuardarVista
