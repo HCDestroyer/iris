@@ -1,0 +1,197 @@
+/*
+ * Tema Horus para HeroUI v3. Cada variable de HeroUI apunta a un token `--hx-*` de
+ * horus-tokens.css (la única fuente de color): aquí no hay ningún color nuevo.
+ *
+ * Va sin capa (`@layer`) a propósito: el tema por defecto de HeroUI vive en `@layer base`, así que
+ * estas reglas ganan siempre. Los tokens `--hx-*` ya cambian con `.dark` / `[data-theme]`, por eso
+ * basta con un bloque: las variables se recalculan en cada elemento que cambia de tema.
+ */
+:root,
+:host,
+.light,
+.dark,
+[data-theme="light"],
+[data-theme="dark"] {
+    /* Marca: un solo color (teal). HeroUI lo llama `accent`. */
+    --accent: var(--hx-primary);
+    --accent-foreground: var(--hx-on-primary);
+    --accent-hover: var(--hx-primary-hover);
+    --accent-soft: color-mix(in oklab, var(--hx-primary) 10%, transparent);
+    --accent-soft-hover: color-mix(in oklab, var(--hx-primary) 16%, transparent);
+    --accent-soft-foreground: var(--hx-primary);
+    --focus: var(--hx-primary);
+    --link: var(--hx-primary);
+
+    /* Lienzo, texto y neutros (zinc). */
+    --background: var(--hx-bg);
+    --foreground: var(--hx-text);
+    --background-secondary: var(--hx-bg-muted);
+    --background-tertiary: var(--hx-bg-elevated);
+    --muted: var(--hx-text-muted);
+    --default: var(--hx-bg-elevated);
+    --default-hover: color-mix(in oklab, var(--hx-bg-elevated) 88%, var(--hx-text) 6%);
+    --default-foreground: var(--hx-text);
+    --default-soft: var(--hx-bg-elevated);
+    --default-soft-hover: color-mix(in oklab, var(--hx-bg-elevated) 88%, var(--hx-text) 6%);
+    --default-soft-foreground: var(--hx-text);
+    --segment: var(--hx-bg);
+    --segment-foreground: var(--hx-text);
+    --border: var(--hx-border);
+    --separator: var(--hx-border);
+    --border-secondary: var(--hx-border);
+    --border-tertiary: var(--hx-border);
+    --separator-secondary: var(--hx-border);
+    --separator-tertiary: var(--hx-border);
+
+    /* Tarjetas casi sólidas (contenido). */
+    --surface: var(--hx-card);
+    --surface-foreground: var(--hx-text);
+    --surface-hover: var(--hx-bg-muted);
+    --surface-secondary: var(--hx-bg-muted);
+    --surface-secondary-foreground: var(--hx-text);
+    --surface-tertiary: var(--hx-bg-elevated);
+    --surface-tertiary-foreground: var(--hx-text);
+    --surface-shadow: 0 0 0 1px var(--hx-border), inset 0 1px 0 var(--hx-glass-edge);
+
+    /* Capa flotante (menús, popovers, modales, avisos): vidrio fuerte. */
+    --overlay: var(--hx-glass-strong);
+    --overlay-foreground: var(--hx-text);
+    --overlay-shadow: 0 0 0 1px var(--hx-border), inset 0 1px 0 var(--hx-glass-edge), 0 16px 40px rgb(0 0 0 / 0.18);
+    --backdrop: rgb(0 0 0 / 0.45);
+
+    /* Estados: verde, ámbar y rojo de Horus (tonos que pasan 4,5:1 en cada tema). El texto sobre
+       el relleno es el fondo del tema: blanco en claro, azul noche en oscuro. */
+    --success: var(--hx-success);
+    --success-foreground: var(--hx-bg);
+    --success-hover: color-mix(in oklab, var(--hx-success) 88%, var(--hx-text) 12%);
+    --success-soft: color-mix(in oklab, var(--hx-success) 10%, transparent);
+    --success-soft-hover: color-mix(in oklab, var(--hx-success) 16%, transparent);
+    --success-soft-foreground: var(--hx-success);
+    --warning: var(--hx-warning);
+    --warning-foreground: var(--hx-bg);
+    --warning-hover: color-mix(in oklab, var(--hx-warning) 88%, var(--hx-text) 12%);
+    --warning-soft: color-mix(in oklab, var(--hx-warning) 10%, transparent);
+    --warning-soft-hover: color-mix(in oklab, var(--hx-warning) 16%, transparent);
+    --warning-soft-foreground: var(--hx-warning);
+    --danger: var(--hx-error);
+    --danger-foreground: var(--hx-bg);
+    --danger-hover: color-mix(in oklab, var(--hx-error) 88%, var(--hx-text) 12%);
+    --danger-soft: color-mix(in oklab, var(--hx-error) 10%, transparent);
+    --danger-soft-hover: color-mix(in oklab, var(--hx-error) 16%, transparent);
+    --danger-soft-foreground: var(--hx-error);
+
+    /* Campos de formulario: borde visible de 1 px y radio de Horus (6 px). */
+    --field-background: var(--hx-bg);
+    --field-foreground: var(--hx-text);
+    --field-placeholder: var(--hx-text-dimmed);
+    --field-border: var(--hx-border);
+    --field-border-width: 1px;
+    --field-radius: var(--hx-radius);
+    --field-hover: var(--hx-bg);
+    --field-focus: var(--hx-bg);
+    --field-border-hover: color-mix(in oklab, var(--hx-border) 70%, var(--hx-text) 30%);
+    --field-border-focus: var(--hx-primary);
+    --field-shadow: 0 0 0 0 transparent;
+
+    /* Forma y movimiento. */
+    --radius: var(--hx-radius);
+    --ring-offset-width: 2px;
+    --disabled-opacity: 0.55;
+    --skeleton-animation: pulse;
+    --tooltip-delay: 600ms;
+    --tooltip-close-delay: 200ms;
+}
+
+/* Vidrio fuerte en toda la capa flotante de HeroUI; nunca vidrio sobre vidrio. */
+.modal__dialog,
+.alert-dialog__dialog,
+.drawer__dialog,
+.popover,
+.tooltip,
+.dropdown__popover,
+.select__popover,
+.combo-box__popover,
+.autocomplete__popover,
+.date-picker__popover,
+.date-range-picker__popover,
+.color-picker__popover,
+.toast {
+    -webkit-backdrop-filter: blur(40px) saturate(150%);
+    backdrop-filter: blur(40px) saturate(150%);
+}
+
+.modal__dialog,
+.alert-dialog__dialog,
+.popover,
+.dropdown__popover,
+.select__popover,
+.combo-box__popover,
+.autocomplete__popover,
+.date-picker__popover,
+.date-range-picker__popover,
+.toast {
+    border-radius: var(--hx-radius-card);
+}
+
+/* Botones de HeroUI con el radio de Horus (no píldora); el primario lleva el halo (solo oscuro). */
+.button {
+    border-radius: var(--hx-radius);
+}
+
+.button--primary {
+    box-shadow: 0 0 18px var(--hx-glow-brand);
+}
+
+/*
+ * Foco de Horus en los botones: el contorno global de horus-tokens (2 px de marca, separación de
+ * 2 px) en lugar del anillo de HeroUI, para no pintar los dos.
+ */
+.button:focus-visible,
+.button[data-focus-visible="true"] {
+    outline: 2px solid var(--hx-primary);
+    outline-offset: 2px;
+    --tw-ring-shadow: 0 0 transparent;
+    --tw-ring-offset-shadow: 0 0 transparent;
+}
+
+/*
+ * Campos: un solo indicador de foco, el contorno de Horus sobre el borde (como antes), sin el
+ * anillo de HeroUI encima. Los inválidos conservan su borde de error.
+ */
+.input:focus-visible,
+.input[data-focus-visible="true"],
+.textarea:focus-visible,
+.textarea[data-focus-visible="true"] {
+    outline: 2px solid var(--hx-primary);
+    outline-offset: 0;
+    --tw-ring-shadow: 0 0 transparent;
+    --tw-ring-offset-shadow: 0 0 transparent;
+}
+
+/* Sin transparencias ni blur cuando el sistema lo pide (horus-tokens hace lo mismo con el vidrio). */
+@media (prefers-reduced-transparency: reduce) {
+    :root,
+    .light,
+    .dark,
+    [data-theme="light"],
+    [data-theme="dark"] {
+        --overlay: var(--hx-bg);
+    }
+
+    .modal__dialog,
+    .alert-dialog__dialog,
+    .drawer__dialog,
+    .popover,
+    .tooltip,
+    .dropdown__popover,
+    .select__popover,
+    .combo-box__popover,
+    .autocomplete__popover,
+    .date-picker__popover,
+    .date-range-picker__popover,
+    .color-picker__popover,
+    .toast {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+}

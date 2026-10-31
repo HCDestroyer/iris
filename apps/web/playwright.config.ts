@@ -37,6 +37,7 @@ export default defineConfig({
         timeout: 180_000,
         // Ninguna petición debe llegar al proxy: si una ruta no está simulada, falla (502).
         // Con la precarga de producción (IP del socket para X-Forwarded-For), como el Dockerfile.
-        env: { IRIS_API_URL: "http://127.0.0.1:9", NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(directorio, "ip-cliente.mjs")).href}` },
+        // IRIS_DEMO_UI=1 habilita /demo-ui (prueba de humo de los componentes base, e2e/componentes-base.spec.ts).
+        env: { IRIS_API_URL: "http://127.0.0.1:9", IRIS_DEMO_UI: "1", NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(directorio, "ip-cliente.mjs")).href}` },
     },
 });

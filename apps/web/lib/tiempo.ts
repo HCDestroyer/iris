@@ -13,22 +13,29 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 
 /**
  * Ruta interna segura para volver tras entrar: evita redirecciones abiertas (`//otro.sitio`,
- * `/\\otro.sitio`, caracteres de control) y exige que resuelva al mismo origen.
+ * `/\\otro.sitio`, `/.//otro.sitio`, caracteres de control) y exige que resuelva al mismo origen.
+ * Devuelve la ruta ya resuelta (`/a/../b` → `/b`), nunca el texto recibido.
  */
 export function rutaSegura(valor: string | null | undefined, porDefecto = "/", origen?: string): string {
-    if (!valor || !valor.startsWith("/") || valor.startsWith("//") || valor.startsWith("/\\") || CONTROL.test(valor)) {
+    if (!valor || !valor.startsWith("/") || valor.startsWith("//") || valor.includes("\\") || CONTROL.test(valor)) {
         return porDefecto;
     }
     const base = origen ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin);
+    let url: URL;
     try {
-        if (new URL(valor, base).origin !== new URL(base).origin) {
+        url = new URL(valor, base);
+        if (url.origin !== new URL(base).origin) {
             return porDefecto;
         }
     } catch {
         return porDefecto;
     }
-    if (valor.startsWith("/entrar") || valor.startsWith("/api/")) {
+    // `/.//evil.com` resuelve a pathname `//evil.com`: el router lo trataría como «//host».
+    if (url.pathname.startsWith("//") || url.pathname.includes("\\")) {
         return porDefecto;
     }
-    return valor;
+    if (url.pathname === "/entrar" || url.pathname.startsWith("/entrar/") || url.pathname.startsWith("/api/")) {
+        return porDefecto;
+    }
+    return `${url.pathname}${url.search}${url.hash}`;
 }

@@ -1,32 +1,41 @@
 /*
- * Identidad Horus para Tailwind 4. La app la importa después de `tailwindcss`:
+ * Identidad Horus para Tailwind 4 sobre HeroUI v3. La app la importa después de `tailwindcss`:
  *
  *   @import "tailwindcss";
  *   @import "@iris/ui/estilos.css";
  *   @source "<ruta a>/packages/ui/src";
  *
- * horus-tokens.css es copia exacta de docs/marca/horus-tokens.css (una prueba lo verifica).
- * Aquí solo se exponen esos tokens como utilidades de Tailwind (bg-primary, text-muted-foreground…).
+ * Orden: estilos de HeroUI (componentes y su tema por defecto) → tokens de Horus → tema Horus para
+ * HeroUI (sus variables apuntan a `--hx-*`) → utilidades de Iris. horus-tokens.css es copia exacta
+ * de docs/marca/horus-tokens.css (una prueba lo verifica): es la única fuente de color.
  * Nunca colores crudos en componentes: solo estos nombres semánticos.
  */
+@import "@heroui/styles";
 @import "./horus-tokens.css";
+@import "./tema-heroui.css";
 
-/* Tema oscuro por clase en <html> (next-themes) o data-theme, como los tokens. */
+/*
+ * Tema oscuro solo por clase en <html> (next-themes) o data-theme, como los tokens. Reemplaza la
+ * variante `dark` de HeroUI, que además seguiría `prefers-color-scheme` aunque la persona haya
+ * elegido el tema claro.
+ */
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
+/*
+ * Utilidades de Iris. HeroUI ya define `background`, `foreground`, `border`, `muted` (texto
+ * atenuado), `success`, `warning`, `danger`, `accent`, `default`, `surface`, `overlay`,
+ * `background-secondary`… y tema-heroui.css las apunta a los tokens de Horus. Aquí solo se
+ * agregan los nombres propios de Iris. Para el fondo tenue usa `bg-background-secondary`.
+ */
 @theme inline {
     --font-sans: var(--hx-font-sans);
     --font-mono: var(--hx-font-mono);
 
-    --color-background: var(--hx-bg);
-    --color-foreground: var(--hx-text);
-    --color-muted: var(--hx-bg-muted);
     --color-muted-foreground: var(--hx-text-muted);
     --color-dimmed: var(--hx-text-dimmed);
     --color-elevated: var(--hx-bg-elevated);
     --color-card: var(--hx-card);
     --color-card-foreground: var(--hx-text);
-    --color-border: var(--hx-border);
     --color-input: var(--hx-border);
     --color-ring: var(--hx-primary);
 
@@ -35,9 +44,7 @@
     --color-primary-foreground: var(--hx-on-primary);
     --color-secondary: var(--hx-secondary);
 
-    --color-success: var(--hx-success);
     --color-info: var(--hx-info);
-    --color-warning: var(--hx-warning);
     --color-error: var(--hx-error);
     --color-grafico-1: var(--hx-grafico-1);
     --color-grafico-2: var(--hx-grafico-2);

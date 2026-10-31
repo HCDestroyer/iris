@@ -78,7 +78,7 @@ export function Barras({
                     <li
                         key={f.etiqueta}
                         title={f.detalle}
-                        className="grid grid-cols-[minmax(5.5rem,9rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-sm hover:bg-muted/50"
+                        className="grid grid-cols-[minmax(5.5rem,9rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-sm hover:bg-background-secondary/50"
                     >
                         {f.alerta ? (
                             <span className="flex min-w-0 items-center gap-1 text-xs text-foreground" data-alerta>

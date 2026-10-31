@@ -259,7 +259,7 @@ function BurbujaMensaje({ mensaje: m }: { mensaje: Mensaje }) {
     );
     if (m.autorTipo === "sistema") {
         return (
-            <li data-autor="sistema" className="grid gap-1 rounded-lg border border-dashed bg-muted/40 p-3 text-sm">
+            <li data-autor="sistema" className="grid gap-1 rounded-lg border border-dashed bg-background-secondary/40 p-3 text-sm">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Info aria-hidden className="size-4 shrink-0 text-info" />
                     <span className="font-medium">Aviso automático</span>

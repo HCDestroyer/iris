@@ -121,7 +121,7 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros }:
                         const { tipo, reloj } = relojPrincipal(t);
                         return (
                             <li key={t.id} data-ticket={t.numero}>
-                                <Link href={`/tickets/${t.id}`} className="grid gap-2 p-4 transition-colors hover:bg-muted/60">
+                                <Link href={`/tickets/${t.id}`} className="grid gap-2 p-4 transition-colors hover:bg-background-secondary/60">
                                     <span className="flex items-baseline justify-between gap-2">
                                         <span className="font-mono text-xs text-muted-foreground">{t.numero}</span>
                                         <span className="text-xs text-muted-foreground">{haceCuanto(t.actualizadoEn, ahora)}</span>

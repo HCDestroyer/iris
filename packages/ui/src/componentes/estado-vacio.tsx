@@ -1,3 +1,4 @@
+import { emptyStateVariants } from "@heroui/styles";
 import type { LucideIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../utilidades";
@@ -9,12 +10,12 @@ export type PropsEstadoVacio = Omit<ComponentProps<"div">, "title"> & {
     accion?: ReactNode;
 };
 
-/** Estado vacío: icono, título, explicación y, si aplica, la acción para salir de él. */
+/** Estado vacío (HeroUI `EmptyState`): icono, título, explicación y, si aplica, la acción para salir de él. */
 export function EstadoVacio({ icono: Icono, titulo, descripcion, accion, className, ...props }: PropsEstadoVacio) {
     return (
         <div
             data-slot="estado-vacio"
-            className={cn("flex flex-col items-center gap-3 px-6 py-12 text-center", className)}
+            className={emptyStateVariants({ className: cn("flex flex-col items-center gap-3 px-6 py-12 text-center text-foreground", className) })}
             {...props}
         >
             <span className="grid size-12 place-items-center rounded-full bg-elevated text-muted-foreground">

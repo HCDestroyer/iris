@@ -1,7 +1,8 @@
+import { alertVariants } from "@heroui/styles";
 import type { LucideIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../utilidades";
-import { iconoPorTono, superficiePorTono, textoPorTono, type Tono } from "./tonos";
+import { estadoHeroui, iconoPorTono, superficiePorTono, textoPorTono, type Tono } from "./tonos";
 
 export type PropsAviso = Omit<ComponentProps<"div">, "title"> & {
     tono?: Tono;
@@ -12,27 +13,27 @@ export type PropsAviso = Omit<ComponentProps<"div">, "title"> & {
 };
 
 /**
- * Aviso con icono + título + texto. Los de tono `error` se anuncian (`role="alert"`); el resto
- * como `status`.
+ * Aviso con icono + título + texto, con las piezas de HeroUI `Alert` (`alert`, `alert__indicator`,
+ * `alert__title`…) y el fondo tintado de Horus. Los de tono `error` se anuncian
+ * (`role="alert"`); el resto como `status`.
  */
 export function Aviso({ tono = "info", titulo, icono, accion, className, children, ...props }: PropsAviso) {
     const Icono = icono ?? iconoPorTono[tono];
+    const piezas = alertVariants({ status: estadoHeroui[tono] });
     return (
         <div
             data-slot="aviso"
             data-tono={tono}
             role={tono === "error" ? "alert" : "status"}
-            className={cn(
-                "flex flex-col gap-3 rounded-lg border p-3.5 text-sm sm:flex-row sm:items-start",
-                superficiePorTono[tono],
-                className,
-            )}
+            className={piezas.base({
+                className: cn("flex-col items-stretch justify-normal gap-3 rounded-lg border p-3.5 text-sm shadow-none sm:flex-row sm:items-start", superficiePorTono[tono], className),
+            })}
             {...props}
         >
             <div className="flex min-w-0 flex-1 gap-2.5">
-                <Icono aria-hidden className={cn("mt-0.5 size-4 shrink-0", textoPorTono[tono])} />
-                <div className="grid min-w-0 gap-0.5">
-                    <p className={cn("font-medium", textoPorTono[tono])}>{titulo}</p>
+                <Icono aria-hidden className={piezas.indicator({ className: cn("mt-0.5 box-content size-4 shrink-0 p-0", textoPorTono[tono]) })} />
+                <div className={piezas.content({ className: "grid min-w-0 gap-0.5" })}>
+                    <p className={piezas.title({ className: cn("leading-normal", textoPorTono[tono]) })}>{titulo}</p>
                     {children ? <div className="text-foreground">{children}</div> : null}
                 </div>
             </div>

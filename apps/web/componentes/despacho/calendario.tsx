@@ -113,7 +113,7 @@ function BloqueCita({ cita, comun, className, style, children }: { cita: CitaAge
     const texto = textoCita(cita, conflictos);
     const clases = cn(
         "flex min-w-0 items-center gap-1 overflow-hidden rounded-md border border-l-4 border-border bg-elevated px-1.5 text-left text-xs text-foreground shadow-sm",
-        "hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-1",
+        "hover:bg-background-secondary focus-visible:outline-2 focus-visible:outline-offset-1",
         BORDE_TONO[tono],
         comun.arrastre?.ordenId === cita.ordenId && "opacity-50",
         movible && "cursor-grab active:cursor-grabbing",

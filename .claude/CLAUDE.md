@@ -24,8 +24,8 @@ El plan está en `.claude/PLAN.md`, el modelo de datos en `.claude/modelo-datos.
 | API | Go 1.24, `chi` (rutas), `pgx/v5` + `sqlc` (SQL tipado), `goose` (migraciones), `River` (colas sobre Postgres) |
 | Base de datos | PostgreSQL 16, un schema por módulo: `nucleo`, `soporte`, `campo`, `agenda`, `comercial`, `integracion`, `auditoria` |
 | Caché | Redis 7, solo como caché, con invalidación por evento |
-| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4, shadcn/ui e identidad Horus |
-| App de campo | PWA en Next.js (`/campo`) con IndexedDB y service worker, que funciona sin señal. Fase 2: Expo (React Native) que reutiliza `packages/` |
+| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4 y HeroUI v3 (React Aria) envuelto en `packages/ui` con los tokens de la identidad Horus |
+| App de campo | PWA en Next.js (`/campo`) con IndexedDB y service worker, que funciona sin señal. Fase 2: Expo (React Native) que reutiliza `packages/`. App nativa: HeroUI Native (Uniwind) en la fase 5 |
 | Contrato | OpenAPI 3.1 generado desde la API (`make openapi`) → `packages/contratos` (tipos y cliente con `openapi-typescript` y `openapi-fetch`) |
 | Mapas | MapLibre GL con teselas OSM; rutas con OSRM (servicio propio en Docker) |
 | Infra | Docker Compose (dev y lab), GitHub Actions; Node 22 y pnpm 10 para el frontend |
@@ -104,13 +104,18 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 
 ### 10. Frontend
 
-- Componentes de shadcn/ui en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Íconos solo de Lucide.
+- Componentes de HeroUI v3 (React Aria) envueltos en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Íconos solo de Lucide. Guía y mapa de componentes: `docs/ui/guia.md`.
 - Nada de `<button>` o `<input>` crudos fuera de `packages/ui`.
 - Indentación de 4 espacios. TypeScript estricto, sin `any`.
 - Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano.
 - Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
 - Modo claro y oscuro funcionando; revisar en 390 px y 1280 px.
 - Errores visibles con «Reintentar». Nunca mostrar totales ni estados calculados sobre datos que no se pudieron leer.
+- Formularios de más de 3 campos: pantalla propia con su ruta (`FormularioPagina`), nunca en un diálogo. Un formulario no se abre encima de otro; «Atrás» vuelve a donde estabas y salir con cambios sin guardar pregunta antes.
+- Diálogos solo para confirmaciones y acciones cortas (1 a 3 campos).
+- Migas (`Migas`) en cada pantalla del panel.
+- Aviso emergente (`avisar`) después de cada acción que cambia algo.
+- Indicadores de estado discretos (un punto) que solo crecen cuando hace falta actuar.
 
 ### 11. Pruebas y Definition of Done
 

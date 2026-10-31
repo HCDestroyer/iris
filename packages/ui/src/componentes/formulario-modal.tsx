@@ -1,11 +1,12 @@
 "use client";
 
 import { CircleAlert, TriangleAlert } from "lucide-react";
-import { AlertDialog, Dialog } from "radix-ui";
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { cn } from "../utilidades";
 import { Aviso } from "./aviso";
 import { Boton, type PropsBoton } from "./boton";
+import { animacionPanel, clasesFondo, Dialogo, type PropsDialogo } from "./dialogo";
 
 /*
  * Patrón de formularios en modales (pedido del PM: «los modales deben alertar si no hay selección
@@ -20,6 +21,8 @@ import { Boton, type PropsBoton } from "./boton";
  *
  *   <BotonEnviar faltan={cliente ? [] : ["el cliente"]} enviando={isSubmitting}>Crear</BotonEnviar>
  *   <DialogoConfirmar peligro titulo="¿Desactivar el buzón?" … alConfirmar={desactivar} />
+ *
+ * El mismo registro de cambios lo usa `FormularioPagina` (formularios en pantalla propia).
  */
 
 // --- Cambios sin guardar --------------------------------------------------------------------
@@ -29,9 +32,9 @@ type ContextoProtegido = { reportar: (id: string, sucio: boolean, ocupado: boole
 const Contexto = createContext<ContextoProtegido | null>(null);
 
 /**
- * Avisa al `DialogoProtegido` más cercano si el formulario tiene cambios sin guardar
- * (`form.formState.isDirty`) y si se está enviando (`isSubmitting`: mientras tanto el diálogo no
- * se puede cerrar ni descartar). Fuera de un `DialogoProtegido` no hace nada.
+ * Avisa al `DialogoProtegido` o `FormularioPagina` más cercano si el formulario tiene cambios sin
+ * guardar (`form.formState.isDirty`) y si se está enviando (`isSubmitting`: mientras tanto no se
+ * puede cerrar ni descartar). Fuera de ellos no hace nada.
  */
 export function useCambiosSinGuardar(sucio: boolean, ocupado = false) {
     const contexto = useContext(Contexto);
@@ -51,7 +54,28 @@ function conValor(antes: ReadonlySet<string>, id: string, valor: boolean): Reado
     return despues;
 }
 
-export type PropsDialogoProtegido = Omit<ComponentProps<typeof Dialog.Root>, "open" | "onOpenChange"> & {
+/**
+ * Registro de cambios sin guardar de los formularios hijos (los que llaman
+ * `useCambiosSinGuardar`). Lo comparten `DialogoProtegido` y `FormularioPagina`.
+ */
+export function useRegistroCambios() {
+    const [sucios, setSucios] = useState<ReadonlySet<string>>(() => new Set());
+    const [ocupados, setOcupados] = useState<ReadonlySet<string>>(() => new Set());
+    const reportar = useCallback((id: string, valorSucio: boolean, valorOcupado: boolean) => {
+        setSucios((antes) => conValor(antes, id, valorSucio));
+        setOcupados((antes) => conValor(antes, id, valorOcupado));
+    }, []);
+    const contexto = useMemo<ContextoProtegido>(() => ({ reportar }), [reportar]);
+    const olvidar = useCallback(() => setSucios(new Set()), []);
+    return { contexto, sucio: sucios.size > 0, ocupado: ocupados.size > 0, olvidar };
+}
+
+/** Proveedor del registro: los `useCambiosSinGuardar` de adentro le reportan. */
+export function ProveedorCambios({ valor, children }: { valor: ContextoProtegido; children: ReactNode }) {
+    return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
+}
+
+export type PropsDialogoProtegido = Omit<PropsDialogo, "open" | "onOpenChange"> & {
     open: boolean;
     onOpenChange: (abierto: boolean) => void;
     /** Cambios sin guardar conocidos por quien abre el diálogo (se suman a los que reportan los formularios). */
@@ -77,20 +101,14 @@ export function DialogoProtegido({
     children,
     ...props
 }: PropsDialogoProtegido) {
-    const [sucios, setSucios] = useState<ReadonlySet<string>>(() => new Set());
-    const [ocupados, setOcupados] = useState<ReadonlySet<string>>(() => new Set());
+    const registro = useRegistroCambios();
     const [confirmando, setConfirmando] = useState(false);
-    const reportar = useCallback((id: string, valorSucio: boolean, valorOcupado: boolean) => {
-        setSucios((antes) => conValor(antes, id, valorSucio));
-        setOcupados((antes) => conValor(antes, id, valorOcupado));
-    }, []);
-    const contexto = useMemo(() => ({ reportar }), [reportar]);
-    const hayCambios = sucio || sucios.size > 0;
-    const enviando = ocupado || ocupados.size > 0;
+    const hayCambios = sucio || registro.sucio;
+    const enviando = ocupado || registro.ocupado;
 
     return (
-        <Contexto.Provider value={contexto}>
-            <Dialog.Root
+        <ProveedorCambios valor={registro.contexto}>
+            <Dialogo
                 open={open}
                 onOpenChange={(abierto) => {
                     if (abierto) {
@@ -107,7 +125,7 @@ export function DialogoProtegido({
                 {...props}
             >
                 {children}
-            </Dialog.Root>
+            </Dialogo>
             <DialogoConfirmar
                 open={open && confirmando && !enviando}
                 onOpenChange={setConfirmando}
@@ -118,11 +136,11 @@ export function DialogoProtegido({
                 peligro
                 alConfirmar={() => {
                     setConfirmando(false);
-                    setSucios(new Set());
+                    registro.olvidar();
                     onOpenChange(false);
                 }}
             />
-        </Contexto.Provider>
+        </ProveedorCambios>
     );
 }
 
@@ -146,9 +164,9 @@ export type PropsDialogoConfirmar = {
 };
 
 /**
- * Confirmación (`AlertDialog`): para acciones destructivas y para descartar cambios. No se
- * cierra tocando fuera; Escape y «Cancelar» la cierran sin hacer nada. El foco empieza en
- * «Cancelar».
+ * Confirmación (HeroUI `AlertDialog`: `role="alertdialog"` de React Aria): para acciones
+ * destructivas y para descartar cambios. No se cierra tocando fuera; Escape y «Cancelar» la
+ * cierran sin hacer nada. El foco empieza en «Cancelar».
  */
 export function DialogoConfirmar({
     open,
@@ -163,32 +181,42 @@ export function DialogoConfirmar({
     children,
 }: PropsDialogoConfirmar) {
     const [ocupado, setOcupado] = useState(false);
+    const idDescripcion = useId();
     return (
-        <AlertDialog.Root open={open} onOpenChange={(a) => !ocupado && onOpenChange(a)}>
-            <AlertDialog.Portal>
-                <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/45" />
-                <AlertDialog.Content
-                    {...(descripcion ? {} : { "aria-describedby": undefined })}
-                    className={cn(
-                        "glass-strong fixed z-[60] flex max-h-[92dvh] w-full flex-col gap-4 overflow-y-auto p-5 shadow-xl",
-                        "inset-x-0 bottom-0 rounded-t-[var(--hx-radius-card)]",
-                        "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--hx-radius-card)]",
-                    )}
-                >
+        <ModalOverlay
+            isOpen={open}
+            onOpenChange={(a) => !ocupado && onOpenChange(a)}
+            isDismissable={false}
+            isKeyboardDismissDisabled={ocupado}
+            className={clasesFondo}
+        >
+            <Modal
+                className={cn(
+                    "glass-strong fixed z-(--z-index-overlay) flex max-h-[92dvh] w-full flex-col overflow-y-auto shadow-xl",
+                    "inset-x-0 bottom-0 rounded-t-[var(--hx-radius-card)] data-entering:slide-in-from-bottom-4",
+                    "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--hx-radius-card)] sm:data-entering:slide-in-from-bottom-0 sm:data-entering:zoom-in-95",
+                    animacionPanel,
+                )}
+            >
+                <Dialog role="alertdialog" aria-describedby={descripcion ? idDescripcion : undefined} className="flex flex-col gap-4 p-5 outline-none">
                     <div className="flex gap-3">
                         {peligro ? <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-error" /> : null}
                         <div className="grid gap-1">
-                            <AlertDialog.Title className="text-lg font-semibold tracking-[-0.015em]">{titulo}</AlertDialog.Title>
-                            {descripcion ? <AlertDialog.Description className="text-sm text-muted-foreground">{descripcion}</AlertDialog.Description> : null}
+                            <Heading slot="title" className="text-lg font-semibold tracking-[-0.015em]">
+                                {titulo}
+                            </Heading>
+                            {descripcion ? (
+                                <p id={idDescripcion} className="text-sm text-muted-foreground">
+                                    {descripcion}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     {children}
                     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                        <AlertDialog.Cancel asChild>
-                            <Boton variante="contorno" disabled={ocupado}>
-                                {textoCancelar}
-                            </Boton>
-                        </AlertDialog.Cancel>
+                        <Boton variante="contorno" disabled={ocupado} autoFocus onClick={() => onOpenChange(false)}>
+                            {textoCancelar}
+                        </Boton>
                         <Boton
                             variante={peligro ? "peligro" : "primario"}
                             disabled={ocupado}
@@ -207,9 +235,9 @@ export function DialogoConfirmar({
                             {ocupado ? (textoOcupado ?? `${textoConfirmar}…`) : textoConfirmar}
                         </Boton>
                     </div>
-                </AlertDialog.Content>
-            </AlertDialog.Portal>
-        </AlertDialog.Root>
+                </Dialog>
+            </Modal>
+        </ModalOverlay>
     );
 }
 

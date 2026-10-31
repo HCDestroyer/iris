@@ -2,3 +2,20 @@ packages:
   - apps/web
   - apps/movil
   - packages/*
+
+# Cadena de suministro (HeroUI 3.2.6): `@react-types/color` (solo tipos, sin JS) depende de
+# `@react-spectrum/color` y pide `@react-spectrum/provider` como peer, lo que instalaba React
+# Spectrum entero (@adobe/react-spectrum, @spectrum-icons/*) y una segunda copia de react-aria y
+# react-aria-components. HeroUI solo usa sus tipos de color (`Color`, `ColorSpace`…), que vienen de
+# @react-stately/color y @react-aria/color: se quitan esa dependencia y ese peer (además, opcional).
+# react-stately va en una sola versión: la exacta que piden react-aria 3.52.1 y
+# react-aria-components 1.21.1 (los demás aceptan ^3.46.0).
+overrides:
+  "@react-types/color>@react-spectrum/color": "-"
+  "@react-types/color>@react-spectrum/provider": "-"
+  "react-stately": "3.50.0"
+packageExtensions:
+  "@react-types/color":
+    peerDependenciesMeta:
+      "@react-spectrum/provider":
+        optional: true
