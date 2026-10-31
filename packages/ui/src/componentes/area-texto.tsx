@@ -4,6 +4,7 @@ import { TextArea } from "@heroui/react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo, type PropsEnvolturaCampo } from "./campo";
+import { useErrorEstable } from "./error-estable";
 import { Etiqueta } from "./etiqueta";
 
 /** Texto de varias líneas: HeroUI `TextArea` (`<textarea>` nativo). 16 px en el teléfono. */
@@ -25,12 +26,14 @@ export type PropsCampoArea = ComponentProps<"textarea"> & PropsEnvolturaCampo;
 
 /** Etiqueta + área de texto + ayuda/error. */
 export function CampoArea({ etiqueta, error, ayuda, id, className, ...props }: PropsCampoArea) {
-    const ids = useIdsCampo(id, error, ayuda);
+    // Un error que aparece al salir del campo no mueve el botón que se está pulsando.
+    const visible = useErrorEstable(error);
+    const ids = useIdsCampo(id, visible, ayuda);
     return (
         <div className={cn("grid gap-1.5", className)}>
             <Etiqueta htmlFor={ids.idCampo}>{etiqueta}</Etiqueta>
             <AreaTexto {...ids.control} {...props} />
-            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={error} />
+            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={visible} />
         </div>
     );
 }

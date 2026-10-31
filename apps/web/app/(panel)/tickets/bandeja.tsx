@@ -15,7 +15,8 @@ import {
     Etiqueta,
     Tarjeta,
 } from "@iris/ui";
-import { BookmarkPlus, Search, X } from "lucide-react";
+import { BookmarkPlus, Plus, Search, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -37,7 +38,6 @@ import {
     type Vista,
 } from "@/lib/tickets/filtros";
 import { ESTADOS, ORDEN_ESTADOS, ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/tickets/presentacion";
-import { AltaRapida } from "./alta-rapida";
 import { ListaTickets } from "./lista-tickets";
 
 /**
@@ -108,7 +108,16 @@ function Bandeja({ clienteId }: { clienteId: number | null }) {
             <EncabezadoPagina
                 titulo="Tickets"
                 descripcion="Soporte con SLA: lo urgente primero."
-                acciones={puede(["tickets.crear"]) ? <AltaRapida categorias={listaCategorias} /> : null}
+                acciones={
+                    puede(["tickets.crear"]) ? (
+                        <Boton asChild>
+                            <Link href="/tickets/nuevo">
+                                <Plus />
+                                Nuevo ticket
+                            </Link>
+                        </Boton>
+                    ) : null
+                }
             />
 
             {clienteId ? <AvisoCliente clienteId={clienteId} alQuitar={() => router.replace("/tickets")} /> : null}

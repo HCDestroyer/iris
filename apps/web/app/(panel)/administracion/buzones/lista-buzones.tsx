@@ -32,6 +32,7 @@ import {
     ShieldCheck,
     TriangleAlert,
 } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -44,7 +45,6 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { PRIORIDADES } from "@/lib/tickets/presentacion";
 import { esConflicto, textoErrorBuzon } from "./acciones-buzon";
-import { FormularioBuzon } from "./formulario-buzon";
 import { avisoEstado } from "@/lib/avisos";
 
 type Pagina = Schema<"PaginaBuzon">;
@@ -68,7 +68,6 @@ export function ListaBuzones() {
     const [extra, setExtra] = useState<{ items: Buzon[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
-    const [formulario, setFormulario] = useState<{ buzon?: Buzon } | null>(null);
     const siguiente = primera.estado === "listo" ? (extra ? extra.cursor : primera.datos.nextCursor) : null;
 
     async function cargarMas() {
@@ -96,9 +95,11 @@ export function ListaBuzones() {
             descripcion="Los correos que llegan a estos buzones abren tickets o se suman a su conversación, y las respuestas salen por SMTP."
             acciones={
                 puede(["buzones.crear"]) ? (
-                    <Boton onClick={() => setFormulario({})}>
-                        <Plus />
-                        Nuevo buzón
+                    <Boton asChild>
+                        <Link href="/administracion/buzones/nuevo">
+                            <Plus />
+                            Nuevo buzón
+                        </Link>
                     </Boton>
                 ) : null
             }
@@ -137,7 +138,7 @@ export function ListaBuzones() {
                 <ul className="grid gap-3" aria-label="Buzones">
                     {items.map((b) => (
                         <li key={b.id}>
-                            <TarjetaBuzon buzon={b} categorias={categorias.estado === "listo" ? categorias.datos : undefined} alEditar={() => setFormulario({ buzon: b })} alCambiar={refrescar} />
+                            <TarjetaBuzon buzon={b} categorias={categorias.estado === "listo" ? categorias.datos : undefined} alCambiar={refrescar} />
                         </li>
                     ))}
                 </ul>
@@ -170,17 +171,6 @@ export function ListaBuzones() {
                     </Boton>
                 </div>
             ) : null}
-            {formulario ? (
-                <FormularioBuzon
-                    key={formulario.buzon?.id ?? "nuevo"}
-                    buzon={formulario.buzon}
-                    alCerrar={() => setFormulario(null)}
-                    alGuardar={() => {
-                        setFormulario(null);
-                        void refrescar();
-                    }}
-                />
-            ) : null}
         </>
     );
 }
@@ -197,12 +187,10 @@ function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode })
 function TarjetaBuzon({
     buzon: b,
     categorias,
-    alEditar,
     alCambiar,
 }: {
     buzon: Buzon;
     categorias: readonly Categoria[] | undefined;
-    alEditar: () => void;
     alCambiar: () => Promise<void>;
 }) {
     const { puede } = useSesion();
@@ -361,9 +349,11 @@ function TarjetaBuzon({
                 {puedeEditar || puedeCambiar ? (
                     <div className="flex flex-wrap gap-2" role="group" aria-label={`Acciones de ${b.nombre}`}>
                         {puedeEditar ? (
-                            <Boton variante="secundario" tamano="sm" onClick={alEditar}>
-                                <Pencil />
-                                Editar
+                            <Boton asChild variante="secundario" tamano="sm">
+                                <Link href={`/administracion/buzones/${b.id}/editar`}>
+                                    <Pencil />
+                                    Editar
+                                </Link>
                             </Boton>
                         ) : null}
                         {puedeEditar ? (

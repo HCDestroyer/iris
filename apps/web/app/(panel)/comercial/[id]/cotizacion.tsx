@@ -6,16 +6,14 @@ import {
     avisar,
     Aviso,
     Boton,
-    BotonEnviar,
     Campo,
     CampoArea,
     CampoSelector,
     Casilla,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoPie,
-    DialogoProtegido,
     Esqueleto,
+    FormularioPagina,
+    liberarProteccion,
+    SeccionFormulario,
     Tabla,
     TablaCelda,
     TablaCuerpo,
@@ -26,9 +24,10 @@ import {
     TarjetaContenido,
     TarjetaEncabezado,
     TarjetaTitulo,
-    useCambiosSinGuardar,
 } from "@iris/ui";
 import { Calculator, CircleCheck, FilePlus, History, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { AvisoAccion, DescargarPdf, InsigniaCotizacion, useEnvio } from "@/componentes/comercial/comun";
@@ -51,7 +50,6 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
     const c = detalle.cotizacion;
     const puedeCotizar = detalle.acciones.cotizar && puede(["cotizaciones.crear"]);
     const puedeAceptar = detalle.acciones.aceptar && puede(["cotizaciones.aceptar"]);
-    const [nueva, setNueva] = useState(false);
     const [revisiones, setRevisiones] = useState(false);
     const envio = useEnvio();
 
@@ -111,9 +109,11 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
                         </Boton>
                     ) : null}
                     {puedeCotizar ? (
-                        <Boton variante={c ? "secundario" : "primario"} tamano="sm" onClick={() => setNueva(true)}>
-                            <FilePlus />
-                            {c ? "Nueva revisión" : "Cotizar"}
+                        <Boton asChild variante={c ? "secundario" : "primario"} tamano="sm">
+                            <Link href={`/comercial/${detalle.id}/cotizacion`}>
+                                <FilePlus />
+                                {c ? "Nueva revisión" : "Cotizar"}
+                            </Link>
                         </Boton>
                     ) : null}
                     {c && c.revision > 1 ? (
@@ -126,18 +126,6 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
                 <AvisoAccion envio={envio} que="aceptar la cotización" recargar={recargar} />
                 {revisiones ? <Revisiones prospectoId={detalle.id} /> : null}
             </TarjetaContenido>
-            <DialogoProtegido open={nueva} onOpenChange={setNueva}>
-                {nueva ? (
-                    <NuevaCotizacion
-                        detalle={detalle}
-                        recargar={recargar}
-                        alHecho={async () => {
-                            setNueva(false);
-                            await recargar();
-                        }}
-                    />
-                ) : null}
-            </DialogoProtegido>
         </Tarjeta>
     );
 }
@@ -233,34 +221,31 @@ function Revisiones({ prospectoId }: { prospectoId: number }) {
 const TIPOS_EXTRA: readonly TipoLinea[] = ["instalacion", "equipo", "descuento", "otro"];
 
 /**
- * Nueva cotización: los planes salen de `GET /comercial/planes`. Si no se pueden leer, no hay
- * formulario (no se cotiza a ciegas). Sin conector, el plan va con descripción y precio a mano.
+ * Nueva cotización o revisión en pantalla propia (`/comercial/[id]/cotizacion`): los planes salen
+ * de `GET /comercial/planes`. Si no se pueden leer, no hay formulario (no se cotiza a ciegas).
+ * Sin conector, el plan va con descripción y precio a mano. Al guardar, aviso y ficha.
  */
-function NuevaCotizacion({ detalle, recargar, alHecho }: Props & { alHecho: () => Promise<void> }) {
+export function NuevaCotizacion({ detalle, recargar }: Props) {
     // Los planes dependen del router de la factibilidad (son de la instalación).
     const routerId = detalle.factibilidad?.routerId ?? null;
     const planes = useLectura<PlanesDisponibles>((signal) =>
         resolver(api().GET("/api/v1/comercial/planes", { params: { query: routerId !== null ? { routerId } : {} }, signal })),
     );
-    return (
-        <DialogoContenido titulo={detalle.cotizacion ? "Nueva revisión de la cotización" : "Cotizar"} descripcion={`${detalle.numero} · ${detalle.nombre}`} className="sm:w-[min(48rem,calc(100vw-2rem))]">
-            {planes.estado === "cargando" ? (
-                <Esqueleto className="h-40" />
-            ) : planes.estado === "error" ? (
-                <ErrorLectura error={planes.error} que="los planes de Argos" reintentar={planes.reintentar} />
-            ) : !planes.datos.disponible && planes.datos.motivo !== "sin_conector" ? (
-                <Aviso tono="warning" titulo="No se pueden leer los planes de Argos">
-                    {textoMotivo(planes.datos.motivo)} Sin ellos no se puede cotizar; inténtalo de nuevo cuando Argos responda.
-                </Aviso>
-            ) : (
-                <FormCotizacion detalle={detalle} planes={planes.datos.disponible ? (planes.datos.data ?? []) : null} recargar={recargar} alHecho={alHecho} />
-            )}
-        </DialogoContenido>
-    );
+    if (planes.estado === "cargando") return <Esqueleto className="mx-auto h-40 w-full max-w-3xl" />;
+    if (planes.estado === "error") return <ErrorLectura error={planes.error} que="los planes de Argos" reintentar={planes.reintentar} />;
+    if (!planes.datos.disponible && planes.datos.motivo !== "sin_conector") {
+        return (
+            <Aviso tono="warning" titulo="No se pueden leer los planes de Argos">
+                {textoMotivo(planes.datos.motivo)} Sin ellos no se puede cotizar; inténtalo de nuevo cuando Argos responda.
+            </Aviso>
+        );
+    }
+    return <FormCotizacion detalle={detalle} planes={planes.datos.disponible ? (planes.datos.data ?? []) : null} recargar={recargar} />;
 }
 
-function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes: Schema<"PlanComercial">[] | null; alHecho: () => Promise<void> }) {
+function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<"PlanComercial">[] | null }) {
     const envio = useEnvio();
+    const router = useRouter();
     const activos = planes?.filter((p) => p.activo) ?? null;
     const plan = detalle.planInteresId !== null ? activos?.find((p) => p.id === detalle.planInteresId) : undefined;
     const formulario = useForm<DatosCotizacion>({
@@ -271,7 +256,6 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
             notas: "",
         },
     });
-    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { fields, append, remove } = useFieldArray({ control: formulario.control, name: "lineas" });
     const { errors } = formulario.formState;
     const lineas = useWatch({ control: formulario.control, name: "lineas" });
@@ -292,17 +276,32 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
         );
         if (r) {
             avisar({ titulo: `Cotización ${r.numero} creada` });
-            await alHecho();
+            await liberarProteccion();
+            router.replace(`/comercial/${detalle.id}`);
         }
     }
 
     return (
-        <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-4" aria-label="Cotización">
+        <FormularioPagina
+            titulo={detalle.cotizacion ? "Nueva revisión de la cotización" : "Cotizar"}
+            descripcion={`${detalle.numero} · ${detalle.nombre}`}
+            alEnviar={formulario.handleSubmit(enviar)}
+            navegar={router.push}
+            volverA={`/comercial/${detalle.id}`}
+            sucio={formulario.formState.isDirty}
+            barra={{
+                textoGuardar: "Guardar cotización",
+                enviando: envio.enviando,
+                ...(envio.conflicto ? { faltan: ["la versión nueva"], motivo: "Recarga el prospecto para guardar." } : { faltan: sinPlan ? ["el plan"] : [] }),
+            }}
+            error={<AvisoAccion envio={envio} que="crear la cotización" recargar={recargar} />}
+        >
             {activos === null ? (
                 <Aviso tono="info" titulo="Sin conexión con Argos">
                     Escribe el plan con su descripción y precio. Al conectar Argos, los planes salen de su catálogo.
                 </Aviso>
             ) : null}
+            <SeccionFormulario titulo="1. Líneas">
             <ol className="grid gap-3" aria-label="Líneas">
                 {fields.map((campo, i) => {
                     const l = lineas[i];
@@ -366,6 +365,8 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
                     </Boton>
                 ))}
             </div>
+            </SeccionFormulario>
+            <SeccionFormulario titulo="2. Vigencia y notas">
             <div className="grid gap-4 sm:grid-cols-2">
                 <Campo etiqueta="Vigente hasta (opcional)" type="date" ayuda="Si lo dejas vacío, 15 días." error={errors.vigenteDia?.message} {...formulario.register("vigenteDia")} />
             </div>
@@ -374,18 +375,7 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
                 <Calculator aria-hidden className="size-4" />
                 Los totales los calcula Iris al guardar.
             </p>
-            <AvisoAccion envio={envio} que="crear la cotización" recargar={recargar} />
-            <DialogoPie>
-                <DialogoCerrar asChild>
-                    <Boton variante="contorno" disabled={envio.enviando}>
-                        Volver
-                    </Boton>
-                </DialogoCerrar>
-                <BotonEnviar disabled={envio.enviando || envio.conflicto} faltan={sinPlan ? ["el plan"] : []}>
-                    <FilePlus />
-                    {envio.enviando ? "Guardando…" : "Guardar cotización"}
-                </BotonEnviar>
-            </DialogoPie>
-        </form>
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }

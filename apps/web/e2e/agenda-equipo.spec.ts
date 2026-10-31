@@ -15,6 +15,8 @@ const enTelefono = (info: TestInfo) => info.project.name.startsWith("telefono");
 const hoyGt = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(new Date());
 const utc = (dia: string, hora: string) => new Date(Date.parse(`${dia}T${hora}:00Z`) + 6 * 3_600_000).toISOString().replace(".000Z", "Z");
 const dialogo = (page: Page) => page.getByRole("dialog").filter({ has: page.locator("form") });
+/** Formulario en pantalla propia (ficha del técnico, ausencia). */
+const pantalla = (page: Page, nombre: string | RegExp) => page.getByRole("form", { name: nombre });
 const ultima = (api: ApiFalsa, ruta: string, metodo = "GET") => api.peticiones.filter((p) => p.ruta === ruta && p.metodo === metodo).at(-1);
 const visible = (page: Page, selector: string) => page.locator(selector).filter({ visible: true });
 
@@ -151,10 +153,12 @@ test.describe("técnicos", () => {
         await sinDesborde(page);
         await captura(page, info, "53-tecnicos");
 
-        await page.getByRole("button", { name: "Nuevo técnico" }).click();
-        const d = dialogo(page);
+        await page.getByRole("link", { name: "Nuevo técnico" }).click();
+        await expect(page).toHaveURL(/\/tecnicos\/nuevo$/);
+        const d = pantalla(page, "Nuevo técnico");
         const crear = d.getByRole("button", { name: "Crear técnico" });
         await expect(crear).toBeDisabled();
+        await expect(crear).toHaveAccessibleDescription("Falta elegir el usuario y la cuadrilla para guardar.");
         await expect(d.getByText("Elige el usuario del técnico")).toBeVisible();
         await expect(d.getByText("Elige la cuadrilla: define las zonas que atiende")).toBeVisible();
         // El usuario se busca en el servidor con `q`.
@@ -176,29 +180,32 @@ test.describe("técnicos", () => {
         await expect(crear).toBeEnabled();
         await captura(page, info, "54-tecnico-nuevo");
 
-        // Cerrar con cambios: confirmar; «Descartar» cierra sin crear.
-        await d.getByRole("button", { name: "Volver" }).click();
-        await page.getByTestId("confirmar-descartar").getByRole("button", { name: "Descartar cambios" }).click();
-        await expect(dialogo(page)).toHaveCount(0);
+        // Salir con cambios: confirmar; «Descartar» vuelve a la lista sin crear.
+        await d.getByRole("button", { name: "Cancelar" }).click();
+        await page.getByRole("alertdialog", { name: "¿Descartar los cambios?" }).getByRole("button", { name: "Descartar cambios" }).click();
+        await expect(page).toHaveURL(/\/tecnicos$/);
         expect(api.peticiones.some((p) => p.ruta === "/api/v1/tecnicos" && p.metodo === "POST")).toBe(false);
 
-        // Sin cambios, cerrar no pregunta.
-        await page.getByRole("button", { name: "Nuevo técnico" }).click();
-        await page.keyboard.press("Escape");
-        await expect(page.getByTestId("confirmar-descartar")).toHaveCount(0);
-        await expect(dialogo(page)).toHaveCount(0);
+        // Sin cambios, salir no pregunta.
+        await page.getByRole("link", { name: "Nuevo técnico" }).click();
+        await d.getByRole("button", { name: "Cancelar" }).click();
+        await expect(page.getByRole("alertdialog", { name: "¿Descartar los cambios?" })).toHaveCount(0);
+        await expect(page).toHaveURL(/\/tecnicos$/);
 
-        await page.getByRole("button", { name: "Nuevo técnico" }).click();
+        await page.getByRole("link", { name: "Nuevo técnico" }).click();
         await d.getByLabel("Usuario", { exact: true }).selectOption({ label: "Pablo Xol · pablo@iris.test" });
         await d.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
         await d.getByLabel("Teléfono", { exact: true }).fill("+502 5555-1234");
         await d.getByLabel("Habilidades", { exact: true }).fill("Fibra, altura");
         await crear.click();
-        await expect(dialogo(page)).toHaveCount(0);
+        await expect(d).toHaveCount(0);
         const post = ultima(api, "/api/v1/tecnicos", "POST");
         expect(post?.cuerpo).toEqual({ usuarioId: 14, cuadrillaId: 2, habilidades: ["altura", "fibra"], telefono: "+502 5555-1234" });
         expect(post?.idempotencia).toBeTruthy();
-        await expect(page.locator("[data-tecnico]").filter({ hasText: "Pablo Xol" })).toContainText("+502 5555-1234");
+        // Aviso y ficha del técnico nuevo.
+        await expect(page.getByRole("alertdialog").filter({ hasText: "Técnico Pablo Xol creado" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Pablo Xol" })).toBeVisible();
+        await expect(page.getByText("+502 5555-1234")).toBeVisible();
     });
 
     test("editar, desactivar y la ficha con turnos y ausencias", async ({ page, context, baseURL }, info) => {
@@ -206,14 +213,19 @@ test.describe("técnicos", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos");
         const lucia = page.locator('[data-tecnico="21"]');
-        await lucia.getByRole("button", { name: "Editar a Lucía Ramírez" }).click();
-        const d = dialogo(page);
+        await lucia.getByRole("link", { name: "Editar a Lucía Ramírez" }).click();
+        await expect(page).toHaveURL(/\/tecnicos\/21\/editar\?desde=lista$/);
+        const d = pantalla(page, "Editar a Lucía Ramírez");
         const guardar = d.getByRole("button", { name: "Guardar cambios" });
         await expect(guardar).toBeDisabled();
         await d.getByLabel("Teléfono", { exact: true }).fill("4444 0000");
         await guardar.click();
-        await expect(dialogo(page)).toHaveCount(0);
-        expect(ultima(api, "/api/v1/tecnicos/21/editar", "POST")?.cuerpo).toMatchObject({ version: 1, cuadrillaId: 1, telefono: "4444 0000", habilidades: ["fibra"], bodegaId: 30 });
+        await expect(d).toHaveCount(0);
+        await expect.poll(() => ultima(api, "/api/v1/tecnicos/21/editar", "POST")?.cuerpo).toMatchObject({ version: 1, cuadrillaId: 1, telefono: "4444 0000", habilidades: ["fibra"], bodegaId: 30 });
+        // Al guardar, la ficha del técnico.
+        await expect(page).toHaveURL(/\/tecnicos\/21$/);
+        await expect(page.getByText("4444 0000")).toBeVisible();
+        await page.goto("/tecnicos");
         await expect(lucia).toContainText("4444 0000");
 
         // Desactivar pide confirmación y manda la versión.
@@ -255,10 +267,12 @@ test.describe("técnicos", () => {
         await expect(page.getByRole("list", { name: "Turnos" })).toContainText("Sábado");
 
         // Ausencia: sin motivo no se registra; las citas que caen dentro se listan.
-        await page.getByRole("button", { name: "Registrar ausencia" }).click();
-        const a = dialogo(page);
+        await page.getByRole("link", { name: "Registrar ausencia" }).click();
+        await expect(page).toHaveURL(/\/tecnicos\/21\/ausencias\/nueva$/);
+        const a = pantalla(page, "Ausencia de Lucía Ramírez");
         const registrar = a.getByRole("button", { name: "Registrar ausencia" });
         await expect(registrar).toBeDisabled();
+        await expect(registrar).toHaveAccessibleDescription("Falta elegir el motivo para guardar.");
         await expect(a.getByText("Elige el motivo de la ausencia")).toBeVisible();
         await a.getByLabel("Motivo", { exact: true }).selectOption({ label: "Enfermedad" });
         await expect(registrar).toBeEnabled();
@@ -271,6 +285,7 @@ test.describe("técnicos", () => {
             .toEqual({ motivo: "enfermedad", inicio: utc(hoy, "00:00"), fin: new Date(Date.parse(utc(hoy, "00:00")) + 86_400_000).toISOString().replace(".000Z", "Z") });
         await expect(page.getByTestId("ausencia-conflictos")).toContainText("OT-000003");
         await page.getByTestId("ausencia-conflictos").getByRole("button", { name: "Entendido" }).click();
+        await expect(page).toHaveURL(/\/tecnicos\/21$/);
         const fila = page.locator("[data-ausencia]").filter({ hasText: "Enfermedad" });
         await expect(fila).toBeVisible();
 
@@ -284,8 +299,8 @@ test.describe("técnicos", () => {
         const api = await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tecnicos");
-        await page.locator('[data-tecnico="21"]').getByRole("button", { name: "Editar a Lucía Ramírez" }).click();
-        const d = dialogo(page);
+        await page.locator('[data-tecnico="21"]').getByRole("link", { name: "Editar a Lucía Ramírez" }).click();
+        const d = pantalla(page, "Editar a Lucía Ramírez");
         await d.getByLabel("Teléfono", { exact: true }).fill("4444 0000");
         api.equipo.cambiarVersionTecnico(21);
         await d.getByRole("button", { name: "Guardar cambios" }).click();
@@ -294,7 +309,7 @@ test.describe("técnicos", () => {
         await expect(d.getByText("Alguien más cambió esta ficha")).toHaveCount(0);
         await expect(d.getByLabel("Teléfono", { exact: true })).toHaveValue("4444 0000");
         await d.getByRole("button", { name: "Guardar cambios" }).click();
-        await expect(dialogo(page)).toHaveCount(0);
+        await expect(d).toHaveCount(0);
         expect((ultima(api, "/api/v1/tecnicos/21/editar", "POST")?.cuerpo as { version: number }).version).toBe(2);
     });
 
@@ -303,8 +318,8 @@ test.describe("técnicos", () => {
         await conSesion(context, baseURL ?? "", DESPACHO.correo);
         await page.goto("/tecnicos");
         await expect(page.getByRole("heading", { name: "Técnicos", exact: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: "Nuevo técnico" })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: /^Editar a/ })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Nuevo técnico" })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: /^Editar a/ })).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Cuadrillas" })).toHaveCount(0);
 
         await context.clearCookies();

@@ -1,7 +1,8 @@
 "use client";
 
 import { Boton, Entrada, Esqueleto, Etiqueta, GrupoSegmentado, Selector } from "@iris/ui";
-import { Columns3, List, Map as IconoMapa, Search, X } from "lucide-react";
+import { Columns3, List, Map as IconoMapa, Plus, Search, X } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useCoincide, useZonas } from "@/componentes/comercial/comun";
@@ -11,7 +12,6 @@ import { filtrosDesdeUrl, hayFiltros, urlDe, vistaDesdeUrl, type Filtros, type R
 import { ESTADOS_PROSPECTO, ORDEN_ESTADOS, ORIGENES, type EstadoProspecto, type OrigenProspecto } from "@/lib/comercial/presentacion";
 import { useDiferido } from "@/lib/diferido";
 import { useSesion } from "@/lib/sesion";
-import { AltaProspecto } from "./alta-prospecto";
 import { MapaProspectos } from "./mapa-prospectos";
 import { Embudo, ListaProspectos, type Catalogos } from "./prospectos";
 
@@ -61,7 +61,16 @@ export function Comercial() {
             <EncabezadoPagina
                 titulo="Comercial"
                 descripcion="Prospectos, factibilidad, cotizaciones y contratos."
-                acciones={puede(["prospectos.crear"]) ? <AltaProspecto zonas={catalogos.zonas} /> : undefined}
+                acciones={
+                    puede(["prospectos.crear"]) ? (
+                        <Boton asChild>
+                            <Link href="/comercial/nuevo">
+                                <Plus />
+                                Nuevo prospecto
+                            </Link>
+                        </Boton>
+                    ) : undefined
+                }
             />
             {ancho === null ? (
                 <Esqueleto className="h-64" />

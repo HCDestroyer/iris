@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEventHandler, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEventHandler, type ReactNode } from "react";
 import { cn } from "../utilidades";
 import { Boton } from "./boton";
 import { BotonEnviar, DialogoConfirmar, ProveedorCambios, useRegistroCambios } from "./formulario-modal";
@@ -81,6 +81,51 @@ export function rutaQueSale(clic: ClicEnlace, ubicacion: Pick<Location, "origin"
 
 const MARCA_HISTORIAL = "__irisCambiosSinGuardar";
 
+/** Se guardó: la protección de la pantalla ya no pregunta (hasta que se monte otro formulario). */
+let liberada = false;
+
+/** Copia de `history.state` sin las marcas indicadas (por defecto, la de cambios sin guardar). */
+export function estadoSinMarcas(estado: unknown, marcas: readonly string[] = [MARCA_HISTORIAL]): Record<string, unknown> {
+    const original = (estado as Record<string, unknown> | null) ?? {};
+    return Object.fromEntries(Object.entries(original).filter(([clave]) => !marcas.includes(clave)));
+}
+
+const ESPERA_HISTORIAL_MS = 500;
+
+/**
+ * Sale de una entrada propia del historial (la de `marca`, en la misma URL) y espera a que el
+ * `popstate` llegue. Si no llega a tiempo y la entrada sigue marcada, no vuelve a moverse: le
+ * quita la marca con `replaceState`, para que nada la tome por una entrada propia.
+ */
+export function salirDeEntradaMarcada(marca: string): Promise<void> {
+    if (typeof window === "undefined" || !(window.history.state as Record<string, unknown> | null)?.[marca]) return Promise.resolve();
+    return new Promise((resolver) => {
+        let limite = 0;
+        const listo = (porTiempo: boolean) => {
+            window.removeEventListener("popstate", alVolver);
+            window.clearTimeout(limite);
+            if (porTiempo && (window.history.state as Record<string, unknown> | null)?.[marca]) {
+                window.history.replaceState(estadoSinMarcas(window.history.state, [marca]), "", window.location.href);
+            }
+            resolver();
+        };
+        const alVolver = () => listo(false);
+        limite = window.setTimeout(() => listo(true), ESPERA_HISTORIAL_MS);
+        window.addEventListener("popstate", alVolver);
+        window.history.back();
+    });
+}
+
+/**
+ * Suelta la protección tras guardar, antes de navegar: deja de preguntar y quita la entrada propia
+ * del historial («Atrás» desde lo que se abra después no vuelve a un formulario vacío). Resuelve
+ * cuando el historial ya está en su lugar; luego se navega con `router.replace`.
+ */
+export function liberarProteccion(): Promise<void> {
+    liberada = true;
+    return salirDeEntradaMarcada(MARCA_HISTORIAL);
+}
+
 export type ProteccionSalida = {
     /** Destino pendiente de confirmar (`null` si no hay pregunta abierta). */
     pendiente: string | null;
@@ -103,6 +148,10 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         activaRef.current = activa;
     }, [activa]);
+    // Un formulario nuevo vuelve a proteger.
+    useEffect(() => {
+        liberada = false;
+    }, []);
     // Solo rutas internas: lo que no pasa `rutaInterna` va al inicio, nunca a otro sitio.
     const ir = useCallback(
         (ruta: string) => {
@@ -117,6 +166,7 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         if (!activa) return undefined;
         const antesDeSalir = (evento: BeforeUnloadEvent) => {
+            if (liberada) return;
             evento.preventDefault();
             evento.returnValue = "";
         };
@@ -128,6 +178,7 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         if (!activa) return undefined;
         const alClic = (evento: MouseEvent) => {
+            if (liberada) return;
             const ruta = rutaQueSale(evento, window.location);
             if (!ruta) return;
             evento.preventDefault();
@@ -141,14 +192,14 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     // «Atrás» del navegador: una entrada propia en el historial que se consume al volver.
     useEffect(() => {
         const marcada = Boolean((window.history.state as Record<string, unknown> | null)?.[MARCA_HISTORIAL]);
-        if (!activa) {
+        if (!activa || liberada) {
             // Sin cambios, la entrada propia sobra (misma URL): se quita para que «Atrás» funcione a la primera.
-            if (marcada && !saliendoRef.current) window.history.back();
+            if (marcada && !saliendoRef.current && !liberada) window.history.back();
             return undefined;
         }
         if (!marcada) window.history.pushState({ ...(window.history.state as object | null), [MARCA_HISTORIAL]: true }, "", window.location.href);
         const alVolver = () => {
-            if (activaRef.current) setPendiente(ATRAS);
+            if (activaRef.current && !liberada) setPendiente(ATRAS);
         };
         window.addEventListener("popstate", alVolver);
         return () => window.removeEventListener("popstate", alVolver);
@@ -256,7 +307,8 @@ export function SeccionFormulario({ titulo, descripcion, children, className }: 
 export type PropsFormularioPagina = {
     titulo: ReactNode;
     descripcion?: ReactNode;
-    migas: readonly Miga[];
+    /** Migas propias; sin ellas, las pone el layout (p. ej. las del panel, que salen de la ruta). */
+    migas?: readonly Miga[];
     /** `onSubmit` del `<form>` (p. ej. `form.handleSubmit(guardar)`). */
     alEnviar: FormEventHandler<HTMLFormElement>;
     /** Props de la barra de guardar; «Cancelar» vuelve a `volverA` (preguntando si hay cambios). */
@@ -269,6 +321,9 @@ export type PropsFormularioPagina = {
     sucio?: boolean;
     /** Error general del envío (p. ej. `ErrorFormulario`), arriba de las secciones. */
     error?: ReactNode;
+    /** Lo que va después del formulario y fuera de él (p. ej. un diálogo con su propio envío). */
+    despues?: ReactNode;
+    "data-testid"?: string;
     children: ReactNode;
     className?: string;
 };
@@ -278,26 +333,58 @@ export type PropsFormularioPagina = {
  * abre encima de otro formulario: tiene su propia URL y «Atrás» vuelve a donde estabas. Si sales
  * con cambios sin guardar, pregunta antes de descartarlos.
  */
-export function FormularioPagina({ titulo, descripcion, migas, alEnviar, barra, volverA, navegar, sucio = false, error, children, className }: PropsFormularioPagina) {
+export function FormularioPagina({
+    titulo,
+    descripcion,
+    migas,
+    alEnviar,
+    barra,
+    volverA,
+    navegar,
+    sucio = false,
+    error,
+    despues,
+    children,
+    className,
+    "data-testid": testId,
+}: PropsFormularioPagina) {
     const registro = useRegistroCambios();
-    const hayCambios = (sucio || registro.sucio) && !registro.ocupado && !barra?.enviando;
+    // También mientras se envía: si el envío falla (validación o servidor) los cambios siguen ahí, y
+    // soltar la protección a medio envío movía el historial («Atrás» propio) y luego preguntaba solo.
+    const hayCambios = sucio || registro.sucio;
     const proteccion = useProteccionSalida(hayCambios, navegar);
-    const destinoCancelar = volverA ?? migas.at(-2)?.href;
+    const destinoCancelar = volverA ?? migas?.at(-2)?.href;
+    const idTitulo = useId();
+    const idDescripcion = useId();
     return (
         <ProveedorCambios valor={registro.contexto}>
-            <div data-slot="formulario-pagina" className={cn("mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0", className)}>
+            <div data-slot="formulario-pagina" data-testid={testId} className={cn("mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0", className)}>
                 <header className="grid gap-2">
-                    <Migas migas={migas} />
+                    {migas ? <Migas migas={migas} /> : null}
                     <div className="grid gap-1">
-                        <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">{titulo}</h1>
-                        {descripcion ? <p className="text-sm text-muted-foreground">{descripcion}</p> : null}
+                        <h1 id={idTitulo} className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
+                            {titulo}
+                        </h1>
+                        {descripcion ? (
+                            <p id={idDescripcion} className="text-sm text-muted-foreground">
+                                {descripcion}
+                            </p>
+                        ) : null}
                     </div>
                 </header>
-                <form noValidate onSubmit={alEnviar} className="grid min-w-0 gap-4 [&>*]:min-w-0">
+                {/* El formulario se nombra con el título: `getByRole("form", { name: "Nueva orden" })`. */}
+                <form
+                    noValidate
+                    onSubmit={alEnviar}
+                    aria-labelledby={idTitulo}
+                    aria-describedby={descripcion ? idDescripcion : undefined}
+                    className="grid min-w-0 gap-4 [&>*]:min-w-0"
+                >
                     {error}
                     {children}
                     <BarraGuardar {...barra} {...(destinoCancelar ? { alCancelar: () => proteccion.salir(destinoCancelar) } : {})} />
                 </form>
+                {despues}
             </div>
             <DialogoConfirmar
                 open={proteccion.pendiente !== null}

@@ -1,7 +1,10 @@
+"use client";
+
 import { CircleAlert } from "lucide-react";
 import { useId, type ComponentProps, type ReactNode } from "react";
 import { cn } from "../utilidades";
 import { Entrada } from "./entrada";
+import { useErrorEstable } from "./error-estable";
 import { Etiqueta } from "./etiqueta";
 
 /** Props comunes de un campo con etiqueta, ayuda y error. */
@@ -50,12 +53,14 @@ export type PropsCampo = ComponentProps<"input"> & PropsEnvolturaCampo;
 
 /** Etiqueta + entrada + ayuda/error, enlazados por id y aria-describedby. */
 export function Campo({ etiqueta, error, ayuda, id, className, ...props }: PropsCampo) {
-    const ids = useIdsCampo(id, error, ayuda);
+    // Un error que aparece al salir del campo no mueve el botón que se está pulsando.
+    const visible = useErrorEstable(error);
+    const ids = useIdsCampo(id, visible, ayuda);
     return (
         <div className={cn("grid gap-1.5", className)}>
             <Etiqueta htmlFor={ids.idCampo}>{etiqueta}</Etiqueta>
             <Entrada {...ids.control} {...props} />
-            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={error} />
+            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={visible} />
         </div>
     );
 }

@@ -5,18 +5,17 @@ import {
     avisar,
     Aviso,
     Boton,
-    BotonEnviar,
     Campo,
     CampoArea,
-    DialogoCerrar,
     DialogoConfirmar,
-    DialogoContenido,
-    DialogoPie,
-    DialogoProtegido,
     ErrorFormulario,
-    useCambiosSinGuardar,
+    FormularioPagina,
+    liberarProteccion,
+    SeccionFormulario,
 } from "@iris/ui";
 import { Pencil, RefreshCw, UserX } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { api, resolver } from "@/lib/api/cliente";
@@ -55,7 +54,6 @@ function releer(id: number): Promise<Usuario> {
 export function AccionesUsuario({ usuario, alCambiar }: Props) {
     const { yo, puede } = useSesion();
     const propio = usuario.id === yo.usuario.id;
-    const [editando, setEditando] = useState(false);
     const [desactivando, setDesactivando] = useState(false);
     const puedeEditar = puede(["usuarios.editar"]);
     const puedeDesactivar = puede(["usuarios.desactivar"]) && usuario.activo && !propio;
@@ -63,9 +61,11 @@ export function AccionesUsuario({ usuario, alCambiar }: Props) {
     return (
         <div className="flex flex-wrap gap-2">
             {puedeEditar ? (
-                <Boton variante="secundario" onClick={() => setEditando(true)}>
-                    <Pencil />
-                    Editar
+                <Boton asChild variante="secundario">
+                    <Link href={`/usuarios/${usuario.id}/editar`}>
+                        <Pencil />
+                        Editar
+                    </Link>
                 </Boton>
             ) : null}
             {puedeDesactivar ? (
@@ -74,19 +74,6 @@ export function AccionesUsuario({ usuario, alCambiar }: Props) {
                     Desactivar
                 </Boton>
             ) : null}
-            <DialogoProtegido open={editando} onOpenChange={setEditando}>
-                {editando ? (
-                    <FormularioEditar
-                        usuario={usuario}
-                        propio={propio}
-                        alCambiar={alCambiar}
-                        alGuardar={(u) => {
-                            alCambiar(u);
-                            setEditando(false);
-                        }}
-                    />
-                ) : null}
-            </DialogoProtegido>
             {desactivando ? (
                 <ConfirmarDesactivar
                     usuario={usuario}
@@ -102,14 +89,25 @@ export function AccionesUsuario({ usuario, alCambiar }: Props) {
     );
 }
 
-function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: Usuario; propio: boolean; alCambiar: (u: Usuario) => void; alGuardar: (u: Usuario) => void }) {
+/**
+ * «Editar usuario» en pantalla propia (`/usuarios/[id]/editar`, permiso `usuarios.editar`):
+ * nombre y correo. Al guardar, aviso y vuelta a la ficha; con un 409, «Recargar» trae la versión
+ * nueva sin perder lo escrito.
+ */
+export function FormularioEditarUsuario({ usuario }: { usuario: Usuario }) {
+    const { yo } = useSesion();
+    const router = useRouter();
+    return <FormularioEditar usuario={usuario} propio={usuario.id === yo.usuario.id} alGuardar={(u) => void liberarProteccion().then(() => router.replace(`/usuarios/${u.id}`))} />;
+}
+
+function FormularioEditar({ usuario, propio, alGuardar }: { usuario: Usuario; propio: boolean; alGuardar: (u: Usuario) => void }) {
     const [antes, setAntes] = useState(usuario);
     const [error, setError] = useState<unknown>(null);
     const [recargando, setRecargando] = useState(false);
     const clave = useClaveIdempotencia();
     const form = useForm<DatosEditarUsuario>({ resolver: zodResolver(esquemaEditarUsuario), defaultValues: { nombre: usuario.nombre, correo: usuario.correo }, mode: "onTouched" });
     const { errors, isSubmitting, isDirty } = form.formState;
-    useCambiosSinGuardar(isDirty, isSubmitting);
+    const router = useRouter();
     const correo = useWatch({ control: form.control, name: "correo" });
     const nombre = useWatch({ control: form.control, name: "nombre" });
     const cuerpo = cuerpoEditarUsuario({ nombre, correo }, antes);
@@ -125,7 +123,6 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
                 }),
             );
             clave.renovar();
-            form.reset({ nombre: u.nombre, correo: u.correo });
             avisar({ titulo: `Usuario ${u.nombre} guardado` });
             alGuardar(u);
         } catch (e) {
@@ -144,7 +141,6 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
         try {
             const actual = await releer(antes.id);
             setAntes(actual);
-            alCambiar(actual);
             setError(null);
         } catch (e) {
             setError(e);
@@ -154,8 +150,23 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
     }
 
     return (
-        <DialogoContenido titulo={`Editar a ${antes.nombre}`} descripcion="Nombre y correo con que entra a Iris." data-testid="editar-usuario">
-            <form noValidate className="grid gap-4" aria-label="Editar usuario" onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
+        <FormularioPagina
+            titulo={`Editar a ${antes.nombre}`}
+            descripcion="Nombre y correo con que entra a Iris."
+            data-testid="editar-usuario"
+            alEnviar={(e) => void form.handleSubmit(enviar)(e)}
+            navegar={router.push}
+            volverA={`/usuarios/${antes.id}`}
+            sucio={isDirty}
+            barra={{
+                textoGuardar: "Guardar cambios",
+                textoEnviando: "Guardando…",
+                enviando: isSubmitting,
+                ...(sinCambios ? { faltan: ["un cambio"], motivo: "Cambia el nombre o el correo para guardar." } : {}),
+            }}
+            error={error ? <AvisoAccion error={error} que="guardar los cambios" recargando={recargando} recargar={recargar} /> : null}
+        >
+            <SeccionFormulario titulo="Datos de acceso">
                 <Campo etiqueta="Nombre" autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
                 <Campo etiqueta="Correo" type="email" autoComplete="off" spellCheck={false} autoCapitalize="off" maxLength={254} error={errors.correo?.message} {...form.register("correo")} />
                 {cambioCorreoCierraSSO({ correo }, antes, propio) ? (
@@ -168,19 +179,8 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
                         Cambiar tu propio correo es una acción sensible: al guardar, confirma tu contraseña.
                     </Aviso>
                 ) : null}
-                {error ? <AvisoAccion error={error} que="guardar los cambios" recargando={recargando} recargar={recargar} /> : null}
-                <DialogoPie>
-                    <DialogoCerrar asChild>
-                        <Boton variante="contorno" disabled={isSubmitting}>
-                            Cancelar
-                        </Boton>
-                    </DialogoCerrar>
-                    <BotonEnviar enviando={isSubmitting} textoEnviando="Guardando…" disabled={sinCambios || recargando}>
-                        Guardar cambios
-                    </BotonEnviar>
-                </DialogoPie>
-            </form>
-        </DialogoContenido>
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }
 
