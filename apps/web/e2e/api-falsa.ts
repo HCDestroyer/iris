@@ -194,6 +194,9 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.asignar_rol",
     "usuarios.cerrar_sesiones",
     "usuarios.quitar_rol",
+    // Empresas del usuario (e2e/api-usuarios.ts).
+    "usuarios.asignar_empresa",
+    "usuarios.quitar_empresa",
 ];
 
 const permisosPorCorreo: Record<string, Permiso[]> = {
@@ -280,7 +283,7 @@ export type ApiFalsa = {
     /** Agenda y posiciones del escenario (con `despacho`, además las reglas de la agenda). */
     agenda: ApiAgenda["escenario"];
     /** Técnicos, cuadrillas y zonas (se pueden cambiar en la prueba). */
-    equipo: Pick<ApiEquipo, "tecnicos" | "cuadrillas" | "zonas" | "cambiarVersionTecnico">;
+    equipo: Pick<ApiEquipo, "tecnicos" | "cuadrillas" | "zonas" | "candidatos" | "cambiarVersionTecnico">;
     /** Rutas del día (detalle completo, se pueden cambiar en la prueba). */
     rutas: ApiRutas["rutas"];
     /** Plantillas de formulario (se pueden cambiar en la prueba). */
@@ -864,7 +867,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         },
         ordenes: ordenes.escenario,
         agenda: agenda.escenario,
-        equipo: { tecnicos: equipo.tecnicos, cuadrillas: equipo.cuadrillas, zonas: equipo.zonas, cambiarVersionTecnico: equipo.cambiarVersionTecnico },
+        equipo: { tecnicos: equipo.tecnicos, cuadrillas: equipo.cuadrillas, zonas: equipo.zonas, candidatos: equipo.candidatos, cambiarVersionTecnico: equipo.cambiarVersionTecnico },
         rutas: rutas.rutas,
         plantillas: { plantillas: plantillas.plantillas, cambiarVersion: plantillas.cambiarVersion, agregarRelleno: plantillas.agregarRelleno },
         comercial: { escenario: comercial.escenario, cambiarVersion: comercial.cambiarVersion },

@@ -9,6 +9,8 @@ import { SesionesUsuario } from "@/componentes/accesos/sesiones-usuario";
 import { VinculosSSO } from "@/componentes/cuenta/vinculos-sso";
 import { RolesUsuario } from "@/componentes/roles/roles-usuario";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { AccionesUsuario } from "@/componentes/usuarios/editar-usuario";
+import { EmpresasUsuario } from "@/componentes/usuarios/empresas-usuario";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
@@ -16,7 +18,10 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { Activo, Mfa, textoRoles, Tipo } from "../lista-usuarios";
 
-/** `/usuarios/[id]`: datos del usuario y sus cuentas vinculadas (autologin desde Argos). */
+/**
+ * `/usuarios/[id]`: datos del usuario con «Editar» y «Desactivar», sus empresas, cuentas
+ * vinculadas (autologin desde Argos), roles, sesiones y accesos (cada sección según su permiso).
+ */
 export function DetalleUsuario() {
     const { id: crudo } = useParams<{ id: string }>();
     const id = Number(crudo);
@@ -65,7 +70,7 @@ export function DetalleUsuario() {
     return (
         <>
             {volver}
-            <EncabezadoPagina titulo={u.nombre} descripcion={u.correo} />
+            <EncabezadoPagina titulo={u.nombre} descripcion={u.correo} acciones={<AccionesUsuario usuario={u} alCambiar={lectura.reemplazar} />} />
             <div className="grid gap-4">
                 <Tarjeta>
                     <TarjetaContenido className="grid gap-3 pt-5">
@@ -80,7 +85,8 @@ export function DetalleUsuario() {
                         </p>
                     </TarjetaContenido>
                 </Tarjeta>
-                {u.tipo === "persona" ? <VinculosSSO usuarioId={u.id} propio={u.id === yo.usuario.id} /> : null}
+                <EmpresasUsuario usuario={u} alCambiar={lectura.reemplazar} />
+                {u.tipo === "persona" ? <VinculosSSO key={`${u.correo}:${String(u.activo)}`} usuarioId={u.id} propio={u.id === yo.usuario.id} /> : null}
                 {/* Pedido 10: roles con alcance, sesiones activas y accesos (cada sección según su permiso). */}
                 {puede(["usuarios.asignar_rol", "usuarios.quitar_rol"]) ? <RolesUsuario usuario={u} alCambiar={lectura.reemplazar} /> : null}
                 {puede(["accesos.ver"]) ? <SesionesUsuario usuarioId={u.id} propio={u.id === yo.usuario.id} /> : null}

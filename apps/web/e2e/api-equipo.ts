@@ -38,6 +38,8 @@ export type ApiEquipo = {
     tecnicos: TecnicoDetalle[];
     cuadrillas: Cuadrilla[];
     zonas: Zona[];
+    /** Usuarios sin ficha que `GET /tecnicos/candidatos` ofrece (se pueden agregar en la prueba). */
+    candidatos: Schema<"CandidatoTecnico">[];
     /** Otra persona cambió la ficha: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersionTecnico: (fichaId: number) => void;
     manejar: (c: { route: Route; metodo: string; ruta: string; query: URLSearchParams; cuerpo: unknown; puede: (p: Permiso) => boolean }) => Promise<boolean>;
@@ -263,6 +265,7 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
         tecnicos,
         cuadrillas,
         zonas,
+        candidatos,
         cambiarVersionTecnico: (fichaId) => {
             const t = tecnicos.find((x) => x.id === fichaId);
             if (t) t.version++;
