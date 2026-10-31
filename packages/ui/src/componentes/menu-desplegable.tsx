@@ -84,6 +84,35 @@ export function MenuDesplegableContenido({ className, sideOffset = 6, align = "e
     );
 }
 
+export type PropsMenuEnLinea = {
+    /** Nombre accesible del menú («Tu cuenta»). */
+    etiqueta: string;
+    className?: string;
+    children?: ReactNode;
+};
+
+/**
+ * El mismo menú, siempre a la vista (sin disparador): p. ej. la cuenta dentro de «Más» en el
+ * teléfono. Mismos `MenuDesplegableEtiqueta`, `…Elemento` y `…Separador`; flechas para moverse.
+ */
+export function MenuEnLinea({ etiqueta, className, children }: PropsMenuEnLinea) {
+    const nodos = aplanar(children);
+    const etiquetas = nodos.filter((n) => isValidElement(n) && n.type === MenuDesplegableEtiqueta);
+    const opciones = nodos.filter((n) => !(isValidElement(n) && n.type === MenuDesplegableEtiqueta));
+    return (
+        <Menu aria-label={etiqueta} className={cn("grid gap-0.5 outline-none", className)}>
+            {etiquetas.length > 0 ? (
+                <MenuSection className="grid gap-0.5">
+                    <Header>{etiquetas}</Header>
+                    {opciones}
+                </MenuSection>
+            ) : (
+                opciones
+            )}
+        </Menu>
+    );
+}
+
 export type PropsMenuDesplegableElemento = {
     icono?: LucideIcon;
     /** Al elegir la opción (clic, Enter o espacio); el menú se cierra solo. */
