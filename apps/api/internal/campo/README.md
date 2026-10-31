@@ -254,11 +254,13 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   marca las órdenes abiertas del servicio o del cliente (`datos_argos_cambiados_en`,
   `datos_argos_campos`, sin subir la versión ni pisar lo copiado; `ordenes.marcar_datos_argos`,
   auditado). La API expone `datosArgosCambiados { en, campos[] }` y emite
-  `orden.datos_argos_cambiados`. La marca cambia de `en` (creciente) solo cuando trae un campo nuevo.
+  `orden.datos_argos_cambiados`. Cada aviso nuevo mueve `en` (creciente), aunque repita campos; solo el reproceso del mismo webhook
+  (`datos_argos_entrante_id`) no lo mueve.
   Despacho lo atiende con `POST /ordenes/{id}/aplicar-datos-argos { version, avisoEn, campos? }` (`ordenes.aplicar_datos_argos`: copia de la instantánea actual la dirección,
   las coordenadas, la referencia y el contacto —`campos` = direccion, coordenadas, referencia,
-  contacto; sin ellos, todo— con la regla de la creación, solo de la instantánea que sigue siendo del
-  cliente y la empresa de la orden; quita de la marca solo lo aplicado y sube la versión; emite
+  contacto; sin ellos, todo— con la regla de la creación; si la instantánea del servicio ya no es del
+  cliente o de la empresa de la orden, 422 `instantanea_no_coincide` (al cliente solo se recurre sin
+  servicio o sin su instantánea); quita de la marca solo lo aplicado y sube la versión; emite
   `orden.datos_argos_aplicados`) o `POST /ordenes/{id}/descartar-datos-argos { version, avisoEn, motivo? }`
   (`ordenes.descartar_datos_argos`: solo quita la marca; emite `orden.datos_argos_descartados`). Orden
   abierta con aviso (422 `sin_aviso_argos`, `transicion_invalida`), 422 `sin_instantanea_argos` o

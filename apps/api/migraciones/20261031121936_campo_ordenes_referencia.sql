@@ -7,7 +7,11 @@ ALTER TABLE campo.ordenes ADD COLUMN referencia text;
 ALTER TABLE campo.ordenes ADD CONSTRAINT ordenes_referencia_largo
     CHECK (referencia IS NULL OR length(referencia) BETWEEN 1 AND 500) NOT VALID;
 ALTER TABLE campo.ordenes VALIDATE CONSTRAINT ordenes_referencia_largo;
+-- Último webhook de Argos (integracion.entrantes) que marcó «dato de Argos cambió»: un reproceso del
+-- mismo entrante no mueve la marca; cualquier aviso nuevo, sí.
+ALTER TABLE campo.ordenes ADD COLUMN datos_argos_entrante_id bigint;
 
 -- +goose Down
+ALTER TABLE campo.ordenes DROP COLUMN datos_argos_entrante_id;
 ALTER TABLE campo.ordenes DROP CONSTRAINT ordenes_referencia_largo;
 ALTER TABLE campo.ordenes DROP COLUMN referencia;

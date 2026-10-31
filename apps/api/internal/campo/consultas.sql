@@ -595,14 +595,16 @@ ORDER BY registrada_en;
 
 -- name: MarcarDatosArgos :many
 -- Órdenes abiertas del servicio (o del cliente, sin servicio en la orden): conservan lo que copiaron
--- y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión. La marca
--- cambia de `en` (siempre creciente) solo si trae un campo que no estaba: así quien la leyó antes
--- (avisoEn) recibe 409 al atenderla; un aviso repetido no la cambia.
+-- y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión. Cada aviso
+-- nuevo mueve `en` (siempre creciente), aunque repita campos: quien leyó la marca antes (avisoEn)
+-- recibe 409 al atenderla. Solo el reproceso del mismo webhook (@entrante_id) no la mueve.
 UPDATE campo.ordenes o
 SET datos_argos_cambiados_en = CASE
-        WHEN o.datos_argos_cambiados_en IS NOT NULL AND @campos::text[] <@ o.datos_argos_campos THEN o.datos_argos_cambiados_en
+        WHEN o.datos_argos_cambiados_en IS NOT NULL AND sqlc.narg(entrante_id)::bigint IS NOT NULL
+             AND o.datos_argos_entrante_id = sqlc.narg(entrante_id)::bigint THEN o.datos_argos_cambiados_en
         ELSE GREATEST(@cambiado_en::timestamptz, o.datos_argos_cambiados_en + interval '1 microsecond')
     END,
+    datos_argos_entrante_id = coalesce(sqlc.narg(entrante_id)::bigint, o.datos_argos_entrante_id),
     datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || @campos::text[]) AS c ORDER BY c),
     updated_at = now()
 WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')

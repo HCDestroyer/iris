@@ -71,6 +71,9 @@ func (m *Modulo) nuevoMarcarDatosArgos() *auditoria.Caso[EntradaDatosArgos, Resu
 				return r, nil
 			}
 			p := campobd.MarcarDatosArgosParams{CambiadoEn: m.ahora(), Campos: campos}
+			if in.EntranteID != 0 {
+				p.EntranteID = &in.EntranteID
+			}
 			if in.Entidad == "servicio" {
 				p.ServicioID = in.ServicioID
 			} else {
@@ -174,9 +177,10 @@ const (
 	instantaneaNoCoincide        // las hay, pero ya no son del cliente ni de la empresa de la orden
 )
 
-// datosArgosActuales lee la instantánea del servicio y del cliente de la orden. Solo se usa la que
-// sigue siendo de la orden: el servicio, si es del cliente de la orden y de su empresa; el cliente, si
-// es de su empresa (Argos pudo mover el servicio a otro cliente o empresa después de copiarlo).
+// datosArgosActuales lee la instantánea del servicio y del cliente de la orden. Con servicio, manda
+// su instantánea: si ya no es del cliente o de la empresa de la orden (Argos lo movió), no coincide
+// (nunca se cae a la del cliente: su dirección puede no ser la de instalación). Al cliente se recurre
+// solo si la orden no tiene servicio o Iris no tiene su instantánea, y solo si es de la empresa.
 func datosArgosActuales(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden) (datosArgos, int, error) {
 	var d datosArgos
 	hay, sirve := false, false
@@ -188,16 +192,17 @@ func datosArgosActuales(ctx context.Context, q *campobd.Queries, f campobd.Campo
 			return d, instantaneaNoHay, err
 		default:
 			hay = true
-			if (f.ClienteID == nil || s.ClienteID == *f.ClienteID) && (f.EmpresaID == nil || s.EmpresaID == *f.EmpresaID) {
-				sirve = true
-				d.direccion, d.referencia = noVacio(s.Direccion), noVacio(s.Referencia)
-				if s.Lat != nil && s.Lon != nil {
-					d.lat, d.lon = s.Lat, s.Lon
-				}
-				d.contactoNombre = noVacio(s.ContactoNombre)
-				if p := formato.Principal(formato.Telefonos("telefono", s.ContactoTelefono)); p != nil {
-					d.contactoTelefono = &p.Mostrar
-				}
+			if (f.ClienteID != nil && s.ClienteID != *f.ClienteID) || (f.EmpresaID != nil && s.EmpresaID != *f.EmpresaID) {
+				return d, instantaneaNoCoincide, nil
+			}
+			sirve = true
+			d.direccion, d.referencia = noVacio(s.Direccion), noVacio(s.Referencia)
+			if s.Lat != nil && s.Lon != nil {
+				d.lat, d.lon = s.Lat, s.Lon
+			}
+			d.contactoNombre = noVacio(s.ContactoNombre)
+			if p := formato.Principal(formato.Telefonos("telefono", s.ContactoTelefono)); p != nil {
+				d.contactoTelefono = &p.Mostrar
 			}
 		}
 	}

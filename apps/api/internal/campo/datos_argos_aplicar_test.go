@@ -95,12 +95,12 @@ func TestAplicarYDescartarDatosArgos(t *testing.T) {
 		t.Fatal("marcada")
 	}
 	leido := v.DatosArgosCambiados.En
-	// Un aviso repetido no cambia la marca; uno con un campo nuevo (después de que despacho leyó), sí:
-	// atender con lo leído da 409 aviso_argos_cambiado y no se pierde.
+	// El reproceso del mismo webhook (mismo entrante) no cambia la marca; un aviso nuevo (después de que
+	// despacho leyó), sí: atender con lo leído da 409 aviso_argos_cambiado y no se pierde.
 	deber(e.m.MarcarDatosArgos.Ejecutar(pruebas.ContextoSistema(pool), campo.EntradaDatosArgos{
-		Entidad: "servicio", ServicioID: ptr(int64(79110)), Campos: []string{"servicio.direccion"}, EntranteID: 9}))(t)
+		Entidad: "servicio", ServicioID: ptr(int64(79110)), Campos: []string{"servicio.direccion", "servicio.contacto_telefono"}, EntranteID: 9}))(t)
 	if r := deber(e.m.VerOrden.Ejecutar(ctx, campo.EntradaVerOrden{ID: o.ID}))(t).Orden; !r.DatosArgosCambiados.En.Equal(leido) {
-		t.Fatal("aviso repetido: la marca no cambia")
+		t.Fatal("reproceso del mismo webhook: la marca no cambia")
 	}
 	deber(e.m.MarcarDatosArgos.Ejecutar(pruebas.ContextoSistema(pool), campo.EntradaDatosArgos{
 		Entidad: "servicio", ServicioID: ptr(int64(79110)), Campos: []string{"servicio.coordenadas"}, EntranteID: 12}))(t)
@@ -183,6 +183,21 @@ func TestAplicarYDescartarDatosArgos(t *testing.T) {
 		t.Fatalf("evento orden.datos_argos_descartados: %d", n)
 	}
 
+	// La dirección cambia dos veces en Argos (dos webhooks): quien leyó el primer aviso no lo atiende
+	// sin ver el segundo, aunque repita el campo.
+	deber(e.m.MarcarDatosArgos.Ejecutar(pruebas.ContextoSistema(pool), campo.EntradaDatosArgos{
+		Entidad: "servicio", ServicioID: ptr(int64(79110)), Campos: []string{"servicio.direccion"}, EntranteID: 20}))(t)
+	primero := deber(e.m.VerOrden.Ejecutar(ctx, campo.EntradaVerOrden{ID: o.ID}))(t).Orden
+	deber(e.m.MarcarDatosArgos.Ejecutar(pruebas.ContextoSistema(pool), campo.EntradaDatosArgos{
+		Entidad: "servicio", ServicioID: ptr(int64(79110)), Campos: []string{"servicio.direccion"}, EntranteID: 21}))(t)
+	_, err = e.m.DescartarDatosArgos.Ejecutar(ctx, campo.EntradaDescartarDatosArgos{ID: o.ID, Version: primero.Version, AvisoEn: primero.DatosArgosCambiados.En})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "aviso_argos_cambiado" {
+		t.Fatalf("segundo cambio de la dirección sin ver: %v", err)
+	}
+	segundo := deber(e.m.VerOrden.Ejecutar(ctx, campo.EntradaVerOrden{ID: o.ID}))(t).Orden
+	ds = deber(e.m.DescartarDatosArgos.Ejecutar(ctx, campo.EntradaDescartarDatosArgos{ID: o.ID, Version: segundo.Version,
+		AvisoEn: segundo.DatosArgosCambiados.En}))(t)
+
 	// Una orden cerrada (o cancelada) no se toca.
 	c := deber(e.m.CancelarOrden.Ejecutar(ctx, campo.EntradaMotivo{ID: o.ID, Version: ds.Version, Motivo: "Duplicada"}))(t)
 	exec(`UPDATE campo.ordenes SET datos_argos_cambiados_en = now() WHERE id = $1`, o.ID)
@@ -226,19 +241,32 @@ func TestAplicarDatosArgosInstantaneaNoCoincide(t *testing.T) {
 		return deber(e.m.VerOrden.Ejecutar(ctx, campo.EntradaVerOrden{ID: o.ID}))(t).Orden
 	}
 
-	// Argos movió el servicio a otro cliente: se ignora y se usa la del cliente de la orden.
+	// Argos movió el servicio a otro cliente: no coincide, y no se cae a la dirección del cliente (puede
+	// no ser la de instalación).
 	exec(`UPDATE integracion.argos_servicios SET cliente_id = 8012, direccion = 'Lote ajeno' WHERE id = 80110`)
 	v := marcar()
+	_, err := e.m.AplicarDatosArgos.Ejecutar(ctx, campo.EntradaAplicarDatosArgos{ID: o.ID, Version: v.Version, AvisoEn: v.DatosArgosCambiados.En})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "instantanea_no_coincide" {
+		t.Fatalf("servicio de otro cliente: %v", err)
+	}
+	// Otra empresa en el servicio: igual.
+	exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (67, 'Empresa 67') ON CONFLICT (id) DO NOTHING`)
+	exec(`UPDATE integracion.argos_servicios SET cliente_id = 8011, empresa_id = 67 WHERE id = 80110`)
+	_, err = e.m.AplicarDatosArgos.Ejecutar(ctx, campo.EntradaAplicarDatosArgos{ID: o.ID, Version: v.Version, AvisoEn: v.DatosArgosCambiados.En})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "instantanea_no_coincide" {
+		t.Fatalf("servicio de otra empresa: %v", err)
+	}
+	// Sin la instantánea del servicio, sí se recurre a la del cliente.
+	exec(`DELETE FROM integracion.argos_servicios WHERE id = 80110`)
 	a := deber(e.m.AplicarDatosArgos.Ejecutar(ctx, campo.EntradaAplicarDatosArgos{ID: o.ID, Version: v.Version, AvisoEn: v.DatosArgosCambiados.En}))(t)
 	if a.Direccion != "Casa de Ana" || *a.Lat != 14.1 || *a.Referencia != "Esquina" {
 		t.Fatalf("con la instantánea del cliente: %+v", a)
 	}
 
 	// Y el cliente ya es de otra empresa: nada coincide.
-	exec(`INSERT INTO nucleo.empresas (id, nombre) VALUES (67, 'Empresa 67') ON CONFLICT (id) DO NOTHING`)
 	exec(`UPDATE integracion.argos_clientes SET empresa_id = 67, empresas = '{67}' WHERE id = 8011`)
 	v = marcar()
-	_, err := e.m.AplicarDatosArgos.Ejecutar(ctx, campo.EntradaAplicarDatosArgos{ID: o.ID, Version: v.Version, AvisoEn: v.DatosArgosCambiados.En})
+	_, err = e.m.AplicarDatosArgos.Ejecutar(ctx, campo.EntradaAplicarDatosArgos{ID: o.ID, Version: v.Version, AvisoEn: v.DatosArgosCambiados.En})
 	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "instantanea_no_coincide" {
 		t.Fatalf("instantánea de otra empresa: %v", err)
 	}

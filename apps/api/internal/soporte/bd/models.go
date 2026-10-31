@@ -430,6 +430,7 @@ type CampoOrdene struct {
 	DatosArgosCambiadosEn *time.Time
 	DatosArgosCampos      []string
 	Referencia            *string
+	DatosArgosEntranteID  *int64
 }
 
 type CampoPlantillaItem struct {
