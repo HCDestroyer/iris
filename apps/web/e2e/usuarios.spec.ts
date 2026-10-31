@@ -116,7 +116,8 @@ test.describe("administración de usuarios", () => {
         expect(altas.at(-1)?.cuerpo).toEqual({ nombre: "Otra Ana", correo: "script@iris.test", tipo: "integracion", roles: [{ rol: "integracion_argos" }], empresas: [20] });
         // La contraseña no queda en la URL y, de vuelta en la lista, el recién creado ya está.
         await expect(page).toHaveURL(/\/usuarios\/nuevo$/);
-        await page.getByRole("navigation", { name: "Ruta de navegación" }).filter({ visible: true }).getByRole("link", { name: "Usuarios" }).click();
+        // (En el teléfono el aviso «Usuario … creado» sale arriba, sobre la miga: se entra por la URL.)
+        await page.goto("/usuarios");
         await expect(page.getByTestId("usuario-creado")).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Otra Ana" }).first()).toBeAttached();
     });
