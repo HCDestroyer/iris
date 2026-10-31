@@ -977,6 +977,29 @@
         ],
         "type": "object"
       },
+      "BodegaTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "activa": {
+            "type": "boolean"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Id de la bodega en Argos",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "activa"
+        ],
+        "type": "object"
+      },
       "Buzon": {
         "additionalProperties": false,
         "properties": {
@@ -1295,6 +1318,29 @@
           "tipo",
           "cupos",
           "minutos"
+        ],
+        "type": "object"
+      },
+      "CargoArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "monto": {
+            "description": "Monto en texto decimal (como lo manda Argos)",
+            "type": "string"
+          },
+          "productoId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "productoId",
+          "monto"
         ],
         "type": "object"
       },
@@ -1750,6 +1796,10 @@
           "nombre": {
             "type": "string"
           },
+          "referencia": {
+            "description": "Punto de referencia del cliente (Argos ≥ 1.6.0, «frente a la iglesia»); vacío si no hay",
+            "type": "string"
+          },
           "servicios": {
             "description": "Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}",
             "items": {
@@ -1925,6 +1975,30 @@
             "description": "Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad)",
             "type": "string"
           },
+          "capacidades": {
+            "description": "Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos \u003c 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "contratoInformado": {
+            "description": "Contrato que Iris le informó y aceptó (en el canje o con PUT /integraciones/iris/contrato); null = todavía no (el worker lo reintenta)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contratoRemoto": {
+            "description": "Contrato que el otro sistema dice tener registrado para Iris (\"0.5.0\"); null = no lo informó",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -1995,6 +2069,21 @@
           "version": {
             "format": "int32",
             "type": "integer"
+          },
+          "versionConsultadaEn": {
+            "description": "Cuándo se leyó la versión por última vez",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "versionRemota": {
+            "description": "Versión que informó el otro sistema (version_argos de Argos ≥ 1.6.0: \"1.6.0\"); null = no la informó (Argos anterior a 1.6.0) o aún no se consultó",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "webhookUrl": {
             "description": "URL a la que el otro sistema envía los webhooks",
@@ -2615,6 +2704,31 @@
           "empresaId",
           "filas",
           "total"
+        ],
+        "type": "object"
+      },
+      "DatosArgosCambiados": {
+        "additionalProperties": false,
+        "properties": {
+          "campos": {
+            "description": "Campos que cambiaron en Argos desde que se copió la orden (servicio.direccion, cliente.referencia, servicio.contacto_telefono…), acumulados",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "en": {
+            "description": "Último aviso de Argos",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "en",
+          "campos"
         ],
         "type": "object"
       },
@@ -4498,6 +4612,25 @@
         "required": [
           "version",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "EntradaDesvincularArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída de la ficha; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -6459,6 +6592,28 @@
         ],
         "type": "object"
       },
+      "EntradaVincularArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "idExterno": {
+            "description": "idExterno de GET /integraciones/argosisp/tecnicos",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión leída de la ficha; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "idExterno"
+        ],
+        "type": "object"
+      },
       "EntradaVincularSSO": {
         "additionalProperties": false,
         "properties": {
@@ -6930,6 +7085,16 @@
             "type": "number"
           },
           "descripcion": {
+            "type": "string"
+          },
+          "modalidad": {
+            "description": "Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior",
+            "enum": [
+              "comodato",
+              "consumible_gasto",
+              "consumible_cobro",
+              ""
+            ],
             "type": "string"
           },
           "productoId": {
@@ -8137,6 +8302,18 @@
             "description": "Id de la operación del lote que lo registró (o uno v7 del servidor)",
             "type": "string"
           },
+          "modalidad": {
+            "description": "Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo",
+            "enum": [
+              "comodato",
+              "consumible_gasto",
+              "consumible_cobro"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ocurridoEn": {
             "format": "date-time",
             "type": "string"
@@ -8480,6 +8657,10 @@
               "integer",
               "null"
             ]
+          },
+          "datosArgosCambiados": {
+            "$ref": "#/components/schemas/DatosArgosCambiados",
+            "description": "«Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios"
           },
           "descripcion": {
             "type": "string"
@@ -10179,6 +10360,31 @@
         ],
         "type": "object"
       },
+      "PaginaTecnicosArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TecnicoDeArgos"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "PaginaTicket": {
         "additionalProperties": false,
         "properties": {
@@ -10751,6 +10957,23 @@
       "Pendiente": {
         "additionalProperties": false,
         "properties": {
+          "cargos": {
+            "description": "Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro",
+            "items": {
+              "$ref": "#/components/schemas/CargoArgos"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "codigoError": {
+            "description": "type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "conflicto": {
             "description": "cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos)",
             "type": [
@@ -10764,6 +10987,10 @@
               "string",
               "null"
             ]
+          },
+          "corregible": {
+            "description": "El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual",
+            "type": "boolean"
           },
           "creadoEn": {
             "format": "date-time",
@@ -10802,6 +11029,11 @@
               "bloqueado"
             ],
             "type": "string"
+          },
+          "facturaId": {
+            "description": "Consumo hecho: factura de Argos con esos cargos (si la hubo)",
+            "format": "int64",
+            "type": "integer"
           },
           "hechoEn": {
             "format": "date-time",
@@ -11013,6 +11245,7 @@
           "agenda.desactivar_cuadrilla",
           "agenda.desactivar_tecnico",
           "agenda.desactivar_zona",
+          "agenda.desvincular_argos",
           "agenda.editar_cuadrilla",
           "agenda.editar_tecnico",
           "agenda.editar_zona",
@@ -11020,6 +11253,7 @@
           "agenda.fijar_turnos",
           "agenda.registrar_ausencia",
           "agenda.ver",
+          "agenda.vincular_argos",
           "buzones.activar",
           "buzones.crear",
           "buzones.desactivar",
@@ -13687,6 +13921,24 @@
           "codigo": {
             "type": "string"
           },
+          "contactoNombre": {
+            "description": "Quien atiende en el sitio (si no es el titular); vacío si no hay",
+            "type": "string"
+          },
+          "contactoTelefono": {
+            "description": "Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344)",
+            "type": "string"
+          },
+          "contactoTelefonos": {
+            "description": "El teléfono del contacto en sitio para mostrar y llamar (E.164)",
+            "items": {
+              "$ref": "#/components/schemas/Telefono"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "direccion": {
             "description": "Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente",
             "type": "string"
@@ -13731,6 +13983,10 @@
             ]
           },
           "planNombre": {
+            "type": "string"
+          },
+          "referencia": {
+            "description": "Punto de referencia de la instalación; vacío si no hay",
             "type": "string"
           },
           "routerId": {
@@ -14148,6 +14404,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "argos": {
+            "$ref": "#/components/schemas/VinculoArgos",
+            "description": "Usuario de Argos vinculado (inventario por técnico, Argos ≥ 1.6.0); ausente = sin vincular (se usa bodegaId)"
+          },
           "baseLat": {
             "format": "double",
             "type": [
@@ -14233,6 +14493,47 @@
         ],
         "type": "object"
       },
+      "TecnicoDeArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "bodegas": {
+            "description": "Sus bodegas técnico (una por empresa) dentro del alcance del usuario técnico Iris",
+            "items": {
+              "$ref": "#/components/schemas/BodegaTecnico"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "correo": {
+            "type": "string"
+          },
+          "enEmpresa": {
+            "description": "Tiene bodega técnico activa en la empresa activa: solo así se puede vincular",
+            "type": "boolean"
+          },
+          "idExterno": {
+            "description": "Id del usuario en Argos (lo que se manda como tecnico.id_externo)",
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "vinculadoA": {
+            "$ref": "#/components/schemas/VinculoIris",
+            "description": "Ficha de Iris que ya lo tiene vinculado (ausente = libre)"
+          }
+        },
+        "required": [
+          "idExterno",
+          "correo",
+          "nombre",
+          "bodegas",
+          "enEmpresa"
+        ],
+        "type": "object"
+      },
       "TecnicoDetalle": {
         "additionalProperties": false,
         "properties": {
@@ -14243,6 +14544,10 @@
           "actualizadoEn": {
             "format": "date-time",
             "type": "string"
+          },
+          "argos": {
+            "$ref": "#/components/schemas/VinculoArgos",
+            "description": "Usuario de Argos vinculado (inventario por técnico, Argos ≥ 1.6.0); ausente = sin vincular (se usa bodegaId)"
           },
           "ausencias": {
             "description": "Vigentes o futuras, sin anular",
@@ -15288,6 +15593,53 @@
           "creadaPor",
           "creadaEn",
           "formularios"
+        ],
+        "type": "object"
+      },
+      "VinculoArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "correo": {
+            "description": "Correo del usuario en Argos al vincular",
+            "type": "string"
+          },
+          "idExterno": {
+            "description": "Id del usuario en Argos (va como tecnico.id_externo)",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre del usuario en Argos al vincular",
+            "type": "string"
+          },
+          "vinculadoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idExterno",
+          "correo",
+          "nombre",
+          "vinculadoEn"
+        ],
+        "type": "object"
+      },
+      "VinculoIris": {
+        "additionalProperties": false,
+        "properties": {
+          "tecnicoId": {
+            "description": "Ficha de agenda",
+            "format": "int64",
+            "type": "integer"
+          },
+          "usuarioId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tecnicoId",
+          "usuarioId"
         ],
         "type": "object"
       },
@@ -21434,6 +21786,122 @@
           "sso"
         ],
         "x-permiso": "sso.emitir"
+      }
+    },
+    "/api/v1/integraciones/argosisp/tecnicos": {
+      "get": {
+        "description": "Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
+        "operationId": "listarTecnicosArgos",
+        "parameters": [
+          {
+            "description": "nextCursor de la página anterior (de Argos)",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "nextCursor de la página anterior (de Argos)",
+              "maxLength": 500,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaTecnicosArgos"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Técnicos de Argos con bodega (selector del vínculo)",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "agenda.vincular_argos"
       }
     },
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
@@ -34251,6 +34719,129 @@
         "x-permiso": "agenda.desactivar_tecnico"
       }
     },
+    "/api/v1/tecnicos/{id}/desvincular-argos": {
+      "post": {
+        "description": "Permiso: `agenda.desvincular_argos`. Sus órdenes vuelven a usar `bodegaId`. Lo ya encolado no cambia. Emite `tecnico.argos_desvinculado`.",
+        "operationId": "desvincularTecnicoArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaDesvincularArgos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Quitar el vínculo con Argos",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.desvincular_argos"
+      }
+    },
     "/api/v1/tecnicos/{id}/editar": {
       "post": {
         "description": "Permiso: `agenda.editar_tecnico`. Reemplaza cuadrilla, bodega, habilidades y base. Emite `tecnico.actualizado`.",
@@ -34495,6 +35086,149 @@
           "agenda"
         ],
         "x-permiso": "agenda.fijar_turnos"
+      }
+    },
+    "/api/v1/tecnicos/{id}/vincular-argos": {
+      "post": {
+        "description": "Permiso: `agenda.vincular_argos`. Contrato 0.5.0 §3.3 (Argos ≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). `idExterno` sale de `GET /integraciones/argosisp/tecnicos`; Iris lo verifica en Argos: 422 `tecnico_no_encontrado` o `tecnico_sin_bodega` (sin bodega técnico activa en la empresa activa). 409 `argos_vinculado_a_otro` si ya es de otra ficha. Desde entonces, consumos, comodatos y devoluciones de sus órdenes mandan `tecnico` en vez de `bodega_id`. Emite `tecnico.argos_vinculado`.",
+        "operationId": "vincularTecnicoArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVincularArgos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vincular la ficha con su usuario de Argos",
+        "tags": [
+          "agenda"
+        ],
+        "x-permiso": "agenda.vincular_argos"
       }
     },
     "/api/v1/tickets": {

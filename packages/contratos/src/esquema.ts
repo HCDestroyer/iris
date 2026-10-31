@@ -988,6 +988,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/tecnicos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Técnicos de Argos con bodega (selector del vínculo)
+         * @description Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         */
+        get: operations["listarTecnicosArgos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
         parameters: {
             query?: never;
@@ -3003,6 +3023,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tecnicos/{id}/desvincular-argos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar el vínculo con Argos
+         * @description Permiso: `agenda.desvincular_argos`. Sus órdenes vuelven a usar `bodegaId`. Lo ya encolado no cambia. Emite `tecnico.argos_desvinculado`.
+         */
+        post: operations["desvincularTecnicoArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tecnicos/{id}/editar": {
         parameters: {
             query?: never;
@@ -3037,6 +3077,26 @@ export interface paths {
          * @description Permiso: `agenda.fijar_turnos`. Reemplaza los turnos (hora de Guatemala, sin cruces en un día). Las citas ya programadas no se mueven.
          */
         post: operations["turnosTecnico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/{id}/vincular-argos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Vincular la ficha con su usuario de Argos
+         * @description Permiso: `agenda.vincular_argos`. Contrato 0.5.0 §3.3 (Argos ≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). `idExterno` sale de `GET /integraciones/argosisp/tecnicos`; Iris lo verifica en Argos: 422 `tecnico_no_encontrado` o `tecnico_sin_bodega` (sin bodega técnico activa en la empresa activa). 409 `argos_vinculado_a_otro` si ya es de otra ficha. Desde entonces, consumos, comodatos y devoluciones de sus órdenes mandan `tecnico` en vez de `bodega_id`. Emite `tecnico.argos_vinculado`.
+         */
+        post: operations["vincularTecnicoArgos"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4214,6 +4274,16 @@ export interface components {
             /** @description https://<panel>/integraciones/iris/autorizar?iris=…&state=…&code_challenge=…&code_challenge_method=S256: el panel de Iris la abre en la misma pestaña */
             url: string;
         };
+        BodegaTecnico: {
+            activa: boolean;
+            /** Format: int64 */
+            empresaId: number;
+            /**
+             * Format: int64
+             * @description Id de la bodega en Argos
+             */
+            id: number;
+        };
         Buzon: {
             activo: boolean;
             /** Format: date-time */
@@ -4318,6 +4388,14 @@ export interface components {
              * @enum {string|null}
              */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+        };
+        CargoArgos: {
+            /** Format: int64 */
+            id: number;
+            /** @description Monto en texto decimal (como lo manda Argos) */
+            monto: string;
+            /** Format: int64 */
+            productoId: number;
         };
         Categoria: {
             activa: boolean;
@@ -4490,6 +4568,8 @@ export interface components {
             /** @description El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF */
             nitCuiMostrar: string;
             nombre: string;
+            /** @description Punto de referencia del cliente (Argos ≥ 1.6.0, «frente a la iglesia»); vacío si no hay */
+            referencia?: string;
             /** @description Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id} */
             servicios?: components["schemas"]["Servicio"][] | null;
             /**
@@ -4537,6 +4617,12 @@ export interface components {
             apiUrl: string;
             /** @description Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad) */
             baseUrl: string;
+            /** @description Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id */
+            capacidades?: string[] | null;
+            /** @description Contrato que Iris le informó y aceptó (en el canje o con PUT /integraciones/iris/contrato); null = todavía no (el worker lo reintenta) */
+            contratoInformado?: string | null;
+            /** @description Contrato que el otro sistema dice tener registrado para Iris ("0.5.0"); null = no lo informó */
+            contratoRemoto?: string | null;
             /** Format: date-time */
             creadoEn: string;
             /** @description Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó) */
@@ -4562,6 +4648,13 @@ export interface components {
             urlPublica: string;
             /** Format: int32 */
             version: number;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó la versión por última vez
+             */
+            versionConsultadaEn?: string | null;
+            /** @description Versión que informó el otro sistema (version_argos de Argos ≥ 1.6.0: "1.6.0"); null = no la informó (Argos anterior a 1.6.0) o aún no se consultó */
+            versionRemota?: string | null;
             /** @description URL a la que el otro sistema envía los webhooks */
             webhookUrl: string;
         };
@@ -4756,6 +4849,15 @@ export interface components {
             };
             /** Format: int64 */
             total: number;
+        };
+        DatosArgosCambiados: {
+            /** @description Campos que cambiaron en Argos desde que se copió la orden (servicio.direccion, cliente.referencia, servicio.contacto_telefono…), acumulados */
+            campos: string[] | null;
+            /**
+             * Format: date-time
+             * @description Último aviso de Argos
+             */
+            en: string;
         };
         DestinoSSO: {
             /** @description Id de Iris del ticket, la orden o el prospecto */
@@ -5507,6 +5609,14 @@ export interface components {
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaDesvincularArgos: {
+            motivo?: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la ficha; si cambió, 409
              */
             version: number;
         };
@@ -6281,6 +6391,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaVincularArgos: {
+            /** @description idExterno de GET /integraciones/argosisp/tecnicos */
+            idExterno: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la ficha; si cambió, 409
+             */
+            version: number;
+        };
         EntradaVincularSSO: {
             /** @description El id de Argos que se mostró al usuario (externo.idExterno del canje) */
             id_externo: string;
@@ -6421,6 +6540,11 @@ export interface components {
             /** Format: double */
             cantidad: number;
             descripcion: string;
+            /**
+             * @description Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior
+             * @enum {string}
+             */
+            modalidad?: "comodato" | "consumible_gasto" | "consumible_cobro" | "";
             /** Format: int64 */
             productoId: number;
             unidad: string;
@@ -6915,6 +7039,11 @@ export interface components {
             excedeExistencia: boolean;
             /** @description Id de la operación del lote que lo registró (o uno v7 del servidor) */
             id: string;
+            /**
+             * @description Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo
+             * @enum {string|null}
+             */
+            modalidad?: "comodato" | "consumible_gasto" | "consumible_cobro" | null;
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: int64 */
@@ -7037,6 +7166,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description «Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios */
+            datosArgosCambiados?: components["schemas"]["DatosArgosCambiados"];
             descripcion: string;
             direccion: string;
             /**
@@ -7537,6 +7668,10 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaTecnicosArgos: {
+            data: components["schemas"]["TecnicoDeArgos"][] | null;
+            nextCursor: string | null;
+        };
         PaginaTicket: {
             data: components["schemas"]["Ticket"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -7736,10 +7871,16 @@ export interface components {
             pausadaPor: number | null;
         };
         Pendiente: {
+            /** @description Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro */
+            cargos?: components["schemas"]["CargoArgos"][] | null;
+            /** @description type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido */
+            codigoError?: string | null;
             /** @description cierre_repetido_con_otros_datos: La orden se volvió a cerrar con otros datos para esta acción y no se pisó: corrígelo a mano en Argos (payloadConflicto = datos nuevos) */
             conflicto: string | null;
             /** Format: date-time */
             conflictoEn: string | null;
+            /** @description El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual */
+            corregible?: boolean;
             /** Format: date-time */
             creadoEn: string;
             /** @description La orden no traía un dato obligatorio: no se puede reintentar */
@@ -7754,6 +7895,11 @@ export interface components {
              * @enum {string}
              */
             estado: "pendiente" | "en_curso" | "hecho" | "fallido_negocio" | "agotado" | "bloqueado";
+            /**
+             * Format: int64
+             * @description Consumo hecho: factura de Argos con esos cargos (si la hubo)
+             */
+            facturaId?: number;
             /** Format: date-time */
             hechoEn: string | null;
             /** Format: int64 */
@@ -7841,7 +7987,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -8743,6 +8889,12 @@ export interface components {
             /** Format: int64 */
             clienteId: number;
             codigo: string;
+            /** @description Quien atiende en el sitio (si no es el titular); vacío si no hay */
+            contactoNombre?: string;
+            /** @description Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344) */
+            contactoTelefono?: string;
+            /** @description El teléfono del contacto en sitio para mostrar y llamar (E.164) */
+            contactoTelefonos?: components["schemas"]["Telefono"][] | null;
             /** @description Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente */
             direccion: string;
             /** Format: int64 */
@@ -8766,6 +8918,8 @@ export interface components {
             /** Format: int64 */
             planId: number | null;
             planNombre: string;
+            /** @description Punto de referencia de la instalación; vacío si no hay */
+            referencia?: string;
             /** Format: int64 */
             routerId: number | null;
             routerNombre: string;
@@ -8903,6 +9057,8 @@ export interface components {
             activo: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Usuario de Argos vinculado (inventario por técnico, Argos ≥ 1.6.0); ausente = sin vincular (se usa bodegaId) */
+            argos?: components["schemas"]["VinculoArgos"];
             /** Format: double */
             baseLat: number | null;
             /** Format: double */
@@ -8934,11 +9090,25 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        TecnicoDeArgos: {
+            /** @description Sus bodegas técnico (una por empresa) dentro del alcance del usuario técnico Iris */
+            bodegas: components["schemas"]["BodegaTecnico"][] | null;
+            correo: string;
+            /** @description Tiene bodega técnico activa en la empresa activa: solo así se puede vincular */
+            enEmpresa: boolean;
+            /** @description Id del usuario en Argos (lo que se manda como tecnico.id_externo) */
+            idExterno: string;
+            nombre: string;
+            /** @description Ficha de Iris que ya lo tiene vinculado (ausente = libre) */
+            vinculadoA?: components["schemas"]["VinculoIris"];
+        };
         TecnicoDetalle: {
             /** @description Ficha activa y usuario activo */
             activo: boolean;
             /** Format: date-time */
             actualizadoEn: string;
+            /** @description Usuario de Argos vinculado (inventario por técnico, Argos ≥ 1.6.0); ausente = sin vincular (se usa bodegaId) */
+            argos?: components["schemas"]["VinculoArgos"];
             /** @description Vigentes o futuras, sin anular */
             ausencias: components["schemas"]["Ausencia"][] | null;
             /** Format: double */
@@ -9286,6 +9456,25 @@ export interface components {
             /** Format: int32 */
             numero: number;
             requiereFirma: boolean;
+        };
+        VinculoArgos: {
+            /** @description Correo del usuario en Argos al vincular */
+            correo: string;
+            /** @description Id del usuario en Argos (va como tecnico.id_externo) */
+            idExterno: string;
+            /** @description Nombre del usuario en Argos al vincular */
+            nombre: string;
+            /** Format: date-time */
+            vinculadoEn: string;
+        };
+        VinculoIris: {
+            /**
+             * Format: int64
+             * @description Ficha de agenda
+             */
+            tecnicoId: number;
+            /** Format: int64 */
+            usuarioId: number;
         };
         VinculoSSO: {
             /** Format: int64 */
@@ -13339,6 +13528,84 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarTecnicosArgos: {
+        parameters: {
+            query?: {
+                /** @description nextCursor de la página anterior (de Argos) */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaTecnicosArgos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21536,6 +21803,89 @@ export interface operations {
             };
         };
     };
+    desvincularTecnicoArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaDesvincularArgos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     editarTecnico: {
         parameters: {
             query?: never;
@@ -21693,6 +22043,107 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    vincularTecnicoArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVincularArgos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
