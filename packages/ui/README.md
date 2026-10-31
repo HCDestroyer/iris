@@ -75,7 +75,11 @@ Siguen como estaban:
 Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos emergentes,
 `Globo`, `PaletaBusqueda` y `MenuEnLinea`; los demás llegan con las fases 2 y 3:
 
-- `Pestanas`: HeroUI `Tabs`. Las pestañas pueden tener `href`, para fichas con URL.
+- `Pestanas`: HeroUI `Tabs`. Las pestañas pueden tener `href`, para fichas con URL; controladas
+  con `seleccionada`/`alCambiar` (la pestaña en `?pestana=`). Si la elegida no está, abre la primera.
+- `PanelProtegido`: acción en un panel lateral a la derecha (`Hoja` sin velo, la ficha a la vista),
+  con la misma protección de cambios que `DialogoProtegido`; por dentro, `DialogoPie` y
+  `DialogoCerrar`. `HojaContenido` acepta `descripcion` y `fondo="transparente"`.
 - `ProveedorAvisosEmergentes` + `avisar` / `useAvisoEmergente` / `cerrarAviso`: HeroUI `Toast`, en una
   cola fuera de React. Duran 5 s, u 8 s si llevan «Deshacer». `className` permite moverlos (el
   panel los pone arriba en el teléfono). HeroUI anuncia cada aviso como `alertdialog` no modal: en
