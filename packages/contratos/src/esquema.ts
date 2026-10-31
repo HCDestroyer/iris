@@ -276,6 +276,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campo/inventario/mi-bodega": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mi bodega en Argos
+         * @description Permiso: `campo.ver_bodega`. Contrato 0.5.0 §3.3 (Argos ≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`): `GET /inventario/mi-bodega` con el vínculo de tu ficha de agenda (422 `tecnico_sin_vincular`) y la empresa activa (`X-Iris-Empresa`). Existencias con modalidad, unidades, órdenes de traslado por recibir (ids) y los últimos 50 movimientos. Caché de 1 min por técnico y empresa. 422 `tecnico_sin_bodega`, `tecnico_ambiguo`, `empresa_requerida` (con el detalle de Argos). Sin conector, 503 `conector_apagado`.
+         */
+        get: operations["miBodega"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campo/inventario/traslados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mis órdenes de traslado
+         * @description Permiso: `campo.ver_bodega`. Las órdenes de traslado hacia tu bodega que Argos avisó (`inventario.traslado_*`), de la empresa activa, más recientes primero, con el estado de tu recepción si la mandaste (`recepcion`). Para «Por recibir»: `?estado=enviado`. 422 `tecnico_sin_vincular`.
+         */
+        get: operations["misTraslados"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/campo/paquete": {
         parameters: {
             query?: never;
@@ -4294,6 +4334,13 @@ export interface components {
             /** @description https://<panel>/integraciones/iris/autorizar?iris=…&state=…&code_challenge=…&code_challenge_method=S256: el panel de Iris la abre en la misma pestaña */
             url: string;
         };
+        Bodega: {
+            /** Format: int64 */
+            empresaId: number;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+        };
         BodegaTecnico: {
             activa: boolean;
             /** Format: int64 */
@@ -4369,6 +4416,8 @@ export interface components {
             hayMas: boolean;
             /** @description Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece) */
             plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
+            /** @description Tus recepciones de órdenes de traslado (traslado.recibir) de los últimos 7 días y cómo van: esperando_firma, enviando, recibida, rechazada (codigo: traslado_cancelado, traslado_de_otro_tecnico, lineas_invalidas, firma_invalida…) o agotada. Ausente sin conector o si no hay */
+            recepciones?: components["schemas"]["EstadoRecepcion"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
         };
@@ -5482,7 +5531,7 @@ export interface components {
              */
             planInteresId?: number;
             planInteresNombre?: string;
-            /** @description Hasta 30 (lo que acepta Argos) */
+            /** @description Como lo valida Argos (contrato 0.5.0): Guatemala, 8 dígitos que empiezan en 2–7 con +502 opcional; o internacional, + y 8–15 dígitos. Se guarda normalizado (+502 5512-3344); otro formato, 422 validacion (rule telefono) */
             telefono?: string;
             /**
              * Format: int64
@@ -5712,7 +5761,7 @@ export interface components {
             /** Format: int64 */
             planInteresId?: number;
             planInteresNombre?: string;
-            /** @description Hasta 30 (lo que acepta Argos) */
+            /** @description Como lo valida Argos (contrato 0.5.0): Guatemala, 8 dígitos que empiezan en 2–7 con +502 opcional; o internacional, + y 8–15 dígitos. Se guarda normalizado (+502 5512-3344); otro formato, 422 validacion (rule telefono) */
             telefono?: string;
             /**
              * Format: int32
@@ -6213,6 +6262,25 @@ export interface components {
         EntradaReautenticar: {
             contrasena: string;
         };
+        EntradaRecibirTraslado: {
+            /**
+             * Format: uuid
+             * @description Adjunto tipo firma (PNG) de la entidad «traslado» con ese id; puede no haber terminado de subir
+             */
+            firmaAdjuntoId: string;
+            /** @description Solo si faltó algo: por línea lo recibido y las series que no llegaron (lo faltante vuelve al origen) */
+            lineas?: components["schemas"]["LineaRecepcion"][] | null;
+            /**
+             * Format: date-time
+             * @description Hora del teléfono al recibir (RFC 3339)
+             */
+            recibidoEn: string;
+            /**
+             * Format: int64
+             * @description Id de la orden de traslado en Argos
+             */
+            trasladoId: number;
+        };
         EntradaRegistrar: {
             /** @description Ítem del checklist que respalda */
             claveChecklist?: string;
@@ -6494,6 +6562,22 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EstadoRecepcion: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description traslado_cancelado, traslado_de_otro_tecnico, lineas_invalidas, firma_invalida, tecnico_*… */
+            codigo?: string;
+            detalle?: string;
+            /**
+             * @description esperando_firma (la firma no termina de subir), enviando (en la cola hacia Argos), recibida (Argos la aceptó o ya estaba recibida), rechazada (error de negocio: codigo) o agotada (Argos no respondió; supervisor)
+             * @enum {string}
+             */
+            estado: "esperando_firma" | "enviando" | "recibida" | "rechazada" | "agotada";
+            /** Format: int64 */
+            pendienteId: number;
+            /** Format: int64 */
+            trasladoId: number;
+        };
         EstadoSaludBody: {
             /** @enum {string} */
             estado: "ok";
@@ -6576,6 +6660,19 @@ export interface components {
              * @enum {string}
              */
             modalidad?: "comodato" | "consumible_gasto" | "consumible_cobro" | "";
+            /** Format: int64 */
+            productoId: number;
+            unidad: string;
+        };
+        ExistenciaBodega: {
+            /** Format: double */
+            cantidad: number;
+            descripcion: string;
+            /**
+             * @description comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (se cobra al cliente al consumirlo)
+             * @enum {string}
+             */
+            modalidad: "comodato" | "consumible_gasto" | "consumible_cobro" | "";
             /** Format: int64 */
             productoId: number;
             unidad: string;
@@ -7022,6 +7119,26 @@ export interface components {
             /** @description Decimal (2 cifras); negativo en los descuentos */
             total: string;
         };
+        LineaRecepcion: {
+            /** Format: double */
+            cantidadRecibida: number;
+            /** Format: int64 */
+            lineaId: number;
+            /** @description Cada serie de 1 a 100 caracteres */
+            seriesFaltantes?: string[] | null;
+        };
+        LineaTraslado: {
+            /** Format: double */
+            cantidad: number;
+            /**
+             * Format: int64
+             * @description Id de la línea en Argos (para lineas[] al recibir con faltantes); 0 si Argos no lo mandó
+             */
+            lineaId: number;
+            /** Format: int64 */
+            productoId: number;
+            series: string[] | null;
+        };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
@@ -7113,6 +7230,35 @@ export interface components {
             /** Format: int64 */
             id: number;
         };
+        MiBodegaRespuesta: {
+            bodega: components["schemas"]["Bodega"];
+            existencias: components["schemas"]["ExistenciaBodega"][] | null;
+            /** @description Últimos 50 movimientos */
+            kardex: components["schemas"]["MovimientoBodega"][] | null;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos (caché de 1 min por técnico y empresa)
+             */
+            leidoEn: string;
+            /** @description Ids de las órdenes de traslado por recibir según Argos (detalle en GET /campo/inventario/traslados) */
+            trasladosPendientes: number[] | null;
+            unidades: components["schemas"]["UnidadBodega"][] | null;
+        };
+        MovimientoBodega: {
+            /** Format: double */
+            cantidad: number;
+            descripcion: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            ocurridoEn?: string;
+            /** Format: int64 */
+            productoId: number;
+            /** @description Origen del movimiento (p. ej. la orden de Iris) */
+            referencia: string;
+            /** @description Como lo manda Argos (consumo, traslado_entrada, comodato…) */
+            tipo: string;
+        };
         NotaOrden: {
             /** Format: int64 */
             autorId: number | null;
@@ -7162,10 +7308,13 @@ export interface components {
              * @description Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase
              */
             ocurridoEn?: string;
-            /** Format: int64 */
-            ordenId: number;
+            /**
+             * Format: int64
+             * @description Obligatorio salvo en traslado.recibir (no es de una orden)
+             */
+            ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -7723,6 +7872,10 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaTraslados: {
+            data: components["schemas"]["Traslado"][] | null;
+            nextCursor: string | null;
+        };
         PaginaUsuario: {
             data: components["schemas"]["Usuario"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -7942,7 +8095,7 @@ export interface components {
             metodo: string;
             /** @description activar_instalacion, asignar_comodato, consumo, devolucion, perdida, retiro, cargo */
             operacion: string;
-            /** @description Cuerpo de la llamada */
+            /** @description Cuerpo de la llamada (la imagen de la firma, png_base64, como ***) */
             payload: {
                 [key: string]: unknown;
             };
@@ -8027,7 +8180,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -8648,6 +8801,8 @@ export interface components {
             id: string;
             /** @description Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo) */
             orden?: components["schemas"]["EstadoOrden"];
+            /** @description traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[]) */
+            recepcion?: components["schemas"]["EstadoRecepcion"];
         };
         ResultadoPrueba: {
             imap: components["schemas"]["PruebaServidor"];
@@ -9377,6 +9532,33 @@ export interface components {
             /** Format: date-time */
             inicio: string;
         };
+        Traslado: {
+            /** Format: int64 */
+            bodegaDestinoId?: number;
+            /** Format: date-time */
+            canceladoEn?: string;
+            /** Format: int64 */
+            empresaId?: number;
+            /** Format: date-time */
+            enviadoEn?: string;
+            /**
+             * @description Según el último webhook de Argos
+             * @enum {string}
+             */
+            estado: "enviado" | "recibido" | "cancelado";
+            /**
+             * Format: int64
+             * @description Id en Argos
+             */
+            id: number;
+            lineas: components["schemas"]["LineaTraslado"][] | null;
+            /** @description Motivo de la cancelación */
+            motivo?: string;
+            /** @description La recepción que mandó el técnico desde Iris, si la hay */
+            recepcion?: components["schemas"]["EstadoRecepcion"];
+            /** Format: date-time */
+            recibidoEn?: string;
+        };
         Turno: {
             /**
              * Format: int32
@@ -9427,6 +9609,17 @@ export interface components {
              * @description Viable hasta estos metros del router más cercano
              */
             viableM: number;
+        };
+        UnidadBodega: {
+            descripcion: string;
+            /** @description Como lo manda Argos (disponible, en_reparacion…) */
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            mac: string;
+            /** Format: int64 */
+            productoId: number;
+            serie: string;
         };
         UsoCapacidad: {
             /** Format: int32 */
@@ -10803,6 +10996,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Cambios"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    miBodega: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiBodegaRespuesta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    misTraslados: {
+        parameters: {
+            query?: {
+                /** @description Sin estado: todas (las más recientes primero) */
+                estado?: "enviado" | "recibido" | "cancelado" | "";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaTraslados"];
                 };
             };
             /** @description Unauthorized */

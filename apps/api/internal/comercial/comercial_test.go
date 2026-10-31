@@ -1085,10 +1085,10 @@ func TestPermisosAlcanceYEmpresa(t *testing.T) {
 	if p1.ID != p2.ID {
 		t.Fatalf("idempotencia: %d %d", p1.ID, p2.ID)
 	}
-	ed := deber(e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: p1.Version, Telefono: ptr("5555")}))(t)
-	_, err = e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: p1.Version, Telefono: ptr("6666")})
+	ed := deber(e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: p1.Version, Telefono: ptr("5555-1234")}))(t)
+	_, err = e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: p1.Version, Telefono: ptr("6666-1234")})
 	problema(t, err, 409, "conflicto_version")
-	_, err = e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: ed.Version, Telefono: ptr("5555")})
+	_, err = e.com.EditarProspecto.Ejecutar(ca, comercial.EntradaEditarProspecto{ID: p1.ID, Version: ed.Version, Telefono: ptr("5555 1234")})
 	problema(t, err, 422, "sin_cambios")
 	a1 := deber(e.com.RegistrarActividad.Ejecutar(ca, comercial.EntradaActividad{ProspectoID: p1.ID, Tipo: "nota", Descripcion: "n", ClaveIdempotencia: "act-1"}))(t)
 	a2 := deber(e.com.RegistrarActividad.Ejecutar(ca, comercial.EntradaActividad{ProspectoID: p1.ID, Tipo: "nota", Descripcion: "n", ClaveIdempotencia: "act-1"}))(t)

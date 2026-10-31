@@ -21,6 +21,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -54,6 +55,7 @@ func escribir(salida string) error {
 			soporte.Nuevo(soporte.Config{}).Registrar,
 			adjuntos.Nuevo(adjuntos.Config{}).RegistrarRutas,
 			pendientes.Nuevo(pendientes.Config{}).Registrar,
+			inventario.Nuevo(inventario.Config{}).Registrar,
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
 			comercial.Nuevo(comercial.Config{}).Registrar,

@@ -9,6 +9,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -159,6 +160,8 @@ type Cambios struct {
 	Ruta    *RutaCampo    `json:"ruta,omitempty" doc:"Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día"`
 	// Plantillas: el catálogo como está ahora (reemplaza el del paquete).
 	Plantillas []PlantillaFormulario `json:"plantillas" required:"false" doc:"Catálogo de plantillas activas como está ahora: reemplaza el del paquete (una desactivada ya no se ofrece)"`
+	// Recepciones: estado de las recepciones de traslados del técnico (contrato 0.5.0; I1).
+	Recepciones []inventario.EstadoRecepcion `json:"recepciones,omitempty" doc:"Tus recepciones de órdenes de traslado (traslado.recibir) de los últimos 7 días y cómo van: esperando_firma, enviando, recibida, rechazada (codigo: traslado_cancelado, traslado_de_otro_tecnico, lineas_invalidas, firma_invalida…) o agotada. Ausente sin conector o si no hay"`
 }
 
 func cursorDe(id int64) string { return nucleo.CodificarCursor(id) }
@@ -529,6 +532,14 @@ func (m *Modulo) Cambios(ctx context.Context, in EntradaCambios) (Cambios, error
 		}
 	}
 	m.completarInventario(ctx, refs, nil)
+	if m.cfg.Recepciones != nil {
+		if bd := nucleo.BDDe(ctx); bd != nil {
+			// Lectura de lo propio (sus pendientes de recepción): si falla, cambios sale sin ellas.
+			if rs, err := m.cfg.Recepciones.Recepciones(ctx, bd, contexto.ActorDe(ctx).ID); err == nil && len(rs) > 0 {
+				c.Recepciones = rs
+			}
+		}
+	}
 	return c, nil
 }
 

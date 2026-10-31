@@ -44,7 +44,7 @@ type EntradaCrearProspecto struct {
 	OrigenDetalle     *string  `json:"origenDetalle,omitempty" maxLength:"200" doc:"Quién lo refirió, campaña…"`
 	Nombre            string   `json:"nombre" minLength:"2" maxLength:"200"`
 	Documento         *string  `json:"documento,omitempty" maxLength:"40" doc:"NIT o DPI"`
-	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Hasta 30 (lo que acepta Argos)"`
+	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Como lo valida Argos (contrato 0.5.0): Guatemala, 8 dígitos que empiezan en 2–7 con +502 opcional; o internacional, + y 8–15 dígitos. Se guarda normalizado (+502 5512-3344); otro formato, 422 validacion (rule telefono)"`
 	Correo            *string  `json:"correo,omitempty" maxLength:"200" format:"email"`
 	Direccion         string   `json:"direccion" minLength:"1" maxLength:"300"`
 	Lat               *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90"`
@@ -67,7 +67,7 @@ type EntradaEditarProspecto struct {
 	OrigenDetalle     *string  `json:"origenDetalle,omitempty" maxLength:"200"`
 	Nombre            *string  `json:"nombre,omitempty" minLength:"2" maxLength:"200"`
 	Documento         *string  `json:"documento,omitempty" maxLength:"40"`
-	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Hasta 30 (lo que acepta Argos)"`
+	Telefono          *string  `json:"telefono,omitempty" maxLength:"30" doc:"Como lo valida Argos (contrato 0.5.0): Guatemala, 8 dígitos que empiezan en 2–7 con +502 opcional; o internacional, + y 8–15 dígitos. Se guarda normalizado (+502 5512-3344); otro formato, 422 validacion (rule telefono)"`
 	Correo            *string  `json:"correo,omitempty" maxLength:"200" format:"email"`
 	Direccion         *string  `json:"direccion,omitempty" minLength:"1" maxLength:"300"`
 	Lat               *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90" doc:"Cambiar las coordenadas obliga a evaluar de nuevo la factibilidad antes de ganar"`
@@ -262,6 +262,9 @@ func (m *Modulo) nuevoCrearProspecto() *auditoria.Caso[EntradaCrearProspecto, Pr
 					return Prospecto{}, err
 				}
 			}
+			if d.Telefono, err = telefonoArgos(d.Telefono); err != nil {
+				return Prospecto{}, err
+			}
 			if err := validarCoordenadas(in.Lat, in.Lon); err != nil {
 				return Prospecto{}, err
 			}
@@ -343,6 +346,11 @@ func (m *Modulo) nuevoEditarProspecto() *auditoria.Caso[EntradaEditarProspecto, 
 					continue
 				}
 				if *c.destino, err = textoOpcional(c.campo, c.valor, c.max); err != nil {
+					return Prospecto{}, err
+				}
+			}
+			if in.Telefono != nil {
+				if d.Telefono, err = telefonoArgos(d.Telefono); err != nil {
 					return Prospecto{}, err
 				}
 			}

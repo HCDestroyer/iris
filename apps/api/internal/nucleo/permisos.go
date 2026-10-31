@@ -103,6 +103,10 @@ const (
 	// campo.ver_actividad: última conexión, sincronización, versión de la app y pendientes de cada
 	// técnico (Administración → Actividad de la app).
 	PermCampoVerActividad Permiso = "campo.ver_actividad"
+	// Inventario del técnico (contrato Iris ↔ ArgosISP 0.5.0 §3.3; I1): su propia bodega en Argos
+	// (por su vínculo) y recibir órdenes de traslado con firma desde la app de campo.
+	PermCampoVerBodega       Permiso = "campo.ver_bodega"
+	PermCampoRecibirTraslado Permiso = "campo.recibir_traslado"
 
 	// Agenda (I2): catálogos (zonas, cuadrillas, técnicos con turnos, ausencias y capacidad) y
 	// calendario de citas. Una acción explícita por permiso.
@@ -263,9 +267,11 @@ var Catalogo = []DefPermiso{
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
 	{PermBuzonesEditar, "Editar un buzón de correo y probar su conexión (nunca ver la contraseña)"},
 	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
+	{PermCampoRecibirTraslado, "Recibir con firma, desde la app de campo, una orden de traslado de Argos hacia tu bodega (operación traslado.recibir del lote)"},
 	{PermCampoRegistrarPosiciones, "Enviar la ubicación en vivo desde la app de campo (solo el técnico con sesión de campo)"},
 	{PermCampoSincronizar, "Usar la app de campo: paquete del día, cambios y lote de sincronización"},
 	{PermCampoVerActividad, "Ver la actividad de la app de campo de cada técnico: última conexión y sincronización, versión, pendientes y última ubicación (según el alcance)"},
+	{PermCampoVerBodega, "Ver tu bodega en Argos (existencias, unidades, kardex) y tus órdenes de traslado por recibir (por tu vínculo con Argos)"},
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
@@ -432,7 +438,8 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
-			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual}},
+			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
+			PermCampoVerBodega, PermCampoRecibirTraslado}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir}, permisosTickets...)},

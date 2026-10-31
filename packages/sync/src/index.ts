@@ -33,11 +33,13 @@ export {
 export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 export {
     CODIGO_BLOQUEADA,
+    CODIGOS_ESPERA_OPERACION,
     CODIGOS_REINTENTABLES,
     CODIGOS_TERMINALES,
     compararOrdenesDelDia,
     cubreFaltante,
     DIA_MS,
+    ESPERA_OPERACION_MAX_MS,
     faltantesDe,
     inicioCita,
     MotorSync,

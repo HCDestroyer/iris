@@ -25,6 +25,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -81,9 +82,11 @@ type Modulo struct {
 	// refrescos: una sola lectura en curso por (conector, cliente) y cuota de «Refrescar».
 	refrescos           *refrescos
 	guardarFichaInterna *auditoria.Caso[entradaGuardarFicha, struct{}]
-	cfg                 Config
-	nucleo              *conector.Nucleo
-	conexion            *conector.Conexion
+	// guardarTrasladoLeido: el traslado confirmado con GET /inventario/traslados/:id.
+	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
+	cfg                  Config
+	nucleo               *conector.Nucleo
+	conexion             *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -125,7 +128,8 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.VigenciaInstantanea <= 0 {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
-	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna()}
+	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
+		guardarTrasladoLeido: nuevoGuardarTrasladoLeido()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
