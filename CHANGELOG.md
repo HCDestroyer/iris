@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/HCDestroyer/iris/compare/v0.7.0...v0.8.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **campo:** fase 4 HeroUI — pasos, firma y cierre al final, barra discreta, «Por recibir» y «Mi bodega» ([#89](https://github.com/HCDestroyer/iris/issues/89)) ([3367e74](https://github.com/HCDestroyer/iris/commit/3367e74e9f87c8fe29b4e6ea1a09b8414cafd6ce))
+
 ## [0.7.0](https://github.com/HCDestroyer/iris/compare/v0.6.0...v0.7.0) (2026-10-31)
 
 
