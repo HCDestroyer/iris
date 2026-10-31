@@ -307,6 +307,7 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 				ID: id, OrdenID: f.ID, ProductoID: in.ProductoID, Descripcion: strings.TrimSpace(in.Descripcion),
 				Cantidad: aNumeric(cantidad), BodegaID: bodega, ExcedeExistencia: excede, RegistradoPor: actorUsuario(t),
 				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f), OperacionID: operacionDe(in.Sync),
+				Modalidad: modalidadDe(in.Sync),
 			})
 			if err != nil {
 				return f, "", err
@@ -587,4 +588,17 @@ func (m *Modulo) RetirarEquipoPanel(ctx context.Context, in EntradaEquipo) (Orde
 		in.pre = m.comodatoDe(ctx, deref(f.EmpresaID), f.ServicioID)
 	}
 	return m.RetirarEquipo.Ejecutar(ctx, in)
+}
+
+// modalidadDe: la modalidad leída de Argos antes del lote (nil si no se sabe o no es una válida).
+func modalidadDe(s *OpSync) *string {
+	if s == nil {
+		return nil
+	}
+	switch s.Modalidad {
+	case "comodato", "consumible_gasto", "consumible_cobro":
+		m := s.Modalidad
+		return &m
+	}
+	return nil
 }

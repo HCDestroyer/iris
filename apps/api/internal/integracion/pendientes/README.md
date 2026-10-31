@@ -75,10 +75,53 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   `estadoDistintoDe=hecho` trae lo que aún no llegó a Argos en una lectura)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,
   auditado).
+- `POST /api/v1/integraciones/pendientes/{id}/resolver-manual { version, motivo }`
+  (`integraciones.resolver_pendiente`, admin y supervisor; auditado): lo que Argos rechazó por negocio
+  (`fallido_negocio`, también incompleto) y ya se corrigió directo en Argos queda `resuelto_manual`
+  (final, con `resueltoMotivo`, `resueltoPor`, `resueltoEn`): nunca vuelve a salir y sus dependientes
+  (el cargo que esperaba al consumo) vuelven a la cola. 422 `pendiente_no_resoluble` desde otro estado
+  (lo agotado se reintenta; lo bloqueado espera a su dependencia). `ConPendienteEnArgos` lo cuenta
+  como hecho. Un cargo bloqueado no se reintenta solo.
+  - **Consumo con cargo del mismo producto:** `cargo` es obligatorio (422 `decision_cargo_requerida`
+    sin él). `liberar`: el cargo sale. `resolver_tambien`: queda también `resuelto_manual` (mismo motivo,
+    auditado, con su evento) y no se manda. Si Argos ya cobró el `consumible_cobro` al rehacer el consumo
+    y el cargo se libera, Argos no lo reconoce como duplicado (su `origen_id` no coincide) y cobra dos
+    veces. **El consumo rehecho a mano en Argos debe llevar el `origen_tipo`/`origen_id` de la orden**
+    (así un cargo liberado responde `409 cargo_duplicado` y se concilia).
+  - **Dependientes que esperaban su respuesta** (marcadores, p. ej. el servicio del alta de un
+    prospecto cuyo `POST /clientes` falló): quedan `fallido_negocio` incompletos (`codigoError` =
+    `dependencia_resuelta_a_mano`, sin marcadores pendientes) para resolverlos también a mano o
+    corregirlos con los datos reales; lo que dependía de ellos sigue bloqueado hasta entonces.
 - Para campo y el panel: `pendientes.DeEntidad(ctx, q, "orden", id)` y `ConPendienteEnArgos(ps)`
   («cerrada con pendiente en Argos»).
 
 ## Eventos
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
-`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado` y `_desbloqueado` (contratos/eventos.md, «Pendientes hacia Argos»).
+`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
+
+## Contrato 0.5.0: `tecnico`, modalidades y cargos
+
+- Con Argos ≥ 1.6.0 (`argos.Modulo.InventarioPorTecnico`) y `tecnico { id_externo }` en
+  `orden.cerrada`, consumo, comodato y devolución mandan `tecnico` en vez de `bodega_id` (una
+  bodega explícita distinta de la de la orden sigue con `bodega_id`). El pendiente guarda
+  `tecnico_usuario_id`. Sin vínculo o con Argos < 1.6.0, todo como antes. Un cierre repetido que
+  solo cambia `bodega_id` ↔ `tecnico` no pisa lo encolado (su huella) ni marca conflicto.
+- Consumo con `lineas[]` y solo consumibles: un material `comodato` se omite
+  (`integracion.pendiente_omitido`, `material_comodato`). El cargo de la orden nunca se descarta: si
+  su producto está en el consumo, espera al consumo, y un `409 cargo_duplicado` (Argos ya lo cobró por
+  modalidad) cuenta como hecho (conciliado, `codigo_error = cargo_duplicado`). Si el consumo falla, el
+  cargo queda bloqueado hasta que el consumo se reintente y quede hecho, o se resuelva a mano.
+- Argos vuelto a 1.5.x: un `422` sobre `bodega_id` («bodega_id required» en `detail`/`title`, o
+  `errors[].field = bodega_id`) de un cuerpo con `tecnico` es corregible (`bodega_id_requerida`) y
+  encola enseguida la relectura del contrato (`ArgsInformarContrato`). El reintento a mano de ese
+  pendiente (o de cualquier corregible sin la capacidad `inventario_por_tecnico`) replanifica consumo
+  y devolución con la bodega de la orden (sin ella, 422 `bodega_requerida`) y el comodato sin `tecnico`.
+- La respuesta del consumo guarda `cargos[] { id, producto_id, monto }` y `factura_id` (lista blanca);
+  `Pendiente.cargos` / `facturaId` en la API (la orden los ve en sus pendientes).
+- `codigo_error` (type de Argos) en cada fallo; `Pendiente.codigoError` y `corregible`
+  (`tecnico_no_encontrado`, `tecnico_sin_bodega`, `tecnico_ambiguo`, `empresa_requerida`, `bodega_id_requerida`). El
+  reintento a mano de un corregible manda el vínculo actual del técnico (si cambió, corrige el
+  cuerpo y emite `integracion.pendiente_corregido`; sin vínculo, 422 `tecnico_sin_vincular`).
+  `producto_es_comodato`, `cobro_sin_cliente` y `existencia_insuficiente` son de negocio (no se
+  reintentan solos; a mano, sí).

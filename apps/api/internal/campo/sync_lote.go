@@ -243,7 +243,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	if resp.Cursor == "" {
 		resp.Cursor = cursorDe(inicio.Cursor)
 	}
-	existencias := m.existenciasDelLote(ctx, in.Operaciones, inicio.Ordenes)
+	existencias, modalidades := m.existenciasDelLote(ctx, in.Operaciones, inicio.Ordenes)
 	comodatos := m.comodatosDelLote(ctx, in.Operaciones, inicio.Ordenes)
 
 	enEsteLote := map[uuid.UUID]ResultadoOperacion{}
@@ -274,7 +274,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			res = m.rechazar(ctx, s, op.OrdenID, nucleo.Conflicto("bloqueada_por_rechazo",
 				"Una operación anterior de esta orden ("+bloqueo+") fue rechazada; resuélvela primero"))
 		} else {
-			s.Existencia, s.pre = existencias[i], comodatos[i]
+			s.Existencia, s.Modalidad, s.pre = existencias[i], modalidades[i], comodatos[i]
 			res = m.aplicar(ctx, s, op)
 		}
 		if res.Estado == "rechazada" && res.Error != nil && codigosReintentables[res.Error.Codigo()] {
@@ -519,13 +519,16 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 }
 
 // existenciasDelLote lee de Argos, fuera de toda transacción, la existencia de cada producto
-// que usan las operaciones material.usar (una lectura por bodega). nil = no se sabe.
-func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []*float64 {
+// que usan las operaciones material.usar (una lectura por bodega) y su modalidad (Argos ≥ 1.6.0).
+// nil / vacía = no se sabe.
+func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) ([]*float64, []string) {
 	salida := make([]*float64, len(ops))
+	modalidades := make([]string, len(ops))
 	if m.cfg.Inventario == nil {
-		return salida
+		return salida, modalidades
 	}
 	leidas := map[[2]int64]map[int64]float64{}
+	modalidadDe := map[[2]int64]map[int64]string{}
 	for i, op := range ops {
 		if op.Tipo != OpMaterialUsar {
 			continue
@@ -547,8 +550,12 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 				continue
 			}
 			lineas = map[int64]float64{}
+			modalidadDe[eb] = map[int64]string{}
 			for _, l := range lista {
 				lineas[l.ProductoID] += l.Cantidad
+				if l.Modalidad != "" {
+					modalidadDe[eb][l.ProductoID] = l.Modalidad
+				}
 			}
 			leidas[eb] = lineas
 		}
@@ -557,8 +564,9 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 		}
 		cantidad := lineas[e.ProductoID]
 		salida[i] = &cantidad
+		modalidades[i] = modalidadDe[eb][e.ProductoID]
 	}
-	return salida
+	return salida, modalidades
 }
 
 func itoa(i int) string {

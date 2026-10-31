@@ -113,6 +113,11 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				plantilla = &p
 			}
 			payload["cargo"] = cargoDe(f, tipo, plantilla)
+			// El técnico en Argos (contrato 0.5.0 §3.3), congelado al cerrar: el vínculo de su ficha de
+			// agenda. null = sin vincular (la cola usa bodega_id, también con Argos < 1.6.0).
+			if payload["tecnico"], err = tecnicoArgos(ctx, q, f.TecnicoID); err != nil {
+				return f, "", err
+			}
 			if err := t.Emitir("orden.cerrada", payload); err != nil {
 				return f, "", err
 			}
@@ -191,11 +196,15 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		if s, ok := suma[k]; ok {
 			s["cantidad"] = s["cantidad"].(float64) + mt.Cantidad
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
+			if s["modalidad"] == (*string)(nil) && mt.Modalidad != nil {
+				s["modalidad"] = mt.Modalidad
+			}
 			continue
 		}
 		orden = append(orden, k)
+		// modalidad (Argos ≥ 1.6.0, o null): un comodato no va en el consumo (contrato 0.5.0 §3.3).
 		suma[k] = map[string]any{"producto_id": mt.ProductoID, "cantidad": mt.Cantidad, "bodega_id": mt.BodegaID,
-			"excede_existencia": mt.ExcedeExistencia}
+			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad}
 	}
 	materiales := make([]map[string]any, 0, len(orden))
 	for _, k := range orden {
@@ -312,4 +321,19 @@ func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *camp
 		cargo["monto"] = json.Number(strconv.FormatFloat(valor.Float64, 'f', 2, 64))
 	}
 	return cargo
+}
+
+// tecnicoArgos: { id_externo } del vínculo con Argos de la ficha del técnico, o nil.
+func tecnicoArgos(ctx context.Context, q *campobd.Queries, tecnico *int64) (map[string]any, error) {
+	if tecnico == nil {
+		return nil, nil
+	}
+	id, err := q.VinculoArgosDeTecnico(ctx, *tecnico)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && id == "") {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id_externo": id}, nil
 }

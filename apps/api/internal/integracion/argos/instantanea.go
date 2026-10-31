@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -122,7 +123,7 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 		ID: c.ID, EmpresaID: primera, Empresas: empresas, SinServicios: sinServicios, Codigo: c.Codigo, Nombre: c.Nombre, Telefono: c.Telefono,
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado, SincronizadoEn: f.leidoEn,
 		Tipo: c.Tipo, TipoDocumentoFiscal: c.TipoDocumentoFiscal, NitCui: c.NitCui, Movil: c.Movil, Correo: c.CorreoCliente(),
-		ZonaNombre: zonaNombre, VersionDatos: VersionDatos,
+		ZonaNombre: zonaNombre, VersionDatos: VersionDatos, Referencia: strings.TrimSpace(c.Referencia),
 	}); err != nil {
 		return err
 	}
@@ -141,6 +142,7 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 			PlanID: v.PlanID, PlanNombre: v.PlanNombre, RouterID: v.RouterID, RouterNombre: v.RouterNombre,
 			ZonaID: v.ZonaID, ZonaNombre: v.ZonaNombre, Ip: v.IP, Direccion: v.Direccion, Lat: v.Lat, Lon: v.Lon,
 			Estado: v.Estado, SincronizadoEn: f.leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
+			Referencia: v.Referencia, ContactoNombre: v.ContactoNombre, ContactoTelefono: v.ContactoTelefono,
 		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
@@ -216,7 +218,7 @@ func aClienteResumen(f argosbd.IntegracionArgosCliente) ClienteResumen {
 		Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, ZonaID: f.ZonaID, Estado: f.Estado,
 		Tipo: f.Tipo, TipoDocumentoFiscal: f.TipoDocumentoFiscal, NitCui: f.NitCui,
 		NitCuiMostrar: formato.Documento(f.TipoDocumentoFiscal, f.NitCui), Movil: f.Movil, Correo: f.Correo,
-		Telefonos: telefonosDe(f.Telefono, f.Movil), ZonaNombre: f.ZonaNombre, SincronizadoEn: &sinc,
+		Telefonos: telefonosDe(f.Telefono, f.Movil), ZonaNombre: f.ZonaNombre, SincronizadoEn: &sinc, Referencia: f.Referencia,
 	}
 }
 
@@ -231,7 +233,7 @@ func clienteArgosAResumen(c ClienteArgos) ClienteResumen {
 		Direccion: c.Direccion, Lat: lat, Lon: lon, ZonaID: c.IDZona(), Estado: c.Estado,
 		Tipo: c.Tipo, TipoDocumentoFiscal: c.TipoDocumentoFiscal, NitCui: c.NitCui,
 		NitCuiMostrar: formato.Documento(c.TipoDocumentoFiscal, c.NitCui), Movil: c.Movil, Correo: c.CorreoCliente(),
-		Telefonos: telefonosDe(c.Telefono, c.Movil), ZonaNombre: zona,
+		Telefonos: telefonosDe(c.Telefono, c.Movil), ZonaNombre: zona, Referencia: strings.TrimSpace(c.Referencia),
 	}
 }
 
@@ -252,6 +254,8 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 		RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
 		ZonaID: zona, ZonaNombre: nombreDe(s.ZonaNombre, s.Zona), IP: s.IPVigente(), Direccion: s.Direccion,
 		Lat: lat, Lon: lon, Estado: s.Estado, UserPPP: s.UserPPP, TipoConexion: s.TipoConexion,
+		Referencia: strings.TrimSpace(s.Referencia), ContactoNombre: strings.TrimSpace(s.ContactoNombre),
+		ContactoTelefono: strings.TrimSpace(s.ContactoTelefono), ContactoTelefonos: telefonosDe(s.ContactoTelefono, ""),
 	}
 }
 
@@ -261,6 +265,8 @@ func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 		PlanNombre: f.PlanNombre, RouterID: f.RouterID, RouterNombre: f.RouterNombre, ZonaID: f.ZonaID,
 		ZonaNombre: f.ZonaNombre, IP: f.Ip, Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, Estado: f.Estado,
 		UserPPP: f.UserPpp, TipoConexion: f.TipoConexion, SincronizadoEn: f.SincronizadoEn,
+		Referencia: f.Referencia, ContactoNombre: f.ContactoNombre, ContactoTelefono: f.ContactoTelefono,
+		ContactoTelefonos: telefonosDe(f.ContactoTelefono, ""),
 	}
 }
 

@@ -135,6 +135,8 @@ type ClienteArgos struct {
 	Movil               string `json:"movil"`
 	Email               string `json:"email"`
 	Correo              string `json:"correo"`
+	// Referencia: punto de referencia («frente a la iglesia»; 0.5.0, null si no hay).
+	Referencia string `json:"referencia"`
 }
 
 // CorreoCliente: email (Argos) o correo.
@@ -173,6 +175,10 @@ type ServicioArgos struct {
 	Estado       string `json:"estado"`
 	UserPPP      string `json:"user_ppp"`
 	TipoConexion string `json:"tipo_conexion"`
+	// Ubicación y contacto en sitio (0.5.0, null si no hay).
+	Referencia       string `json:"referencia"`
+	ContactoNombre   string `json:"contacto_nombre"`
+	ContactoTelefono string `json:"contacto_telefono"`
 }
 
 // IPVigente: ipv4 (Argos 1.4.0) o ip.
@@ -279,6 +285,9 @@ type ZonaArgos struct {
 	EmpresaID         int64  `json:"empresa_id"`
 	EmpresaSugeridaID int64  `json:"empresa_sugerida_id"`
 	Nombre            string `json:"nombre"`
+	// Activo / Estado (catalogo.cambiado, 0.5.0): si Argos los manda.
+	Activo *bool  `json:"activo"`
+	Estado string `json:"estado"`
 }
 
 // Empresa de la zona en la instantánea: empresa_id o, como devuelve Argos 1.3.0 (zonas y routers
@@ -294,6 +303,8 @@ type RouterArgos struct {
 	Nombre            string `json:"nombre"`
 	ZonaID            *int64 `json:"zona_id"`
 	Zona              *Ref   `json:"zona"`
+	Activo            *bool  `json:"activo"`
+	Estado            string `json:"estado"`
 }
 
 // Empresa del router en la instantánea: empresa_id o empresa_sugerida_id (Argos 1.3.0). nil = sin

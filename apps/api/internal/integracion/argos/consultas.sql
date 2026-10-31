@@ -3,10 +3,10 @@
 -- name: GuardarCliente :exec
 INSERT INTO integracion.argos_clientes (
     id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
-    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, referencia
 ) VALUES (
     @id, @empresa_id, @empresas::bigint[], @sin_servicios, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en,
-    @tipo, @tipo_documento_fiscal, @nit_cui, @movil, @correo, @zona_nombre, @version_datos
+    @tipo, @tipo_documento_fiscal, @nit_cui, @movil, @correo, @zona_nombre, @version_datos, @referencia
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
@@ -15,7 +15,7 @@ ON CONFLICT (id) DO UPDATE SET
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
     movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
-    version_datos = excluded.version_datos, fallo_en = NULL, updated_at = now()
+    version_datos = excluded.version_datos, referencia = excluded.referencia, fallo_en = NULL, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ClientePorID :one
@@ -40,10 +40,10 @@ LIMIT @limite;
 -- (ResucitarEliminado borra antes la lápida). Llamar con BloquearArgos tomado.
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
-    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion
+    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion, @referencia, @contacto_nombre, @contacto_telefono
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
@@ -51,7 +51,8 @@ ON CONFLICT (id) DO UPDATE SET
     router_nombre = excluded.router_nombre, zona_id = excluded.zona_id, zona_nombre = excluded.zona_nombre,
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
-    tipo_conexion = excluded.tipo_conexion, updated_at = now()
+    tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
+    contacto_telefono = excluded.contacto_telefono, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ServicioPorID :one
@@ -233,3 +234,111 @@ SELECT EXISTS (
     WHERE evento IN ('cliente.creado', 'cliente.actualizado') AND procesado_en >= @desde
       AND coalesce(payload->>'cliente_id', payload->'cliente'->>'id', payload->>'id') = (@cliente_id::bigint)::text
 ) AS confirmado;
+
+-- Catálogos (catalogo.cambiado, contrato 0.5.0) ---------------------------------------------
+
+-- name: CambiarZonaArgos :execrows
+-- Nombre y activo de una zona de la instantánea (null = no cambia).
+UPDATE integracion.argos_zonas SET nombre = coalesce(sqlc.narg(nombre)::text, nombre), activo = coalesce(sqlc.narg(activo)::boolean, activo),
+    updated_at = now()
+WHERE id = @id;
+
+-- name: CambiarZonaCopiada :execrows
+-- El nombre de la zona copiado en los servicios y clientes de la instantánea.
+WITH s AS (
+    UPDATE integracion.argos_servicios SET zona_nombre = @nombre::text, updated_at = now()
+    WHERE zona_id = @zona_id::bigint AND zona_nombre <> @nombre::text RETURNING 1
+), c AS (
+    UPDATE integracion.argos_clientes SET zona_nombre = @nombre::text, updated_at = now()
+    WHERE zona_id = @zona_id::bigint AND zona_nombre <> @nombre::text RETURNING 1
+)
+SELECT (SELECT count(*) FROM s) + (SELECT count(*) FROM c);
+
+-- name: ZonaAgendaArgos :one
+-- La zona espejo de agenda (origen argos, mismo id), bloqueada para cambiarla.
+SELECT id, empresa_id, nombre, activa FROM agenda.zonas WHERE id = @id AND origen = 'argos' FOR UPDATE;
+
+-- name: CambiarZonaAgenda :one
+-- La zona espejo de agenda: nombre y activa como en Argos (sin fila = nada cambió).
+UPDATE agenda.zonas
+SET nombre = coalesce(nullif(left(btrim(coalesce(sqlc.narg(nombre)::text, '')), 120), ''), nombre),
+    activa = coalesce(sqlc.narg(activo)::boolean, activa), version = version + 1, updated_at = now()
+WHERE id = @id AND origen = 'argos'
+  AND (nombre, activa) IS DISTINCT FROM (coalesce(nullif(left(btrim(coalesce(sqlc.narg(nombre)::text, '')), 120), ''), nombre),
+                                         coalesce(sqlc.narg(activo)::boolean, activa))
+RETURNING id, empresa_id, nombre, activa;
+
+-- name: CambiarRouterArgos :execrows
+UPDATE integracion.argos_routers SET nombre = coalesce(sqlc.narg(nombre)::text, nombre), activo = coalesce(sqlc.narg(activo)::boolean, activo),
+    lat = CASE WHEN @con_coordenadas::boolean THEN sqlc.narg(lat)::double precision ELSE lat END,
+    lon = CASE WHEN @con_coordenadas::boolean THEN sqlc.narg(lon)::double precision ELSE lon END, updated_at = now()
+WHERE id = @id;
+
+-- name: CambiarRouterCopiado :execrows
+UPDATE integracion.argos_servicios SET router_nombre = @nombre::text, updated_at = now()
+WHERE router_id = @router_id::bigint AND router_nombre <> @nombre::text;
+
+-- name: CambiarPlanArgos :execrows
+-- Argos no guarda planes en la instantánea: solo el nombre copiado en los servicios.
+UPDATE integracion.argos_servicios SET plan_nombre = @nombre, updated_at = now()
+WHERE plan_id = @id AND plan_nombre IS DISTINCT FROM @nombre;
+
+-- Órdenes de traslado (inventario.traslado_*, contrato 0.5.0) ------------------------------
+
+-- name: GuardarTraslado :one
+-- Un estado final (recibido, cancelado) no se toca más (ni vuelve a enviado): solo lo actualiza el mismo
+-- estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
+INSERT INTO integracion.argos_traslados (
+    id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
+    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
+) VALUES (
+    @id, sqlc.narg(empresa_id), sqlc.narg(bodega_destino_id), sqlc.narg(tecnico_id_externo), sqlc.narg(tecnico_correo), @estado, @lineas,
+    sqlc.narg(enviado_en), sqlc.narg(recibido_en), sqlc.narg(recibido_por), sqlc.narg(metodo_recepcion), sqlc.narg(origen_recepcion),
+    sqlc.narg(cancelado_en), sqlc.narg(motivo), sqlc.narg(entrante_id)
+)
+ON CONFLICT (id) DO UPDATE SET
+    empresa_id = coalesce(excluded.empresa_id, integracion.argos_traslados.empresa_id),
+    bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
+    tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
+    tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
+    estado = excluded.estado,
+    lineas = CASE WHEN jsonb_array_length(excluded.lineas) > 0 THEN excluded.lineas ELSE integracion.argos_traslados.lineas END,
+    enviado_en = coalesce(excluded.enviado_en, integracion.argos_traslados.enviado_en),
+    recibido_en = coalesce(excluded.recibido_en, integracion.argos_traslados.recibido_en),
+    recibido_por = coalesce(excluded.recibido_por, integracion.argos_traslados.recibido_por),
+    metodo_recepcion = coalesce(excluded.metodo_recepcion, integracion.argos_traslados.metodo_recepcion),
+    origen_recepcion = coalesce(excluded.origen_recepcion, integracion.argos_traslados.origen_recepcion),
+    cancelado_en = coalesce(excluded.cancelado_en, integracion.argos_traslados.cancelado_en),
+    motivo = coalesce(excluded.motivo, integracion.argos_traslados.motivo),
+    entrante_id = excluded.entrante_id, updated_at = now()
+WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
+RETURNING *;
+
+-- name: TrasladoPorID :one
+SELECT * FROM integracion.argos_traslados WHERE id = @id;
+
+-- name: TrasladosDeTecnico :many
+-- Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) en la
+-- empresa (0 = todas), más recientes primero.
+SELECT * FROM integracion.argos_traslados
+WHERE (tecnico_id_externo = @id_externo OR (tecnico_id_externo IS NULL AND @correo::text <> '' AND lower(tecnico_correo) = lower(@correo::text)))
+  AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+  AND (sqlc.narg(estado)::text IS NULL OR estado = sqlc.narg(estado)::text)
+  AND (@antes_de::bigint = 0 OR id < @antes_de::bigint)
+ORDER BY id DESC
+LIMIT @limite;
+
+-- name: UsuarioDeVinculoArgos :one
+-- El técnico de Iris vinculado a un usuario de Argos (id_externo; si no, por el correo del vínculo).
+SELECT usuario_id FROM agenda.tecnicos
+WHERE argos_id_externo = @id_externo::text OR (@id_externo::text = '' AND @correo::text <> '' AND lower(argos_correo) = lower(@correo::text))
+ORDER BY (argos_id_externo = @id_externo::text) DESC
+LIMIT 1;
+
+-- name: TecnicosVinculadosArgos :many
+-- Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo). Solo las de
+-- usuarios que operan en la empresa (@todas: quien opera en todas las ve todas).
+SELECT t.id, t.usuario_id, t.argos_id_externo::text AS id_externo FROM agenda.tecnicos t
+WHERE t.argos_id_externo = ANY(@ids::text[])
+  AND (@todas::boolean OR EXISTS (
+      SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = @empresa_id::bigint));

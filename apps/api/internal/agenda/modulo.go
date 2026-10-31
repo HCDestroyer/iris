@@ -37,6 +37,9 @@ type Config struct {
 	// LimiteCalendario: citas por respuesta de GET /agenda (2000 por defecto). Si hay más, la
 	// respuesta sale `truncado` y el panel no calcula totales sobre ella.
 	LimiteCalendario int
+	// Argos verifica el usuario de Argos al vincular una ficha (TecnicosDeArgos; I1). nil = sin
+	// conector: vincular responde 503 conector_apagado.
+	Argos TecnicosArgos
 }
 
 // Modulo reúne los casos de uso de agenda.
@@ -68,6 +71,9 @@ type Modulo struct {
 	CapacidadTecnico  *auditoria.Caso[EntradaFijarCapacidad, TecnicoDetalle]
 	RegistrarAusencia *auditoria.Caso[EntradaRegistrarAusencia, RespuestaAusencia]
 	AnularAusencia    *auditoria.Caso[EntradaAnularAusencia, Ausencia]
+	// Vínculo con el usuario de Argos (contrato 0.5.0 §3.3; I1).
+	VincularArgos    *VincularArgos
+	DesvincularArgos *auditoria.Caso[EntradaDesvincularArgos, TecnicoDetalle]
 
 	Asignables *auditoria.Caso[EntradaAsignables, RespuestaAsignables]
 	Calendario *auditoria.Caso[EntradaCalendario, Calendario]
@@ -119,6 +125,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.CapacidadTecnico = m.nuevoCapacidadTecnico()
 	m.RegistrarAusencia = m.nuevoRegistrarAusencia()
 	m.AnularAusencia = m.nuevoAnularAusencia()
+	m.VincularArgos = m.nuevoVincularArgos()
+	m.DesvincularArgos = m.nuevoDesvincularArgos()
 	m.Asignables = m.nuevoAsignables()
 	m.Calendario = m.nuevoCalendario()
 	m.Proponer = m.nuevoProponerRuta()

@@ -89,8 +89,14 @@ type Sistema struct {
 	// Etiqueta del OperationID de sus rutas: conectar<Etiqueta>, webhook<Etiqueta>…
 	Etiqueta string
 	// AlActivar corre en la transacción de integraciones.activar (p. ej. encolar la primera
-	// carga de catálogos). Opcional.
-	AlActivar func(ctx context.Context, tx pgx.Tx) error
+	// carga de catálogos e informar el contrato). Opcional.
+	AlActivar func(ctx context.Context, tx pgx.Tx, conectorID int64) error
+	// Contrato que Iris habla con el sistema («0.5.0» con Argos); va en el canje (`contrato`) y en
+	// PUT /integraciones/iris/contrato. Vacío = no se informa.
+	Contrato string
+	// Capacidades del conector según la versión que informó el otro sistema (p. ej.
+	// inventario_por_tecnico con Argos ≥ 1.6.0). Opcional.
+	Capacidades func(version, contrato *string) []string
 	// TrabajoEntrante arma el job que procesa un webhook guardado. Obligatorio.
 	TrabajoEntrante func(entranteID int64) river.JobArgs
 }

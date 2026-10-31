@@ -106,13 +106,30 @@ func (c *Conexion) insertarConector(ctx context.Context, t *auditoria.Tx, id int
 	for _, e := range empresas {
 		lista = append(lista, EmpresaCanje{ID: e})
 	}
-	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil, nil)
+	return c.insertarConectorCon(ctx, t, id, origen, base, token, secreto, remotoID, lista, nil, nil, nil, versionCanje{})
+}
+
+// versionCanje: lo que informó el canje del otro sistema sobre su versión (Argos 0.5.0: version_argos y
+// contrato) y si aceptó el contrato que mandó Iris.
+type versionCanje struct {
+	version, contrato, informado *string
+}
+
+// versionDe lee la versión del canje: version_argos y contrato si vinieron (recortados y validados) y,
+// si el otro sistema respondió contrato, el que mandó Iris queda informado.
+func (c *Conexion) versionDe(r RespuestaCanje) versionCanje {
+	v := versionCanje{version: textoVersion(r.VersionArgos, 40), contrato: textoVersion(r.Contrato, 20)}
+	if v.contrato != nil && c.s.Contrato != "" {
+		informado := c.s.Contrato
+		v.informado = &informado
+	}
+	return v
 }
 
 // insertarConectorCon es insertarConector con el iris_pat_ que Iris entregó en el canje (o nil) y
 // lo que informó el canje de Argos: empresas con nombre y nit, y alcance_global (0.3.1, o nil), y
 // el origen de su panel (panel_url, 0.4.0, o nil).
-func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64, panel *string) (conectorbd.IntegracionConectore, error) {
+func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id int64, origen, base, token, secreto string, remotoID *string, lista []EmpresaCanje, alcanceGlobal *bool, entregado *int64, panel *string, version versionCanje) (conectorbd.IntegracionConectore, error) {
 	q := conectorbd.New(t)
 	tokenCifrado, err := c.n.cifrar(id, "token", token)
 	if err != nil {
@@ -139,6 +156,7 @@ func (c *Conexion) insertarConectorCon(ctx context.Context, t *auditoria.Tx, id 
 		ID: id, Sistema: c.s.Nombre, BaseUrl: base, Origen: origen, TokenCifrado: tokenCifrado,
 		SecretoWebhookCifrado: secretoCifrado, RemotoID: remotoID, Empresas: empresas, CreadoPor: creadoPor,
 		TokenEntregadoID: entregado, AlcanceGlobal: alcanceGlobal, PanelUrl: panel,
+		VersionRemota: version.version, ContratoRemoto: version.contrato, ContratoInformado: version.informado,
 	})
 	if err != nil {
 		return f, err
@@ -316,7 +334,8 @@ func nuevoGuardarConector(c *Conexion, accion string) *auditoria.Caso[entradaGua
 				origen = "enlace_remoto"
 			}
 			f, err := c.insertarConectorCon(ctx, t, in.ConectorID, origen, in.Base, token, in.secreto,
-				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado, c.panelDelCanje(in.respuesta.PanelURL, in.PanelSugerido))
+				remotoID, in.respuesta.EmpresasCanje(), in.respuesta.AlcanceGlobal, entregado, c.panelDelCanje(in.respuesta.PanelURL, in.PanelSugerido),
+				c.versionDe(in.respuesta))
 			if err != nil {
 				return Conector{}, err
 			}
@@ -384,7 +403,7 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, c.s.RutaCanje, nil, PeticionCanje{
 		Codigo: codigo, Sistema: "iris", BaseURL: c.n.cfg.BaseURL, Token: valor,
 		Webhook:      WebhookCanje{URL: c.n.URLWebhook(c.s.Nombre, g.ConectorID), Secreto: secreto},
-		CodeVerifier: verificador,
+		CodeVerifier: verificador, Contrato: c.s.Contrato,
 	}, false, &Recurso{Destino: &g.respuesta})
 	if g.errRemoto != nil && mapear != nil {
 		g.errRemoto = mapear(g.errRemoto)
@@ -655,7 +674,7 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			// Trabajo del sistema al activar (Argos: primera carga de zonas y routers), en la
 			// misma transacción.
 			if c := n.sistema(despues.Sistema); c != nil && c.s.AlActivar != nil {
-				if err := c.s.AlActivar(ctx, t.Tx); err != nil {
+				if err := c.s.AlActivar(ctx, t.Tx, despues.ID); err != nil {
 					return Conector{}, err
 				}
 			}

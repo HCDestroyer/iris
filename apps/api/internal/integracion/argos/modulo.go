@@ -101,6 +101,10 @@ type Modulo struct {
 	ObtenerFicha          *ObtenerFicha
 	ResolverIP            *ResolverIP
 	SincronizarCatalogos  *SincronizarCatalogos
+	// Contrato 0.5.0: versión de Argos e informe del contrato de Iris.
+	InformarContrato *InformarContrato
+	// Selector de técnicos de Argos para el vínculo de agenda.
+	ListarTecnicosArgos *ListarTecnicosArgos
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -131,13 +135,18 @@ func Nuevo(cfg Config) *Modulo {
 		RutaAutorizar:     "/integraciones/iris/autorizar",
 		RegistrarEmpresas: true, RedesPermitidas: cfg.RedesPermitidas, Origenes: cfg.Origenes, Etiqueta: "Argos",
 		Timeout: cfg.Timeout, Intentos: cfg.Intentos, Espera: cfg.Espera,
-		// Primera carga de zonas y routers, en la transacción de la activación.
-		AlActivar: func(ctx context.Context, tx pgx.Tx) error {
+		// Primera carga de zonas y routers e informe del contrato (0.5.0), en la transacción de la
+		// activación (también al reconectar: el conector nuevo se activa).
+		AlActivar: func(ctx context.Context, tx pgx.Tx, conectorID int64) error {
 			if cfg.Encolar == nil {
 				return nil
 			}
-			return cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion})
+			if err := cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion}); err != nil {
+				return err
+			}
+			return m.encolarInformarContrato(ctx, tx, conectorID)
 		},
+		Contrato: ContratoIris, Capacidades: capacidades,
 		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar
@@ -155,6 +164,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.ObtenerFicha = nuevoObtenerFicha(m)
 	m.ResolverIP = nuevoResolverIP(m)
 	m.SincronizarCatalogos = nuevoSincronizarCatalogos(m)
+	m.InformarContrato = nuevoInformarContrato(m)
+	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)
 	return m
 }
 

@@ -78,6 +78,8 @@ type Existencia struct {
 	Descripcion string  `json:"descripcion"`
 	Cantidad    float64 `json:"cantidad"`
 	Unidad      string  `json:"unidad"`
+	// Modalidad (Argos ≥ 1.6.0, contrato 0.5.0): un comodato se registra como equipo, no como material.
+	Modalidad string `json:"modalidad,omitempty" enum:"comodato,consumible_gasto,consumible_cobro," doc:"Modalidad del producto en Argos (≥ 1.6.0): comodato (va como equipo, con serie), consumible_gasto o consumible_cobro (Argos lo cobra al cliente al consumirlo). Vacía con un Argos anterior"`
 }
 
 // Inventario lee de Argos los equipos en comodato de un servicio y las existencias de una
@@ -175,6 +177,8 @@ type Modulo struct {
 	UltimasPosiciones   *auditoria.Caso[EntradaUltimasPosiciones, UltimasPosiciones]
 	MantenerPosiciones  *auditoria.Caso[struct{}, ResultadoMantenimiento]
 	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
+	// MarcarDatosArgos: argos.datos_cambiados marca las órdenes abiertas (contrato 0.5.0; I1).
+	MarcarDatosArgos *auditoria.Caso[EntradaDatosArgos, ResultadoDatosArgos]
 
 	// Ticket y orden de la mano (ticket_orden.go).
 	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
@@ -253,6 +257,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.UltimasPosiciones = m.nuevoUltimasPosiciones()
 	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
 	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
+	m.MarcarDatosArgos = m.nuevoMarcarDatosArgos()
 	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()
 	m.IgualarAsignacion = m.nuevoIgualarAsignacion()
 	return m

@@ -111,7 +111,7 @@ func (q *Queries) BorrarZonasAnteriores(ctx context.Context, antes time.Time) (i
 }
 
 const buscarClientesLocal = `-- name: BuscarClientesLocal :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes
 WHERE (nombre ILIKE '%' || $1::text || '%' OR codigo ILIKE '%' || $1::text || '%' OR telefono ILIKE '%' || $1::text || '%'
        OR movil ILIKE '%' || $1::text || '%' OR nit_cui ILIKE '%' || $1::text || '%')
   -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
@@ -161,6 +161,7 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 			&i.ZonaNombre,
 			&i.VersionDatos,
 			&i.FalloEn,
+			&i.Referencia,
 		); err != nil {
 			return nil, err
 		}
@@ -170,6 +171,158 @@ func (q *Queries) BuscarClientesLocal(ctx context.Context, arg BuscarClientesLoc
 		return nil, err
 	}
 	return items, nil
+}
+
+const cambiarPlanArgos = `-- name: CambiarPlanArgos :execrows
+UPDATE integracion.argos_servicios SET plan_nombre = $1, updated_at = now()
+WHERE plan_id = $2 AND plan_nombre IS DISTINCT FROM $1
+`
+
+type CambiarPlanArgosParams struct {
+	Nombre string
+	ID     *int64
+}
+
+// Argos no guarda planes en la instantánea: solo el nombre copiado en los servicios.
+func (q *Queries) CambiarPlanArgos(ctx context.Context, arg CambiarPlanArgosParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarPlanArgos, arg.Nombre, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cambiarRouterArgos = `-- name: CambiarRouterArgos :execrows
+UPDATE integracion.argos_routers SET nombre = coalesce($1::text, nombre), activo = coalesce($2::boolean, activo),
+    lat = CASE WHEN $3::boolean THEN $4::double precision ELSE lat END,
+    lon = CASE WHEN $3::boolean THEN $5::double precision ELSE lon END, updated_at = now()
+WHERE id = $6
+`
+
+type CambiarRouterArgosParams struct {
+	Nombre         *string
+	Activo         *bool
+	ConCoordenadas bool
+	Lat            *float64
+	Lon            *float64
+	ID             int64
+}
+
+func (q *Queries) CambiarRouterArgos(ctx context.Context, arg CambiarRouterArgosParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarRouterArgos,
+		arg.Nombre,
+		arg.Activo,
+		arg.ConCoordenadas,
+		arg.Lat,
+		arg.Lon,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cambiarRouterCopiado = `-- name: CambiarRouterCopiado :execrows
+UPDATE integracion.argos_servicios SET router_nombre = $1::text, updated_at = now()
+WHERE router_id = $2::bigint AND router_nombre <> $1::text
+`
+
+type CambiarRouterCopiadoParams struct {
+	Nombre   string
+	RouterID int64
+}
+
+func (q *Queries) CambiarRouterCopiado(ctx context.Context, arg CambiarRouterCopiadoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarRouterCopiado, arg.Nombre, arg.RouterID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cambiarZonaAgenda = `-- name: CambiarZonaAgenda :one
+UPDATE agenda.zonas
+SET nombre = coalesce(nullif(left(btrim(coalesce($1::text, '')), 120), ''), nombre),
+    activa = coalesce($2::boolean, activa), version = version + 1, updated_at = now()
+WHERE id = $3 AND origen = 'argos'
+  AND (nombre, activa) IS DISTINCT FROM (coalesce(nullif(left(btrim(coalesce($1::text, '')), 120), ''), nombre),
+                                         coalesce($2::boolean, activa))
+RETURNING id, empresa_id, nombre, activa
+`
+
+type CambiarZonaAgendaParams struct {
+	Nombre *string
+	Activo *bool
+	ID     int64
+}
+
+type CambiarZonaAgendaRow struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Activa    bool
+}
+
+// La zona espejo de agenda: nombre y activa como en Argos (sin fila = nada cambió).
+func (q *Queries) CambiarZonaAgenda(ctx context.Context, arg CambiarZonaAgendaParams) (CambiarZonaAgendaRow, error) {
+	row := q.db.QueryRow(ctx, cambiarZonaAgenda, arg.Nombre, arg.Activo, arg.ID)
+	var i CambiarZonaAgendaRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+	)
+	return i, err
+}
+
+const cambiarZonaArgos = `-- name: CambiarZonaArgos :execrows
+
+UPDATE integracion.argos_zonas SET nombre = coalesce($1::text, nombre), activo = coalesce($2::boolean, activo),
+    updated_at = now()
+WHERE id = $3
+`
+
+type CambiarZonaArgosParams struct {
+	Nombre *string
+	Activo *bool
+	ID     int64
+}
+
+// Catálogos (catalogo.cambiado, contrato 0.5.0) ---------------------------------------------
+// Nombre y activo de una zona de la instantánea (null = no cambia).
+func (q *Queries) CambiarZonaArgos(ctx context.Context, arg CambiarZonaArgosParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarZonaArgos, arg.Nombre, arg.Activo, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cambiarZonaCopiada = `-- name: CambiarZonaCopiada :execrows
+WITH s AS (
+    UPDATE integracion.argos_servicios SET zona_nombre = $1::text, updated_at = now()
+    WHERE zona_id = $2::bigint AND zona_nombre <> $1::text RETURNING 1
+), c AS (
+    UPDATE integracion.argos_clientes SET zona_nombre = $1::text, updated_at = now()
+    WHERE zona_id = $2::bigint AND zona_nombre <> $1::text RETURNING 1
+)
+SELECT (SELECT count(*) FROM s) + (SELECT count(*) FROM c)
+`
+
+type CambiarZonaCopiadaParams struct {
+	Nombre string
+	ZonaID int64
+}
+
+// El nombre de la zona copiado en los servicios y clientes de la instantánea.
+func (q *Queries) CambiarZonaCopiada(ctx context.Context, arg CambiarZonaCopiadaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarZonaCopiada, arg.Nombre, arg.ZonaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const clienteConfirmadoDesde = `-- name: ClienteConfirmadoDesde :one
@@ -201,7 +354,7 @@ func (q *Queries) ClienteConfirmadoDesde(ctx context.Context, arg ClienteConfirm
 }
 
 const clientePorID = `-- name: ClientePorID :one
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes WHERE id = $1
 `
 
 func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosCliente, error) {
@@ -231,6 +384,7 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 		&i.ZonaNombre,
 		&i.VersionDatos,
 		&i.FalloEn,
+		&i.Referencia,
 	)
 	return i, err
 }
@@ -354,10 +508,10 @@ const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
     id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
-    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, referencia
 ) VALUES (
     $1, $2, $3::bigint[], $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20
+    $14, $15, $16, $17, $18, $19, $20, $21
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
@@ -366,7 +520,7 @@ ON CONFLICT (id) DO UPDATE SET
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
     tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
     movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
-    version_datos = excluded.version_datos, fallo_en = NULL, updated_at = now()
+    version_datos = excluded.version_datos, referencia = excluded.referencia, fallo_en = NULL, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en
 `
 
@@ -391,6 +545,7 @@ type GuardarClienteParams struct {
 	Correo              string
 	ZonaNombre          string
 	VersionDatos        int16
+	Referencia          string
 }
 
 // Instantáneas (§2.2) -------------------------------------------------------------------
@@ -416,6 +571,7 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 		arg.Correo,
 		arg.ZonaNombre,
 		arg.VersionDatos,
+		arg.Referencia,
 	)
 	return err
 }
@@ -490,10 +646,10 @@ func (q *Queries) GuardarRouter(ctx context.Context, arg GuardarRouterParams) er
 const guardarServicio = `-- name: GuardarServicio :exec
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono
 )
 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
@@ -501,29 +657,33 @@ ON CONFLICT (id) DO UPDATE SET
     router_nombre = excluded.router_nombre, zona_id = excluded.zona_id, zona_nombre = excluded.zona_nombre,
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
-    tipo_conexion = excluded.tipo_conexion, updated_at = now()
+    tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
+    contacto_telefono = excluded.contacto_telefono, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en
 `
 
 type GuardarServicioParams struct {
-	ID             int64
-	EmpresaID      int64
-	ClienteID      int64
-	Codigo         string
-	PlanID         *int64
-	PlanNombre     string
-	RouterID       *int64
-	RouterNombre   string
-	ZonaID         *int64
-	ZonaNombre     string
-	Ip             string
-	Direccion      string
-	Lat            *float64
-	Lon            *float64
-	Estado         string
-	SincronizadoEn time.Time
-	UserPpp        string
-	TipoConexion   string
+	ID               int64
+	EmpresaID        int64
+	ClienteID        int64
+	Codigo           string
+	PlanID           *int64
+	PlanNombre       string
+	RouterID         *int64
+	RouterNombre     string
+	ZonaID           *int64
+	ZonaNombre       string
+	Ip               string
+	Direccion        string
+	Lat              *float64
+	Lon              *float64
+	Estado           string
+	SincronizadoEn   time.Time
+	UserPpp          string
+	TipoConexion     string
+	Referencia       string
+	ContactoNombre   string
+	ContactoTelefono string
 }
 
 // Un servicio con lápida no se guarda desde una lista: solo un GET por id con 200 lo resucita
@@ -548,8 +708,102 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 		arg.SincronizadoEn,
 		arg.UserPpp,
 		arg.TipoConexion,
+		arg.Referencia,
+		arg.ContactoNombre,
+		arg.ContactoTelefono,
 	)
 	return err
+}
+
+const guardarTraslado = `-- name: GuardarTraslado :one
+
+INSERT INTO integracion.argos_traslados (
+    id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
+    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10, $11, $12,
+    $13, $14, $15
+)
+ON CONFLICT (id) DO UPDATE SET
+    empresa_id = coalesce(excluded.empresa_id, integracion.argos_traslados.empresa_id),
+    bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
+    tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
+    tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
+    estado = excluded.estado,
+    lineas = CASE WHEN jsonb_array_length(excluded.lineas) > 0 THEN excluded.lineas ELSE integracion.argos_traslados.lineas END,
+    enviado_en = coalesce(excluded.enviado_en, integracion.argos_traslados.enviado_en),
+    recibido_en = coalesce(excluded.recibido_en, integracion.argos_traslados.recibido_en),
+    recibido_por = coalesce(excluded.recibido_por, integracion.argos_traslados.recibido_por),
+    metodo_recepcion = coalesce(excluded.metodo_recepcion, integracion.argos_traslados.metodo_recepcion),
+    origen_recepcion = coalesce(excluded.origen_recepcion, integracion.argos_traslados.origen_recepcion),
+    cancelado_en = coalesce(excluded.cancelado_en, integracion.argos_traslados.cancelado_en),
+    motivo = coalesce(excluded.motivo, integracion.argos_traslados.motivo),
+    entrante_id = excluded.entrante_id, updated_at = now()
+WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
+RETURNING id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at
+`
+
+type GuardarTrasladoParams struct {
+	ID               int64
+	EmpresaID        *int64
+	BodegaDestinoID  *int64
+	TecnicoIDExterno *string
+	TecnicoCorreo    *string
+	Estado           string
+	Lineas           []byte
+	EnviadoEn        *time.Time
+	RecibidoEn       *time.Time
+	RecibidoPor      *string
+	MetodoRecepcion  *string
+	OrigenRecepcion  *string
+	CanceladoEn      *time.Time
+	Motivo           *string
+	EntranteID       *int64
+}
+
+// Órdenes de traslado (inventario.traslado_*, contrato 0.5.0) ------------------------------
+// Un estado final (recibido, cancelado) no se toca más (ni vuelve a enviado): solo lo actualiza el mismo
+// estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
+func (q *Queries) GuardarTraslado(ctx context.Context, arg GuardarTrasladoParams) (IntegracionArgosTraslado, error) {
+	row := q.db.QueryRow(ctx, guardarTraslado,
+		arg.ID,
+		arg.EmpresaID,
+		arg.BodegaDestinoID,
+		arg.TecnicoIDExterno,
+		arg.TecnicoCorreo,
+		arg.Estado,
+		arg.Lineas,
+		arg.EnviadoEn,
+		arg.RecibidoEn,
+		arg.RecibidoPor,
+		arg.MetodoRecepcion,
+		arg.OrigenRecepcion,
+		arg.CanceladoEn,
+		arg.Motivo,
+		arg.EntranteID,
+	)
+	var i IntegracionArgosTraslado
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BodegaDestinoID,
+		&i.TecnicoIDExterno,
+		&i.TecnicoCorreo,
+		&i.Estado,
+		&i.Lineas,
+		&i.EnviadoEn,
+		&i.RecibidoEn,
+		&i.RecibidoPor,
+		&i.MetodoRecepcion,
+		&i.OrigenRecepcion,
+		&i.CanceladoEn,
+		&i.Motivo,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const guardarZona = `-- name: GuardarZona :exec
@@ -727,7 +981,7 @@ func (q *Queries) ResucitarEliminado(ctx context.Context, arg ResucitarEliminado
 }
 
 const routerPorID = `-- name: RouterPorID :one
-SELECT id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en, created_at, updated_at FROM integracion.argos_routers WHERE id = $1
+SELECT id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en, created_at, updated_at, activo FROM integracion.argos_routers WHERE id = $1
 `
 
 func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRouter, error) {
@@ -743,12 +997,13 @@ func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRo
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Activo,
 	)
 	return i, err
 }
 
 const servicioPorID = `-- name: ServicioPorID :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -775,12 +1030,15 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.UpdatedAt,
 		&i.UserPpp,
 		&i.TipoConexion,
+		&i.Referencia,
+		&i.ContactoNombre,
+		&i.ContactoTelefono,
 	)
 	return i, err
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios
 WHERE ip = $1 AND empresa_id <> 0 AND estado <> 'retirado' AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
@@ -816,12 +1074,15 @@ func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (I
 		&i.UpdatedAt,
 		&i.UserPpp,
 		&i.TipoConexion,
+		&i.Referencia,
+		&i.ContactoNombre,
+		&i.ContactoTelefono,
 	)
 	return i, err
 }
 
 const serviciosDeCliente = `-- name: ServiciosDeCliente :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -854,6 +1115,9 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.UpdatedAt,
 			&i.UserPpp,
 			&i.TipoConexion,
+			&i.Referencia,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
 		); err != nil {
 			return nil, err
 		}
@@ -994,4 +1258,184 @@ func (q *Queries) ServiciosEliminadosTodasLasEmpresas(ctx context.Context, ids [
 		return nil, err
 	}
 	return items, nil
+}
+
+const tecnicosVinculadosArgos = `-- name: TecnicosVinculadosArgos :many
+SELECT t.id, t.usuario_id, t.argos_id_externo::text AS id_externo FROM agenda.tecnicos t
+WHERE t.argos_id_externo = ANY($1::text[])
+  AND ($2::boolean OR EXISTS (
+      SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = $3::bigint))
+`
+
+type TecnicosVinculadosArgosParams struct {
+	Ids       []string
+	Todas     bool
+	EmpresaID int64
+}
+
+type TecnicosVinculadosArgosRow struct {
+	ID        int64
+	UsuarioID int64
+	IDExterno string
+}
+
+// Fichas de agenda ya vinculadas a esos usuarios de Argos (selector del vínculo). Solo las de
+// usuarios que operan en la empresa (@todas: quien opera en todas las ve todas).
+func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVinculadosArgosParams) ([]TecnicosVinculadosArgosRow, error) {
+	rows, err := q.db.Query(ctx, tecnicosVinculadosArgos, arg.Ids, arg.Todas, arg.EmpresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TecnicosVinculadosArgosRow
+	for rows.Next() {
+		var i TecnicosVinculadosArgosRow
+		if err := rows.Scan(&i.ID, &i.UsuarioID, &i.IDExterno); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const trasladoPorID = `-- name: TrasladoPorID :one
+SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at FROM integracion.argos_traslados WHERE id = $1
+`
+
+func (q *Queries) TrasladoPorID(ctx context.Context, id int64) (IntegracionArgosTraslado, error) {
+	row := q.db.QueryRow(ctx, trasladoPorID, id)
+	var i IntegracionArgosTraslado
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BodegaDestinoID,
+		&i.TecnicoIDExterno,
+		&i.TecnicoCorreo,
+		&i.Estado,
+		&i.Lineas,
+		&i.EnviadoEn,
+		&i.RecibidoEn,
+		&i.RecibidoPor,
+		&i.MetodoRecepcion,
+		&i.OrigenRecepcion,
+		&i.CanceladoEn,
+		&i.Motivo,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const trasladosDeTecnico = `-- name: TrasladosDeTecnico :many
+SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at FROM integracion.argos_traslados
+WHERE (tecnico_id_externo = $1 OR (tecnico_id_externo IS NULL AND $2::text <> '' AND lower(tecnico_correo) = lower($2::text)))
+  AND ($3::bigint = 0 OR empresa_id = $3::bigint)
+  AND ($4::text IS NULL OR estado = $4::text)
+  AND ($5::bigint = 0 OR id < $5::bigint)
+ORDER BY id DESC
+LIMIT $6
+`
+
+type TrasladosDeTecnicoParams struct {
+	IDExterno *string
+	Correo    string
+	EmpresaID int64
+	Estado    *string
+	AntesDe   int64
+	Limite    int32
+}
+
+// Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) en la
+// empresa (0 = todas), más recientes primero.
+func (q *Queries) TrasladosDeTecnico(ctx context.Context, arg TrasladosDeTecnicoParams) ([]IntegracionArgosTraslado, error) {
+	rows, err := q.db.Query(ctx, trasladosDeTecnico,
+		arg.IDExterno,
+		arg.Correo,
+		arg.EmpresaID,
+		arg.Estado,
+		arg.AntesDe,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosTraslado
+	for rows.Next() {
+		var i IntegracionArgosTraslado
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BodegaDestinoID,
+			&i.TecnicoIDExterno,
+			&i.TecnicoCorreo,
+			&i.Estado,
+			&i.Lineas,
+			&i.EnviadoEn,
+			&i.RecibidoEn,
+			&i.RecibidoPor,
+			&i.MetodoRecepcion,
+			&i.OrigenRecepcion,
+			&i.CanceladoEn,
+			&i.Motivo,
+			&i.EntranteID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usuarioDeVinculoArgos = `-- name: UsuarioDeVinculoArgos :one
+SELECT usuario_id FROM agenda.tecnicos
+WHERE argos_id_externo = $1::text OR ($1::text = '' AND $2::text <> '' AND lower(argos_correo) = lower($2::text))
+ORDER BY (argos_id_externo = $1::text) DESC
+LIMIT 1
+`
+
+type UsuarioDeVinculoArgosParams struct {
+	IDExterno string
+	Correo    string
+}
+
+// El técnico de Iris vinculado a un usuario de Argos (id_externo; si no, por el correo del vínculo).
+func (q *Queries) UsuarioDeVinculoArgos(ctx context.Context, arg UsuarioDeVinculoArgosParams) (int64, error) {
+	row := q.db.QueryRow(ctx, usuarioDeVinculoArgos, arg.IDExterno, arg.Correo)
+	var usuario_id int64
+	err := row.Scan(&usuario_id)
+	return usuario_id, err
+}
+
+const zonaAgendaArgos = `-- name: ZonaAgendaArgos :one
+SELECT id, empresa_id, nombre, activa FROM agenda.zonas WHERE id = $1 AND origen = 'argos' FOR UPDATE
+`
+
+type ZonaAgendaArgosRow struct {
+	ID        int64
+	EmpresaID *int64
+	Nombre    string
+	Activa    bool
+}
+
+// La zona espejo de agenda (origen argos, mismo id), bloqueada para cambiarla.
+func (q *Queries) ZonaAgendaArgos(ctx context.Context, id int64) (ZonaAgendaArgosRow, error) {
+	row := q.db.QueryRow(ctx, zonaAgendaArgos, id)
+	var i ZonaAgendaArgosRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+	)
+	return i, err
 }

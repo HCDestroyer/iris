@@ -301,7 +301,7 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 		for _, mt := range materiales {
 			if mt.OrdenID == f.ID {
 				d.Materiales = append(d.Materiales, MaterialOrden{ID: mt.ID, ProductoID: mt.ProductoID, Descripcion: mt.Descripcion,
-					Cantidad: numero(mt.Cantidad), BodegaID: mt.BodegaID, ExcedeExistencia: mt.ExcedeExistencia, OcurridoEn: mt.OcurridoEn})
+					Cantidad: numero(mt.Cantidad), BodegaID: mt.BodegaID, ExcedeExistencia: mt.ExcedeExistencia, Modalidad: mt.Modalidad, OcurridoEn: mt.OcurridoEn})
 			}
 		}
 		for _, e := range equipos {

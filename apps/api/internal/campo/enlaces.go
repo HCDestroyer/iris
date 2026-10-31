@@ -113,7 +113,7 @@ func (i inventarioArgos) Existencias(ctx context.Context, empresaID, bodegaID in
 		if desc == "" && l.Producto != nil {
 			desc = l.Producto.Nombre
 		}
-		salida = append(salida, Existencia{ProductoID: l.IDProducto(), Descripcion: desc, Cantidad: cant, Unidad: l.Unidad})
+		salida = append(salida, Existencia{ProductoID: l.IDProducto(), Descripcion: desc, Cantidad: cant, Unidad: l.Unidad, Modalidad: l.ModalidadValida()})
 	}
 	return salida, nil
 }

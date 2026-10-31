@@ -148,6 +148,14 @@ func (m *Modulo) Registrar(api huma.API) {
 	registrarConID(api, accion("capacidadTecnico", "/api/v1/tecnicos/{id}/capacidad", "Fijar la capacidad diaria de un técnico",
 		"Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día.", nucleo.PermAgendaFijarCapacidad),
 		m.CapacidadTecnico.Ejecutar, func(e *EntradaFijarCapacidad, id int64) { e.ID = id })
+	vincular := accion("vincularTecnicoArgos", "/api/v1/tecnicos/{id}/vincular-argos", "Vincular la ficha con su usuario de Argos",
+		"Contrato 0.5.0 §3.3 (Argos ≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). `idExterno` sale de `GET /integraciones/argosisp/tecnicos`; Iris lo verifica en Argos: 422 `tecnico_no_encontrado` o `tecnico_sin_bodega` (sin bodega técnico activa en la empresa activa). 409 `argos_vinculado_a_otro` si ya es de otra ficha. Desde entonces, consumos, comodatos y devoluciones de sus órdenes mandan `tecnico` en vez de `bodega_id`. Emite `tecnico.argos_vinculado`.",
+		nucleo.PermAgendaVincularArgos)
+	vincular.Errors = append(vincular.Errors, http.StatusBadGateway, http.StatusServiceUnavailable)
+	registrarConID(api, vincular, m.VincularArgos.Ejecutar, func(e *EntradaVincularArgos, id int64) { e.ID = id })
+	registrarConID(api, accion("desvincularTecnicoArgos", "/api/v1/tecnicos/{id}/desvincular-argos", "Quitar el vínculo con Argos",
+		"Sus órdenes vuelven a usar `bodegaId`. Lo ya encolado no cambia. Emite `tecnico.argos_desvinculado`.", nucleo.PermAgendaDesvincularArgos),
+		m.DesvincularArgos.Ejecutar, func(e *EntradaDesvincularArgos, id int64) { e.ID = id })
 	ausencia := operacion("registrarAusencia", http.MethodPost, "/api/v1/tecnicos/{id}/ausencias", "Registrar una ausencia del técnico",
 		nucleo.PermAgendaRegistrarAusencia, http.StatusCreated, http.StatusNotFound)
 	ausencia.Description += " Devuelve las citas vivas que quedan dentro (no se mueven solas: reprográmalas). Emite `tecnico.ausencia_registrada`."

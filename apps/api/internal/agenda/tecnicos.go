@@ -214,7 +214,7 @@ func aTecnico(f agendabd.AgendaTecnico, nombre, correo string) Tecnico {
 	}
 	return Tecnico{ID: f.ID, UsuarioID: f.UsuarioID, Nombre: nombre, Correo: correo, CuadrillaID: f.CuadrillaID,
 		BodegaID: f.BodegaID, Habilidades: h, BaseLat: f.BaseLat, BaseLon: f.BaseLon, Telefono: f.Telefono, Activo: f.Activo,
-		Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt}
+		Argos: vinculoDe(f), Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt}
 }
 
 func (m *Modulo) nuevoListarTecnicos() *auditoria.Caso[EntradaListarTecnicos, nucleo.Pagina[Tecnico]] {

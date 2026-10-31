@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -53,6 +54,7 @@ type argosFalso struct {
 	detalle    string
 	cuerpos    map[string]string // ruta → cuerpo del 2xx (por defecto {"ok":true})
 	tipos      map[string]string // ruta → type del problem+json (por defecto urn:argos:sin_existencias)
+	campos     []string          // errors[].field del problem+json (vacío: sin errors)
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
@@ -84,7 +86,15 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 			if !ok {
 				tipo = "urn:argos:sin_existencias"
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"type": tipo, "title": "Error", "status": status, "detail": a.detalle})
+			problema := map[string]any{"type": tipo, "title": "Error", "status": status, "detail": a.detalle}
+			if len(a.campos) > 0 {
+				errs := []any{}
+				for _, c := range a.campos {
+					errs = append(errs, map[string]any{"field": c, "message": "inválido"})
+				}
+				problema["errors"] = errs
+			}
+			_ = json.NewEncoder(w).Encode(problema)
 			return
 		}
 		cuerpo, ok := a.cuerpos[ruta]
@@ -121,6 +131,8 @@ type entorno struct {
 	bus   *integracion.Bus
 	reloj time.Time
 	conID int64
+	// encolados: kinds de los jobs que el conector Argos encoló (InformarContrato…).
+	encolados *[]string
 }
 
 func nuevoEntorno(t *testing.T) *entorno {
@@ -143,13 +155,18 @@ func nuevoEntorno(t *testing.T) *entorno {
 		t.Fatal(err)
 	}
 	fa := nuevoArgosFalso(t)
+	encolados := &[]string{}
 	am := argos.Nuevo(argos.Config{
+		Encolar: func(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
+			*encolados = append(*encolados, args.Kind())
+			return nil
+		},
 		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Timeout: 2 * time.Second, Origenes: []string{fa.srv.URL},
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 	})
 	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
 	am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
-	e := &entorno{t: t, pool: pool, argos: fa, am: am, bus: integracion.NuevoBus(),
+	e := &entorno{t: t, pool: pool, argos: fa, am: am, bus: integracion.NuevoBus(), encolados: encolados,
 		reloj: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
 	e.m = pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})
 	e.m.Suscribir(e.bus)

@@ -244,3 +244,14 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 `go run ./cmd/iris campo semilla [--correo tecnico@iris.local] [--empresa N] [--ordenes 3]`: crea
 (o reutiliza) un técnico (con ficha de agenda y turnos de 07:00 a 19:00 si no la tenía) y órdenes
 del día programadas para él en los primeros huecos libres, por los casos de uso.
+
+## Contrato Iris ↔ ArgosISP 0.5.0 (I1)
+
+- `orden.cerrada` lleva `tecnico { id_externo }` (vínculo de la ficha de agenda, o null) y la
+  `modalidad` de cada material (leída de las existencias de Argos ≥ 1.6.0 al registrarlo; columna
+  `campo.orden_materiales.modalidad`). La cola de I1 decide `tecnico` o `bodega_id`.
+- **«Dato de Argos cambió»**: `SuscribirDatosArgos` (worker) escucha `argos.datos_cambiados` y
+  marca las órdenes abiertas del servicio o del cliente (`datos_argos_cambiados_en`,
+  `datos_argos_campos`, sin subir la versión ni pisar lo copiado; `ordenes.marcar_datos_argos`,
+  auditado). La API expone `datosArgosCambiados { en, campos[] }` y emite
+  `orden.datos_argos_cambiados`. Aplicar el dato nuevo es de despacho (pendiente para I2/I3).
