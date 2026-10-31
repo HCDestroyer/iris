@@ -71,6 +71,10 @@ test.describe("formularios en pantalla propia", () => {
         await expect(page).toHaveURL(/\/tickets\/1000$/);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: /Ticket .+ creado/ })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Sin señal en la colonia" })).toBeVisible();
+        // «Atrás» desde la ficha vuelve a la bandeja, no a un formulario vacío.
+        await page.goBack();
+        await expect(page).toHaveURL(/\/tickets$/);
+        await expect(page.getByRole("form", { name: "Nuevo ticket" })).toHaveCount(0);
     });
 
     test("Nueva orden: «Falta…», salida protegida, 422 en su campo y ficha", async ({ page, context, baseURL }) => {
@@ -112,8 +116,14 @@ test.describe("formularios en pantalla propia", () => {
         await page.getByRole("link", { name: "Crear orden y asignar" }).click();
         await expect(page).toHaveURL(/\/ordenes\/nueva\?ticket=1$/);
         const f = page.getByRole("form", { name: "Crear orden y asignar" });
-        // Los datos del ticket vienen de la API (`GET /tickets/1`), no de la URL.
+        // Los datos del ticket vienen de la API (`GET /tickets/1`), no de la URL: número enlazado a
+        // su ficha, cliente, servicio y dirección, a la vista antes de guardar.
         await expect(f).toHaveAccessibleDescription("TK-000101 · Sin internet desde la mañana");
+        const origen = f.getByTestId("ticket-origen");
+        await expect(origen.getByRole("link", { name: "TK-000101" })).toHaveAttribute("href", "/tickets/1");
+        await expect(origen).toContainText("María Castillo");
+        await expect(origen).toContainText("Servicio");
+        await expect(origen).toContainText("Dirección");
         expect(api.peticiones.some((p) => p.metodo === "GET" && p.ruta === "/api/v1/tickets/1")).toBe(true);
         await expect(f.getByRole("button", { name: "Crear y asignar" })).toBeDisabled();
         await expect(f.getByText("Falta elegir el técnico o la cuadrilla para guardar.")).toBeVisible();
@@ -153,6 +163,12 @@ test.describe("formularios en pantalla propia", () => {
         await expect(page).toHaveURL(/\/usuarios\/nuevo$/);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Usuario Inés Ajú creado" })).toBeVisible();
         await page.getByRole("button", { name: "Ver usuario" }).click();
+        await expect(page).toHaveURL(/\/usuarios\/500$/);
+        // «Atrás» desde la ficha no vuelve a la contraseña ni a un formulario vacío.
+        await page.goBack();
+        await expect(page).toHaveURL(/\/usuarios$/);
+        await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
+        await page.goForward();
         await expect(page).toHaveURL(/\/usuarios\/500$/);
 
         await page.getByRole("link", { name: "Editar" }).click();
@@ -302,6 +318,76 @@ test.describe("formularios en pantalla propia", () => {
         await expect(page).toHaveURL(/\/administracion\/buzones$/);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Buzón «Ventas» creado" })).toBeVisible();
         await expect(page.locator("li").filter({ hasText: "ventas@isp.gt" }).first()).toContainText("Inactivo");
+    });
+
+    test("«Atrás» con la contraseña temporal a la vista sale a la lista y no la vuelve a mostrar", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await simularAccesos(page, [ADMIN, CON_MFA, LECTOR, ELENA]);
+        await simularUsuarios(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/usuarios");
+        await page.getByRole("link", { name: "Nuevo usuario" }).click();
+        const f = page.getByRole("form", { name: "Nuevo usuario" });
+        await f.getByLabel("Nombre", { exact: true }).fill("Inés Ajú");
+        await f.getByLabel("Correo", { exact: true }).fill("ines@iris.test");
+        await f.getByLabel("Contraseña temporal").fill("una-clave-temporal");
+        await expect(f.getByLabel("Contraseña temporal")).toHaveAttribute("autocomplete", "new-password");
+        await f.getByRole("button", { name: "Crear usuario" }).click();
+        await expect(page.getByTestId("contrasena-creada")).toHaveText("una-clave-temporal");
+
+        await page.goBack();
+        await expect(page).toHaveURL(/\/usuarios$/);
+        await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
+        // Ni volviendo hacia adelante.
+        await page.goForward();
+        await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
+    });
+
+    test("un error que aparece al salir del campo no se come el clic del botón siguiente", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await simularAccesos(page, [ADMIN, CON_MFA, LECTOR, ELENA]);
+        await simularUsuarios(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/usuarios/nuevo");
+        const f = page.getByRole("form", { name: "Nuevo usuario" });
+        const nombre = f.getByLabel("Nombre", { exact: true });
+        // «Nombre» vacío y con el foco; el mismo clic sale del campo (su error aparece al salir) y
+        // pulsa «Agregar rol», que está debajo: el clic tiene que llegar.
+        await nombre.focus();
+        await f.getByRole("button", { name: "Agregar rol" }).click();
+        await expect(f.getByLabel("Rol 1", { exact: true })).toBeVisible();
+        await expect(f.getByText("Escribe el nombre")).toBeVisible();
+        // «Agregar rol» no salta a la fila nueva: el foco se queda en el botón.
+        await expect(f.getByRole("button", { name: "Agregar rol" })).toBeFocused();
+
+        // Lo mismo con un error que desaparece: corregir el nombre y pulsar «Quitar el rol 1» en el mismo gesto.
+        await nombre.fill("Inés Ajú");
+        await nombre.focus();
+        await f.getByRole("button", { name: "Quitar el rol 1" }).click();
+        await expect(f.getByLabel("Rol 1", { exact: true })).toHaveCount(0);
+    });
+
+    test("el aviso tras guardar no tapa la navegación: la miga de la ficha se puede pulsar", async ({ page, context, baseURL }, info) => {
+        await simularApi(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/tickets/nuevo");
+        const f = page.getByRole("form", { name: "Nuevo ticket" });
+        await f.getByLabel("Asunto").fill("Sin señal en la colonia");
+        await f.getByRole("button", { name: "Crear ticket" }).click();
+        await expect(page).toHaveURL(/\/tickets\/1000$/);
+        const aviso = avisos(page).getByRole("alertdialog").filter({ hasText: /Ticket .+ creado/ });
+        await expect(aviso).toBeVisible();
+        if (info.project.name.startsWith("telefono")) {
+            // En el teléfono va dentro de la barra superior: termina antes que ella y no tapa el buscador.
+            const caja = await aviso.boundingBox();
+            const barra = await page.getByRole("banner").boundingBox();
+            const buscador = await page.getByRole("button", { name: "Buscador global" }).filter({ visible: true }).boundingBox();
+            expect(caja && barra && caja.y + caja.height <= barra.y + barra.height).toBe(true);
+            expect(caja && buscador && caja.x + caja.width <= buscador.x).toBe(true);
+        }
+        // Con el aviso a la vista, la miga se pulsa (Playwright falla si algo la tapa).
+        await migas(page).getByRole("link", { name: "Tickets" }).click();
+        await expect(page).toHaveURL(/\/tickets$/);
     });
 
     test("sin el permiso de la acción, la pantalla del formulario no se abre", async ({ page, context, baseURL }) => {

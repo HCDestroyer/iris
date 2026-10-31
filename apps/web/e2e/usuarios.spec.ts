@@ -51,7 +51,7 @@ test.describe("administración de usuarios", () => {
         expect(contrasena).toMatch(/^[2-9a-zA-Z]{4}(-[2-9a-zA-Z]{4}){3}$/);
         // Oculta salvo «Mostrar», y sin autocompletar del navegador.
         await expect(campo).toHaveAttribute("type", "password");
-        await expect(campo).toHaveAttribute("autocomplete", "off");
+        await expect(campo).toHaveAttribute("autocomplete", "new-password");
         await d.getByRole("button", { name: "Mostrar" }).click();
         await expect(campo).toHaveAttribute("type", "text");
         await d.getByRole("button", { name: "Ocultar" }).click();

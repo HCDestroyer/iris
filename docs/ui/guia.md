@@ -173,8 +173,9 @@ lectores de pantalla.
 - **Avisos emergentes:**
     - van después de cada acción que cambia algo, con el texto en `lib/avisos.ts`
       («Orden OT-000042 asignada a Luis Pérez»);
-    - salen abajo a la derecha en escritorio y arriba en el teléfono, para no tapar la barra
-      inferior ni las hojas;
+    - salen abajo a la derecha en escritorio; en el teléfono, dentro de la barra superior (hasta
+      dos líneas, sin tapar el buscador), para no tapar la miga «‹ …», la barra inferior,
+      «Guardar» ni las hojas;
     - donde la pantalla ya confirmaba en línea con detalle (mover una cita, publicar una ruta,
       guardar un rol o una plantilla, conectar Argos), se queda esa confirmación y no se duplica;
     - los errores siguen en la pantalla.
@@ -209,11 +210,19 @@ lectores de pantalla.
     - un 422 se muestra junto a su campo (`erroresACampos`); lo que no tiene campo va arriba;
     - al guardar: aviso emergente y la ficha del registro (`router.replace`). Un buzón no tiene
       ficha: vuelve a la lista;
-    - salir con cambios pregunta antes: enlaces y migas, «Cancelar», «Atrás» y recargar.
+    - salir con cambios pregunta antes: enlaces y migas, «Cancelar», «Atrás» y recargar. Al
+      guardar, `liberarProteccion()` quita la entrada propia del historial antes de navegar, así
+      que «Atrás» desde la ficha no vuelve a un formulario vacío;
+    - un error que aparece (o desaparece) al salir de un campo no mueve lo que está bajo el
+      puntero mientras está presionado (`Campo`, `CampoSelector` y `CampoArea` lo esperan hasta
+      después del clic): el clic en el botón siguiente siempre llega.
 - **Lo que llega por la URL nunca se muestra tal cual:** `?ticket=`, `?usuario=` y los `[id]` se
-  aceptan solo como id numérico (`lib/parametros.ts`) y el registro se lee de la API.
+  aceptan solo como id numérico (`lib/parametros.ts`) y el registro se lee de la API. La orden
+  desde un ticket muestra arriba ese ticket (número enlazado, cliente, servicio y dirección), así
+  que un enlace con otro ticket se nota antes de guardar.
 - **Nuevo usuario** muestra la contraseña temporal una sola vez en la misma pantalla (nunca en la
-  URL ni en el historial). Desde «Nuevo técnico», «Crear usuario» lleva a
+  URL ni en el historial). «Atrás» desde ahí sale a la lista; al ocultar la página (`pagehide`,
+  bfcache) se borra; el campo usa `autocomplete="new-password"`. Desde «Nuevo técnico», «Crear usuario» lleva a
   `/usuarios/nuevo?para=tecnico` y «Continuar con la ficha» vuelve a `/tecnicos/nuevo?usuario=<id>`
   con ese usuario elegido.
 - **Buzón:** si al guardar hay un error en el otro paso, se pasa a ese paso (`lib/buzones/pasos.ts`).
