@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,8 +39,22 @@ const (
 	FirmaMaxAlto  = 400
 )
 
-// tolerancia de reloj del teléfono (recibido_en no puede ser futuro, con 5 min de margen).
+// tolerancia de reloj del teléfono (recibido_en no puede ser futuro ni anterior al envío del
+// traslado, con 5 min de margen).
 const toleranciaReloj = 5 * time.Minute
+
+// SerieMaxLargo: largo máximo de una serie faltante.
+const SerieMaxLargo = 100
+
+// CodigoTrasladoDesconocido: Iris aún no conoce el traslado (el webhook inventario.traslado_enviado no
+// llegó) o no sabe a qué técnico va. No se encola nada (la clave iris:recepcion:<id> no se toma): el
+// teléfono reintenta tras la siguiente sincronización (contratos/sync.md §3).
+const CodigoTrasladoDesconocido = "traslado_desconocido"
+
+// TrasladoDesconocido: el error reintentable de una recepción de un traslado sin destinatario conocido.
+func TrasladoDesconocido(detalle string) *nucleo.Problema {
+	return problemaRecepcion(http.StatusConflict, CodigoTrasladoDesconocido, detalle)
+}
 
 // EntradaRecibirTraslado son los `datos` de la operación traslado.recibir del lote de campo.
 type EntradaRecibirTraslado struct {
@@ -53,7 +68,7 @@ type EntradaRecibirTraslado struct {
 type LineaRecepcion struct {
 	LineaID          int64    `json:"lineaId" minimum:"1"`
 	CantidadRecibida float64  `json:"cantidadRecibida" minimum:"0"`
-	SeriesFaltantes  []string `json:"seriesFaltantes,omitempty" maxItems:"500"`
+	SeriesFaltantes  []string `json:"seriesFaltantes,omitempty" maxItems:"500" doc:"Cada serie de 1 a 100 caracteres"`
 }
 
 // lineasArgos: lineas[] en el cuerpo de Argos (snake_case).
@@ -105,7 +120,8 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 	}
 	t.FijarEntidad(EntidadTraslado, in.TrasladoID)
 	empresa := contexto.EmpresaDe(ctx)
-	if err := m.exigirTraslado(ctx, t, in.TrasladoID, v, empresa); err != nil {
+	tr, err := m.exigirTraslado(ctx, t, in.TrasladoID, v, empresa)
+	if err != nil {
 		return EstadoRecepcion{}, err
 	}
 	firma, err := uuid.Parse(in.FirmaAdjuntoID)
@@ -125,12 +141,22 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 	if in.RecibidoEn.IsZero() || in.RecibidoEn.After(ahora.Add(toleranciaReloj)) {
 		return EstadoRecepcion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "recibidoEn", Message: "Hora del teléfono inválida o futura", Rule: "fecha"})
 	}
+	if tr.EnviadoEn != nil && in.RecibidoEn.Before(tr.EnviadoEn.Add(-toleranciaReloj)) {
+		return EstadoRecepcion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "recibidoEn",
+			Message: "Anterior al envío del traslado (" + tr.EnviadoEn.UTC().Format(time.RFC3339) + ")", Rule: "fecha"})
+	}
 	vistas := map[int64]bool{}
 	for i, l := range in.Lineas {
 		if l.LineaID <= 0 || l.CantidadRecibida < 0 || vistas[l.LineaID] {
 			return EstadoRecepcion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: fmt.Sprintf("lineas[%d]", i), Message: "Línea repetida o inválida", Rule: "linea"})
 		}
 		vistas[l.LineaID] = true
+		for j, serie := range l.SeriesFaltantes {
+			if n := utf8.RuneCountInString(serie); n < 1 || n > SerieMaxLargo {
+				return EstadoRecepcion{}, nucleo.Validacion(nucleo.ErrorCampo{Field: fmt.Sprintf("lineas[%d].seriesFaltantes[%d]", i, j),
+					Message: fmt.Sprintf("De 1 a %d caracteres", SerieMaxLargo), Rule: "maxLength"})
+			}
+		}
 	}
 	borrador := map[string]any{
 		"recibido_por": map[string]any{"id_externo": v.IDExterno}, "metodo_recepcion": "firma_digital",
@@ -157,23 +183,48 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 		return EstadoRecepcion{}, err
 	}
 	if !creado {
-		if r.TecnicoUsuarioID == nil || *r.TecnicoUsuarioID != usuario {
-			return EstadoRecepcion{}, problemaRecepcion(http.StatusConflict, "recepcion_existente", "Otra persona ya registró la recepción de este traslado")
+		existente := problemaRecepcion(http.StatusConflict, "recepcion_existente", "Otra persona ya registró la recepción de este traslado")
+		var nuevoDueno *int64
+		switch {
+		case r.TecnicoUsuarioID != nil && *r.TecnicoUsuarioID == usuario:
+			if r.Estado != pendientes.EstadoFallidoNegocio {
+				t.Anotar(map[string]any{"recepcion_existente": r.ID})
+				return estadoRecepcion(r), nil
+			}
+			// Rechazada (firma inválida, líneas inválidas…): la nueva operación la rehace con sus datos.
+		case r.Estado == pendientes.EstadoHecho || r.Estado == pendientes.EstadoEnCurso || r.Estado == pendientes.EstadoResueltoManual:
+			return EstadoRecepcion{}, existente
+		default:
+			// De otro usuario y sin terminar: el destinatario real (este, ya verificado) la toma si el
+			// otro no lo es según lo que Iris sabe del traslado, o si Argos ya la rechazó. Así nadie
+			// bloquea la recepción de otro tomando su clave.
+			otroEsDestinatario := false
+			if r.TecnicoUsuarioID != nil {
+				if ov, err := vinculoDe(ctx, t, *r.TecnicoUsuarioID); err == nil {
+					otroEsDestinatario = esDestinatario(tr, ov)
+				}
+			}
+			if otroEsDestinatario && r.Estado != pendientes.EstadoFallidoNegocio {
+				return EstadoRecepcion{}, existente
+			}
+			nuevoDueno = &usuario
 		}
-		if r.Estado != pendientes.EstadoFallidoNegocio {
-			t.Anotar(map[string]any{"recepcion_existente": r.ID})
-			return estadoRecepcion(r), nil
-		}
-		// Rechazada (firma inválida, líneas inválidas…): la nueva operación la rehace con sus datos.
-		rehecho, ok, err := pendientes.RehacerEsperando(ctx, t, r.ID, EsperandoFirma, cuerpo)
+		rehecho, ok, err := pendientes.RehacerEsperando(ctx, t, r.ID, EsperandoFirma, cuerpo, nuevoDueno)
 		if err != nil {
 			return EstadoRecepcion{}, err
 		}
 		if !ok {
+			if nuevoDueno != nil {
+				return EstadoRecepcion{}, existente
+			}
 			return estadoRecepcion(r), nil
 		}
+		if nuevoDueno != nil {
+			t.Anotar(map[string]any{"recepcion_tomada": r.ID, "de_usuario_id": r.TecnicoUsuarioID, "estado_anterior": r.Estado})
+		} else {
+			t.Anotar(map[string]any{"recepcion_rehecha": r.ID})
+		}
 		r = rehecho
-		t.Anotar(map[string]any{"recepcion_rehecha": r.ID})
 	}
 	t.Anotar(map[string]any{"pendiente_id": r.ID, "firma_adjunto_id": firma})
 	if m.cfg.Encolar != nil {
@@ -184,25 +235,34 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 	return estadoRecepcion(r), nil
 }
 
-// exigirTraslado: lo que Iris sabe del traslado por los webhooks. Si no lo conoce (el webhook aún
-// no llega), Argos lo valida al recibir.
-func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id int64, v vinculo, empresa int64) error {
+// exigirTraslado: lo que Iris sabe del traslado por los webhooks. Sin conocerlo, o sin saber a qué
+// técnico va, no se encola (TrasladoDesconocido, reintentable): si no, cualquiera podría tomar la
+// clave iris:recepcion:<id> de un traslado ajeno (o futuro) y bloquear al destinatario.
+func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id int64, v vinculo, empresa int64) (argosbd.IntegracionArgosTraslado, error) {
 	f, err := argosbd.New(q).TrasladoPorID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return f, TrasladoDesconocido("Iris aún no conoce esta orden de traslado (el aviso de Argos no ha llegado): se reintenta sola")
 	}
 	if err != nil {
-		return err
+		return f, err
 	}
 	switch {
 	case f.Estado == "cancelado":
-		return problemaRecepcion(http.StatusConflict, "traslado_cancelado", "Argos canceló esta orden de traslado")
-	case (f.TecnicoIDExterno != nil && *f.TecnicoIDExterno != v.IDExterno) ||
-		(f.TecnicoIDExterno == nil && f.TecnicoCorreo != nil && !mismoCorreo(*f.TecnicoCorreo, v.Correo)) ||
-		(empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
-		return problemaRecepcion(http.StatusUnprocessableEntity, "traslado_de_otro_tecnico", "La orden de traslado es para la bodega de otro técnico")
+		return f, problemaRecepcion(http.StatusConflict, "traslado_cancelado", "Argos canceló esta orden de traslado")
+	case f.TecnicoIDExterno == nil && f.TecnicoCorreo == nil:
+		return f, TrasladoDesconocido("Argos no dijo a qué técnico va esta orden de traslado: se reintenta sola cuando lo diga")
+	case !esDestinatario(f, v) || (empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
+		return f, problemaRecepcion(http.StatusUnprocessableEntity, "traslado_de_otro_tecnico", "La orden de traslado es para la bodega de otro técnico")
 	}
-	return nil
+	return f, nil
+}
+
+// esDestinatario: el traslado va al técnico de ese vínculo (por id_externo o, sin él, por correo).
+func esDestinatario(f argosbd.IntegracionArgosTraslado, v vinculo) bool {
+	if f.TecnicoIDExterno != nil {
+		return *f.TecnicoIDExterno == v.IDExterno
+	}
+	return f.TecnicoCorreo != nil && mismoCorreo(*f.TecnicoCorreo, v.Correo)
 }
 
 func mismoCorreo(a, b string) bool {
@@ -219,6 +279,7 @@ type ResultadoFirma struct {
 
 type entradaArmar struct {
 	PendienteID int64  `json:"pendiente_id"`
+	Version     int32  `json:"version"`
 	Codigo      string `json:"codigo,omitempty"`
 	Detalle     string `json:"detalle,omitempty"`
 	cuerpo      []byte
@@ -232,7 +293,7 @@ func nuevoGuardarFirma(m *Modulo) *auditoria.Caso[entradaArmar, ResultadoFirma] 
 			t.FijarEntidad("pendiente", in.PendienteID)
 			r := ResultadoFirma{PendienteID: in.PendienteID, Resultado: "nada"}
 			if in.Codigo != "" {
-				_, ok, err := pendientes.FallarEsperando(ctx, t, in.PendienteID, EsperandoFirma, in.Codigo, in.Detalle)
+				_, ok, err := pendientes.FallarEsperando(ctx, t, in.PendienteID, in.Version, EsperandoFirma, in.Codigo, in.Detalle)
 				if ok {
 					r.Resultado = "invalida"
 				}
@@ -242,7 +303,7 @@ func nuevoGuardarFirma(m *Modulo) *auditoria.Caso[entradaArmar, ResultadoFirma] 
 			if m.cfg.Encolar != nil {
 				aviso = m.cfg.Encolar
 			}
-			_, ok, err := pendientes.CompletarEsperando(ctx, t, in.PendienteID, EsperandoFirma, in.cuerpo, m.ahora(), aviso)
+			_, ok, err := pendientes.CompletarEsperando(ctx, t, in.PendienteID, in.Version, EsperandoFirma, in.cuerpo, m.ahora(), aviso)
 			if ok {
 				r.Resultado = "lista"
 			}
@@ -252,7 +313,8 @@ func nuevoGuardarFirma(m *Modulo) *auditoria.Caso[entradaArmar, ResultadoFirma] 
 }
 
 // ArmarFirma arma el cuerpo de una recepción que espera la firma: si el adjunto está completo, lee
-// el PNG (fuera de transacción), verifica los límites del contrato y deja el pendiente en la cola con
+// el PNG (fuera de transacción; al guardar exige la misma version, así que un armado viejo no pisa
+// una recepción rehecha o tomada mientras tanto), verifica los límites del contrato y deja el pendiente en la cola con
 // { firma: { png_base64, sha256 } }; si la firma no sirve (o se rechazó al subir), lo deja
 // fallido_negocio con firma_invalida sin llamar a Argos. Si aún no termina de subir, no hace nada (lo
 // retoma adjunto.completado o el barrido). Idempotente.
@@ -273,20 +335,20 @@ func (m *Modulo) ArmarFirma(ctx context.Context, pendienteID int64) (ResultadoFi
 	}
 	var borrador map[string]any
 	if err := json.Unmarshal(p.Payload, &borrador); err != nil {
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida", Detalle: "cuerpo de la recepción ilegible"})
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida", Detalle: "cuerpo de la recepción ilegible"})
 	}
 	idFirma, _ := borrador["firma_adjunto_id"].(string)
 	firma, err := uuid.Parse(idFirma)
 	if err != nil {
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida", Detalle: "la recepción no tiene firma"})
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida", Detalle: "la recepción no tiene firma"})
 	}
 	a, err := adjuntos.DeEntidad(ctx, bd, firma, EntidadTraslado, p.EntidadID)
 	if err != nil {
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida", Detalle: "la firma ya no es un adjunto del traslado"})
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida", Detalle: "la firma ya no es un adjunto del traslado"})
 	}
 	switch a.Estado {
 	case adjuntos.EstadoRechazado:
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida",
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida",
 			Detalle: "la firma se rechazó al subir (" + deref(a.MotivoRechazo) + "): registra otra"})
 	case adjuntos.EstadoCompleto:
 	default:
@@ -298,14 +360,14 @@ func (m *Modulo) ArmarFirma(ctx context.Context, pendienteID int64) (ResultadoFi
 	png, _, err := adjuntos.Contenido(ctx, m.cfg.Almacen, bd, firma, EntidadTraslado, p.EntidadID, FirmaMaxBytes)
 	var pr *nucleo.Problema
 	if errors.As(err, &pr) && pr.Codigo() == adjuntos.MotivoTamanoExcedido {
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida",
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida",
 			Detalle: fmt.Sprintf("la firma pasa de %d KB", FirmaMaxBytes/1000)})
 	}
 	if err != nil {
 		return ResultadoFirma{}, err
 	}
 	if motivo := validarPNG(png); motivo != "" {
-		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Codigo: "firma_invalida", Detalle: motivo})
+		return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, Codigo: "firma_invalida", Detalle: motivo})
 	}
 	suma := sha256.Sum256(png)
 	delete(borrador, "firma_adjunto_id")
@@ -314,7 +376,7 @@ func (m *Modulo) ArmarFirma(ctx context.Context, pendienteID int64) (ResultadoFi
 	if err != nil {
 		return ResultadoFirma{}, err
 	}
-	return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, cuerpo: cuerpo})
+	return m.guardar.Ejecutar(ctx, entradaArmar{PendienteID: p.ID, Version: p.Version, cuerpo: cuerpo})
 }
 
 // validarPNG: un PNG legible de 50×20 a 1000×400 px (contrato 0.5.0 §3.3). Vacío si sirve.
@@ -326,6 +388,11 @@ func validarPNG(b []byte) string {
 	if cfg.Width < FirmaMinAncho || cfg.Height < FirmaMinAlto || cfg.Width > FirmaMaxAncho || cfg.Height > FirmaMaxAlto {
 		return fmt.Sprintf("la firma mide %d×%d px (debe medir de %d×%d a %d×%d)", cfg.Width, cfg.Height,
 			FirmaMinAncho, FirmaMinAlto, FirmaMaxAncho, FirmaMaxAlto)
+	}
+	// Decodificación completa (las medidas ya están acotadas): un PNG corrupto se rechaza aquí y no
+	// en Argos.
+	if _, err := png.Decode(bytes.NewReader(b)); err != nil {
+		return "la firma es un PNG dañado"
 	}
 	return ""
 }
@@ -450,9 +517,9 @@ func (m *Modulo) Suscribir(bus *integracion.Bus, bd nucleo.BD) {
 
 // Adjuntos: la firma es un adjunto de la entidad «traslado» -----------------------------------
 
-// RegistrarAdjuntos registra la entidad «traslado»: sube y ve la firma el técnico al que va la orden
-// de traslado (por su vínculo), si Iris la conoce, o cualquier técnico vinculado si el webhook aún no
-// llega (Argos valida al recibir). La empresa es la del traslado (o la activa).
+// RegistrarAdjuntos registra la entidad «traslado»: sube y ve la firma solo el técnico al que va la
+// orden de traslado (por su vínculo). Un traslado que Iris no conoce, o sin técnico, no admite ni
+// muestra firmas (no encontrado). La empresa es la del traslado (o la activa).
 func RegistrarAdjuntos() {
 	registroAdjuntos.Do(registrarAdjuntos)
 }
@@ -481,11 +548,10 @@ func registrarAdjuntos() {
 		f, err := argosbd.New(q).TrasladoPorID(ctx, id)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			return empresa, nil
+			return 0, nucleo.NoEncontrado("")
 		case err != nil:
 			return 0, err
-		case (f.TecnicoIDExterno != nil && *f.TecnicoIDExterno != v.IDExterno) ||
-			(f.TecnicoIDExterno == nil && f.TecnicoCorreo != nil && !mismoCorreo(*f.TecnicoCorreo, v.Correo)):
+		case !esDestinatario(f, v):
 			return 0, nucleo.NoEncontrado("")
 		}
 		if f.EmpresaID != nil {

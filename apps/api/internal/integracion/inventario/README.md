@@ -29,3 +29,15 @@ sobre el vínculo de su ficha de agenda con su usuario de Argos (`agenda.tecnico
 No emite eventos propios. La cola de pendientes emite `integracion.pendiente_*` de la operación
 `recepcion` (entidad `traslado`); `integracion.pendiente_fallido` también para `firma_invalida` local.
 Consume `adjunto.completado` y `adjunto.rechazado`.
+
+## Seguridad de la recepción (revisión de la PR #83)
+
+- Solo se encola la recepción de un traslado que Iris conoce (webhook) y que va al técnico que la
+  manda. Desconocido o sin técnico: `traslado_desconocido` (409, reintentable; no toma la clave
+  `iris:recepcion:<id>`). La firma de esos traslados no se registra ni se ve (404).
+- El destinatario real toma la recepción que otro registró si el otro ya no es el destinatario o
+  Argos la rechazó (`pendientes.RehacerEsperando` con el dueño nuevo, auditado); no si está en curso,
+  hecha o resuelta a mano.
+- El armado de la firma guarda solo si el pendiente sigue en la versión que leyó; el PNG se decodifica
+  completo; series de 1 a 100 caracteres; `recibidoEn` no anterior al envío (5 min de tolerancia).
+- El worker no arranca si el almacenamiento de adjuntos no abre.

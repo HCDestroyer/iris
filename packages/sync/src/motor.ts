@@ -41,8 +41,10 @@ export const CODIGOS_TERMINALES: ReadonlySet<string> = new Set(["orden_cancelada
  * Choque con otra transacción en la API (409 `concurrencia`): no es un rechazo. La API no lo
  * guarda; la operación (y lo que sigue de su orden) queda en la cola con el mismo id y la pasada
  * termina con un `ErrorTransporte` para que el bucle reintente con espera corta (§3).
+ * `traslado_desconocido` (409): Iris aún no conoce el traslado de un `traslado.recibir` (el aviso de
+ * Argos no llegó) o no sabe a qué técnico va; tampoco se guarda y se reintenta igual.
  */
-export const CODIGOS_REINTENTABLES: ReadonlySet<string> = new Set(["concurrencia"]);
+export const CODIGOS_REINTENTABLES: ReadonlySet<string> = new Set(["concurrencia", "traslado_desconocido"]);
 
 /** Rechazo que solo repite uno anterior de la misma orden en el lote: vuelve a la cola, detrás. */
 export const CODIGO_BLOQUEADA = "bloqueada_por_rechazo";

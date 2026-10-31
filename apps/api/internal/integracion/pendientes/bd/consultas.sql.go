@@ -96,7 +96,7 @@ func (q *Queries) BodegaDeOrden(ctx context.Context, id int64) (*int64, error) {
 const completarEsperando = `-- name: CompletarEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()
-WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text
+WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text AND version = $5
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
 `
 
@@ -105,16 +105,19 @@ type CompletarEsperandoParams struct {
 	Ahora   time.Time
 	ID      int64
 	Motivo  string
+	Version int32
 }
 
 // El pendiente que esperaba algo de Iris (ultimo_error = @motivo, p. ej. esperando_firma) recibe su
-// cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo.
+// cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo. Solo
+// si nadie lo tocó desde que se leyó (@version): un armado viejo no pisa una recepción rehecha.
 func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperandoParams) (IntegracionPendiente, error) {
 	row := q.db.QueryRow(ctx, completarEsperando,
 		arg.Payload,
 		arg.Ahora,
 		arg.ID,
 		arg.Motivo,
+		arg.Version,
 	)
 	var i IntegracionPendiente
 	err := row.Scan(
@@ -494,7 +497,7 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 const fallarEsperando = `-- name: FallarEsperando :one
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', ultimo_error = $1::text, codigo_error = $2::text, version = version + 1, updated_at = now()
-WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text
+WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text AND version = $5
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
 `
 
@@ -503,6 +506,7 @@ type FallarEsperandoParams struct {
 	Codigo  string
 	ID      int64
 	Motivo  string
+	Version int32
 }
 
 // Lo que esperaba no sirve (firma inválida…): queda fallido_negocio con el código, sin llamar a Argos.
@@ -512,6 +516,7 @@ func (q *Queries) FallarEsperando(ctx context.Context, arg FallarEsperandoParams
 		arg.Codigo,
 		arg.ID,
 		arg.Motivo,
+		arg.Version,
 	)
 	var i IntegracionPendiente
 	err := row.Scan(
@@ -1486,21 +1491,32 @@ func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]Integr
 const rehacerEsperando = `-- name: RehacerEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'bloqueado', ultimo_error = $2::text, codigo_error = NULL, ultimo_status = NULL,
-    intentos = 0, version = version + 1, updated_at = now()
-WHERE id = $3 AND estado = 'fallido_negocio'
+    intentos = 0, tomado_en = NULL, tecnico_usuario_id = coalesce($3, tecnico_usuario_id),
+    version = version + 1, updated_at = now()
+WHERE id = $4 AND estado = ANY ($5::text[])
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
 `
 
 type RehacerEsperandoParams struct {
-	Payload []byte
-	Motivo  string
-	ID      int64
+	Payload          []byte
+	Motivo           string
+	TecnicoUsuarioID *int64
+	ID               int64
+	Estados          []string
 }
 
 // Un pendiente rechazado (fallido_negocio: Argos no guardó la clave, o nunca salió) vuelve a esperar
-// con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma).
+// con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma). @estados: desde cuáles
+// (fallido_negocio; o, si la toma el destinatario real, también pendiente, bloqueado o agotado).
+// @tecnico_usuario_id (o null = el mismo) pasa a ser el dueño.
 func (q *Queries) RehacerEsperando(ctx context.Context, arg RehacerEsperandoParams) (IntegracionPendiente, error) {
-	row := q.db.QueryRow(ctx, rehacerEsperando, arg.Payload, arg.Motivo, arg.ID)
+	row := q.db.QueryRow(ctx, rehacerEsperando,
+		arg.Payload,
+		arg.Motivo,
+		arg.TecnicoUsuarioID,
+		arg.ID,
+		arg.Estados,
+	)
 	var i IntegracionPendiente
 	err := row.Scan(
 		&i.ID,

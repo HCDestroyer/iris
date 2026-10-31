@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/png"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
@@ -343,7 +345,8 @@ func TestRecepcionDeTraslado(t *testing.T) {
 	e.argos.mu.Lock()
 	e.argos.respuesta[strconv.FormatInt(tr3, 10)] = [2]string{"409", "traslado_cancelado"}
 	e.argos.mu.Unlock()
-	e.recibir(tr3, e.firma(tr3, contenido, true)) // Iris aún no conoce el traslado: Argos decide
+	e.enviado(tr3, "u-77")
+	e.recibir(tr3, e.firma(tr3, contenido, true)) // Iris no lo sabe cancelado: Argos decide
 	_, _ = e.inv.BarrerFirmas(ctx)
 	_, _ = e.pend.Procesar(ctx)
 	// Firma de 10×10 px: firma_invalida sin llamar a Argos.
@@ -526,5 +529,203 @@ func TestCorreccionDeRecepcionNoAuditaLaFirma(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("la firma quedó en la auditoría (%d filas)", n)
+	}
+}
+
+// Revisión de seguridad de la PR #83 (HIGH): nadie bloquea la recepción de otro tomando la clave
+// iris:recepcion:<id>. Un traslado que Iris no conoce (o sin técnico) no se encola ni admite firmas
+// (traslado_desconocido, reintentable); el destinatario real toma la recepción que registró otro
+// que ya no lo es (o que Argos rechazó); nadie ve la firma de un traslado ajeno.
+func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
+	e := nuevoEntorno(t)
+	contenido := pngDe(t, 300, 100)
+	suma := sha256.Sum256(contenido)
+	intruso := e.usuario()
+	e.vincular(intruso, "u-88")
+	ctxIntruso := e.como(intruso)
+	reciboDe := func(ctx context.Context, usuario, traslado int64, firma uuid.UUID) campo.ResultadoOperacion {
+		t.Helper()
+		r, err := e.cmp.Lote(ctx, campo.EntradaLote{DispositivoID: "tel-" + strconv.FormatInt(usuario, 10), Operaciones: []campo.OperacionLote{{
+			ID: uuid.Must(uuid.NewV7()).String(), Tipo: "traslado.recibir", OcurridoEn: &e.reloj,
+			Datos: map[string]any{"trasladoId": traslado, "firmaAdjuntoId": firma.String(), "recibidoEn": e.reloj.Add(-time.Minute).Format(time.RFC3339)},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Resultados[0]
+	}
+	registrarFirma := func(ctx context.Context, traslado int64) (uuid.UUID, error) {
+		id := uuid.Must(uuid.NewV7())
+		_, err := e.adj.Registrar.Ejecutar(ctx, adjuntos.EntradaRegistrar{ID: id, Entidad: "traslado", EntidadID: strconv.FormatInt(traslado, 10),
+			Tipo: "firma", Mime: "image/png", Tamano: int64(len(contenido)), SHA256: hex.EncodeToString(suma[:])})
+		return id, err
+	}
+	es404 := func(err error) bool {
+		p, _ := nucleo.AProblema(err)
+		return p != nil && p.Status == 404
+	}
+
+	// 1. Un id futuro que Iris no conoce: ni firma ni recepción; nada queda encolado.
+	futuro := trasladoNuevo() + 50000
+	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
+		t.Fatalf("la firma de un traslado desconocido no se registra: %v", err)
+	}
+	r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7()))
+	if r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoDesconocido {
+		t.Fatalf("traslado desconocido: %+v", r)
+	}
+	if _, err := pendientes.PorClave(context.Background(), e.pool, inventario.ClaveRecepcion(futuro)); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("la clave no se toma: %v", err)
+	}
+	// Conocido pero sin técnico: igual.
+	e.enviado(futuro, "u-77")
+	e.exec(`UPDATE integracion.argos_traslados SET tecnico_id_externo = NULL WHERE id = $1`, futuro)
+	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
+		t.Fatalf("sin técnico no admite firmas: %v", err)
+	}
+	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoDesconocido {
+		t.Fatalf("sin técnico: %+v", r)
+	}
+	// Llega el webhook: es de B (u-77). El intruso no puede; B sí.
+	e.enviado(futuro, "u-77")
+	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != "traslado_de_otro_tecnico" {
+		t.Fatalf("de otro técnico: %+v", r)
+	}
+	if r := e.recibir(futuro, e.firma(futuro, contenido, true)); r.Estado != "aplicada" || r.Recepcion == nil {
+		t.Fatalf("el destinatario recibe: %+v %+v", r, r.Error)
+	}
+	// La firma de B no la ve el intruso.
+	if _, err := e.adj.Listar.Ejecutar(ctxIntruso, adjuntos.EntradaListar{Entidad: "traslado", EntidadID: strconv.FormatInt(futuro, 10)}); !es404(err) {
+		t.Fatalf("nadie ve la firma de un traslado ajeno: %v", err)
+	}
+
+	// 2. El traslado era del intruso y Argos lo reasignó a B: B toma la recepción que el intruso dejó
+	// esperando la firma (auditado), con su cuerpo y como dueño.
+	tr := trasladoNuevo()
+	e.enviado(tr, "u-88")
+	fi, err := registrarFirma(ctxIntruso, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := reciboDe(ctxIntruso, intruso, tr, fi); r.Estado != "aplicada" {
+		t.Fatalf("el intruso recibe lo suyo: %+v %+v", r, r.Error)
+	}
+	if p := e.pendiente(tr); p.TecnicoUsuarioID == nil || *p.TecnicoUsuarioID != intruso {
+		t.Fatalf("dueño: %+v", p)
+	}
+	// Mientras sea del intruso, B no puede.
+	if _, err := registrarFirma(e.ctxTec, tr); !es404(err) {
+		t.Fatalf("B no registra firmas de un traslado ajeno: %v", err)
+	}
+	e.enviado(tr, "u-77")
+	tomada := e.recibir(tr, e.firma(tr, contenido, true))
+	if tomada.Estado != "aplicada" || tomada.Recepcion == nil || tomada.Recepcion.Estado != "esperando_firma" {
+		t.Fatalf("B toma la recepción: %+v %+v", tomada, tomada.Error)
+	}
+	p := e.pendiente(tr)
+	var cuerpo map[string]any
+	_ = json.Unmarshal(p.Payload, &cuerpo)
+	if p.TecnicoUsuarioID == nil || *p.TecnicoUsuarioID != e.tec || cuerpo["recibido_por"].(map[string]any)["id_externo"] != "u-77" {
+		t.Fatalf("B es el dueño y va su vínculo: %+v %v", p, cuerpo)
+	}
+	var n int
+	if err := e.pool.QueryRow(context.Background(), `SELECT count(*) FROM auditoria.cambios WHERE entidad = 'pendiente' AND entidad_id = $1
+		AND campo = 'tecnico_usuario_id' AND despues #>> '{}' = $2`, strconv.FormatInt(p.ID, 10), strconv.FormatInt(e.tec, 10)).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("el cambio de dueño se audita: %d %v", n, err)
+	}
+	// La firma del intruso ya no la ve él.
+	if _, err := e.adj.Listar.Ejecutar(ctxIntruso, adjuntos.EntradaListar{Entidad: "traslado", EntidadID: strconv.FormatInt(tr, 10)}); !es404(err) {
+		t.Fatalf("el intruso ya no ve las firmas: %v", err)
+	}
+
+	// 3. Argos rechazó la del intruso (fallido_negocio) y el traslado pasó a B: B la rehace.
+	tr2 := tr + 1
+	e.enviado(tr2, "u-88")
+	fi2, err := registrarFirma(ctxIntruso, tr2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reciboDe(ctxIntruso, intruso, tr2, fi2)
+	e.exec(`UPDATE integracion.pendientes SET estado = 'fallido_negocio', ultimo_error = 'traslado_de_otro_tecnico', codigo_error = 'traslado_de_otro_tecnico'
+		WHERE idempotency_key = $1`, inventario.ClaveRecepcion(tr2))
+	e.enviado(tr2, "u-77")
+	if r := e.recibir(tr2, e.firma(tr2, contenido, true)); r.Estado != "aplicada" || r.Recepcion.Estado != "esperando_firma" {
+		t.Fatalf("B rehace tras el rechazo: %+v %+v", r, r.Error)
+	}
+	// Ya hecha por otro: 409 recepcion_existente (no se pisa).
+	tr3 := tr + 2
+	e.enviado(tr3, "u-88")
+	fi3, err := registrarFirma(ctxIntruso, tr3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reciboDe(ctxIntruso, intruso, tr3, fi3)
+	e.exec(`UPDATE integracion.pendientes SET estado = 'hecho', ultimo_error = NULL, hecho_en = now() WHERE idempotency_key = $1`, inventario.ClaveRecepcion(tr3))
+	e.enviado(tr3, "u-77")
+	if r := e.recibir(tr3, e.firma(tr3, contenido, true)); r.Error == nil || r.Error.Codigo() != "recepcion_existente" {
+		t.Fatalf("hecha por otro: %+v", r)
+	}
+}
+
+// LOW de la revisión: un armado viejo (leyó el pendiente antes de que se rehiciera) no pisa la
+// recepción; un PNG dañado se rechaza local; series de más de 100 caracteres y recibidoEn anterior
+// al envío se rechazan.
+func TestArmadoViejoPNGDanadoYValidaciones(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := pruebas.ContextoSistema(e.pool)
+	contenido := pngDe(t, 300, 100)
+	tr := trasladoNuevo()
+	e.enviado(tr, "u-77")
+	r := e.recibir(tr, e.firma(tr, contenido, true))
+	if r.Recepcion == nil {
+		t.Fatalf("recibir: %+v", r.Error)
+	}
+	// Otro proceso cambia el pendiente (sube la versión) sin cambiar el estado: el armado que ya leyó
+	// la versión anterior no guarda.
+	viejo := e.pendiente(tr)
+	e.exec(`UPDATE integracion.pendientes SET version = version + 1 WHERE id = $1`, viejo.ID)
+	if ok, err := e.inv.GuardarArmadoConVersion(ctx, viejo.ID, viejo.Version); err != nil || ok {
+		t.Fatalf("armado viejo no pisa: %v %v", ok, err)
+	}
+	if res, err := e.inv.ArmarFirma(ctx, viejo.ID); err != nil || res.Resultado != "lista" {
+		t.Fatalf("armado con la versión actual: %+v %v", res, err)
+	}
+
+	// PNG dañado: cabecera válida, datos rotos.
+	danado := append([]byte(nil), contenido[:len(contenido)/2]...)
+	tr2 := tr + 1
+	e.enviado(tr2, "u-77")
+	e.recibir(tr2, e.firma(tr2, danado, true))
+	if res, err := e.inv.ArmarFirma(ctx, e.pendiente(tr2).ID); err != nil || res.Resultado != "invalida" {
+		t.Fatalf("PNG dañado: %+v %v", res, err)
+	}
+	if p := e.pendiente(tr2); p.CodigoError == nil || *p.CodigoError != "firma_invalida" || !strings.Contains(*p.UltimoError, "dañado") {
+		t.Fatalf("firma_invalida: %+v", p)
+	}
+
+	tr3 := tr + 2
+	e.enviado(tr3, "u-77")
+	firma := e.firma(tr3, contenido, true)
+	lote := func(datos map[string]any) *nucleo.Problema {
+		t.Helper()
+		res, err := e.cmp.Lote(e.ctxTec, campo.EntradaLote{DispositivoID: "tel-v", Operaciones: []campo.OperacionLote{{
+			ID: uuid.Must(uuid.NewV7()).String(), Tipo: "traslado.recibir", OcurridoEn: &e.reloj, Datos: datos}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Resultados[0].Error
+	}
+	larga := strings.Repeat("S", 101)
+	if p := lote(map[string]any{"trasladoId": tr3, "firmaAdjuntoId": firma.String(), "recibidoEn": e.reloj.Format(time.RFC3339),
+		"lineas": []any{map[string]any{"lineaId": 1, "cantidadRecibida": 9, "seriesFaltantes": []any{larga}}}}); p == nil || p.Codigo() != "validacion" {
+		t.Fatalf("serie de 101: %+v", p)
+	}
+	// Enviado a las 15:00: recibido a las 14:50 no (más de 5 min antes); a las 14:56 sí.
+	if p := lote(map[string]any{"trasladoId": tr3, "firmaAdjuntoId": firma.String(), "recibidoEn": "2026-10-30T14:50:00Z"}); p == nil || p.Codigo() != "validacion" ||
+		p.Errors[0].Field != "recibidoEn" {
+		t.Fatalf("recibido antes del envío: %+v", p)
+	}
+	if p := lote(map[string]any{"trasladoId": tr3, "firmaAdjuntoId": firma.String(), "recibidoEn": "2026-10-30T14:56:00Z"}); p != nil {
+		t.Fatalf("dentro de la tolerancia: %+v", p)
 	}
 }

@@ -8358,6 +8358,7 @@
             "type": "integer"
           },
           "seriesFaltantes": {
+            "description": "Cada serie de 1 a 100 caracteres",
             "items": {
               "type": "string"
             },

@@ -169,17 +169,18 @@ RETURNING *;
 
 -- name: CompletarEsperando :one
 -- El pendiente que esperaba algo de Iris (ultimo_error = @motivo, p. ej. esperando_firma) recibe su
--- cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo.
+-- cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo. Solo
+-- si nadie lo tocó desde que se leyó (@version): un armado viejo no pisa una recepción rehecha.
 UPDATE integracion.pendientes
 SET payload = @payload, estado = 'pendiente', ultimo_error = NULL, proximo_intento = @ahora, version = version + 1, updated_at = now()
-WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text
+WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text AND version = @version
 RETURNING *;
 
 -- name: FallarEsperando :one
 -- Lo que esperaba no sirve (firma inválida…): queda fallido_negocio con el código, sin llamar a Argos.
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', ultimo_error = @detalle::text, codigo_error = @codigo::text, version = version + 1, updated_at = now()
-WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text
+WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text AND version = @version
 RETURNING *;
 
 -- name: PendientesEsperando :many
@@ -198,11 +199,14 @@ LIMIT @limite;
 
 -- name: RehacerEsperando :one
 -- Un pendiente rechazado (fallido_negocio: Argos no guardó la clave, o nunca salió) vuelve a esperar
--- con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma).
+-- con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma). @estados: desde cuáles
+-- (fallido_negocio; o, si la toma el destinatario real, también pendiente, bloqueado o agotado).
+-- @tecnico_usuario_id (o null = el mismo) pasa a ser el dueño.
 UPDATE integracion.pendientes
 SET payload = @payload, estado = 'bloqueado', ultimo_error = @motivo::text, codigo_error = NULL, ultimo_status = NULL,
-    intentos = 0, version = version + 1, updated_at = now()
-WHERE id = @id AND estado = 'fallido_negocio'
+    intentos = 0, tomado_en = NULL, tecnico_usuario_id = coalesce(sqlc.narg(tecnico_usuario_id), tecnico_usuario_id),
+    version = version + 1, updated_at = now()
+WHERE id = @id AND estado = ANY (@estados::text[])
 RETURNING *;
 
 -- name: BodegaDeOrden :one

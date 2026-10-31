@@ -123,9 +123,10 @@ func correr() error {
 	// almacenamiento de adjuntos.
 	almacen, err := almacenAdjuntos(cfg)
 	if err != nil {
-		// Sin almacenamiento las recepciones esperan la firma (no tumba el worker).
-		log.Warn("adjuntos: sin almacenamiento en el worker; las recepciones de traslados esperarán la firma", "err", err)
-		almacen = nil
+		// El almacenamiento (IRIS_ADJUNTOS_ALMACEN / IRIS_ADJUNTOS_DIR, con valor por defecto) no abre:
+		// el worker no arranca, como la API. Si no, las recepciones esperarían la firma para siempre
+		// sin que nadie lo note.
+		return fmt.Errorf("adjuntos: el almacenamiento no abre en el worker: %w", err)
 	}
 	inventario.RegistrarAdjuntos()
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Almacen: almacen,

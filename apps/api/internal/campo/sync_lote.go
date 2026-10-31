@@ -209,7 +209,7 @@ var codigosNoBloqueantes = map[string]bool{"orden_reasignada": true, "orden_canc
 // serialización que Postgres cortó) no es un rechazo de la operación. No se guarda (el mismo id
 // se puede volver a mandar), y lo que sigue de esa orden en el lote tampoco se aplica (se
 // responde igual): el teléfono las deja en su cola y reintenta con espera (contratos/sync.md §3).
-var codigosReintentables = map[string]bool{"concurrencia": true}
+var codigosReintentables = map[string]bool{"concurrencia": true, inventario.CodigoTrasladoDesconocido: true}
 
 // reintentable: la respuesta «vuelve a mandarla» de una operación, sin guardarla.
 func reintentable(id string, p *nucleo.Problema) ResultadoOperacion {

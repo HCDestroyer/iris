@@ -68,6 +68,8 @@ type Registro struct {
 	EntidadID        string
 	TecnicoUsuarioID *int64
 	ActualizadoEn    time.Time
+	// Version: control optimista (CompletarEsperando / FallarEsperando la exigen).
+	Version int32
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
@@ -76,7 +78,7 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		Payload: json.RawMessage(f.Payload), PorResolver: f.PorResolver, Respuesta: json.RawMessage(f.Respuesta),
 		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
-		ActualizadoEn: f.UpdatedAt,
+		ActualizadoEn: f.UpdatedAt, Version: f.Version,
 	}
 }
 
@@ -293,11 +295,11 @@ func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (i
 // CompletarEsperando fija el cuerpo final de un pendiente que esperaba algo de Iris (Accion.Esperando
 // = motivo) y lo devuelve a la cola, una sola vez (auditado en la transacción de quien llama). ok =
 // false si ya no esperaba eso (otro lo completó o falló).
-func CompletarEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo string, cuerpo []byte, ahora time.Time, aviso Encolador) (Registro, bool, error) {
+func CompletarEsperando(ctx context.Context, t *auditoria.Tx, id int64, version int32, motivo string, cuerpo []byte, ahora time.Time, aviso Encolador) (Registro, bool, error) {
 	if !json.Valid(cuerpo) {
 		return Registro{}, false, errors.New("pendientes.CompletarEsperando: el cuerpo no es JSON")
 	}
-	f, err := pendientesbd.New(t).CompletarEsperando(ctx, pendientesbd.CompletarEsperandoParams{Payload: cuerpo, Ahora: ahora.UTC(), ID: id, Motivo: motivo})
+	f, err := pendientesbd.New(t).CompletarEsperando(ctx, pendientesbd.CompletarEsperandoParams{Payload: cuerpo, Ahora: ahora.UTC(), ID: id, Motivo: motivo, Version: version})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Registro{}, false, nil
 	}
@@ -315,8 +317,8 @@ func CompletarEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo s
 
 // FallarEsperando deja fallido_negocio (sin llamar a Argos) un pendiente cuya espera terminó mal
 // (p. ej. firma_invalida), con el código y el detalle, y avisa (integracion.pendiente_fallido).
-func FallarEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo, codigo, detalle string) (Registro, bool, error) {
-	f, err := pendientesbd.New(t).FallarEsperando(ctx, pendientesbd.FallarEsperandoParams{Detalle: detalle, Codigo: codigo, ID: id, Motivo: motivo})
+func FallarEsperando(ctx context.Context, t *auditoria.Tx, id int64, version int32, motivo, codigo, detalle string) (Registro, bool, error) {
+	f, err := pendientesbd.New(t).FallarEsperando(ctx, pendientesbd.FallarEsperandoParams{Detalle: detalle, Codigo: codigo, ID: id, Motivo: motivo, Version: version})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Registro{}, false, nil
 	}
@@ -366,20 +368,35 @@ func PorID(ctx context.Context, q pendientesbd.DBTX, id int64) (Registro, error)
 // DBTX es una transacción o el pool.
 type DBTX = pendientesbd.DBTX
 
-// RehacerEsperando: un pendiente fallido_negocio (Argos no guarda la Idempotency-Key de un 4xx, o el
-// cuerpo nunca salió) vuelve a esperar (motivo) con un cuerpo nuevo; auditado y con
-// integracion.pendiente_corregido. ok = false si ya no estaba fallido.
-func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo string, cuerpo []byte) (Registro, bool, error) {
+// RehacerEsperando vuelve a poner a esperar (motivo) un pendiente con un cuerpo nuevo. Sin dueño
+// nuevo (nuevoDueno nil), solo desde fallido_negocio (Argos no guardó la clave de un 4xx, o nunca
+// salió). Con dueño nuevo (el destinatario real toma la recepción que otro registró sin serlo),
+// también desde pendiente, bloqueado o agotado: nunca desde en_curso, hecho ni resuelto_manual.
+// Audita el cambio de dueño y emite integracion.pendiente_corregido.
+func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo string, cuerpo []byte, nuevoDueno *int64) (Registro, bool, error) {
 	if !json.Valid(cuerpo) {
 		return Registro{}, false, errors.New("pendientes.RehacerEsperando: el cuerpo no es JSON")
 	}
-	f, err := pendientesbd.New(t).RehacerEsperando(ctx, pendientesbd.RehacerEsperandoParams{Payload: cuerpo, Motivo: motivo, ID: id})
+	q := pendientesbd.New(t)
+	antes, err := q.PendientePorIDParaActualizar(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Registro{}, false, nil
 	}
 	if err != nil {
 		return Registro{}, false, err
 	}
-	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": EstadoFallidoNegocio}, map[string]any{"estado": f.Estado, "esperando": motivo})
+	estados := []string{EstadoFallidoNegocio}
+	if nuevoDueno != nil {
+		estados = append(estados, EstadoPendiente, EstadoBloqueado, EstadoAgotado)
+	}
+	f, err := q.RehacerEsperando(ctx, pendientesbd.RehacerEsperandoParams{Payload: cuerpo, Motivo: motivo, TecnicoUsuarioID: nuevoDueno, ID: id, Estados: estados})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Registro{}, false, nil
+	}
+	if err != nil {
+		return Registro{}, false, err
+	}
+	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "tecnico_usuario_id": antes.TecnicoUsuarioID},
+		map[string]any{"estado": f.Estado, "esperando": motivo, "tecnico_usuario_id": f.TecnicoUsuarioID})
 	return aRegistro(f), true, t.Emitir(EventoCorregido, eventoDe(f))
 }

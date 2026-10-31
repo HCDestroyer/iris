@@ -7124,6 +7124,7 @@ export interface components {
             cantidadRecibida: number;
             /** Format: int64 */
             lineaId: number;
+            /** @description Cada serie de 1 a 100 caracteres */
             seriesFaltantes?: string[] | null;
         };
         LineaTraslado: {
