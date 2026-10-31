@@ -199,6 +199,17 @@ func (m *Modulo) nuevoRegistrarRechazo() *auditoria.Caso[EntradaRechazo, *Estado
 // codigosNoBloqueantes: rechazos que se evalúan operación por operación.
 var codigosNoBloqueantes = map[string]bool{"orden_reasignada": true, "orden_cancelada": true}
 
+// codigosReintentables: el choque con otra transacción (409 concurrencia: deadlock o
+// serialización que Postgres cortó) no es un rechazo de la operación. No se guarda (el mismo id
+// se puede volver a mandar), y lo que sigue de esa orden en el lote tampoco se aplica (se
+// responde igual): el teléfono las deja en su cola y reintenta con espera (contratos/sync.md §3).
+var codigosReintentables = map[string]bool{"concurrencia": true}
+
+// reintentable: la respuesta «vuelve a mandarla» de una operación, sin guardarla.
+func reintentable(id string, p *nucleo.Problema) ResultadoOperacion {
+	return ResultadoOperacion{ID: id, Estado: "rechazada", Error: p}
+}
+
 // Lote aplica un lote de operaciones del teléfono (canal campo).
 func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error) {
 	ctx = contexto.ConCanal(ctx, contexto.CanalCampo)
@@ -236,7 +247,8 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	comodatos := m.comodatosDelLote(ctx, in.Operaciones, inicio.Ordenes)
 
 	enEsteLote := map[uuid.UUID]ResultadoOperacion{}
-	bloqueadas := map[int64]string{} // orden → operación rechazada que la bloquea
+	bloqueadas := map[int64]string{}        // orden → operación rechazada que la bloquea
+	choques := map[int64]*nucleo.Problema{} // orden → concurrencia: lo que sigue se reintenta
 	for i, op := range in.Operaciones {
 		id := ids[i]
 		if previa, ok := enEsteLote[id]; ok {
@@ -256,14 +268,20 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 		s := &OpSync{ID: id, Tipo: op.Tipo, DispositivoID: in.DispositivoID, VersionBase: op.VersionBase,
 			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora)}
 		var res ResultadoOperacion
-		if bloqueo, ok := bloqueadas[op.OrdenID]; ok {
+		if choque, ok := choques[op.OrdenID]; ok {
+			res = reintentable(op.ID, choque)
+		} else if bloqueo, ok := bloqueadas[op.OrdenID]; ok {
 			res = m.rechazar(ctx, s, op.OrdenID, nucleo.Conflicto("bloqueada_por_rechazo",
 				"Una operación anterior de esta orden ("+bloqueo+") fue rechazada; resuélvela primero"))
 		} else {
 			s.Existencia, s.pre = existencias[i], comodatos[i]
 			res = m.aplicar(ctx, s, op)
 		}
-		if res.Estado == "rechazada" && res.Error != nil && !codigosNoBloqueantes[res.Error.Codigo()] {
+		if res.Estado == "rechazada" && res.Error != nil && codigosReintentables[res.Error.Codigo()] {
+			if _, ya := choques[op.OrdenID]; !ya {
+				choques[op.OrdenID] = res.Error
+			}
+		} else if res.Estado == "rechazada" && res.Error != nil && !codigosNoBloqueantes[res.Error.Codigo()] {
 			if _, ya := bloqueadas[op.OrdenID]; !ya {
 				bloqueadas[op.OrdenID] = op.ID
 			}
@@ -311,6 +329,9 @@ func (m *Modulo) aplicar(ctx context.Context, s *OpSync, op OperacionLote) Resul
 		return r
 	case err != nil:
 		p, _ := nucleo.AProblema(err)
+		if codigosReintentables[p.Codigo()] {
+			return reintentable(s.ID.String(), p)
+		}
 		return m.rechazar(ctx, s, op.OrdenID, p)
 	}
 	return ResultadoOperacion{ID: s.ID.String(), Estado: "aplicada", Aviso: o.Aviso,

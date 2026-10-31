@@ -130,7 +130,7 @@ func correr() error {
 		return err
 	}
 	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
-		Encuestas: sop.GenerarEncuestaOrden})
+		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.

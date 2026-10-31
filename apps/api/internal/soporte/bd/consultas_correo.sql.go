@@ -1009,7 +1009,7 @@ func (q *Queries) TicketDeHilo(ctx context.Context, arg TicketDeHiloParams) (int
 }
 
 const ticketPorNumero = `-- name: TicketPorNumero :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo FROM soporte.tickets WHERE numero = $1
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets WHERE numero = $1
 `
 
 func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTicket, error) {
@@ -1063,6 +1063,8 @@ func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTi
 		&i.Propuesta,
 		&i.PropuestaEn,
 		&i.PropuestaMotivo,
+		&i.PropuestaOrigen,
+		&i.PropuestaOrdenID,
 	)
 	return i, err
 }

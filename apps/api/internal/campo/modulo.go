@@ -115,6 +115,9 @@ type Config struct {
 	Agenda *agenda.Modulo
 	// Posiciones: límites de la ingesta de ubicación en vivo (LimitesPosicionesDesdeEntorno).
 	Posiciones LimitesPosiciones
+	// Soporte: los casos de uso de tickets con que la orden iguala su asignación con la del
+	// ticket (tickets.asignar, tickets.ver). Por defecto, uno con el mismo reloj.
+	Soporte *soporte.Modulo
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -172,6 +175,10 @@ type Modulo struct {
 	UltimasPosiciones   *auditoria.Caso[EntradaUltimasPosiciones, UltimasPosiciones]
 	MantenerPosiciones  *auditoria.Caso[struct{}, ResultadoMantenimiento]
 	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
+
+	// Ticket y orden de la mano (ticket_orden.go).
+	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
+	IgualarAsignacion  *auditoria.Caso[EntradaIgualarAsignacion, AsignacionTicketOrden]
 }
 
 // Nuevo arma el módulo.
@@ -193,6 +200,9 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	if cfg.Agenda == nil {
 		cfg.Agenda = agenda.Nuevo(agenda.Config{Reloj: cfg.Reloj, ZonaHoraria: cfg.ZonaHoraria})
+	}
+	if cfg.Soporte == nil {
+		cfg.Soporte = soporte.Nuevo(soporte.Config{Reloj: cfg.Reloj})
 	}
 	cfg.Posiciones = cfg.Posiciones.conDefectos()
 	m := &Modulo{cfg: cfg}
@@ -243,6 +253,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.UltimasPosiciones = m.nuevoUltimasPosiciones()
 	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
 	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
+	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()
+	m.IgualarAsignacion = m.nuevoIgualarAsignacion()
 	return m
 }
 

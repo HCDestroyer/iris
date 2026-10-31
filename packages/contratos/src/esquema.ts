@@ -1549,6 +1549,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/igualar-asignacion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Igualar la asignación de la orden y su ticket
+         * @description Permiso: `ordenes.igualar_asignacion`. Copia técnico y cuadrilla en el sentido pedido: `desde = ticket` (la orden toma los del ticket; exige `ordenes.asignar` y emite `orden.asignada`) o `desde = orden` (el ticket toma los de la orden; exige `tickets.asignar` y emite `ticket.asignado`), con las validaciones de cada acción. Lleva la versión de los dos (409 si una cambió). 422 `sin_ticket`, `ticket_sin_asignar`, `orden_sin_asignar`, `sin_cambios`.
+         */
+        post: operations["igualarAsignacionOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/iniciar-camino": {
         parameters: {
             query?: never;
@@ -3107,6 +3127,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/crear-orden": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear la orden del ticket ya asignada (y programada)
+         * @description Permiso: `tickets.crear_orden`. Exige además `ordenes.crear`, `ordenes.asignar` y, con `inicio`, `ordenes.programar`. En un paso y en una transacción: crea la orden ligada al ticket (visita por defecto; hereda cliente, servicio, zona, dirección y contacto; el ticket recibe una nota interna), la asigna al técnico y/o la cuadrilla (al menos uno: 422 `validacion` con regla `asignacion_requerida`) y, con `inicio`, la programa (422 de agenda como programar). Ticket cerrado: 422 `ticket_cerrado`. La misma Idempotency-Key con otro ticket: 422 `idempotencia_reutilizada`. Emite `orden.creada` (con `ticket_id`), `orden.asignada` y, con fecha, `orden.programada` y `orden.estado_cambiada`.
+         */
+        post: operations["crearOrdenDeTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/escalar": {
         parameters: {
             query?: never;
@@ -4114,6 +4154,10 @@ export interface components {
              * @description Limita el rol a una zona
              */
             zonaId?: number;
+        };
+        AsignacionTicketOrden: {
+            orden: components["schemas"]["Orden"];
+            ticket: components["schemas"]["Ticket"];
         };
         Ausencia: {
             /** Format: date-time */
@@ -5220,6 +5264,54 @@ export interface components {
              */
             zonaId?: number;
         };
+        EntradaCrearOrdenDeTicket: {
+            /**
+             * Format: int64
+             * @description Bodega del técnico en Argos
+             */
+            bodegaId?: number;
+            /**
+             * Format: int64
+             * @description Cuadrilla (catálogo de agenda). Ausente = ninguna (no se hereda la del ticket: el panel la propone)
+             */
+            cuadrillaId?: number;
+            /** @description Trabajo a realizar; vacío = el asunto del ticket */
+            descripcion?: string;
+            /** @description Vacía = la del servicio o el cliente del ticket en Argos */
+            direccion?: string;
+            /**
+             * Format: date-time
+             * @description Fin estimado; por defecto, inicio + la duración del tipo
+             */
+            fin?: string;
+            /**
+             * Format: date-time
+             * @description Con fecha, la orden queda programada para el técnico (exige tecnicoId; mismas validaciones de agenda que programar)
+             */
+            inicio?: string;
+            /**
+             * Format: int64
+             * @description Otra plantilla del mismo tipo; por defecto, la del tipo
+             */
+            plantillaId?: number;
+            /**
+             * Format: int64
+             * @description Técnico (usuario). Técnico, cuadrilla o ambos: al menos uno (422 asignacion_requerida)
+             */
+            tecnicoId?: number;
+            /**
+             * @description visita por defecto
+             * @enum {string}
+             */
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /** Format: date-time */
+            ventanaFin?: string;
+            /**
+             * Format: date-time
+             * @description Ventana de llegada acordada con el cliente (va con ventanaFin)
+             */
+            ventanaInicio?: string;
+        };
         EntradaCrearPlantilla: {
             /** @description Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión */
             borrador?: boolean;
@@ -5734,6 +5826,23 @@ export interface components {
             /** @enum {string} */
             tls: "tls" | "starttls";
             usuario: string;
+        };
+        EntradaIgualarAsignacion: {
+            /**
+             * @description ticket = la orden toma el responsable y la cuadrilla del ticket (ordenes.asignar); orden = el ticket toma el técnico y la cuadrilla de la orden (tickets.asignar)
+             * @enum {string}
+             */
+            desde: "ticket" | "orden";
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+            /**
+             * Format: int32
+             * @description Versión leída del ticket; si cambió, 409
+             */
+            versionTicket: number;
         };
         EntradaIniciarSesion: {
             contrasena: string;
@@ -7730,7 +7839,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -7951,6 +8060,16 @@ export interface components {
             /** Format: date-time */
             en: string;
             motivo: string | null;
+            /**
+             * Format: int64
+             * @description La orden cuyo cierre la propuso (origen orden)
+             */
+            ordenId: number | null;
+            /**
+             * @description horus = aviso de Horus; orden = se cerró la orden de trabajo del ticket
+             * @enum {string}
+             */
+            origen: "horus" | "orden";
         };
         Prospecto: {
             /** Format: date-time */
@@ -8920,7 +9039,7 @@ export interface components {
             origen: "panel" | "portal" | "correo" | "telegram" | "horus" | "argos" | "api";
             /** @enum {string} */
             prioridad: "baja" | "media" | "alta" | "critica";
-            /** @description Propuesta pendiente de Horus (el router volvió, el hallazgo se resolvió); se descarta al cambiar de estado */
+            /** @description Propuesta pendiente: de Horus (el router volvió, el hallazgo se resolvió) o del cierre de su orden de trabajo; se descarta al cambiar de estado */
             propuesta?: components["schemas"]["PropuestaTicket"];
             /**
              * Format: int64
@@ -15336,6 +15455,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    igualarAsignacionOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaIgualarAsignacion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AsignacionTicketOrden"];
                 };
             };
             /** @description Unauthorized */
@@ -21815,6 +22017,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearOrdenDeTicket: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearOrdenDeTicket"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
                 };
             };
             /** @description Unauthorized */

@@ -228,6 +228,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes, 
 	aplicarSLA(&despues, cal)
 	if despues.Estado != antes.Estado {
 		despues.Propuesta, despues.PropuestaEn, despues.PropuestaMotivo = nil, nil, nil
+		despues.PropuestaOrigen, despues.PropuestaOrdenID = nil, nil
 	}
 	f, err := q.GuardarTicket(ctx, soportebd.GuardarTicketParams{
 		Estado: despues.Estado, Prioridad: despues.Prioridad, AsignadoA: despues.AsignadoA, CuadrillaID: despues.CuadrillaID,
@@ -238,6 +239,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, antes, 
 		PrimeraRespuestaEn: despues.PrimeraRespuestaEn, EnEsperaDesde: despues.EnEsperaDesde,
 		ResueltoEn: despues.ResueltoEn, CerradoEn: despues.CerradoEn, FusionadoEnID: despues.FusionadoEnID,
 		Propuesta: despues.Propuesta, PropuestaEn: despues.PropuestaEn, PropuestaMotivo: despues.PropuestaMotivo,
+		PropuestaOrigen: despues.PropuestaOrigen, PropuestaOrdenID: despues.PropuestaOrdenID,
 		ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {

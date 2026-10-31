@@ -239,6 +239,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		return responder(m.QuitarFormulario.Ejecutar(ctx, e))
 	})
 
+	m.registrarTicketOrden(api)
 	m.registrarPlantillas(api)
 	// Datos de operaciones del lote que no son el cuerpo de una acción del panel: se publican
 	// como componentes para que packages/sync los tome del contrato.
@@ -296,5 +297,34 @@ func (m *Modulo) Registrar(api huma.API) {
 	lote.MaxBodyBytes = maxBytesLote
 	huma.Register(api, lote, func(ctx context.Context, in *conClave[EntradaLote]) (*cuerpo[RespuestaLote], error) {
 		return responder(m.Lote(ctx, in.Body))
+	})
+}
+
+// registrarTicketOrden publica las acciones que llevan de la mano el ticket y su orden.
+func (m *Modulo) registrarTicketOrden(api huma.API) {
+	crear := operacion("crearOrdenDeTicket", http.MethodPost, "/api/v1/tickets/{id}/crear-orden", "Crear la orden del ticket ya asignada (y programada)",
+		nucleo.PermTicketsCrearOrden, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
+	crear.Description += " Exige además `ordenes.crear`, `ordenes.asignar` y, con `inicio`, `ordenes.programar`. En un paso y en una transacción: crea la orden ligada al ticket " +
+		"(visita por defecto; hereda cliente, servicio, zona, dirección y contacto; el ticket recibe una nota interna), la asigna al técnico y/o la cuadrilla " +
+		"(al menos uno: 422 `validacion` con regla `asignacion_requerida`) y, con `inicio`, la programa (422 de agenda como programar). Ticket cerrado: 422 `ticket_cerrado`. La misma Idempotency-Key con otro ticket: 422 `idempotencia_reutilizada`. " +
+		"Emite `orden.creada` (con `ticket_id`), `orden.asignada` y, con fecha, `orden.programada` y `orden.estado_cambiada`."
+	huma.Register(api, crear, func(ctx context.Context, in *conID[EntradaCrearOrdenDeTicket]) (*cuerpo[Orden], error) {
+		e := in.Body
+		if err := sinNulos(e); err != nil {
+			return nil, err
+		}
+		e.TicketID, e.ClaveIdempotencia = in.ID, in.IdempotencyKey
+		return responder(m.CrearOrdenDeTicket.Ejecutar(ctx, e))
+	})
+
+	igualar := accion("igualarAsignacionOrden", "igualar-asignacion", "Igualar la asignación de la orden y su ticket",
+		"Copia técnico y cuadrilla en el sentido pedido: `desde = ticket` (la orden toma los del ticket; exige `ordenes.asignar` y emite `orden.asignada`) o `desde = orden` "+
+			"(el ticket toma los de la orden; exige `tickets.asignar` y emite `ticket.asignado`), con las validaciones de cada acción. Lleva la versión de los dos (409 si una cambió). "+
+			"422 `sin_ticket`, `ticket_sin_asignar`, `orden_sin_asignar`, `sin_cambios`.",
+		nucleo.PermOrdenesIgualarAsignacion)
+	huma.Register(api, igualar, func(ctx context.Context, in *conID[EntradaIgualarAsignacion]) (*cuerpo[AsignacionTicketOrden], error) {
+		e := in.Body
+		e.ID = in.ID
+		return responder(m.IgualarAsignacion.Ejecutar(ctx, e))
 	})
 }

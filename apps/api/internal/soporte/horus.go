@@ -195,7 +195,9 @@ func (m *Modulo) proponer(ctx context.Context, t *auditoria.Tx, q *soportebd.Que
 	if _, err := mensajeSistema(ctx, q, antes, false, motivo+" Propuesta: "+accion+" el ticket (un agente lo confirma)."); err != nil {
 		return antes, err
 	}
-	if antes.Propuesta != nil && *antes.Propuesta == accion {
+	// La misma propuesta de Horus ya estaba: solo la nota. Una del cierre de una orden se
+	// reemplaza: Horus manda (la suya no se pierde).
+	if antes.Propuesta != nil && *antes.Propuesta == accion && origenPropuesta(antes) == PropuestaDeHorus {
 		return antes, nil
 	}
 	cal, err := cargarCalendario(ctx, q, antes.CalendarioID)
@@ -205,12 +207,13 @@ func (m *Modulo) proponer(ctx context.Context, t *auditoria.Tx, q *soportebd.Que
 	ahora := m.ahora()
 	despues := antes
 	despues.Propuesta, despues.PropuestaEn, despues.PropuestaMotivo = &accion, &ahora, &motivo
+	despues.PropuestaOrigen, despues.PropuestaOrdenID = ptr(PropuestaDeHorus), nil
 	f, err := guardar(ctx, t, q, antes, despues, cal)
 	if err != nil {
 		return antes, err
 	}
 	return f, t.Emitir("ticket.resolucion_propuesta", map[string]any{
-		"ticket_id": f.ID, "accion": accion, "motivo": motivo, "origen": "horus", "entrante_id": entrante,
+		"ticket_id": f.ID, "accion": accion, "motivo": motivo, "origen": PropuestaDeHorus, "entrante_id": entrante, "orden_id": nil,
 	})
 }
 
@@ -332,6 +335,7 @@ func (m *Modulo) incidenteCaido(ctx context.Context, t *auditoria.Tx, q *soporte
 				}
 				despues := ultimo
 				despues.Propuesta, despues.PropuestaEn, despues.PropuestaMotivo = nil, nil, nil
+				despues.PropuestaOrigen, despues.PropuestaOrdenID = nil, nil
 				if _, err := guardar(ctx, t, q, ultimo, despues, cal); err != nil {
 					return ResultadoHorus{}, err
 				}

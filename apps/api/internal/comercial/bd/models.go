@@ -1418,6 +1418,8 @@ type SoporteTicket struct {
 	Propuesta          *string
 	PropuestaEn        *time.Time
 	PropuestaMotivo    *string
+	PropuestaOrigen    *string
+	PropuestaOrdenID   *int64
 }
 
 type SoporteTicketEvento struct {

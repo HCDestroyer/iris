@@ -213,6 +213,11 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 		t.Fatalf("no debía vincular: %+v %+v", otro.TicketPadreID, sinInst.TicketPadreID)
 	}
 
+	// Ya había una propuesta del cierre de una orden: la de Horus la reemplaza (no se pierde).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE soporte.tickets SET propuesta = 'resolver', propuesta_en = now(),
+		propuesta_motivo = 'La orden OT-1 se cerró', propuesta_origen = 'orden', propuesta_orden_id = 999999 WHERE id = $1`, ma.ID); err != nil {
+		t.Fatal(err)
+	}
 	// Arriba: propuesta de resolver (no resuelve solo); repetido, nada más.
 	e3, p3 := router(emp, 6100, horus.EstadoArriba)
 	ev3 := eventoHorus(t, horus.EventoRouterEstadoCambiado, p3)
@@ -222,8 +227,8 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 		t.Fatalf("arriba: %s", r)
 	}
 	tk, _ = m.VerTicket.Ejecutar(sis, soporte.EntradaVerTicket{ID: ma.ID})
-	if tk.Estado != "nuevo" || tk.Propuesta == nil || tk.Propuesta.Accion != "resolver" {
-		t.Fatalf("propuesta: %+v", tk)
+	if tk.Estado != "nuevo" || tk.Propuesta == nil || tk.Propuesta.Accion != "resolver" || tk.Propuesta.Origen != "horus" || tk.Propuesta.OrdenID != nil {
+		t.Fatalf("propuesta: %+v", tk.Propuesta)
 	}
 	if n := contar(eventosDe(t, ma.ID), "ticket.resolucion_propuesta"); n != 1 {
 		t.Fatalf("ticket.resolucion_propuesta: %d", n)

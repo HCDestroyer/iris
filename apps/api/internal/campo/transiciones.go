@@ -113,6 +113,10 @@ func (m *Modulo) nuevoFallarOrden() *auditoria.Caso[EntradaFallarOrden, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// Orden de bloqueo de campo: orden → ticket → candado del técnico (guardar).
+			if err := bloquearTicket(ctx, t, antes); err != nil {
+				return antes, "", err
+			}
 			cuando := m.cuandoEn(in.Sync, antes)
 			// Fallar exige reanudar antes: la pausa queda cerrada con su duración y el técnico
 			// confirma en sitio (o en camino) que la visita no se puede hacer.
@@ -161,6 +165,10 @@ func (m *Modulo) nuevoCancelarOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// Orden de bloqueo de campo: orden → ticket → candado del técnico (guardar).
+			if err := bloquearTicket(ctx, t, antes); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "cancelar", EstadoPendiente, EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada); err != nil {
 				return antes, "", err
 			}
@@ -200,6 +208,10 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// Orden de bloqueo de campo: orden → ticket → candado del técnico (guardar).
+			if err := bloquearTicket(ctx, t, antes); err != nil {
+				return antes, "", err
+			}
 			if err := exigirEstado(antes, "reabrir", EstadoFallida, EstadoCancelada); err != nil {
 				return antes, "", err
 			}
@@ -222,8 +234,27 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			if err != nil {
 				return f, "", err
 			}
-			return f, "", cambioDeEstado(ctx, t, q, antes, f, &motivo, nil, ahora)
+			if err := cambioDeEstado(ctx, t, q, antes, f, &motivo, nil, ahora); err != nil {
+				return f, "", err
+			}
+			// La orden vuelve a estar abierta: una propuesta de resolver del ticket por el cierre de
+			// otra orden ya no vale.
+			if f.TicketID != nil {
+				return f, "", soporte.DescartarPropuestaDeOrden(ctx, t, *f.TicketID, f.Numero)
+			}
+			return f, "", nil
 		})
+}
+
+// bloquearTicket toma el ticket de la orden (si lo hay) con FOR UPDATE antes de guardar la orden.
+// Las acciones que después escriben en el ticket (nota, propuesta) lo harían tras el candado del
+// técnico del feed (alimentarFeed); crear-orden y crear con ticketId toman ticket y luego técnico.
+// Con el ticket primero, el orden es siempre orden → ticket → técnico y no hay deadlock.
+func bloquearTicket(ctx context.Context, t *auditoria.Tx, f campobd.CampoOrden) error {
+	if f.TicketID == nil {
+		return nil
+	}
+	return soporte.BloquearTicket(ctx, t, *f.TicketID)
 }
 
 // notaEnTicket deja una nota interna en el ticket de origen (si lo hay).

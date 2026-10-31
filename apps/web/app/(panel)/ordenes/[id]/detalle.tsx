@@ -9,9 +9,10 @@ import { Contacto, FichaArgos } from "@/componentes/clientes/ficha-cliente";
 import { useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { IgualarAsignacion } from "@/componentes/ordenes/asignacion-ticket-orden";
 import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { PieLista } from "@/componentes/pie-lista";
-import { nombreUsuario, useUsuarios } from "@/componentes/tickets/catalogos";
+import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
@@ -224,7 +225,7 @@ function Detalle({ id }: { id: number }) {
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente y Argos">
                     {verPendientes ? <PendientesArgos ordenId={o.id} /> : null}
-                    {o.ticketId !== null ? <TicketVinculado ticketId={o.ticketId} /> : null}
+                    {o.ticketId !== null ? <TicketVinculado ticketId={o.ticketId} orden={o} usuarios={listaUsuarios} recargarOrden={recargar} /> : null}
                     {o.clienteId !== null && puede(["clientes.ver"]) ? (
                         <FichaArgos
                             clienteId={o.clienteId}
@@ -252,7 +253,17 @@ function Detalle({ id }: { id: number }) {
     );
 }
 
-function TicketVinculado({ ticketId }: { ticketId: number }) {
+function TicketVinculado({
+    ticketId,
+    orden,
+    usuarios,
+    recargarOrden,
+}: {
+    ticketId: number;
+    orden: OrdenDetalle;
+    usuarios: readonly Usuario[] | null | undefined;
+    recargarOrden: () => Promise<void>;
+}) {
     const { puede } = useSesion();
     const ve = puede(["tickets.ver"]);
     const ticket = useLectura<Schema<"Ticket"> | null>(async (signal) => (ve ? resolver(api().GET("/api/v1/tickets/{id}", { params: { path: { id: ticketId } }, signal })) : null));
@@ -283,6 +294,28 @@ function TicketVinculado({ ticketId }: { ticketId: number }) {
                         </Link>
                         <span className="break-words">{ticket.datos.asunto}</span>
                         <InsigniaEstadoTicket estado={ticket.datos.estado} />
+                        <p className="text-xs text-muted-foreground" data-testid="ticket-asignado">
+                            Responsable del ticket:{" "}
+                            {[
+                                ticket.datos.asignadoA !== null ? (usuarios?.find((u) => u.id === ticket.datos?.asignadoA)?.nombre ?? `Usuario ${ticket.datos.asignadoA}`) : null,
+                                ticket.datos.cuadrillaId !== null ? `Cuadrilla ${ticket.datos.cuadrillaId}` : null,
+                            ]
+                                .filter(Boolean)
+                                .join(" · ") || "sin asignar"}
+                        </p>
+                        <IgualarAsignacion
+                            ticket={ticket.datos}
+                            orden={orden}
+                            usuarios={usuarios}
+                            alHecho={(r) => {
+                                ticket.reemplazar(r.ticket);
+                                void recargarOrden();
+                            }}
+                            recargar={() => {
+                                ticket.reintentar();
+                                void recargarOrden();
+                            }}
+                        />
                     </>
                 )}
             </TarjetaContenido>

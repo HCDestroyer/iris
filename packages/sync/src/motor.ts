@@ -37,6 +37,13 @@ export const DIA_MS = 24 * 60 * 60 * 1000;
 /** Rechazos que dicen algo de la orden entera: no bloquean la cola, la API juzga cada operación. */
 export const CODIGOS_TERMINALES: ReadonlySet<string> = new Set(["orden_cancelada", "orden_reasignada"]);
 
+/**
+ * Choque con otra transacción en la API (409 `concurrencia`): no es un rechazo. La API no lo
+ * guarda; la operación (y lo que sigue de su orden) queda en la cola con el mismo id y la pasada
+ * termina con un `ErrorTransporte` para que el bucle reintente con espera corta (§3).
+ */
+export const CODIGOS_REINTENTABLES: ReadonlySet<string> = new Set(["concurrencia"]);
+
 /** Rechazo que solo repite uno anterior de la misma orden en el lote: vuelve a la cola, detrás. */
 export const CODIGO_BLOQUEADA = "bloqueada_por_rechazo";
 
@@ -301,6 +308,9 @@ export class MotorSync {
     private enEspera = false;
     /** `reintentarAhora` / `despertar` llegaron sin espera que cortar: la próxima no se duerme. */
     private reintentoPedido = false;
+    /** Operaciones que chocaron (`concurrencia`) en la pasada en curso, y el problema de la última. */
+    private chocadas = new Set<string>();
+    private choque: Problema | null = null;
     private despertarPedido = false;
 
     private constructor(opciones: OpcionesMotor, meta: MetaSync) {
@@ -642,12 +652,18 @@ export class MotorSync {
             // mala), luego las subidas, y otra vuelta para lo que ellas liberaron. Lo que el
             // servidor no contestó no se repite en la misma pasada.
             const sinRespuesta = new Set<string>();
+            this.chocadas.clear();
+            this.choque = null;
             await this.enviarPendientes(sinRespuesta);
             const errorSubida = await this.subirAdjuntos();
             await this.enviarPendientes(sinRespuesta);
             await this.traerCambios();
             if (errorSubida) {
                 throw errorSubida;
+            }
+            if (this.chocadas.size > 0) {
+                // Siguen en la cola con su id: el bucle reintenta tras la espera.
+                throw new ErrorTransporte("http", "La API pidió reintentar: la orden cambió a la vez en otro lado", 409, this.choque);
             }
         });
     }
@@ -1085,7 +1101,7 @@ export class MotorSync {
                 avance = await this.procesarResultados(lote, resultados);
                 const contestadas = new Set(resultados.map((r) => r.id));
                 for (const op of lote) {
-                    if (!contestadas.has(op.id)) {
+                    if (!contestadas.has(op.id) || this.chocadas.has(op.id)) {
                         sinRespuesta.add(op.id);
                     }
                 }
@@ -1180,6 +1196,13 @@ export class MotorSync {
             const r = porId.get(op.id);
             if (!r) {
                 poner.push({ ...op, intentos: op.intentos + 1 });
+                continue;
+            }
+            if (r.estado === "rechazada" && CODIGOS_REINTENTABLES.has(codigoProblema(r.error ?? null) ?? "")) {
+                // Choque, no rechazo: queda pendiente con el mismo id (la API no lo guardó).
+                poner.push({ ...op, intentos: op.intentos + 1 });
+                this.chocadas.add(op.id);
+                this.choque = r.error ?? null;
                 continue;
             }
             avance = true;

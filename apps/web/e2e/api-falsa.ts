@@ -95,6 +95,8 @@ const PERMISOS_ORDENES: Permiso[] = [
     "ordenes.registrar",
     "ordenes.reprogramar",
     "ordenes.ver",
+    "tickets.crear_orden",
+    "ordenes.igualar_asignacion",
 ];
 
 /** Permisos comerciales del rol `ventas` (i2.md, «Seguimiento comercial»). */
@@ -267,6 +269,8 @@ export type ApiFalsa = {
     cambiarVersionBuzon: (buzonId: number) => void;
     /** Otra persona cambió el ticket: sube su versión (la próxima acción con la vieja da 409). */
     cambiarVersion: (ticketId: number) => void;
+    /** Tickets del escenario (se pueden cambiar en la prueba). */
+    tickets: Schema<"Ticket">[];
     /** Órdenes, adjuntos y pendientes del escenario (se pueden cambiar en la prueba). */
     ordenes: EscenarioOrdenes;
     /** Otra persona cambió la orden: sube su versión (la próxima acción con la vieja da 409). */
@@ -826,6 +830,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     return {
         mutaciones,
         peticiones,
+        tickets: esc.tickets,
         responderProblema: (prefijo, p, n) => {
             problemas.push({ prefijo, p, n });
         },

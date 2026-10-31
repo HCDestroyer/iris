@@ -21,8 +21,10 @@ import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { DialogoCrearOrden } from "@/componentes/ordenes/crear-orden";
+import { DialogoCrearOrdenTicket } from "@/componentes/ordenes/crear-orden-ticket";
 import { OrdenesDelTicket } from "@/componentes/ordenes/ordenes-ticket";
 import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
+import { PropuestaResolucion } from "@/componentes/tickets/propuesta-resolucion";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
@@ -173,6 +175,7 @@ function Detalle({ id }: { id: number }) {
                         </Link>
                     </Aviso>
                 ) : null}
+                <PropuestaResolucion propuesta={t.propuesta} />
                 {t.fusionadoEnId !== null ? (
                     <Aviso tono="info" titulo="Ticket fusionado" icono={GitMerge}>
                         Se cerró como duplicado.{" "}
@@ -192,7 +195,11 @@ function Detalle({ id }: { id: number }) {
                         }}
                         recargar={refrescarTodo}
                     />
-                    {puede(["ordenes.crear"]) && t.estado !== "cerrado" ? <DialogoCrearOrden ticket={{ id: t.id, numero: t.numero, asunto: t.asunto }} /> : null}
+                    {t.estado === "cerrado" ? null : puede(["tickets.crear_orden"]) ? (
+                        <DialogoCrearOrdenTicket ticket={t} usuarios={listaUsuarios} />
+                    ) : puede(["ordenes.crear"]) ? (
+                        <DialogoCrearOrden ticket={{ id: t.id, numero: t.numero, asunto: t.asunto }} />
+                    ) : null}
                 </div>
             </header>
 
@@ -223,7 +230,16 @@ function Detalle({ id }: { id: number }) {
 
                     <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} />
                     <TicketsHijos ticketId={t.id} />
-                    {puede(["ordenes.ver", "ordenes.ver_propias"]) ? <OrdenesDelTicket ticketId={t.id} /> : null}
+                    {puede(["ordenes.ver", "ordenes.ver_propias"]) ? (
+                        <OrdenesDelTicket
+                            ticket={t}
+                            usuarios={listaUsuarios}
+                            alCambiarTicket={(nuevo) => {
+                                ticket.reemplazar(nuevo);
+                                void eventos.refrescar();
+                            }}
+                        />
+                    ) : null}
                     <Historial paginado={eventos} ahora={ahora} />
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente">
