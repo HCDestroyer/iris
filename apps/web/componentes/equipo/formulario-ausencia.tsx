@@ -1,11 +1,11 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, FormularioPagina, SeccionFormulario, Tarjeta } from "@iris/ui";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
-import { DialogoFormulario } from "@/componentes/cierre-seguro";
 import { MOTIVOS, entradaAusencia, erroresDe, esquemaAusencia, valoresAusencia, type TecnicoDetalle, type ValoresAusencia } from "@/lib/agenda/esquemas";
 import { api, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
@@ -17,10 +17,13 @@ import type { Schema } from "@iris/contratos";
 type Respuesta = Schema<"RespuestaAusencia">;
 
 /**
- * Registrar una ausencia (hora de Guatemala). La API no mueve las citas que caen dentro: las
- * devuelve y aquí se muestran para reprogramarlas.
+ * Registrar una ausencia en pantalla propia (`/tecnicos/[id]/ausencias/nueva`, hora de
+ * Guatemala). La API no mueve las citas que caen dentro: las devuelve y aquí se muestran para
+ * reprogramarlas; sin citas en conflicto, aviso y vuelta a la ficha.
  */
-export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: TecnicoDetalle; alCerrar: () => void; alGuardar: () => void }) {
+export function FormularioAusencia({ tecnico }: { tecnico: TecnicoDetalle }) {
+    const router = useRouter();
+    const ficha = `/tecnicos/${tecnico.id}`;
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     const [hecho, setHecho] = useState<Respuesta | null>(null);
@@ -37,12 +40,11 @@ export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: 
                 api().POST("/api/v1/tecnicos/{id}/ausencias", { params: { path: { id: tecnico.id }, header: { "Idempotency-Key": clave.actual() } }, body: entradaAusencia(v) }),
             );
             clave.renovar();
-            form.reset(v);
             avisar({ titulo: `Ausencia de ${tecnico.nombre} registrada` });
             if ((r.citasEnConflicto ?? []).length > 0) {
                 setHecho(r);
             } else {
-                alGuardar();
+                router.replace(ficha);
             }
         } catch (e) {
             clave.trasError(e);
@@ -54,35 +56,61 @@ export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: 
     if (hecho) {
         const citas = hecho.citasEnConflicto ?? [];
         return (
-            <DialogoFormulario titulo="Ausencia registrada" sucio={false} alCerrar={alGuardar} data-testid="ausencia-conflictos">
-                <Aviso tono="warning" titulo={citas.length === 1 ? "1 cita queda dentro de la ausencia" : `${citas.length} citas quedan dentro de la ausencia`}>
-                    Iris no las mueve sola: reprográmalas en la agenda o asígnalas a otro técnico.
-                </Aviso>
-                <ul className="grid gap-1.5 text-sm">
-                    {citas.map((c) => (
-                        <li key={c.ordenId} className="flex flex-wrap items-center gap-x-2">
-                            <Link href={`/ordenes/${c.ordenId}`} className="font-medium text-primary underline-offset-4 hover:underline">
-                                {c.numero}
-                            </Link>
-                            <span className="text-muted-foreground tabular-nums">
-                                {etiquetaDia(diaDesdeIso(c.inicio) ?? "")} {horaDe(c.inicio)}–{horaDe(c.fin)}
-                            </span>
-                        </li>
-                    ))}
-                </ul>
-                <DialogoPie>
-                    <Boton asChild variante="contorno">
-                        <Link href={`/agenda?vista=dia&dia=${diaDesdeIso(citas[0]?.inicio ?? "") ?? ""}`}>Abrir la agenda de ese día</Link>
-                    </Boton>
-                    <Boton onClick={alGuardar}>Entendido</Boton>
-                </DialogoPie>
-            </DialogoFormulario>
+            <section className="mx-auto grid w-full max-w-3xl gap-4" aria-labelledby="titulo-ausencia-registrada">
+                <h1 id="titulo-ausencia-registrada" className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
+                    Ausencia registrada
+                </h1>
+                <Tarjeta className="grid gap-4 p-4 sm:p-5" data-testid="ausencia-conflictos">
+                    <Aviso tono="warning" titulo={citas.length === 1 ? "1 cita queda dentro de la ausencia" : `${citas.length} citas quedan dentro de la ausencia`}>
+                        Iris no las mueve sola: reprográmalas en la agenda o asígnalas a otro técnico.
+                    </Aviso>
+                    <ul className="grid gap-1.5 text-sm">
+                        {citas.map((c) => (
+                            <li key={c.ordenId} className="flex flex-wrap items-center gap-x-2">
+                                <Link href={`/ordenes/${c.ordenId}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                                    {c.numero}
+                                </Link>
+                                <span className="text-muted-foreground tabular-nums">
+                                    {etiquetaDia(diaDesdeIso(c.inicio) ?? "")} {horaDe(c.inicio)}–{horaDe(c.fin)}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <Boton asChild variante="contorno">
+                            <Link href={`/agenda?vista=dia&dia=${diaDesdeIso(citas[0]?.inicio ?? "") ?? ""}`}>Abrir la agenda de ese día</Link>
+                        </Boton>
+                        <Boton onClick={() => router.replace(ficha)}>Entendido</Boton>
+                    </div>
+                </Tarjeta>
+            </section>
         );
     }
 
+    const invalidos = Object.keys(vivos);
     return (
-        <DialogoFormulario titulo={`Ausencia de ${tecnico.nombre}`} descripcion="Vacaciones, enfermedad, capacitación o permiso. Hora de Guatemala." sucio={isDirty} alCerrar={alCerrar} data-testid="formulario-ausencia">
-            <form noValidate className="grid gap-4" aria-label="Registrar ausencia" onSubmit={form.handleSubmit(guardar)}>
+        <FormularioPagina
+            titulo={`Ausencia de ${tecnico.nombre}`}
+            descripcion="Vacaciones, enfermedad, capacitación o permiso. Hora de Guatemala."
+            data-testid="formulario-ausencia"
+            alEnviar={form.handleSubmit(guardar)}
+            navegar={router.push}
+            volverA={ficha}
+            sucio={isDirty}
+            barra={{
+                textoGuardar: "Registrar ausencia",
+                enviando: isSubmitting,
+                ...(vivos.motivo ? { faltan: ["el motivo"] } : invalidos.length > 0 ? { faltan: ["fechas válidas"], motivo: "Corrige las fechas marcadas para guardar." } : {}),
+            }}
+            error={
+                error ? (
+                    <Aviso tono="error" titulo="No se pudo registrar la ausencia">
+                        {[mensajeDeError(error).titulo, mensajeDeError(error).detalle].filter(Boolean).join(". ")}
+                    </Aviso>
+                ) : null
+            }
+        >
+            <SeccionFormulario titulo="1. Motivo">
                 <CampoSelector etiqueta="Motivo" error={mensaje("motivo")} {...form.register("motivo")}>
                     <option value="">Elige el motivo</option>
                     {MOTIVOS.map((m) => (
@@ -91,6 +119,9 @@ export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: 
                         </option>
                     ))}
                 </CampoSelector>
+                <CampoArea etiqueta="Detalle (opcional)" rows={2} maxLength={500} error={mensaje("detalle")} {...form.register("detalle")} />
+            </SeccionFormulario>
+            <SeccionFormulario titulo="2. Cuándo">
                 <Casilla etiqueta="Todo el día" {...form.register("todoElDia")} />
                 <div className="grid grid-cols-2 gap-3">
                     <Campo etiqueta="Desde el día" type="date" error={mensaje("desdeDia")} {...form.register("desdeDia")} />
@@ -98,23 +129,7 @@ export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: 
                     <Campo etiqueta="Hasta el día" type="date" error={mensaje("hastaDia")} {...form.register("hastaDia")} />
                     {valores.todoElDia ? null : <Campo etiqueta="Hora" type="time" step={900} error={mensaje("hastaHora")} {...form.register("hastaHora")} />}
                 </div>
-                <CampoArea etiqueta="Detalle (opcional)" rows={2} maxLength={500} error={mensaje("detalle")} {...form.register("detalle")} />
-                {error ? (
-                    <Aviso tono="error" titulo="No se pudo registrar la ausencia">
-                        {[mensajeDeError(error).titulo, mensajeDeError(error).detalle].filter(Boolean).join(". ")}
-                    </Aviso>
-                ) : null}
-                <DialogoPie>
-                    <DialogoCerrar asChild>
-                        <Boton variante="contorno" disabled={isSubmitting}>
-                            Volver
-                        </Boton>
-                    </DialogoCerrar>
-                    <Boton type="submit" disabled={isSubmitting || Object.keys(vivos).length > 0}>
-                        {isSubmitting ? "Guardando…" : "Registrar ausencia"}
-                    </Boton>
-                </DialogoPie>
-            </form>
-        </DialogoFormulario>
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }

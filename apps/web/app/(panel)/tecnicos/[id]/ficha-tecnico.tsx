@@ -9,8 +9,7 @@ import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
 import { useCatalogosAgenda } from "@/componentes/despacho/datos";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
-import { FormularioAusencia } from "@/componentes/equipo/formulario-ausencia";
-import { FormularioTecnico, textoZonas } from "@/componentes/equipo/formulario-tecnico";
+import { textoZonas } from "@/componentes/equipo/formulario-tecnico";
 import { FormularioTurnos } from "@/componentes/equipo/formulario-turnos";
 import { InsigniaActivo } from "@/componentes/equipo/insignias";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -23,7 +22,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 
-type Abierto = "editar" | "turnos" | "ausencia" | null;
+type Abierto = "turnos" | null;
 
 /** Ficha de un técnico: datos de contacto, cuadrilla y zonas, turnos semanales y ausencias. */
 export function FichaTecnico() {
@@ -103,9 +102,11 @@ export function FichaTecnico() {
                     titulo="Datos de la ficha"
                     accion={
                         puede(["agenda.editar_tecnico"]) && cuadrillas ? (
-                            <Boton variante="contorno" tamano="sm" onClick={() => setAbierto("editar")}>
-                                <Pencil />
-                                Editar
+                            <Boton asChild variante="contorno" tamano="sm">
+                                <Link href={`/tecnicos/${t.id}/editar`}>
+                                    <Pencil />
+                                    Editar
+                                </Link>
                             </Boton>
                         ) : null
                     }
@@ -163,9 +164,11 @@ export function FichaTecnico() {
                     className="lg:col-span-2"
                     accion={
                         puede(["agenda.registrar_ausencia"]) ? (
-                            <Boton variante="contorno" tamano="sm" onClick={() => setAbierto("ausencia")}>
-                                <CalendarPlus />
-                                Registrar ausencia
+                            <Boton asChild variante="contorno" tamano="sm">
+                                <Link href={`/tecnicos/${t.id}/ausencias/nueva`}>
+                                    <CalendarPlus />
+                                    Registrar ausencia
+                                </Link>
                             </Boton>
                         ) : null
                     }
@@ -181,9 +184,7 @@ export function FichaTecnico() {
                     )}
                 </Seccion>
             </div>
-            {abierto === "editar" && cuadrillas ? <FormularioTecnico tecnico={t} cuadrillas={cuadrillas} zonas={zonas} alCerrar={() => setAbierto(null)} alGuardar={tras} /> : null}
             {abierto === "turnos" ? <FormularioTurnos tecnico={t} alCerrar={() => setAbierto(null)} alGuardar={tras} /> : null}
-            {abierto === "ausencia" ? <FormularioAusencia tecnico={t} alCerrar={() => setAbierto(null)} alGuardar={() => tras()} /> : null}
         </>
     );
 }

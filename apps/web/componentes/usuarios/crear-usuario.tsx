@@ -7,20 +7,18 @@ import {
     avisar,
     Aviso,
     Boton,
-    BotonEnviar,
     Campo,
     CampoSelector,
     Casilla,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoPie,
-    DialogoProtegido,
     type ErrorDeCampo,
     ErrorFormulario,
+    FormularioPagina,
     GrupoSegmentado,
-    useCambiosSinGuardar,
+    SeccionFormulario,
+    Tarjeta,
 } from "@iris/ui";
-import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, UserPlus, WandSparkles, X } from "lucide-react";
+import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, WandSparkles, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useFieldArray, useForm, useWatch, type Path, type UseFormReturn } from "react-hook-form";
 import { BotonCopiar, useBorradorPortapapeles } from "@/componentes/cuenta/boton-copiar";
@@ -44,15 +42,14 @@ import {
 } from "@/lib/usuarios/esquemas";
 
 type Props = {
-    abierto: boolean;
-    alCerrar: () => void;
-    /** La API creó el usuario (201). El diálogo pasa a mostrar la contraseña una sola vez. */
-    alCrear: (u: Usuario) => void;
     /** Desde «Nuevo técnico»: persona con este rol (global), sin elegir tipo ni roles. */
     rolFijo?: string;
-    /** Botón del resultado («Ver usuario», «Continuar con la ficha»…); sin él, «Listo». */
-    textoContinuar?: string;
-    alContinuar?: (u: Usuario) => void;
+    /** A dónde vuelve «Cancelar». */
+    volverA: string;
+    /** Botón del resultado («Ver usuario», «Continuar con la ficha»). */
+    textoContinuar: string;
+    /** A dónde lleva ese botón con el usuario creado. */
+    destino: (u: Usuario) => string;
 };
 
 const NOMBRES_INTEGRACION: Record<(typeof ROLES_INTEGRACION)[number], string> = { integracion_argos: "Integración Argos", integracion_horus: "Integración Horus" };
@@ -60,57 +57,31 @@ const NOMBRES_INTEGRACION: Record<(typeof ROLES_INTEGRACION)[number], string> = 
 const CAMPOS = ["nombre", "correo", "tipo", "contrasena", "empresas"] as const;
 
 /**
- * «Nuevo usuario» (`POST /usuarios`, permiso `usuarios.crear`): nombre, correo, tipo, contraseña
- * temporal (con «Generar» y «Copiar»), roles iniciales con alcance y empresas (solo las de quien
- * lo crea; obligatorias si la API las exige). Al crear, muestra la contraseña una sola vez.
+ * «Nuevo usuario» en pantalla propia (`/usuarios/nuevo`, `POST /usuarios`, permiso
+ * `usuarios.crear`): nombre, correo, tipo, contraseña temporal (con «Generar» y «Copiar»), roles
+ * iniciales con alcance y empresas (solo las de quien lo crea; obligatorias si la API las exige).
+ * Al crear, la misma pantalla muestra la contraseña una sola vez; nunca queda en la URL ni en el
+ * historial, y recargar la borra.
  */
-export function DialogoCrearUsuario({ abierto, alCerrar, alCrear, rolFijo, textoContinuar, alContinuar }: Props) {
+export function PantallaCrearUsuario({ rolFijo, volverA, textoContinuar, destino }: Props) {
+    const router = useRouter();
     const [creado, setCreado] = useState<{ usuario: Usuario; contrasena: string } | null>(null);
-    // Del diálogo entero: pasar al resultado no borra lo recién copiado; cerrarlo sí.
-    const portapapeles = useBorradorPortapapeles(abierto);
-    return (
-        <DialogoProtegido
-            open={abierto}
-            onOpenChange={(a) => {
-                if (!a) {
-                    setCreado(null);
-                    alCerrar();
-                }
-            }}
-        >
-            {abierto ? (
-                creado ? (
-                    <Resultado
-                        {...creado}
-                        portapapeles={portapapeles}
-                        textoContinuar={textoContinuar}
-                        alContinuar={() => {
-                            setCreado(null);
-                            if (alContinuar) alContinuar(creado.usuario);
-                            else alCerrar();
-                        }}
-                    />
-                ) : (
-                    <Formulario
-                        rolFijo={rolFijo}
-                        portapapeles={portapapeles}
-                        alCrear={(usuario, contrasena) => {
-                            setCreado({ usuario, contrasena });
-                            alCrear(usuario);
-                        }}
-                    />
-                )
-            ) : null}
-        </DialogoProtegido>
-    );
+    // De la pantalla entera: pasar al resultado no borra lo recién copiado; salir de ella sí.
+    const portapapeles = useBorradorPortapapeles(true);
+    if (creado) {
+        return <Resultado {...creado} portapapeles={portapapeles} textoContinuar={textoContinuar} alContinuar={() => router.push(destino(creado.usuario))} />;
+    }
+    return <Formulario rolFijo={rolFijo} volverA={volverA} portapapeles={portapapeles} alCrear={(usuario, contrasena) => setCreado({ usuario, contrasena })} />;
 }
 
 function Formulario({
     rolFijo,
+    volverA,
     portapapeles,
     alCrear,
 }: {
     rolFijo: string | undefined;
+    volverA: string;
     portapapeles: ReturnType<typeof useBorradorPortapapeles>;
     alCrear: (u: Usuario, contrasena: string) => void;
 }) {
@@ -128,7 +99,7 @@ function Formulario({
     }
     const form = useForm<DatosCrearUsuario>({ resolver: zodResolver(esquema), defaultValues: iniciales, mode: "onTouched" });
     const { errors, isSubmitting, isDirty } = form.formState;
-    useCambiosSinGuardar(isDirty, isSubmitting);
+    const router = useRouter();
     const valores = useWatch({ control: form.control }) as DatosCrearUsuario;
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
@@ -161,12 +132,18 @@ function Formulario({
     }
 
     return (
-        <DialogoContenido
+        <FormularioPagina
             titulo={rolFijo ? "Crear usuario del técnico" : "Nuevo usuario"}
             descripcion={rolFijo ? "Se crea con el rol Técnico; luego vuelves a la ficha con el usuario elegido." : "Una persona que entra al panel o a la app de campo, o una integración que usa un token."}
             data-testid="crear-usuario"
+            alEnviar={(e) => void form.handleSubmit(enviar)(e)}
+            navegar={router.push}
+            volverA={volverA}
+            sucio={isDirty}
+            barra={{ textoGuardar: "Crear usuario", textoEnviando: "Creando…", enviando: isSubmitting, faltan }}
+            error={error ? <AvisoCrear error={error} sueltos={sueltos} /> : sueltos.length > 0 ? <ErrorFormulario titulo="Revisa los datos" errores={sueltos} /> : null}
         >
-            <form noValidate className="grid gap-4" aria-label="Nuevo usuario" onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
+            <SeccionFormulario titulo="1. Datos de acceso">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Campo etiqueta="Nombre" autoFocus autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
                     <Campo etiqueta="Correo" type="email" autoComplete="off" spellCheck={false} autoCapitalize="off" maxLength={254} error={errors.correo?.message} {...form.register("correo")} />
@@ -199,6 +176,8 @@ function Formulario({
                         crean el suyo solos al conectarse.
                     </Aviso>
                 )}
+            </SeccionFormulario>
+            <SeccionFormulario titulo={conEmpresas ? "2. Roles y empresas" : "2. Roles"}>
                 {rolFijo ? (
                     <p className="flex items-center gap-2 text-sm">
                         <span className="text-muted-foreground">Rol:</span>
@@ -209,20 +188,8 @@ function Formulario({
                     <RolesIniciales form={form} puedeVerRoles={puede(["roles.ver"])} conAgenda={puede(["agenda.ver"]) && valores.tipo === "persona"} integracion={valores.tipo === "integracion"} />
                 )}
                 {conEmpresas ? <EmpresasIniciales form={form} empresas={empresasDisponibles} obligatorias={empresasObligatorias} /> : null}
-                {error ? <AvisoCrear error={error} sueltos={sueltos} /> : sueltos.length > 0 ? <ErrorFormulario titulo="Revisa los datos" errores={sueltos} /> : null}
-                <DialogoPie>
-                    <DialogoCerrar asChild>
-                        <Boton variante="contorno" disabled={isSubmitting}>
-                            Cancelar
-                        </Boton>
-                    </DialogoCerrar>
-                    <BotonEnviar faltan={faltan} enviando={isSubmitting} textoEnviando="Creando…">
-                        <UserPlus />
-                        Crear usuario
-                    </BotonEnviar>
-                </DialogoPie>
-            </form>
-        </DialogoContenido>
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }
 
@@ -452,12 +419,15 @@ function Resultado({
     usuario: Usuario;
     contrasena: string;
     portapapeles: ReturnType<typeof useBorradorPortapapeles>;
-    textoContinuar: string | undefined;
+    textoContinuar: string;
     alContinuar: () => void;
 }) {
     return (
-        <DialogoContenido titulo="Usuario creado">
-            <div className="grid gap-4" data-testid="usuario-creado">
+        <section className="mx-auto grid w-full max-w-3xl gap-4" aria-labelledby="titulo-usuario-creado">
+            <h1 id="titulo-usuario-creado" className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
+                Usuario creado
+            </h1>
+            <Tarjeta className="grid gap-4 p-4 sm:p-5" data-testid="usuario-creado">
                 <div className="flex items-start gap-3" role="status">
                     <CircleCheck aria-hidden className="mt-0.5 size-5 shrink-0 text-success" />
                     <p className="text-sm">
@@ -475,14 +445,14 @@ function Resultado({
                         </div>
                         <Aviso tono="warning" titulo="Se muestra solo esta vez">
                             Entrégala en persona o por teléfono. Al entrar, Iris le pedirá cambiarla antes de cualquier otra cosa. Si la
-                            copiaste, se borra del portapapeles a los 45 s o al cerrar este diálogo.
+                            copiaste, se borra del portapapeles a los 45 s o al salir de esta pantalla.
                         </Aviso>
                     </div>
                 ) : null}
-                <DialogoPie>
-                    <Boton onClick={alContinuar}>{textoContinuar ?? "Listo"}</Boton>
-                </DialogoPie>
-            </div>
-        </DialogoContenido>
+                <div className="flex justify-end">
+                    <Boton onClick={alContinuar}>{textoContinuar}</Boton>
+                </div>
+            </Tarjeta>
+        </section>
     );
 }

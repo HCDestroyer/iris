@@ -27,3 +27,26 @@ describe("migas del panel", () => {
         expect(migasDeRuta("/cuenta/mfa/")).toEqual([{ etiqueta: "Mi perfil", href: "/cuenta" }, { etiqueta: "Verificación en dos pasos" }]);
     });
 });
+
+describe("migas de los formularios en pantalla propia", () => {
+    it("altas: la lista y el formulario", () => {
+        expect(migasDeRuta("/tickets/nuevo")).toEqual([{ etiqueta: "Tickets", href: "/tickets" }, { etiqueta: "Nuevo ticket" }]);
+        expect(migasDeRuta("/ordenes/nueva")).toEqual([{ etiqueta: "Órdenes", href: "/ordenes" }, { etiqueta: "Nueva orden" }]);
+        expect(migasDeRuta("/administracion/buzones/nuevo").at(-1)).toEqual({ etiqueta: "Nuevo buzón" });
+    });
+
+    it("editar: la ficha de arriba lleva el nombre del registro", () => {
+        expect(migasDeRuta("/usuarios/7/editar", "Ana López")).toEqual([
+            { etiqueta: "Usuarios", href: "/usuarios" },
+            { etiqueta: "Ana López", href: "/usuarios/7" },
+            { etiqueta: "Editar" },
+        ]);
+        expect(migasDeRuta("/comercial/3/cotizacion")).toEqual([
+            { etiqueta: "Comercial", href: "/comercial" },
+            { etiqueta: "Prospecto", href: "/comercial/3" },
+            { etiqueta: "Cotización" },
+        ]);
+        // El buzón no tiene ficha: «Buzones de correo › Editar buzón».
+        expect(migasDeRuta("/administracion/buzones/4/editar").map((m) => m.etiqueta)).toEqual(["Administración", "Buzones de correo", "Editar buzón"]);
+    });
+});

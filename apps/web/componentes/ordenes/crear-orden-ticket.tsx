@@ -2,11 +2,11 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
-import { ClipboardPlus, RotateCw } from "lucide-react";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, FormularioPagina, SeccionFormulario } from "@iris/ui";
+import { RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import type { Usuario } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
@@ -41,39 +41,17 @@ function inicial(ticket: TicketOrigen, tecnicos: readonly Usuario[] | null): Ent
 }
 
 /**
- * «Crear orden y asignar» desde el ticket (`POST /tickets/{id}/crear-orden`): en un paso crea la
- * orden ligada (visita por defecto; hereda cliente, servicio, zona y contacto), la asigna al
- * técnico y/o la cuadrilla (propone los del ticket) y, si se elige fecha, la programa. No deja
- * guardar sin técnico ni cuadrilla. Al crear, abre la orden.
+ * «Crear orden y asignar» desde el ticket (`/ordenes/nueva?ticket=<id>`, `POST
+ * /tickets/{id}/crear-orden`): en un paso crea la orden ligada (visita por defecto; hereda
+ * cliente, servicio, zona y contacto), la asigna al técnico y/o la cuadrilla (propone los del
+ * ticket) y, si se elige fecha, la programa. No deja guardar sin técnico ni cuadrilla. Al crear,
+ * aviso y ficha de la orden; «Cancelar» vuelve al ticket.
  */
-export function DialogoCrearOrdenTicket({ ticket, usuarios }: { ticket: TicketOrigen; usuarios: readonly Usuario[] | null | undefined }) {
+export function FormularioCrearOrdenTicket({ ticket, usuarios }: { ticket: TicketOrigen; usuarios: readonly Usuario[] | null | undefined }) {
     const router = useRouter();
-    const [abierto, setAbierto] = useState(false);
     // Sin la lista (sin usuarios.ver, o no se pudo leer) el técnico se escribe por número.
     const tecnicos = usuarios === null || usuarios === undefined ? null : tecnicosDe(usuarios);
-    return (
-        <Dialogo open={abierto} onOpenChange={setAbierto}>
-            <DialogoDisparador asChild>
-                <Boton variante="secundario" tamano="sm">
-                    <ClipboardPlus />
-                    Crear orden y asignar
-                </Boton>
-            </DialogoDisparador>
-            <DialogoContenido titulo="Crear orden y asignar" descripcion={`${ticket.numero} · ${ticket.asunto}`}>
-                {abierto ? (
-                    <Formulario
-                        ticket={ticket}
-                        tecnicos={tecnicos}
-                        usuarios={usuarios}
-                        alCrear={(orden) => {
-                            setAbierto(false);
-                            router.push(`/ordenes/${orden.id}`);
-                        }}
-                    />
-                ) : null}
-            </DialogoContenido>
-        </Dialogo>
-    );
+    return <Formulario ticket={ticket} tecnicos={tecnicos} usuarios={usuarios} alCrear={(orden) => router.replace(`/ordenes/${orden.id}`)} />;
 }
 
 function Formulario({
@@ -97,6 +75,11 @@ function Formulario({
         defaultValues: inicial(ticket, tecnicos),
     });
     const errores = form.formState.errors;
+    const router = useRouter();
+    const tecnicoId = useWatch({ control: form.control, name: "tecnicoId" });
+    const cuadrillaId = useWatch({ control: form.control, name: "cuadrillaId" });
+    // Sin técnico ni cuadrilla no se puede crear: se avisa junto a «Crear y asignar».
+    const faltaAsignacion = !tecnicoId.trim() && !cuadrillaId;
     const sinAsignacion = errores.tecnicoId?.message === MENSAJE_ASIGNACION_REQUERIDA || errores.cuadrillaId?.message === MENSAJE_ASIGNACION_REQUERIDA;
 
     async function crear(datos: DatosCrearOrdenDeTicket) {
@@ -121,7 +104,28 @@ function Formulario({
 
     const responsableNoTecnico = ticket.asignadoA !== null && tecnicos !== null && !tecnicos.some((t) => t.id === ticket.asignadoA);
     return (
-        <form noValidate className="grid gap-4" onSubmit={(e) => void form.handleSubmit(crear)(e)} data-testid="form-crear-orden-ticket">
+        <FormularioPagina
+            titulo="Crear orden y asignar"
+            descripcion={`${ticket.numero} · ${ticket.asunto}`}
+            alEnviar={(e) => void form.handleSubmit(crear)(e)}
+            navegar={router.push}
+            volverA={`/tickets/${ticket.id}`}
+            sucio={form.formState.isDirty}
+            data-testid="form-crear-orden-ticket"
+            barra={{
+                textoGuardar: "Crear y asignar",
+                textoEnviando: "Creando…",
+                enviando: form.formState.isSubmitting,
+                faltan: faltaAsignacion ? ["el técnico o la cuadrilla"] : [],
+            }}
+            error={
+                errorGeneral ? (
+                    <Aviso tono="error" titulo="No se pudo crear la orden">
+                        {[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")}
+                    </Aviso>
+                ) : null
+            }
+        >
             {sinAsignacion ? (
                 <Aviso tono="warning" titulo="Falta a quién asignarla" data-testid="aviso-asignacion">
                     Elige un técnico, una cuadrilla o los dos para crear la orden.
@@ -131,6 +135,7 @@ function Formulario({
                     La orden hereda el cliente, el servicio, la zona y el contacto del ticket, y el ticket recibe una nota interna.
                 </p>
             )}
+            <SeccionFormulario titulo="1. Quién va">
             <div className="grid gap-4 sm:grid-cols-2">
                 <CampoSelector etiqueta="Tipo" error={errores.tipo?.message} {...form.register("tipo")}>
                     {ORDEN_TIPOS.map((t) => (
@@ -198,6 +203,8 @@ function Formulario({
                         : null}
                 </CampoSelector>
             )}
+            </SeccionFormulario>
+            <SeccionFormulario titulo="2. Visita y trabajo">
             <fieldset className="grid gap-2 rounded-md border p-3">
                 <legend className="px-1 text-sm font-medium">Visita (opcional)</legend>
                 <div className="grid grid-cols-2 gap-3">
@@ -215,19 +222,7 @@ function Formulario({
                 error={errores.direccion?.message}
                 {...form.register("direccion")}
             />
-            {errorGeneral ? (
-                <Aviso tono="error" titulo="No se pudo crear la orden">
-                    {[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")}
-                </Aviso>
-            ) : null}
-            <DialogoPie>
-                <DialogoCerrar asChild>
-                    <Boton variante="contorno">Cancelar</Boton>
-                </DialogoCerrar>
-                <Boton type="submit" disabled={form.formState.isSubmitting}>
-                    {form.formState.isSubmitting ? "Creando…" : "Crear y asignar"}
-                </Boton>
-            </DialogoPie>
-        </form>
+            </SeccionFormulario>
+        </FormularioPagina>
     );
 }

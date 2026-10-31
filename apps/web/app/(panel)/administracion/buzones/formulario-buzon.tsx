@@ -1,18 +1,8 @@
 "use client";
 
-import {
-    avisar,
-    Aviso,
-    Boton,
-    Campo,
-    CampoSelector,
-    Casilla,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoPie,
-    DialogoProtegido,
-} from "@iris/ui";
-import { KeyRound, RotateCw, ShieldAlert } from "lucide-react";
+import { avisar, Aviso, Boton, Campo, CampoSelector, Casilla, FormularioPagina, Pestanas, SeccionFormulario } from "@iris/ui";
+import { Inbox, KeyRound, RotateCw, Send, ShieldAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { useCategorias } from "@/componentes/tickets/catalogos";
@@ -31,6 +21,7 @@ import {
     type Tls,
     type ValoresBuzon,
 } from "@/lib/buzones/esquemas";
+import { pasoConError, type Paso } from "@/lib/buzones/pasos";
 import { NOMBRES_TLS } from "@/lib/buzones/presentacion";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { PRIORIDADES } from "@/lib/tickets/presentacion";
@@ -39,18 +30,10 @@ import { esConflicto, textoErrorBuzon } from "./acciones-buzon";
 type Props = {
     /** Buzón que se edita; sin él, alta. */
     buzon?: Buzon | undefined;
-    alCerrar: () => void;
-    alGuardar: (b: Buzon) => void;
 };
 
 function Seccion({ titulo, children, descripcion }: { titulo: string; descripcion?: ReactNode; children: ReactNode }) {
-    return (
-        <fieldset className="grid gap-3 border-t pt-4 first:border-t-0 first:pt-0">
-            <legend className="float-left mb-1 w-full text-sm font-semibold">{titulo}</legend>
-            {descripcion ? <p className="-mt-1 text-sm text-muted-foreground">{descripcion}</p> : null}
-            {children}
-        </fieldset>
-    );
+    return <SeccionFormulario titulo={titulo} descripcion={descripcion}>{children}</SeccionFormulario>;
 }
 
 const AYUDA_AUTHSERV = (
@@ -60,8 +43,15 @@ const AYUDA_AUTHSERV = (
     </>
 );
 
-/** Alta o edición de un buzón en un diálogo. Las contraseñas nunca se muestran: solo se escriben. */
-export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
+/**
+ * Alta o edición de un buzón en pantalla propia (`/administracion/buzones/nuevo` y
+ * `/[id]/editar`), en dos pasos: «Recibir» (IMAP, verificación y tickets nuevos) y «Enviar»
+ * (SMTP). Si al guardar hay un error en el otro paso, se pasa a él. Las contraseñas nunca se
+ * muestran: solo se escriben. Al guardar, aviso y vuelta a la lista.
+ */
+export function FormularioBuzon({ buzon }: Props) {
+    const router = useRouter();
+    const [paso, setPaso] = useState<Paso>("recibir");
     const [antes, setAntes] = useState<Buzon | undefined>(buzon);
     const editando = antes !== undefined;
     const categorias = useCategorias();
@@ -95,7 +85,7 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
                 : await resolver(api().POST("/api/v1/buzones", { params: { header: { "Idempotency-Key": clave.actual() } }, body: entrada }));
             clave.renovar();
             avisar({ titulo: antes ? `Buzón «${b.nombre}» guardado` : `Buzón «${b.nombre}» creado` });
-            alGuardar(b);
+            router.replace("/administracion/buzones");
         } catch (e) {
             clave.trasError(e);
             let alguno = false;
@@ -107,6 +97,8 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
                         alguno = true;
                     }
                 }
+                const conError = pasoConError(form.formState.errors);
+                if (conError) setPaso(conError);
             }
             if (!alguno) {
                 setError(e);
@@ -158,181 +150,213 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
     const listaCategorias = categorias.estado === "listo" ? categorias.datos : [];
     const categoriaActual = v.categoriaId ?? "";
 
+    const conflicto = esConflicto(error);
     return (
-        <DialogoProtegido sucio={form.formState.isDirty} open onOpenChange={(a) => !a && !isSubmitting && alCerrar()}>
-            <DialogoContenido
-                titulo={editando ? `Editar ${antes.nombre}` : "Nuevo buzón"}
-                descripcion={editando ? antes.correo : "Nace inactivo: pruébalo y actívalo cuando esté listo."}
-                className="sm:w-[min(44rem,calc(100vw-2rem))]"
-            >
-                <form noValidate className="grid gap-5" onSubmit={form.handleSubmit(guardar)}>
-                    <Seccion titulo="Buzón">
-                        <div className="grid items-start gap-3 sm:grid-cols-2">
-                            <Campo etiqueta="Nombre" autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
-                            <Campo
-                                etiqueta="Dirección"
-                                type="email"
-                                autoComplete="off"
-                                ayuda="Remitente de las respuestas."
-                                error={errors.correo?.message}
-                                {...form.register("correo")}
-                            />
-                        </div>
-                    </Seccion>
+        <FormularioPagina
+            titulo={editando ? `Editar ${antes.nombre}` : "Nuevo buzón"}
+            descripcion={editando ? antes.correo : "Nace inactivo: pruébalo y actívalo cuando esté listo."}
+            data-testid="formulario-buzon"
+            alEnviar={form.handleSubmit(guardar, (errores) => {
+                const conError = pasoConError(errores);
+                if (conError) setPaso(conError);
+            })}
+            navegar={router.push}
+            volverA="/administracion/buzones"
+            sucio={form.formState.isDirty}
+            barra={{
+                textoGuardar: editando ? "Guardar cambios" : "Crear buzón",
+                enviando: isSubmitting,
+                ...(conflicto ? { faltan: ["la versión nueva"], motivo: "Recarga el buzón para guardar." } : {}),
+            }}
+            error={
+                error ? (
+                    esConflicto(error) ? (
+                        <Aviso
+                            tono="warning"
+                            titulo="Alguien más cambió este buzón"
+                            accion={
+                                <Boton variante="secundario" tamano="sm" onClick={recargar} disabled={recargando}>
+                                    <RotateCw />
+                                    {recargando ? "Recargando…" : "Recargar"}
+                                </Boton>
+                            }
+                        >
+                            Recarga para tomar la versión nueva; lo que escribiste se conserva.
+                        </Aviso>
+                    ) : (
+                        <Aviso tono="error" titulo={textoErrorBuzon(error).titulo}>
+                            {textoErrorBuzon(error).detalle}
+                        </Aviso>
+                    )
+                ) : null
+            }
+        >
+            <Pestanas<Paso>
+                etiqueta="Pasos del buzón"
+                seleccionada={paso}
+                alCambiar={setPaso}
+                pestanas={[
+                    {
+                        id: "recibir",
+                        etiqueta: "1. Recibir",
+                        icono: Inbox,
+                        contenido: (
+                            <div className="grid gap-4">
+                                <Seccion titulo="Buzón">
+                                    <div className="grid items-start gap-3 sm:grid-cols-2">
+                                        <Campo etiqueta="Nombre" autoComplete="off" maxLength={120} error={errors.nombre?.message} {...form.register("nombre")} />
+                                        <Campo
+                                            etiqueta="Dirección"
+                                            type="email"
+                                            autoComplete="off"
+                                            ayuda="Remitente de las respuestas."
+                                            error={errors.correo?.message}
+                                            {...form.register("correo")}
+                                        />
+                                    </div>
+                                </Seccion>
 
-                    <Seccion titulo="Entrada (IMAP)" descripcion="Solo conexiones cifradas: TLS directo o STARTTLS obligatorio, con certificado verificado.">
-                        <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem]">
-                            <Campo etiqueta="Servidor IMAP" autoComplete="off" spellCheck={false} placeholder="imap.isp.gt" error={errors.imapHost?.message} {...form.register("imapHost")} />
-                            <Campo etiqueta="Puerto" inputMode="numeric" autoComplete="off" error={errors.imapPuerto?.message} {...form.register("imapPuerto")} />
-                            <CampoSelector etiqueta="Cifrado" error={errors.imapTls?.message} {...registroTls("imap")}>
-                                <option value="tls">{NOMBRES_TLS.tls} (993)</option>
-                                <option value="starttls">{NOMBRES_TLS.starttls} (143)</option>
-                            </CampoSelector>
-                        </div>
-                        <div className="grid items-start gap-3 sm:grid-cols-2">
-                            <Campo etiqueta="Usuario IMAP" autoComplete="off" spellCheck={false} error={errors.imapUsuario?.message} {...form.register("imapUsuario")} />
-                            <Campo
-                                etiqueta="Contraseña IMAP"
-                                type="password"
-                                autoComplete="new-password"
-                                maxLength={512}
-                                placeholder={editando && !pideImap ? "•••••• (se conserva)" : ""}
-                                aria-required={pideImap}
-                                ayuda={errors.imapContrasena ? undefined : ayudaContrasena(pideImap, "IMAP")}
-                                error={errors.imapContrasena?.message}
-                                {...form.register("imapContrasena")}
-                            />
-                            <Campo etiqueta="Carpeta" autoComplete="off" placeholder="INBOX" error={errors.imapCarpeta?.message} {...form.register("imapCarpeta")} />
-                            <Campo
-                                etiqueta="Carpeta de procesados (opcional)"
-                                autoComplete="off"
-                                ayuda="Si la indicas, cada correo ya guardado se mueve ahí; si no, solo se marca como leído."
-                                error={errors.imapCarpetaProcesados?.message}
-                                {...form.register("imapCarpetaProcesados")}
-                            />
-                        </div>
-                    </Seccion>
+                                <Seccion titulo="Entrada (IMAP)" descripcion="Solo conexiones cifradas: TLS directo o STARTTLS obligatorio, con certificado verificado.">
+                                    <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem]">
+                                        <Campo etiqueta="Servidor IMAP" autoComplete="off" spellCheck={false} placeholder="imap.isp.gt" error={errors.imapHost?.message} {...form.register("imapHost")} />
+                                        <Campo etiqueta="Puerto" inputMode="numeric" autoComplete="off" error={errors.imapPuerto?.message} {...form.register("imapPuerto")} />
+                                        <CampoSelector etiqueta="Cifrado" error={errors.imapTls?.message} {...registroTls("imap")}>
+                                            <option value="tls">{NOMBRES_TLS.tls} (993)</option>
+                                            <option value="starttls">{NOMBRES_TLS.starttls} (143)</option>
+                                        </CampoSelector>
+                                    </div>
+                                    <div className="grid items-start gap-3 sm:grid-cols-2">
+                                        <Campo etiqueta="Usuario IMAP" autoComplete="off" spellCheck={false} error={errors.imapUsuario?.message} {...form.register("imapUsuario")} />
+                                        <Campo
+                                            etiqueta="Contraseña IMAP"
+                                            type="password"
+                                            autoComplete="new-password"
+                                            maxLength={512}
+                                            placeholder={editando && !pideImap ? "•••••• (se conserva)" : ""}
+                                            aria-required={pideImap}
+                                            ayuda={errors.imapContrasena ? undefined : ayudaContrasena(pideImap, "IMAP")}
+                                            error={errors.imapContrasena?.message}
+                                            {...form.register("imapContrasena")}
+                                        />
+                                        <Campo etiqueta="Carpeta" autoComplete="off" placeholder="INBOX" error={errors.imapCarpeta?.message} {...form.register("imapCarpeta")} />
+                                        <Campo
+                                            etiqueta="Carpeta de procesados (opcional)"
+                                            autoComplete="off"
+                                            ayuda="Si la indicas, cada correo ya guardado se mueve ahí; si no, solo se marca como leído."
+                                            error={errors.imapCarpetaProcesados?.message}
+                                            {...form.register("imapCarpetaProcesados")}
+                                        />
+                                    </div>
+                                </Seccion>
 
-                    <Seccion titulo="Salida (SMTP)">
-                        <Casilla
-                            etiqueta="Enviar las respuestas por correo"
-                            ayuda="Sin SMTP, las respuestas de los agentes quedan en el ticket y no salen por correo."
-                            {...form.register("conSmtp")}
-                        />
-                        {conSmtp ? (
-                            <>
-                                <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem]">
-                                    <Campo etiqueta="Servidor SMTP" autoComplete="off" spellCheck={false} placeholder="smtp.isp.gt" error={errors.smtpHost?.message} {...form.register("smtpHost")} />
-                                    <Campo etiqueta="Puerto SMTP" inputMode="numeric" autoComplete="off" error={errors.smtpPuerto?.message} {...form.register("smtpPuerto")} />
-                                    <CampoSelector etiqueta="Cifrado SMTP" error={errors.smtpTls?.message} {...registroTls("smtp")}>
-                                        <option value="starttls">{NOMBRES_TLS.starttls} (587)</option>
-                                        <option value="tls">{NOMBRES_TLS.tls} (465)</option>
-                                    </CampoSelector>
-                                </div>
-                                <div className="grid items-start gap-3 sm:grid-cols-2">
+                                <Seccion titulo="Verificación del remitente">
                                     <Campo
-                                        etiqueta="Usuario SMTP"
+                                        etiqueta="authserv-id del servidor de correo"
                                         autoComplete="off"
                                         spellCheck={false}
-                                        ayuda="Vacío = el servidor no pide autenticación."
-                                        error={errors.smtpUsuario?.message}
-                                        {...form.register("smtpUsuario")}
+                                        placeholder="mx.isp.gt"
+                                        ayuda={AYUDA_AUTHSERV}
+                                        error={errors.authservId?.message}
+                                        {...form.register("authservId")}
                                     />
-                                    <Campo
-                                        etiqueta="Contraseña SMTP"
-                                        type="password"
-                                        autoComplete="new-password"
-                                        maxLength={512}
-                                        placeholder={editando && !pideSmtp && (v.smtpUsuario ?? "").trim() !== "" ? "•••••• (se conserva)" : ""}
-                                        aria-required={pideSmtp}
-                                        ayuda={errors.smtpContrasena ? undefined : (v.smtpUsuario ?? "").trim() === "" ? "Sin usuario no se usa contraseña." : ayudaContrasena(pideSmtp, "SMTP")}
-                                        error={errors.smtpContrasena?.message}
-                                        {...form.register("smtpContrasena")}
-                                    />
-                                </div>
-                            </>
-                        ) : null}
-                    </Seccion>
+                                    {sinAuthserv ? (
+                                        <Aviso tono="warning" titulo="Sin authserv-id no se verifica a nadie" icono={ShieldAlert}>
+                                            Ningún remitente queda verificado: las respuestas de los clientes por correo entran como <strong>notas internas</strong>{" "}
+                                            (no reabren ni reanudan el ticket) y los tickets nuevos quedan con el contacto «sin verificar».
+                                        </Aviso>
+                                    ) : null}
+                                </Seccion>
 
-                    <Seccion titulo="Verificación del remitente">
-                        <Campo
-                            etiqueta="authserv-id del servidor de correo"
-                            autoComplete="off"
-                            spellCheck={false}
-                            placeholder="mx.isp.gt"
-                            ayuda={AYUDA_AUTHSERV}
-                            error={errors.authservId?.message}
-                            {...form.register("authservId")}
-                        />
-                        {sinAuthserv ? (
-                            <Aviso tono="warning" titulo="Sin authserv-id no se verifica a nadie" icono={ShieldAlert}>
-                                Ningún remitente queda verificado: las respuestas de los clientes por correo entran como <strong>notas internas</strong>{" "}
-                                (no reabren ni reanudan el ticket) y los tickets nuevos quedan con el contacto «sin verificar».
-                            </Aviso>
-                        ) : null}
-                    </Seccion>
+                                <Seccion titulo="Tickets nuevos" descripcion="Categoría y prioridad de los tickets que abre un correo nuevo.">
+                                    <div className="grid items-start gap-3 sm:grid-cols-2">
+                                        <CampoSelector etiqueta="Categoría por defecto" error={errors.categoriaId?.message} {...form.register("categoriaId")}>
+                                            <option value="">Sin categoría</option>
+                                            {listaCategorias.map((c) => (
+                                                <option key={c.id} value={String(c.id)}>
+                                                    {c.nombre}
+                                                </option>
+                                            ))}
+                                            {categoriaActual !== "" && !listaCategorias.some((c) => String(c.id) === categoriaActual) ? (
+                                                <option value={categoriaActual}>Categoría {categoriaActual}</option>
+                                            ) : null}
+                                        </CampoSelector>
+                                        <CampoSelector etiqueta="Prioridad por defecto" error={errors.prioridad?.message} {...form.register("prioridad")}>
+                                            {PRIORIDADES_BUZON.map((p) => (
+                                                <option key={p} value={p}>
+                                                    {PRIORIDADES[p].texto}
+                                                </option>
+                                            ))}
+                                        </CampoSelector>
+                                    </div>
+                                </Seccion>
 
-                    <Seccion titulo="Tickets nuevos" descripcion="Categoría y prioridad de los tickets que abre un correo nuevo.">
-                        <div className="grid items-start gap-3 sm:grid-cols-2">
-                            <CampoSelector etiqueta="Categoría por defecto" error={errors.categoriaId?.message} {...form.register("categoriaId")}>
-                                <option value="">Sin categoría</option>
-                                {listaCategorias.map((c) => (
-                                    <option key={c.id} value={String(c.id)}>
-                                        {c.nombre}
-                                    </option>
-                                ))}
-                                {categoriaActual !== "" && !listaCategorias.some((c) => String(c.id) === categoriaActual) ? (
-                                    <option value={categoriaActual}>Categoría {categoriaActual}</option>
-                                ) : null}
-                            </CampoSelector>
-                            <CampoSelector etiqueta="Prioridad por defecto" error={errors.prioridad?.message} {...form.register("prioridad")}>
-                                {PRIORIDADES_BUZON.map((p) => (
-                                    <option key={p} value={p}>
-                                        {PRIORIDADES[p].texto}
-                                    </option>
-                                ))}
-                            </CampoSelector>
-                        </div>
-                    </Seccion>
-
-                    {error ? (
-                        esConflicto(error) ? (
-                            <Aviso
-                                tono="warning"
-                                titulo="Alguien más cambió este buzón"
-                                accion={
-                                    <Boton variante="secundario" tamano="sm" onClick={recargar} disabled={recargando}>
-                                        <RotateCw />
-                                        {recargando ? "Recargando…" : "Recargar"}
+                                <div className="flex justify-end">
+                                    <Boton type="button" variante="secundario" onClick={() => setPaso("enviar")}>
+                                        <Send />
+                                        Siguiente: enviar
                                     </Boton>
-                                }
-                            >
-                                Recarga para tomar la versión nueva; lo que escribiste se conserva.
-                            </Aviso>
-                        ) : (
-                            <Aviso tono="error" titulo={textoErrorBuzon(error).titulo}>
-                                {textoErrorBuzon(error).detalle}
-                            </Aviso>
-                        )
-                    ) : null}
-                    {editando && (pideImap || pideSmtp) ? (
-                        <p className="flex items-start gap-2 text-sm text-muted-foreground">
-                            <KeyRound aria-hidden className="mt-0.5 size-4 shrink-0" />
-                            La contraseña guardada no viaja a otro servidor ni a otro usuario: por eso hay que escribirla de nuevo.
-                        </p>
-                    ) : null}
-                    <DialogoPie>
-                        <DialogoCerrar asChild>
-                            <Boton variante="contorno" disabled={isSubmitting}>
-                                Cancelar
-                            </Boton>
-                        </DialogoCerrar>
-                        <Boton type="submit" disabled={isSubmitting || esConflicto(error)}>
-                            {isSubmitting ? "Guardando…" : editando ? "Guardar cambios" : "Crear buzón"}
-                        </Boton>
-                    </DialogoPie>
-                </form>
-            </DialogoContenido>
-        </DialogoProtegido>
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        id: "enviar",
+                        etiqueta: "2. Enviar",
+                        icono: Send,
+                        contenido: (
+                            <div className="grid gap-4">
+                                <Seccion titulo="Salida (SMTP)">
+                                    <Casilla
+                                        etiqueta="Enviar las respuestas por correo"
+                                        ayuda="Sin SMTP, las respuestas de los agentes quedan en el ticket y no salen por correo."
+                                        {...form.register("conSmtp")}
+                                    />
+                                    {conSmtp ? (
+                                        <>
+                                            <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem]">
+                                                <Campo etiqueta="Servidor SMTP" autoComplete="off" spellCheck={false} placeholder="smtp.isp.gt" error={errors.smtpHost?.message} {...form.register("smtpHost")} />
+                                                <Campo etiqueta="Puerto SMTP" inputMode="numeric" autoComplete="off" error={errors.smtpPuerto?.message} {...form.register("smtpPuerto")} />
+                                                <CampoSelector etiqueta="Cifrado SMTP" error={errors.smtpTls?.message} {...registroTls("smtp")}>
+                                                    <option value="starttls">{NOMBRES_TLS.starttls} (587)</option>
+                                                    <option value="tls">{NOMBRES_TLS.tls} (465)</option>
+                                                </CampoSelector>
+                                            </div>
+                                            <div className="grid items-start gap-3 sm:grid-cols-2">
+                                                <Campo
+                                                    etiqueta="Usuario SMTP"
+                                                    autoComplete="off"
+                                                    spellCheck={false}
+                                                    ayuda="Vacío = el servidor no pide autenticación."
+                                                    error={errors.smtpUsuario?.message}
+                                                    {...form.register("smtpUsuario")}
+                                                />
+                                                <Campo
+                                                    etiqueta="Contraseña SMTP"
+                                                    type="password"
+                                                    autoComplete="new-password"
+                                                    maxLength={512}
+                                                    placeholder={editando && !pideSmtp && (v.smtpUsuario ?? "").trim() !== "" ? "•••••• (se conserva)" : ""}
+                                                    aria-required={pideSmtp}
+                                                    ayuda={errors.smtpContrasena ? undefined : (v.smtpUsuario ?? "").trim() === "" ? "Sin usuario no se usa contraseña." : ayudaContrasena(pideSmtp, "SMTP")}
+                                                    error={errors.smtpContrasena?.message}
+                                                    {...form.register("smtpContrasena")}
+                                                />
+                                            </div>
+                                        </>
+                                    ) : null}
+                                </Seccion>
+
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+            {editando && (pideImap || pideSmtp) ? (
+                <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <KeyRound aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    La contraseña guardada no viaja a otro servidor ni a otro usuario: por eso hay que escribirla de nuevo.
+                </p>
+            ) : null}
+        </FormularioPagina>
     );
 }
