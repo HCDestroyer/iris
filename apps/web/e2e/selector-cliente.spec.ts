@@ -14,8 +14,8 @@ const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas
 async function abrirNuevoTicket(page: Page) {
     await page.goto("/tickets");
     await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
-    await page.getByRole("button", { name: "Nuevo ticket" }).click();
-    return page.getByRole("dialog", { name: "Nuevo ticket" });
+    await page.getByRole("link", { name: "Nuevo ticket" }).click();
+    return page.getByRole("form", { name: "Nuevo ticket" });
 }
 
 test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear el ticket", async ({ page, context, baseURL }, info) => {
@@ -74,9 +74,8 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     expect(JSON.parse(guardado[0]?.[1] ?? "[]")).toEqual([{ id: 503, codigo: "CL-0503", nombre: "Ana Morales" }]);
 
     // Recientes: al volver a abrir aparece el último elegido; al elegirlo se vuelve a leer la ficha.
-    await page.goto("/tickets");
-    await page.getByRole("button", { name: "Nuevo ticket" }).click();
-    await page.getByRole("dialog", { name: "Nuevo ticket" }).getByLabel("Cliente en Argos").click();
+    await page.goto("/tickets/nuevo");
+    await page.getByRole("form", { name: "Nuevo ticket" }).getByLabel("Cliente en Argos").click();
     const recientes = page.getByRole("listbox", { name: "Clientes recientes" });
     const fichas = api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length;
     await recientes.getByRole("option", { name: /Ana Morales/ }).click();
@@ -133,28 +132,28 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
 });
 
-test("cerrar un modal con cambios pide confirmación", async ({ page, context, baseURL }) => {
+test("salir del formulario con cambios pide confirmación", async ({ page, context, baseURL }) => {
     await simularApi(page, { empresas: EMPRESAS });
     await conSesion(context, baseURL ?? "", ADMIN.correo);
-    const dialogo = await abrirNuevoTicket(page);
-    // Sin cambios cierra directo.
-    await page.keyboard.press("Escape");
-    await expect(dialogo).toHaveCount(0);
+    const formulario = await abrirNuevoTicket(page);
+    // Sin cambios, «Cancelar» vuelve directo a la bandeja.
+    await formulario.getByRole("button", { name: "Cancelar" }).click();
+    await expect(page).toHaveURL(/\/tickets$/);
 
-    await page.getByRole("button", { name: "Nuevo ticket" }).click();
-    await dialogo.getByLabel("Asunto").fill("Algo a medias");
-    await dialogo.getByRole("button", { name: "Cancelar" }).click();
+    await page.getByRole("link", { name: "Nuevo ticket" }).click();
+    await formulario.getByLabel("Asunto").fill("Algo a medias");
+    await formulario.getByRole("button", { name: "Cancelar" }).click();
     const confirmar = page.getByRole("alertdialog", { name: "¿Descartar los cambios?" });
     await expect(confirmar).toBeVisible();
     await confirmar.getByRole("button", { name: "Seguir editando" }).click();
     await expect(confirmar).toHaveCount(0);
-    await expect(dialogo.getByLabel("Asunto")).toHaveValue("Algo a medias");
+    await expect(formulario.getByLabel("Asunto")).toHaveValue("Algo a medias");
 
-    await page.keyboard.press("Escape");
+    await formulario.getByRole("button", { name: "Cancelar" }).click();
     await confirmar.getByRole("button", { name: "Descartar cambios" }).click();
-    await expect(dialogo).toHaveCount(0);
-    await page.getByRole("button", { name: "Nuevo ticket" }).click();
-    await expect(dialogo.getByLabel("Asunto")).toHaveValue("");
+    await expect(page).toHaveURL(/\/tickets$/);
+    await page.getByRole("link", { name: "Nuevo ticket" }).click();
+    await expect(formulario.getByLabel("Asunto")).toHaveValue("");
 });
 
 test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async ({ page, context, baseURL }) => {
@@ -162,8 +161,8 @@ test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     await page.goto("/ordenes");
     await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
-    await page.getByRole("button", { name: "Nueva orden" }).click();
-    const dialogo = page.getByRole("dialog", { name: "Nueva orden" });
+    await page.getByRole("link", { name: "Nueva orden" }).click();
+    const dialogo = page.getByRole("form", { name: "Nueva orden" });
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
     await dialogo.getByLabel("Cliente en Argos").click();
     await page.getByRole("combobox", { name: "Buscar cliente" }).fill("CL-0501");

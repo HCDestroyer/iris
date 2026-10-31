@@ -13,6 +13,7 @@ import { CSRF, PAGINA_1, PAGINA_2, type Peticion } from "./api-falsa";
  *  - `POST /usuarios/{id}/asignar-empresa` y `/quitar-empresa`: 422 `empresa_ya_asignada` /
  *    `empresa_no_asignada`.
  *  - `GET /usuarios/{id}`: el usuario con lo que cambió aquí (o el creado).
+ *  - `GET /usuarios` (primera página, sin `q`): los creados aquí van arriba, como en la API (id desc).
  */
 
 type Usuario = Schema<"Usuario">;
@@ -51,7 +52,8 @@ export async function simularUsuarios(page: Page, opciones: OpcionesUsuarios = {
     for (const u of [...(PAGINA_1.data ?? []), ...(PAGINA_2.data ?? []), ...(opciones.extra ?? [])]) usuarios.set(u.id, structuredClone(u));
     const peticiones: Peticion[] = [];
     const oyentes: ((u: Usuario) => void)[] = [];
-    let siguiente = 500;
+    const INICIO = 500;
+    let siguiente = INICIO;
     const ahora = () => new Date().toISOString();
     const tocar = (u: Usuario, cambios: Partial<Usuario>): Usuario => {
         const nuevo = { ...u, ...cambios, version: u.version + 1, actualizadoEn: ahora() };
@@ -107,6 +109,13 @@ export async function simularUsuarios(page: Page, opciones: OpcionesUsuarios = {
             usuarios.set(u.id, u);
             for (const fn of oyentes) fn(u);
             return json(route, u, 201);
+        }
+
+        // La lista de siempre (api-falsa) con los recién creados arriba.
+        if (metodo === "GET" && ruta === "/api/v1/usuarios" && !url.searchParams.get("q") && !url.searchParams.get("cursor") && siguiente > INICIO) {
+            const creados = [...usuarios.values()].filter((x) => x.id >= INICIO).sort((a, b) => b.id - a.id);
+            const resto = (PAGINA_1.data ?? []).map((x) => usuarios.get(x.id) ?? x);
+            return json(route, { ...PAGINA_1, data: [...creados, ...resto] } satisfies Schema<"PaginaUsuario">);
         }
 
         const m = /^\/api\/v1\/usuarios\/(\d+)(?:\/(editar|desactivar|asignar-empresa|quitar-empresa))?$/.exec(ruta);

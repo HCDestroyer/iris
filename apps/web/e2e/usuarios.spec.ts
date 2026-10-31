@@ -33,7 +33,8 @@ test.describe("administración de usuarios", () => {
     test("«Nuevo usuario»: contraseña generada, rol y empresa; la contraseña se muestra una vez", async ({ page, context, baseURL }, info) => {
         const { admin } = await preparar(page, context, baseURL, { api: { empresas: EMPRESAS } });
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: "Nuevo usuario" }).click();
+        await page.getByRole("link", { name: "Nuevo usuario" }).click();
+        await expect(page).toHaveURL(/\/usuarios\/nuevo$/);
         const d = page.getByTestId("crear-usuario");
         await expect(d).toBeVisible();
         await expect(d.getByRole("radio", { name: "Persona" })).toHaveAttribute("aria-checked", "true");
@@ -85,7 +86,8 @@ test.describe("administración de usuarios", () => {
     test("«Nuevo usuario»: errores del servidor junto a su campo (empresas obligatorias, correo en uso) e integración sin contraseña", async ({ page, context, baseURL }) => {
         const { admin } = await preparar(page, context, baseURL, { api: { empresas: EMPRESAS }, usuarios: { empresasObligatorias: true } });
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: "Nuevo usuario" }).click();
+        await page.getByRole("link", { name: "Nuevo usuario" }).click();
+        await expect(page).toHaveURL(/\/usuarios\/nuevo$/);
         const d = page.getByTestId("crear-usuario");
         await d.getByLabel("Nombre", { exact: true }).fill("Otra Ana");
         await d.getByLabel("Correo", { exact: true }).fill("ana@iris.test");
@@ -112,8 +114,9 @@ test.describe("administración de usuarios", () => {
         await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
         const altas = admin.peticiones.filter((p) => p.metodo === "POST" && p.ruta === "/api/v1/usuarios");
         expect(altas.at(-1)?.cuerpo).toEqual({ nombre: "Otra Ana", correo: "script@iris.test", tipo: "integracion", roles: [{ rol: "integracion_argos" }], empresas: [20] });
-        // Al cerrar, el recién creado ya está en la lista.
-        await page.getByTestId("usuario-creado").press("Escape");
+        // La contraseña no queda en la URL y, de vuelta en la lista, el recién creado ya está.
+        await expect(page).toHaveURL(/\/usuarios\/nuevo$/);
+        await page.getByRole("navigation", { name: "Ruta de navegación" }).filter({ visible: true }).getByRole("link", { name: "Usuarios" }).click();
         await expect(page.getByTestId("usuario-creado")).toHaveCount(0);
         await expect(page.getByRole("link", { name: "Otra Ana" }).first()).toBeAttached();
     });
@@ -122,7 +125,8 @@ test.describe("administración de usuarios", () => {
         const { admin } = await preparar(page, context, baseURL);
         await page.goto(`/usuarios/${CON_MFA.id}`);
         await expect(page.getByRole("heading", { name: CON_MFA.nombre })).toBeVisible();
-        await page.getByRole("button", { name: "Editar" }).click();
+        await page.getByRole("link", { name: "Editar" }).click();
+        await expect(page).toHaveURL(new RegExp(`/usuarios/${CON_MFA.id}/editar$`));
         const d = page.getByTestId("editar-usuario");
         await expect(d.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
         await d.getByLabel("Correo", { exact: true }).fill("mario.perez@iris.test");
@@ -138,6 +142,7 @@ test.describe("administración de usuarios", () => {
         await expect(d.getByLabel("Correo", { exact: true })).toHaveValue("mario.perez@iris.test");
         await d.getByRole("button", { name: "Guardar cambios" }).click();
         await expect(d).toHaveCount(0);
+        await expect(page).toHaveURL(new RegExp(`/usuarios/${CON_MFA.id}$`));
         await expect(page.getByText("mario.perez@iris.test")).toBeVisible();
         const ediciones = admin.peticiones.filter((p) => p.ruta === `/api/v1/usuarios/${CON_MFA.id}/editar`);
         expect(ediciones.map((p) => p.cuerpo)).toEqual([
@@ -204,13 +209,19 @@ test.describe("administración de usuarios", () => {
         await page.goto("/usuarios");
         await expect(page.getByRole("heading", { name: "Usuarios" })).toBeVisible();
         await expect(page.getByRole("link", { name: ADMIN.nombre }).first()).toBeAttached();
-        await expect(page.getByRole("button", { name: "Nuevo usuario" })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Nuevo usuario" })).toHaveCount(0);
         await page.goto(`/usuarios/${CON_MFA.id}`);
         await expect(page.getByRole("heading", { name: CON_MFA.nombre })).toBeVisible();
         await expect(page.locator('[data-seccion="empresas"]')).toBeVisible();
-        await expect(page.getByRole("button", { name: "Editar" })).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "Editar" })).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Desactivar" })).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Asignar empresa" })).toHaveCount(0);
+        // Ni entrando directo a las pantallas de formulario.
+        await page.goto("/usuarios/nuevo");
+        await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
+        await expect(page.getByTestId("crear-usuario")).toHaveCount(0);
+        await page.goto(`/usuarios/${CON_MFA.id}/editar`);
+        await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
     });
 });
 
@@ -219,9 +230,10 @@ test.describe("técnico sin usuario", () => {
         const { general, admin } = await preparar(page, context, baseURL, { api: { despacho: true } });
         admin.alCrear((u) => general.equipo.candidatos.push({ usuarioId: u.id, nombre: u.nombre, correo: u.correo }));
         await page.goto("/tecnicos");
-        await page.getByRole("button", { name: "Nuevo técnico" }).click();
+        await page.getByRole("link", { name: "Nuevo técnico" }).click();
         const f = page.getByTestId("formulario-tecnico");
-        await f.getByRole("button", { name: "Crear usuario" }).click();
+        await f.getByRole("link", { name: "Crear usuario" }).click();
+        await expect(page).toHaveURL(/\/usuarios\/nuevo\?para=tecnico$/);
 
         const d = page.getByTestId("crear-usuario");
         await expect(d).toContainText("Se crea con el rol Técnico");
@@ -236,6 +248,8 @@ test.describe("técnico sin usuario", () => {
         expect(admin.peticiones.find((p) => p.ruta === "/api/v1/usuarios")?.cuerpo).toMatchObject({ roles: [{ rol: "tecnico" }], tipo: "persona" });
         await page.getByRole("button", { name: "Continuar con la ficha" }).click();
 
+        // De vuelta en «Nuevo técnico» con el usuario elegido (leído de la API por su id).
+        await expect(page).toHaveURL(/\/tecnicos\/nuevo\?usuario=500$/);
         await expect(page.getByTestId("crear-usuario")).toHaveCount(0);
         await expect(page.getByTestId("usuario-creado")).toHaveCount(0);
         const usuario = f.getByLabel("Usuario", { exact: true });
@@ -243,6 +257,7 @@ test.describe("técnico sin usuario", () => {
         await f.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
         await f.getByRole("button", { name: "Crear técnico" }).click();
         await expect(f).toHaveCount(0);
+        await expect(page).toHaveURL(/\/tecnicos\/\d+$/);
         const alta = general.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/tecnicos");
         expect(alta?.cuerpo).toMatchObject({ usuarioId: 500 });
     });
