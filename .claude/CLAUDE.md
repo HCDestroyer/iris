@@ -170,6 +170,7 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id; nombre, zonas[] (creada); campos[], activa (actualizada) |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
@@ -190,6 +191,9 @@ Una tarea está terminada solo si:
 | `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
 | `conector.creado` / `conector.activado` / `conector.desactivado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado) |
 | `argos.servicio_retirado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id (o null), de, a, entrante_id |
+| `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
+| `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |
+| `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |
@@ -200,6 +204,7 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
+| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

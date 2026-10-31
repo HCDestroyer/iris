@@ -243,7 +243,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop,
-		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
+		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()

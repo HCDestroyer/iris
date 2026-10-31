@@ -24,6 +24,14 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.nucleo.Registrar(api)
 	m.conexion.Registrar(api)
 
+	// Técnicos de Argos con bodega (contrato 0.5.0 §3.3): selector del vínculo de agenda.
+	tecnicos := conector.Operacion(conector.EtiquetaIntegraciones, "listarTecnicosArgos", http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos",
+		"Técnicos de Argos con bodega (selector del vínculo)", nucleo.PermAgendaVincularArgos, http.StatusOK, http.StatusBadGateway, http.StatusServiceUnavailable)
+	tecnicos.Description += " Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos)." + descConectorApagado
+	huma.Register(api, tecnicos, func(ctx context.Context, in *EntradaTecnicosArgos) (*conector.Cuerpo[PaginaTecnicosArgos], error) {
+		return conector.Responder(m.ListarTecnicosArgos.Ejecutar(ctx, *in))
+	})
+
 	// Clientes (lectura de Argos) --------------------------------------------------------
 	buscar := conector.Operacion(etiquetaClientes, "buscarClientes", http.MethodGet, "/api/v1/clientes",
 		"Buscar clientes en Argos", nucleo.PermClientesVer, http.StatusOK, http.StatusBadGateway, http.StatusServiceUnavailable)

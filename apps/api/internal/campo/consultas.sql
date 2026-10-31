@@ -362,9 +362,9 @@ SELECT * FROM campo.orden_notas WHERE orden_id = ANY(@ordenes::bigint[]) ORDER B
 
 -- name: CrearMaterial :one
 INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
-                                    registrado_por, canal, ocurrido_en, operacion_id)
+                                    registrado_por, canal, ocurrido_en, operacion_id, modalidad)
 VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, @excede_existencia,
-        @registrado_por, @canal, @ocurrido_en, @operacion_id)
+        @registrado_por, @canal, @ocurrido_en, @operacion_id, sqlc.narg(modalidad))
 RETURNING *;
 
 -- name: CantidadUsada :one
@@ -490,6 +490,10 @@ SELECT EXISTS (SELECT 1 FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id 
 -- La bodega de Argos de la ficha de agenda del técnico (usuario).
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
 
+-- name: VinculoArgosDeTecnico :one
+-- El vínculo con Argos de la ficha del técnico (contrato 0.5.0 §3.3): va como tecnico en orden.cerrada.
+SELECT coalesce(argos_id_externo, '')::text AS id_externo FROM agenda.tecnicos WHERE usuario_id = @usuario_id;
+
 -- name: CitasDeOrdenes :many
 SELECT * FROM agenda.citas WHERE orden_id = ANY(@ordenes::bigint[]);
 
@@ -586,3 +590,18 @@ SELECT pg_advisory_xact_lock(hashtextextended(concat('campo.posiciones:', @tecni
 SELECT registrada_en FROM campo.posiciones
 WHERE tecnico_id = @tecnico_id AND registrada_en BETWEEN @desde AND @hasta
 ORDER BY registrada_en;
+
+-- Datos de Argos cambiados (servicio.datos_cambiados / cliente.actualizado, contrato 0.5.0) -------
+
+-- name: MarcarDatosArgos :many
+-- Órdenes abiertas del servicio (o del cliente, sin servicio en la orden): conservan lo que copiaron
+-- y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión.
+UPDATE campo.ordenes o
+SET datos_argos_cambiados_en = @cambiado_en,
+    datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || @campos::text[]) AS c ORDER BY c),
+    updated_at = now()
+WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')
+  AND ((sqlc.narg(servicio_id)::bigint IS NOT NULL AND o.servicio_id = sqlc.narg(servicio_id)::bigint)
+    OR (sqlc.narg(cliente_id)::bigint IS NOT NULL AND o.cliente_id = sqlc.narg(cliente_id)::bigint
+        AND (@solo_sin_servicio::boolean = false OR o.servicio_id IS NULL)))
+RETURNING o.id, o.numero, o.empresa_id;

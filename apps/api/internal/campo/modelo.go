@@ -82,6 +82,8 @@ type Orden struct {
 	PausadaDesde     *string       `json:"pausadaDesde,omitempty" enum:"en_camino,en_sitio" doc:"Solo pausada: el estado al que vuelve al reanudar"`
 	PausadaEn        *time.Time    `json:"pausadaEn,omitempty" doc:"Solo pausada: inicio de la pausa en curso"`
 	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`
+	// DatosArgos: Argos avisó que cambiaron datos que la orden copió (contrato 0.5.0).
+	DatosArgos *DatosArgosCambiados `json:"datosArgosCambiados,omitempty" doc:"«Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios"`
 	// Aviso: la acción se aplicó, pero con una advertencia (checklist_no_vigente,
 	// existencia_insuficiente). Solo en la respuesta de una acción.
 	Aviso *string `json:"aviso,omitempty" enum:"checklist_no_vigente,existencia_insuficiente,version_anterior,pausa_ajustada" doc:"La acción se aplicó con una advertencia: checklist_no_vigente (otra marca más reciente gana; queda en el historial), existencia_insuficiente (más material que la existencia de la bodega según Argos), version_anterior (formulario agregado con la versión que veía el teléfono, que ya no es la actual) o pausa_ajustada (el inicio de la pausa caía antes del fin de la anterior; se ajustó)"`
@@ -98,6 +100,7 @@ func aOrden(f campobd.CampoOrden, tipo string) Orden {
 		Resultado: f.Resultado, MotivoFalla: f.MotivoFalla, Motivo: f.Motivo, Version: f.Version,
 		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Origen: f.Origen,
 		PausadaDesde: f.PausadaDesde, PausadaEn: f.PausadaEn, TiempoPausadoSeg: f.PausadaSeg,
+		DatosArgos: datosArgosDe(f),
 	}
 }
 
@@ -166,6 +169,7 @@ type MaterialOrden struct {
 	Cantidad         float64   `json:"cantidad"`
 	BodegaID         *int64    `json:"bodegaId" nullable:"true"`
 	ExcedeExistencia bool      `json:"excedeExistencia" doc:"Se usó más de lo que había en la bodega según Argos"`
+	Modalidad        *string   `json:"modalidad" nullable:"true" required:"false" enum:"comodato,consumible_gasto,consumible_cobro" doc:"Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo"`
 	OcurridoEn       time.Time `json:"ocurridoEn"`
 }
 

@@ -4,11 +4,12 @@
 -- Idempotente por la Idempotency-Key del contrato: un evento repetido no duplica la acción.
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
-    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar
+    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
+    tecnico_usuario_id
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
-    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}')
+    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -30,7 +31,7 @@ WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= @ahora)
     OR (p.estado = 'en_curso' AND p.tomado_en <= @reclamar_antes::timestamptz))
   AND NOT p.por_resolver
   AND NOT EXISTS (
-      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 ORDER BY p.proximo_intento, p.id
 LIMIT 1
 FOR UPDATE OF p SKIP LOCKED;
@@ -48,6 +49,7 @@ SET estado          = @estado,
     ultimo_status   = sqlc.narg(ultimo_status),
     hecho_en        = sqlc.narg(hecho_en),
     respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
+    codigo_error    = sqlc.narg(codigo_error),
     tomado_en       = NULL,
     version         = version + 1,
     updated_at      = now()
@@ -87,6 +89,20 @@ SET payload = @payload, ruta = @ruta, depende_de = @depende_de, datos_incompleto
 WHERE id = @id AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING *;
 
+-- name: CorregirTecnico :one
+-- Reintento a mano de un pendiente rechazado por el técnico (tecnico_no_encontrado…, contrato 0.5.0
+-- §3.3): el cuerpo lleva el vínculo actual del técnico. Argos no guardó la clave (un 4xx no la
+-- guarda), así que otro cuerpo con la misma Idempotency-Key es seguro.
+UPDATE integracion.pendientes
+SET payload = @payload, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL, codigo_error = NULL,
+    proximo_intento = @ahora, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: VinculoArgosDeTecnico :one
+-- El vínculo con Argos de la ficha de agenda del usuario (id_externo; vacío = sin vincular).
+SELECT coalesce(argos_id_externo, '')::text AS id_externo FROM agenda.tecnicos WHERE usuario_id = @usuario_id;
+
 -- name: MarcarConflicto :one
 UPDATE integracion.pendientes
 SET conflicto = @conflicto, conflicto_payload = @conflicto_payload, conflicto_en = @ahora::timestamptz,
@@ -102,12 +118,13 @@ WHERE estado = 'pendiente' AND @id::bigint = ANY (depende_de)
 RETURNING *;
 
 -- name: DesbloquearDependientes :many
--- La dependencia @id quedó hecha: vuelven a la cola los bloqueados cuyas dependencias están todas hechas.
+-- La dependencia @id quedó hecha (o resuelta a mano): vuelven a la cola los bloqueados cuyas
+-- dependencias están todas hechas o resueltas a mano.
 UPDATE integracion.pendientes p
 SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, version = p.version + 1, updated_at = now()
 WHERE p.estado = 'bloqueado' AND @id::bigint = ANY (p.depende_de)
   AND NOT EXISTS (
-      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 RETURNING p.*;
 
 -- name: DependientesPorResolver :many
@@ -148,4 +165,43 @@ UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = @motivo,
     version = version + 1, updated_at = now()
 WHERE id = @id AND por_resolver
+RETURNING *;
+
+-- name: BodegaDeOrden :one
+-- La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
+SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;
+
+-- name: ResolverManual :one
+-- Un rechazado por Argos (fallido_negocio, también incompleto) queda resuelto a mano: estado final,
+-- nunca vuelve a salir hacia Argos.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
+    tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: DependientesAbiertos :many
+-- Los dependientes de @id que aún esperan (pendiente o bloqueado), bloqueados para decidir qué hacer
+-- con ellos al resolver @id a mano.
+SELECT * FROM integracion.pendientes
+WHERE @id::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+ORDER BY id
+FOR UPDATE;
+
+-- name: FallarPorResolucionManual :one
+-- La dependencia se resolvió a mano y este cuerpo esperaba su respuesta (marcadores): nunca la
+-- tendrá. Queda incompleto (fallido_negocio + datos_incompletos) para resolverlo también a mano o
+-- corregirlo con los datos reales; sin marcadores pendientes (por_resolver = false).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = @motivo::text,
+    codigo_error = 'dependencia_resuelta_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: ResolverManualDependiente :one
+-- El cargo que esperaba al consumo resuelto a mano también se da por resuelto (resolver_tambien).
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
+    tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;

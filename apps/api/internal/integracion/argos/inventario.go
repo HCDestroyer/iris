@@ -53,6 +53,28 @@ type ExistenciaArgos struct {
 	Unidad      string      `json:"unidad"`
 	BodegaID    int64       `json:"bodega_id"`
 	EmpresaID   int64       `json:"empresa_id"`
+	// Modalidad (0.5.0): comodato, consumible_gasto o consumible_cobro; vacía en Argos < 1.6.0.
+	Modalidad string `json:"modalidad"`
+}
+
+// Modalidades del producto en Argos (contrato 0.5.0 §3.3).
+const (
+	ModalidadComodato        = "comodato"
+	ModalidadConsumibleGasto = "consumible_gasto"
+	ModalidadConsumibleCobro = "consumible_cobro"
+)
+
+// EsModalidad indica si m es una modalidad del contrato.
+func EsModalidad(m string) bool {
+	return m == ModalidadComodato || m == ModalidadConsumibleGasto || m == ModalidadConsumibleCobro
+}
+
+// ModalidadValida: la modalidad si es del contrato; vacía si no.
+func (e ExistenciaArgos) ModalidadValida() string {
+	if EsModalidad(e.Modalidad) {
+		return e.Modalidad
+	}
+	return ""
 }
 
 // IDProducto devuelve el id del producto (plano o anidado).

@@ -108,6 +108,8 @@ type ErrorRemoto struct {
 	Detalle string
 	// ProblemJSON: la respuesta vino como application/problem+json (no el HTML de un proxy).
 	ProblemJSON bool
+	// Campos: errors[].field (o location / campo) del problem+json, sin el prefijo body. (máx. 20).
+	Campos []string
 
 	reintentarEn time.Duration
 	causa        error
@@ -365,9 +367,29 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 		Type   string `json:"type"`
 		Title  string `json:"title"`
 		Detail string `json:"detail"`
+		Errors []struct {
+			Field    string `json:"field"`
+			Location string `json:"location"`
+			Campo    string `json:"campo"`
+		} `json:"errors"`
 	}
 	if json.Unmarshal(crudo, &p) == nil {
 		e.Tipo, e.Titulo, e.Detalle = p.Type, p.Title, p.Detail
+		for i, f := range p.Errors {
+			if i >= 20 {
+				break
+			}
+			campo := f.Field
+			if campo == "" {
+				campo = f.Location
+			}
+			if campo == "" {
+				campo = f.Campo
+			}
+			if campo = strings.TrimPrefix(strings.TrimSpace(campo), "body."); campo != "" && len(campo) <= 100 {
+				e.Campos = append(e.Campos, campo)
+			}
+		}
 	}
 	if mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err == nil && mt == "application/problem+json" {
 		e.ProblemJSON = true

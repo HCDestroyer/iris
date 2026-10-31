@@ -47,6 +47,8 @@ const (
 	OpPerdida            = "perdida"
 	OpRetiro             = "retiro"
 	OpCargo              = "cargo"
+	// OpRecepcion: el técnico recibe una orden de traslado (0.5.0 §3.3; no es de una orden de trabajo).
+	OpRecepcion = "recepcion"
 )
 
 // IDArgos es un id de Argos: entero, en JSON como número o como texto numérico.
@@ -86,6 +88,13 @@ type Material struct {
 	ProductoID *IDArgos    `json:"producto_id"`
 	Cantidad   json.Number `json:"cantidad"`
 	BodegaID   *IDArgos    `json:"bodega_id"`
+	// Modalidad del producto en Argos (0.5.0) al registrarlo; vacía si no se sabía.
+	Modalidad string `json:"modalidad"`
+}
+
+// TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
+type TecnicoArgos struct {
+	IDExterno string `json:"id_externo"`
 }
 
 // Equipo instalado o retirado en la orden.
@@ -107,18 +116,20 @@ type Cargo struct {
 
 // OrdenCerrada es el payload de orden.cerrada que necesita esta cola.
 type OrdenCerrada struct {
-	OrdenID         IDTexto    `json:"orden_id"`
-	Tipo            string     `json:"tipo"`
-	Resultado       string     `json:"resultado"`
-	EmpresaID       *int64     `json:"empresa_id"`
-	ClienteID       *IDArgos   `json:"cliente_id"`
-	ServicioID      *IDArgos   `json:"servicio_id"`
-	TecnicoID       *int64     `json:"tecnico_id"`
-	BodegaID        *IDArgos   `json:"bodega_id"`
-	RetirarServicio bool       `json:"retirar_servicio"`
-	Materiales      []Material `json:"materiales"`
-	Equipos         []Equipo   `json:"equipos"`
-	Cargo           *Cargo     `json:"cargo"`
+	OrdenID    IDTexto  `json:"orden_id"`
+	Tipo       string   `json:"tipo"`
+	Resultado  string   `json:"resultado"`
+	EmpresaID  *int64   `json:"empresa_id"`
+	ClienteID  *IDArgos `json:"cliente_id"`
+	ServicioID *IDArgos `json:"servicio_id"`
+	TecnicoID  *int64   `json:"tecnico_id"`
+	BodegaID   *IDArgos `json:"bodega_id"`
+	// Tecnico: { id_externo } del técnico en Argos, o null sin vínculo (0.5.0).
+	Tecnico         *TecnicoArgos `json:"tecnico"`
+	RetirarServicio bool          `json:"retirar_servicio"`
+	Materiales      []Material    `json:"materiales"`
+	Equipos         []Equipo      `json:"equipos"`
+	Cargo           *Cargo        `json:"cargo"`
 
 	// EventoID del outbox (no viene en el payload).
 	EventoID uuid.UUID `json:"-"`
@@ -137,7 +148,22 @@ type plan struct {
 	payload                map[string]any
 	depende                []int  // índices de otros planes de la misma orden
 	incompleto             string // dato faltante: nace fallido_negocio
+	// conTecnico: el cuerpo lleva `tecnico` (se corrige al reintentar a mano tras vincular).
+	conTecnico bool
 }
+
+// omision es algo de la orden que no se manda a Argos, con su motivo (integracion.pendiente_omitido).
+type omision struct {
+	motivo      string
+	operaciones []string
+}
+
+// Motivos de omisión (además de sin_conector).
+const (
+	// MotivoMaterialComodato: un material de modalidad comodato no va en el consumo (422
+	// producto_es_comodato): se registra como equipo, con serie, por POST /servicios/:id/equipos.
+	MotivoMaterialComodato = "material_comodato"
+)
 
 func origen(ordenID string) map[string]any {
 	return map[string]any{"origen_tipo": OrigenTipo, "origen_id": ordenID}
@@ -177,10 +203,23 @@ func idRuta(id *IDArgos) string {
 }
 
 // planificar traduce la orden cerrada a las llamadas del contrato §3. Pura (sin E/S).
-func planificar(o OrdenCerrada) []plan {
+//
+// porTecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3). Con el técnico vinculado, consumo, comodato y
+// devolución mandan `tecnico: { id_externo }` (Argos usa la bodega activa del técnico en la empresa
+// del servicio) en vez de `bodega_id`; una bodega explícita distinta de la de la orden (la indicó
+// despacho) sigue mandando `bodega_id`, que en Argos manda sobre `tecnico`. Sin vínculo o con un
+// Argos anterior, todo sigue con `bodega_id`.
+func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	orden := string(o.OrdenID)
 	sid := idRuta(o.ServicioID)
 	var planes []plan
+	var omisiones []omision
+	var tecnico map[string]any
+	if porTecnico && o.Tecnico != nil && strings.TrimSpace(o.Tecnico.IDExterno) != "" {
+		tecnico = map[string]any{"id_externo": strings.TrimSpace(o.Tecnico.IDExterno)}
+	}
+	// explicita: una bodega propia de la línea o el equipo, distinta de la de la orden.
+	explicita := func(b *IDArgos) bool { return b != nil && (o.BodegaID == nil || *b != *o.BodegaID) }
 	agregar := func(p plan) int {
 		planes = append(planes, p)
 		return len(planes) - 1
@@ -226,8 +265,13 @@ func planificar(o OrdenCerrada) []plan {
 				ruta:    "/servicios/" + sid + "/equipos/" + uid + "/devolver",
 				payload: con(origen(orden), map[string]any{"bodega_id": bodegaDe(e.BodegaID), "condicion": e.Condicion}),
 			}
+			if tecnico != nil && !explicita(e.BodegaID) {
+				// 0.5.0: a la bodega activa del técnico en la empresa del servicio.
+				delete(p.payload, "bodega_id")
+				p.payload["tecnico"], p.conTecnico = tecnico, true
+			}
 			switch {
-			case bodegaDe(e.BodegaID) == nil:
+			case !p.conTecnico && bodegaDe(e.BodegaID) == nil:
 				p.incompleto = "devolución sin bodega_id (ni en el equipo ni en la orden)"
 			case e.Condicion == "":
 				p.incompleto = "devolución sin condicion del equipo"
@@ -245,6 +289,10 @@ func planificar(o OrdenCerrada) []plan {
 			p := plan{
 				operacion: OpAsignarComodato, clave: "iris:comodato:" + orden + ":" + claveEquipo(e),
 				ruta: "/servicios/" + sid + "/equipos", payload: origen(orden), depende: depende,
+			}
+			if tecnico != nil {
+				// 0.5.0: la unidad sale de la bodega del técnico (409 unidad_en_otra_bodega si no).
+				p.payload["tecnico"], p.conTecnico = tecnico, true
 			}
 			switch {
 			case e.UnidadID != nil:
@@ -281,18 +329,41 @@ func planificar(o OrdenCerrada) []plan {
 		}
 	}
 
-	// Materiales usados (cualquier tipo y resultado): un consumo por orden desde una bodega.
-	if len(o.Materiales) > 0 {
+	// Materiales usados (cualquier tipo y resultado): un consumo por orden (lineas[], 0.5.0) desde la
+	// bodega del técnico o una bodega. Solo consumibles: un comodato va como equipo (se omite).
+	consumo := -1
+	// Productos del consumo (cualquier modalidad consumible): un cargo de la orden con uno de ellos
+	// espera al consumo; si Argos ya lo cobró por modalidad, responde 409 cargo_duplicado (conciliado).
+	enConsumo := map[int64]bool{}
+	var comodatos []string
+	materiales := make([]Material, 0, len(o.Materiales))
+	for _, mat := range o.Materiales {
+		if mat.Modalidad == argos.ModalidadComodato {
+			comodatos = append(comodatos, "producto:"+idRuta(mat.ProductoID))
+			continue
+		}
+		materiales = append(materiales, mat)
+	}
+	if len(comodatos) > 0 {
+		omisiones = append(omisiones, omision{motivo: MotivoMaterialComodato, operaciones: comodatos})
+	}
+	if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
+		porBodega := tecnico == nil
+		for _, mat := range materiales {
+			if explicita(mat.BodegaID) {
+				porBodega = true // despacho indicó otra bodega: manda bodega_id
+			}
+		}
 		var bodega *IDArgos
-		lineas := make([]map[string]any, 0, len(o.Materiales))
-		for _, mat := range o.Materiales {
+		lineas := make([]map[string]any, 0, len(materiales))
+		for _, mat := range materiales {
 			b := bodegaDe(mat.BodegaID)
 			cant, ok, positivo := numero(mat.Cantidad)
 			switch {
-			case b == nil:
-				p.incompleto = "material sin bodega_id (ni en la línea ni en la orden)"
-			case bodega != nil && *bodega != *b:
+			case porBodega && b == nil:
+				p.incompleto = "material sin bodega_id (ni en la línea ni en la orden) y sin técnico vinculado en Argos ≥ 1.6"
+			case porBodega && bodega != nil && *bodega != *b:
 				p.incompleto = "materiales de varias bodegas en una orden (un consumo por orden)"
 			case mat.ProductoID == nil:
 				p.incompleto = "material sin producto_id"
@@ -304,11 +375,19 @@ func planificar(o OrdenCerrada) []plan {
 			if b != nil && bodega == nil {
 				bodega = b
 			}
+			if mat.ProductoID != nil {
+				enConsumo[int64(*mat.ProductoID)] = true
+			}
 			linea := map[string]any{"producto_id": mat.ProductoID, "cantidad": cant}
 			lineas = append(lineas, linea)
 		}
-		p.payload = con(origen(orden), map[string]any{"bodega_id": bodega, "lineas": lineas, "servicio_id": o.ServicioID})
-		agregar(faltaServicio(p))
+		p.payload = con(origen(orden), map[string]any{"lineas": lineas, "servicio_id": o.ServicioID})
+		if porBodega {
+			p.payload["bodega_id"] = bodega
+		} else {
+			p.payload["tecnico"], p.conTecnico = tecnico, true
+		}
+		consumo = agregar(faltaServicio(p))
 	}
 
 	// Cargo único si la orden lo indica.
@@ -317,6 +396,12 @@ func planificar(o OrdenCerrada) []plan {
 			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
 		if o.Cargo.ProductoID != nil {
 			p.payload["producto_id"] = o.Cargo.ProductoID
+			// Mismo producto en el consumo: el cargo va después del consumo (nunca se descarta: el consumo
+			// puede fallar o el producto cambiar de modalidad); si Argos ya lo cobró por modalidad,
+			// responde 409 cargo_duplicado y se concilia como hecho (§3.3).
+			if consumo >= 0 && enConsumo[int64(*o.Cargo.ProductoID)] {
+				p.depende = []int{consumo}
+			}
 		}
 		monto, montoOK, montoPositivo := numero(o.Cargo.Monto)
 		if montoOK {
@@ -337,7 +422,7 @@ func planificar(o OrdenCerrada) []plan {
 		}
 		agregar(p)
 	}
-	return planes
+	return planes, omisiones
 }
 
 // claveEquipo: la serie (contrato: iris:comodato:<orden_id>:<serie>); sin serie, el unidad_id.
@@ -365,8 +450,16 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 		Logica: func(ctx context.Context, t *auditoria.Tx, o OrdenCerrada) (ResultadoCierre, error) {
 			orden := string(o.OrdenID)
 			res := ResultadoCierre{OrdenID: orden, Pendientes: []int64{}}
-			planes := planificar(o)
-			if len(planes) == 0 {
+			// Argos ≥ 1.6.0 entiende `tecnico` (contrato 0.5.0 §3.3); si no, bodega_id.
+			porTecnico := false
+			if m.cfg.Argos != nil && o.Tecnico != nil {
+				var err error
+				if porTecnico, err = m.cfg.Argos.InventarioPorTecnico(ctx, t); err != nil {
+					return res, err
+				}
+			}
+			planes, omisiones := planificar(o, porTecnico)
+			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
 			t.FijarEntidad("orden", orden)
@@ -393,6 +486,12 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					"orden", orden, "operaciones", ops)
 				res.Omitido = true
 				return res, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: orden, Motivo: "sin_conector", Operaciones: ops})
+			}
+			for _, om := range omisiones {
+				slog.WarnContext(ctx, "pendientes: parte de la orden no se manda a Argos", "orden", orden, "motivo", om.motivo, "operaciones", om.operaciones)
+				if err := t.Emitir(EventoOmitido, eventoOmitido{OrdenID: orden, Motivo: om.motivo, Operaciones: om.operaciones}); err != nil {
+					return res, err
+				}
 			}
 			q := pendientesbd.New(t)
 			ids := make([]int64, len(planes))
@@ -421,10 +520,15 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				if empresa != 0 {
 					empresaID = &empresa
 				}
+				var tecnicoUsuario *int64
+				if p.conTecnico {
+					tecnicoUsuario = o.TecnicoID
+				}
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
 					EmpresaID: empresaID, Sistema: argos.Sistema, Operacion: p.operacion, IdempotencyKey: p.clave,
 					Entidad: "orden", EntidadID: orden, Metodo: "POST", Ruta: p.ruta, Payload: cuerpo, DependeDe: depende,
 					DatosIncompletos: p.incompleto != "", Estado: estado, UltimoError: ultimo, ProximoIntento: ahora, EventoID: evento,
+					TecnicoUsuarioID: tecnicoUsuario,
 				})
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Cierre repetido (relay o reapertura): misma Idempotency-Key.
@@ -520,6 +624,11 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) {
 		return false, nil
 	}
+	// Mismos datos con otra forma de decir la bodega (bodega_id ↔ tecnico, al vincular al técnico o
+	// actualizar Argos a 1.6.0): lo ya encolado se queda como está (su huella de idempotencia).
+	if previo.Ruta == p.ruta && mismoJSON(sinBodega(previo.Payload), sinBodega(cuerpo)) {
+		return false, nil
+	}
 	if previo.Conflicto != nil && mismoJSON(previo.ConflictoPayload, cuerpo) {
 		return false, nil // ya avisado con estos datos
 	}
@@ -556,4 +665,19 @@ func mismoJSON(a, b []byte) bool {
 		return false
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// sinBodega: el cuerpo sin bodega_id ni tecnico (para comparar un cierre repetido).
+func sinBodega(cuerpo []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(cuerpo, &m) != nil {
+		return cuerpo
+	}
+	delete(m, "bodega_id")
+	delete(m, "tecnico")
+	b, err := json.Marshal(m)
+	if err != nil {
+		return cuerpo
+	}
+	return b
 }

@@ -132,6 +132,8 @@ func correr() error {
 	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
+	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
+	cmp.SuscribirDatosArgos(bus, pool, log)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()

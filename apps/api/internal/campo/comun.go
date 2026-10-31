@@ -37,7 +37,10 @@ type OpSync struct {
 	// Existencia de la bodega según Argos (material.usar) y comodato del servicio
 	// (equipo.retirar), leídos antes, fuera de la transacción.
 	Existencia *float64
-	pre        *prelectura
+	// Modalidad del producto según Argos (0.5.0: comodato, consumible_gasto, consumible_cobro);
+	// vacía si no se sabe.
+	Modalidad string
+	pre       *prelectura
 }
 
 func noEncontrada() *nucleo.Problema { return nucleo.NoEncontrado("La orden no existe") }

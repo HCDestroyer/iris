@@ -123,6 +123,10 @@ const (
 	PermAgendaFijarCapacidad      Permiso = "agenda.fijar_capacidad"
 	PermAgendaRegistrarAusencia   Permiso = "agenda.registrar_ausencia"
 	PermAgendaAnularAusencia      Permiso = "agenda.anular_ausencia"
+	// Vínculo del técnico con su usuario de Argos (contrato 0.5.0 §3.3; I1): define desde qué
+	// bodega de Argos se consumen materiales y comodatos, así que es de administración.
+	PermAgendaVincularArgos    Permiso = "agenda.vincular_argos"
+	PermAgendaDesvincularArgos Permiso = "agenda.desvincular_argos"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -185,10 +189,13 @@ const (
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
 const (
-	PermAdjuntosSubir              Permiso = "adjuntos.subir"
-	PermAdjuntosVer                Permiso = "adjuntos.ver"
-	PermIntegracionesReintentar    Permiso = "integraciones.reintentar"
-	PermIntegracionesVerPendientes Permiso = "integraciones.ver_pendientes"
+	PermAdjuntosSubir           Permiso = "adjuntos.subir"
+	PermAdjuntosVer             Permiso = "adjuntos.ver"
+	PermIntegracionesReintentar Permiso = "integraciones.reintentar"
+	// PermIntegracionesResolverPendiente: dar por resuelto a mano un pendiente rechazado por Argos
+	// (ya corregido en Argos); sus dependientes (el cargo que esperaba al consumo) salen.
+	PermIntegracionesResolverPendiente Permiso = "integraciones.resolver_pendiente"
+	PermIntegracionesVerPendientes     Permiso = "integraciones.ver_pendientes"
 )
 
 // Portal de soporte (/soporte).
@@ -213,8 +220,9 @@ var PermisosSensibles = map[Permiso]bool{
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
-	PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -241,6 +249,7 @@ var Catalogo = []DefPermiso{
 	{PermAgendaDesactivarCuadrilla, "Desactivar una cuadrilla"},
 	{PermAgendaDesactivarTecnico, "Desactivar la ficha de agenda de un técnico (deja de ser asignable)"},
 	{PermAgendaDesactivarZona, "Desactivar una zona"},
+	{PermAgendaDesvincularArgos, "Quitar el vínculo de la ficha de un técnico con su usuario de Argos"},
 	{PermAgendaEditarCuadrilla, "Editar una cuadrilla y sus zonas"},
 	{PermAgendaEditarTecnico, "Editar la ficha de agenda de un técnico"},
 	{PermAgendaEditarZona, "Editar una zona (nombre de las locales y polígono)"},
@@ -248,6 +257,7 @@ var Catalogo = []DefPermiso{
 	{PermAgendaFijarTurnos, "Fijar los turnos semanales de un técnico"},
 	{PermAgendaRegistrarAusencia, "Registrar ausencias de un técnico (vacaciones, enfermedad…)"},
 	{PermAgendaVer, "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)"},
+	{PermAgendaVincularArgos, "Vincular la ficha de un técnico con su usuario de Argos (inventario por técnico, Argos ≥ 1.6.0) y ver los técnicos de Argos"},
 	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
 	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},
@@ -277,6 +287,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
+	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
@@ -406,7 +417,7 @@ var RolesBase = []DefRol{
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
-			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
+			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
 			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},

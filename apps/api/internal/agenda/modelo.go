@@ -64,20 +64,22 @@ type Turno struct {
 
 // Tecnico es la ficha de agenda de un usuario técnico.
 type Tecnico struct {
-	ID            int64     `json:"id" doc:"Id de la ficha"`
-	UsuarioID     int64     `json:"usuarioId" doc:"Usuario (es el tecnicoId de las órdenes)"`
-	Nombre        string    `json:"nombre"`
-	Correo        string    `json:"correo"`
-	CuadrillaID   *int64    `json:"cuadrillaId" nullable:"true"`
-	BodegaID      *int64    `json:"bodegaId" nullable:"true" doc:"Bodega del técnico en Argos"`
-	Habilidades   []string  `json:"habilidades"`
-	BaseLat       *float64  `json:"baseLat" nullable:"true"`
-	BaseLon       *float64  `json:"baseLon" nullable:"true"`
-	Telefono      string    `json:"telefono" doc:"Teléfono de contacto de la ficha; vacío = sin teléfono"`
-	Activo        bool      `json:"activo" doc:"Ficha activa y usuario activo"`
-	Version       int32     `json:"version"`
-	CreadoEn      time.Time `json:"creadoEn"`
-	ActualizadoEn time.Time `json:"actualizadoEn"`
+	ID          int64    `json:"id" doc:"Id de la ficha"`
+	UsuarioID   int64    `json:"usuarioId" doc:"Usuario (es el tecnicoId de las órdenes)"`
+	Nombre      string   `json:"nombre"`
+	Correo      string   `json:"correo"`
+	CuadrillaID *int64   `json:"cuadrillaId" nullable:"true"`
+	BodegaID    *int64   `json:"bodegaId" nullable:"true" doc:"Bodega del técnico en Argos"`
+	Habilidades []string `json:"habilidades"`
+	BaseLat     *float64 `json:"baseLat" nullable:"true"`
+	BaseLon     *float64 `json:"baseLon" nullable:"true"`
+	Telefono    string   `json:"telefono" doc:"Teléfono de contacto de la ficha; vacío = sin teléfono"`
+	// Argos: el usuario de Argos vinculado (contrato 0.5.0 §3.3).
+	Argos         *VinculoArgos `json:"argos,omitempty" doc:"Usuario de Argos vinculado (inventario por técnico, Argos ≥ 1.6.0); ausente = sin vincular (se usa bodegaId)"`
+	Activo        bool          `json:"activo" doc:"Ficha activa y usuario activo"`
+	Version       int32         `json:"version"`
+	CreadoEn      time.Time     `json:"creadoEn"`
+	ActualizadoEn time.Time     `json:"actualizadoEn"`
 }
 
 // TecnicoDetalle: la ficha con sus turnos, capacidad y ausencias vigentes o futuras.
