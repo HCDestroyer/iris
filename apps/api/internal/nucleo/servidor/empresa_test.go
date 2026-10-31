@@ -187,11 +187,8 @@ func TestEmpresaDeTokens(t *testing.T) {
 			t.Fatalf("crear empresa: %d %s", r.status, r.crudo)
 		}
 	}
-	r := admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Argos", "correo": pruebas.Correo("argos"), "tipo": "integracion", "roles": []map[string]any{{"rol": "lectura"}}})
-	if r.status != 201 {
-		t.Fatalf("crear integración: %d %s", r.status, r.crudo)
-	}
-	integ := int64(r.cuerpo["id"].(float64))
+	// Fixture (como la consola): por HTTP una integración solo lleva su rol de contrato.
+	integ := e.integracion("Argos", "lectura")
 	if r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", integ), map[string]any{"empresaId": 2}); r.status != 200 {
 		t.Fatalf("asignar: %d %s", r.status, r.crudo)
 	}

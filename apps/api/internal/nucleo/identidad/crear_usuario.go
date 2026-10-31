@@ -3,6 +3,7 @@ package identidad
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/mail"
 	"slices"
 	"strings"
@@ -43,6 +44,11 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 			if err != nil {
 				return Usuario{}, err
 			}
+			if tipo == "integracion" && !esIntegracionInterna(ctx) && contexto.ActorDe(ctx).Tipo != contexto.ActorSistema {
+				if err := exigirCrearIntegracion(ctx, in.Roles); err != nil {
+					return Usuario{}, err
+				}
+			}
 			roles, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", in.Roles)
 			if err != nil {
 				return Usuario{}, err
@@ -68,7 +74,13 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 			if _, err := q.UsuarioPorCorreo(ctx, correo); err == nil {
 				return Usuario{}, nucleo.Conflicto("correo_en_uso", "Ya existe un usuario con el correo "+correo)
 			}
-			u, err := q.CrearUsuario(ctx, identidadbd.CrearUsuarioParams{Nombre: nombre, Correo: correo, Tipo: tipo, ContrasenaHash: hash})
+			// Una persona creada por otra persona (o su token) recibe una contraseña elegida por
+			// otro: es temporal y debe cambiarla al entrar. La consola (create-admin, técnico de
+			// prueba) corre como sistema y entrega la contraseña al propio operador.
+			temporal := tipo == "persona" && contexto.ActorDe(ctx).Tipo != contexto.ActorSistema
+			u, err := q.CrearUsuario(ctx, identidadbd.CrearUsuarioParams{
+				Nombre: nombre, Correo: correo, Tipo: tipo, ContrasenaHash: hash, DebeCambiarContrasena: temporal,
+			})
 			if err != nil {
 				return Usuario{}, err
 			}
@@ -162,6 +174,30 @@ func empresasNuevoUsuario(ctx context.Context, q *identidadbd.Queries, ids []int
 		}
 	}
 	return salida, nil
+}
+
+// exigirCrearIntegracion: fuera del sistema (consola, semilla), un usuario de tipo integración solo lo crea quien conecta
+// integraciones con alcance de todas las empresas (empresas.todas e integraciones.conectar,
+// ambos globales; si no, 403 integracion_no_permitida), y solo con los roles de su contrato
+// (RolesIntegracion; si no, 422). Las llamadas internas (PrepararIntegracion, canje del
+// conector) no pasan por aquí.
+func exigirCrearIntegracion(ctx context.Context, roles []AsignacionRol) error {
+	p := contexto.PermisosDe(ctx)
+	if !p.TieneGlobal(string(nucleo.PermEmpresasTodas)) || !p.TieneGlobal(string(nucleo.PermIntegracionesConectar)) {
+		return nucleo.NuevoProblema(http.StatusForbidden, "integracion_no_permitida", "No puedes crear integraciones",
+			"Crear un usuario de tipo integración exige empresas.todas e integraciones.conectar sin límite de alcance")
+	}
+	var errores []nucleo.ErrorCampo
+	for i, r := range roles {
+		if !soloRolesDeIntegracion([]AsignacionRol{r}) || r.ZonaID != nil || r.CuadrillaID != nil {
+			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("roles[%d].rol", i),
+				Message: "Una integración solo admite su rol de integración (integracion_argos, integracion_horus), sin alcance", Rule: "rol_integracion"})
+		}
+	}
+	if len(errores) > 0 {
+		return nucleo.Validacion(errores...)
+	}
+	return nil
 }
 
 // soloRolesDeIntegracion: todas las asignaciones son roles de integración (RolesIntegracion).

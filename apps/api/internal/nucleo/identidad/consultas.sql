@@ -1,8 +1,10 @@
 -- Usuarios -----------------------------------------------------------------
 
 -- name: CrearUsuario :one
-INSERT INTO nucleo.usuarios (nombre, correo, tipo, contrasena_hash)
-VALUES (@nombre, @correo, @tipo, @contrasena_hash)
+-- debe_cambiar_contrasena: la contraseña la eligió otra persona (temporal); al entrar, el usuario
+-- solo puede cambiarla (middleware.go, 403 cambio_contrasena_requerido).
+INSERT INTO nucleo.usuarios (nombre, correo, tipo, contrasena_hash, debe_cambiar_contrasena)
+VALUES (@nombre, @correo, @tipo, @contrasena_hash, @debe_cambiar_contrasena)
 RETURNING *;
 
 -- name: UsuarioPorID :one
@@ -30,6 +32,7 @@ LIMIT @limite;
 -- name: ActualizarUsuario :one
 UPDATE nucleo.usuarios
 SET nombre = @nombre, correo = @correo, contrasena_hash = @contrasena_hash,
+    debe_cambiar_contrasena = @debe_cambiar_contrasena,
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;

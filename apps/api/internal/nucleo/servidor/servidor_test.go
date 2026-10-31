@@ -54,6 +54,23 @@ func nuevoEntorno(t *testing.T) *entorno {
 }
 
 // usuario crea un usuario con los roles dados (como el sistema) y devuelve su id y correo.
+// integracion crea, como el sistema (consola), un usuario de tipo integración con estos roles.
+// Por HTTP solo se admite su rol de contrato (crear_usuario.go exigirCrearIntegracion).
+func (e *entorno) integracion(nombre string, roles ...string) int64 {
+	e.t.Helper()
+	asign := []identidad.AsignacionRol{}
+	for _, r := range roles {
+		asign = append(asign, identidad.AsignacionRol{Rol: r})
+	}
+	u, err := e.mod.CrearUsuario.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(e.t)), identidad.EntradaCrearUsuario{
+		Nombre: nombre, Correo: pruebas.Correo("integ"), Tipo: "integracion", Roles: asign,
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return u.ID
+}
+
 func (e *entorno) usuario(roles ...string) (int64, string) {
 	e.t.Helper()
 	correo := pruebas.Correo("u")
@@ -342,11 +359,8 @@ func TestTokens(t *testing.T) {
 	api.pedir(http.MethodGet, "/api/v1/yo", nil).problema(t, 401, "no_autenticado")
 
 	// Token de un usuario de integración → actor integracion.
-	r = admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Argos", "correo": pruebas.Correo("argos"), "tipo": "integracion", "roles": []map[string]any{{"rol": "lectura"}}})
-	if r.status != 201 {
-		t.Fatalf("crear integración: %d %s", r.status, r.crudo)
-	}
-	integ := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "argos", "usuarioId": r.cuerpo["id"]})
+	// Fixture (como la consola): por HTTP una integración solo lleva su rol de contrato.
+	integ := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "argos", "usuarioId": e.integracion("Argos", "lectura")})
 	if integ.status != 201 {
 		t.Fatalf("token de integración: %d %s", integ.status, integ.crudo)
 	}

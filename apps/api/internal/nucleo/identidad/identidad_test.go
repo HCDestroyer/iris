@@ -153,7 +153,9 @@ func TestCambioDeContrasenaSeAuditaEnmascarado(t *testing.T) {
 		t.Fatalf("la contraseña nueva no queda en la entrada: %s", acciones[0].Entrada)
 	}
 	cambios, _ := auditoriabd.New(pool).CambiosDeAccion(context.Background(), acciones[0].ID)
-	if len(cambios) != 1 || cambios[0].Campo != "contrasena_hash" || string(cambios[0].Antes) != `"***"` || string(cambios[0].Despues) != `"***"` {
+	// La contraseña puesta por otro (aquí, el sistema) es temporal: cambio_requerido pasa a true.
+	if len(cambios) != 2 || cambios[0].Campo != "cambio_requerido" || string(cambios[0].Despues) != "true" ||
+		cambios[1].Campo != "contrasena_hash" || string(cambios[1].Antes) != `"***"` || string(cambios[1].Despues) != `"***"` {
 		t.Fatalf("cambios: %+v", cambios)
 	}
 }

@@ -186,13 +186,15 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.VerUsuario.Ejecutar(ctx, *in))
 		})
 
-	huma.Register(api, operacion("crearUsuario", http.MethodPost, "/api/v1/usuarios", "Crear un usuario", nucleo.PermUsuariosCrear, http.StatusCreated, http.StatusConflict),
+	crearUsuario := operacion("crearUsuario", http.MethodPost, "/api/v1/usuarios", "Crear un usuario", nucleo.PermUsuariosCrear, http.StatusCreated, http.StatusConflict)
+	crearUsuario.Description += " Una persona queda con su contraseña como temporal (`cambioContrasenaRequerido`): al entrar debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa. Un usuario de tipo `integracion` exige `empresas.todas` e `integraciones.conectar` sin límite de alcance (403 `integracion_no_permitida`) y solo admite su rol de contrato (`integracion_argos`, `integracion_horus`; si no, 422). 409 `correo_en_uso`."
+	huma.Register(api, crearUsuario,
 		func(ctx context.Context, in *conClave[EntradaCrearUsuario]) (*cuerpo[Usuario], error) {
 			return responder(m.CrearUsuario.Ejecutar(ctx, in.Body))
 		})
 
 	editarUsuario := operacion("editarUsuario", http.MethodPost, "/api/v1/usuarios/{id}/editar", "Editar un usuario", nucleo.PermUsuariosEditar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	editarUsuario.Description += " " + descAdminPorEmpresa + " Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión)."
+	editarUsuario.Description += " Una contraseña puesta a otro usuario queda temporal (`cambioContrasenaRequerido`) y cierra sus sesiones; cambiarle el correo también cierra sus sesiones y borra sus vínculos de autologin. Cambiar el nombre, el correo o la contraseña de otro exige superarlo (403). Cambiar el correo propio exige re-autenticarse (403 `reautenticacion_requerida`). " + descAdminPorEmpresa + " Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión)."
 	huma.Register(api, editarUsuario,
 		func(ctx context.Context, in *conID[EntradaEditarUsuario]) (*cuerpo[Usuario], error) {
 			e := in.Body
