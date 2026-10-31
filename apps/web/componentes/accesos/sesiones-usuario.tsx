@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, CampoArea, Casilla, Dialogo, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, CampoArea, Casilla, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LogOut, MonitorCheck } from "lucide-react";
 import { useRef, useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -128,7 +128,7 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
     }
 
     return (
-        <Dialogo open onOpenChange={(a) => (a ? undefined : alCancelar())}>
+        <DialogoProtegido open onOpenChange={(a) => (a ? undefined : alCancelar())} sucio={motivo.trim() !== ""} ocupado={enviando}>
             <DialogoContenido
                 titulo={cierre.tipo === "una" ? "¿Cerrar esta sesión?" : propio ? "¿Cerrar tus demás sesiones?" : "¿Cerrar todas sus sesiones?"}
                 descripcion={
@@ -160,13 +160,13 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
                         <Boton type="button" variante="secundario" onClick={alCancelar}>
                             Cancelar
                         </Boton>
-                        <Boton type="button" onClick={() => void confirmar()} disabled={enviando}>
+                        <Boton type="button" variante="peligro" onClick={() => void confirmar()} disabled={enviando}>
                             <LogOut />
                             {enviando ? "Cerrando…" : cierre.tipo === "una" ? "Cerrar sesión" : "Cerrar sesiones"}
                         </Boton>
                     </DialogoPie>
                 </div>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }

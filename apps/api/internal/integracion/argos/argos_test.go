@@ -635,3 +635,139 @@ func secretoDelCanje(canje map[string]any) string {
 	secreto, _ := wh["secreto"].(string)
 	return secreto
 }
+
+// Selector de cliente del panel (pedido del PM): con ?servicios=true cada resultado trae sus
+// servicios de la empresa activa, leídos en Argos o, si Argos no responde, de la instantánea.
+func TestBuscarClientesConServicios(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	e.sembrarCliente(51, "Marta Ruiz")
+	e.argos.con(func() {
+		e.argos.servicios[51] = append(e.argos.servicios[51],
+			map[string]any{"id": 511, "empresa_id": 1, "cliente_id": 51, "codigo": "S-2", "plan_nombre": "Fibra 50", "ip": "10.0.1.2", "estado": "suspendido"},
+			// De otra empresa: no se muestra en la empresa activa.
+			map[string]any{"id": 512, "empresa_id": 2, "cliente_id": 51, "codigo": "S-3", "plan_nombre": "Radio 10", "estado": "activo"},
+		)
+	})
+
+	// Sin el parámetro: servicios null (como antes) y sin llamadas extra a Argos.
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	sin := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta", nil)
+	if sin.status != 200 || len(sin.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("buscar: %d %s", sin.status, sin.crudo)
+	}
+	if v, ok := sin.cuerpo["data"].([]any)[0].(map[string]any)["servicios"]; !ok || v != nil {
+		t.Fatalf("sin servicios=true debían venir null: %s", sin.crudo)
+	}
+
+	con := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta&servicios=true", nil)
+	if con.status != 200 || con.cuerpo["stale"] != false {
+		t.Fatalf("buscar con servicios: %d %s", con.status, con.crudo)
+	}
+	servicios := con.cuerpo["data"].([]any)[0].(map[string]any)["servicios"].([]any)
+	if len(servicios) != 2 {
+		t.Fatalf("esperaba los 2 servicios de la empresa 1: %s", con.crudo)
+	}
+	s0, s1 := servicios[0].(map[string]any), servicios[1].(map[string]any)
+	if s0["id"] != float64(510) || s0["planNombre"] != "Fibra 100" || s0["estado"] != "activo" || s0["ip"] != "10.0.0.51" ||
+		s1["id"] != float64(511) || s1["planNombre"] != "Fibra 50" || s1["estado"] != "suspendido" {
+		t.Fatalf("servicios mal leídos: %s", con.crudo)
+	}
+	if e.argos.llamadasA("/api/v1/servicios") <= antes {
+		t.Fatal("con servicios=true debía leer los servicios en Argos")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes`); n != 0 {
+		t.Fatal("la búsqueda no debía guardar instantáneas")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.buscar' AND resultado = 'ok' AND entrada->>'servicios' = 'true'`); n != 1 {
+		t.Fatalf("auditoría de la búsqueda con servicios: %d", n)
+	}
+
+	// Caché de 5 min por cliente: repetir la búsqueda no vuelve a pedir los servicios a Argos.
+	cacheados := e.argos.llamadasA("/api/v1/servicios")
+	if r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=marta&servicios=true", nil); r.status != 200 {
+		t.Fatalf("repetir: %d %s", r.status, r.crudo)
+	}
+	if e.argos.llamadasA("/api/v1/servicios") != cacheados {
+		t.Fatal("la búsqueda repetida debía usar la caché de servicios")
+	}
+
+	// Con servicios, q necesita 3 caracteres o más.
+	lectura.pedir(http.MethodGet, "/api/v1/clientes?q=ma&servicios=true", nil).problema(t, 422, "validacion")
+
+	// Argos caído: los servicios salen de la instantánea (la que dejó la ficha), de la empresa activa.
+	if f := lectura.pedir(http.MethodGet, "/api/v1/clientes/51", nil); f.status != 200 {
+		t.Fatalf("ficha: %d %s", f.status, f.crudo)
+	}
+	e.argos.con(func() { e.argos.caido = true })
+	local := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=Ruiz&servicios=true", nil)
+	if local.status != 200 || local.cuerpo["stale"] != true || len(local.cuerpo["data"].([]any)) != 1 {
+		t.Fatalf("búsqueda local: %d %s", local.status, local.crudo)
+	}
+	locales := local.cuerpo["data"].([]any)[0].(map[string]any)["servicios"].([]any)
+	if len(locales) != 2 || locales[1].(map[string]any)["estado"] != "suspendido" {
+		t.Fatalf("servicios de la instantánea: %s", local.crudo)
+	}
+}
+
+// Con ?servicios=true solo los primeros 8 resultados traen servicios: una búsqueda amplia no
+// multiplica las llamadas a Argos.
+func TestBuscarClientesConServiciosTope(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	for i := int64(61); i <= 70; i++ {
+		e.sembrarCliente(i, fmt.Sprintf("Tope %d", i))
+	}
+	r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=tope&servicios=true&limit=10", nil)
+	if r.status != 200 {
+		t.Fatalf("buscar: %d %s", r.status, r.crudo)
+	}
+	conServicios, sinServicios := 0, 0
+	for _, d := range r.cuerpo["data"].([]any) {
+		if d.(map[string]any)["servicios"] == nil {
+			sinServicios++
+		} else {
+			conServicios++
+		}
+	}
+	if conServicios != argos.TopeServiciosBusqueda || conServicios+sinServicios != 10 {
+		t.Fatalf("esperaba %d con servicios de 10: %d con, %d sin", argos.TopeServiciosBusqueda, conServicios, sinServicios)
+	}
+}
+
+// Las lecturas de servicios de la búsqueda se cobran a la cuota de verificación de refrescos.go
+// (CuotaUsuario por minuto, sin un sistema de cuotas propio): agotada, no se llama más a Argos y
+// los clientes que no se pudieron leer quedan con servicios null.
+func TestBuscarClientesConServiciosCobraCuota(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	lectura := e.usuario("lectura")
+	grupos := []string{"a", "b", "c", "d"}
+	for g, letra := range grupos {
+		for i := range 8 {
+			e.sembrarCliente(int64(200+g*10+i), "Lote "+letra+" "+strconv.Itoa(i))
+		}
+	}
+	antes := e.argos.llamadasA("/api/v1/servicios")
+	var ultimos int
+	for _, letra := range grupos {
+		r := lectura.pedir(http.MethodGet, "/api/v1/clientes?q=lote%20"+letra+"&servicios=true&limit=8", nil)
+		if r.status != 200 {
+			t.Fatalf("buscar %s: %d %s", letra, r.status, r.crudo)
+		}
+		ultimos = 0
+		for _, d := range r.cuerpo["data"].([]any) {
+			if d.(map[string]any)["servicios"] != nil {
+				ultimos++
+			}
+		}
+	}
+	if n := e.argos.llamadasA("/api/v1/servicios") - antes; n != argos.CuotaUsuario {
+		t.Fatalf("esperaba %d lecturas de servicios (la cuota del usuario), hubo %d", argos.CuotaUsuario, n)
+	}
+	if ultimos != argos.CuotaUsuario-3*8 {
+		t.Fatalf("la última búsqueda debía traer servicios solo de los %d clientes que alcanzó a leer: %d", argos.CuotaUsuario-3*8, ultimos)
+	}
+}

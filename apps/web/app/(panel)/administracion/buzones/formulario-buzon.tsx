@@ -6,10 +6,10 @@ import {
     Campo,
     CampoSelector,
     Casilla,
-    Dialogo,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
+    DialogoProtegido,
 } from "@iris/ui";
 import { KeyRound, RotateCw, ShieldAlert } from "lucide-react";
 import { useState, type ChangeEvent, type ReactNode } from "react";
@@ -157,7 +157,7 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
     const categoriaActual = v.categoriaId ?? "";
 
     return (
-        <Dialogo open onOpenChange={(a) => !a && !isSubmitting && alCerrar()}>
+        <DialogoProtegido sucio={form.formState.isDirty} open onOpenChange={(a) => !a && !isSubmitting && alCerrar()}>
             <DialogoContenido
                 titulo={editando ? `Editar ${antes.nombre}` : "Nuevo buzón"}
                 descripcion={editando ? antes.correo : "Nace inactivo: pruébalo y actívalo cuando esté listo."}
@@ -331,6 +331,6 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
                     </DialogoPie>
                 </form>
             </DialogoContenido>
-        </Dialogo>
+        </DialogoProtegido>
     );
 }

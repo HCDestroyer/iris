@@ -4,7 +4,7 @@ import type { Schema } from "@iris/contratos";
 import {
     Aviso,
     Boton,
-    Dialogo,
+    DialogoProtegido,
     Esqueleto,
     EstadoVacio,
     InsigniaEstado,
@@ -276,7 +276,7 @@ export function ListaUsuarios() {
                     <p className="text-sm text-muted-foreground">No hay más usuarios.</p>
                 )}
             </div>
-            <Dialogo open={reinicio !== null} onOpenChange={(abierto) => (abierto ? undefined : setReinicio(null))}>
+            <DialogoProtegido open={reinicio !== null} onOpenChange={(abierto) => (abierto ? undefined : setReinicio(null))}>
                 {reinicio ? (
                     <DialogoReiniciarMfa
                         key={reinicio.id}
@@ -287,7 +287,7 @@ export function ListaUsuarios() {
                         alCerrar={() => setReinicio(null)}
                     />
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
         </>
     );
 }

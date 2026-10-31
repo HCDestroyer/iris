@@ -56,6 +56,7 @@ export const esquemaCrearOrden = z
         /** Los pone la pantalla (ticket de origen o cliente elegido en el buscador). */
         ticketId: z.number().int().positive().optional(),
         clienteId: z.number().int().positive().optional(),
+        servicioId: z.number().int().positive().optional(),
     })
     .superRefine((d, ctx) => {
         // Sin ticket ni cliente no hay instantánea de Argos de donde sacar la dirección (422 en la API).
@@ -79,6 +80,7 @@ export function entradaCrearOrden(d: DatosCrearOrden): Schema<"EntradaCrearOrden
         tipo: d.tipo,
         ...(d.ticketId !== undefined ? { ticketId: d.ticketId } : {}),
         ...(d.clienteId !== undefined ? { clienteId: d.clienteId } : {}),
+        ...(d.clienteId !== undefined && d.servicioId !== undefined ? { servicioId: d.servicioId } : {}),
         ...(d.plantillaId !== undefined ? { plantillaId: d.plantillaId } : {}),
         ...(d.descripcion !== undefined ? { descripcion: d.descripcion } : {}),
         ...(d.direccion !== undefined ? { direccion: d.direccion } : {}),

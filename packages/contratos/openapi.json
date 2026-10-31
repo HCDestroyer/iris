@@ -1750,6 +1750,16 @@
           "nombre": {
             "type": "string"
           },
+          "servicios": {
+            "description": "Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}",
+            "items": {
+              "$ref": "#/components/schemas/Servicio"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "sincronizadoEn": {
             "description": "Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo",
             "format": "date-time",
@@ -17861,6 +17871,16 @@
               "description": "nextCursor de la página anterior (de Argos)",
               "maxLength": 500,
               "type": "string"
+            }
+          },
+          {
+            "description": "true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}",
+            "explode": false,
+            "in": "query",
+            "name": "servicios",
+            "schema": {
+              "description": "true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}",
+              "type": "boolean"
             }
           }
         ],

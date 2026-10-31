@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, CampoArea, Dialogo, DialogoContenido, DialogoPie, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, CampoArea, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { ArrowLeft, CircleCheck, CirclePause, Lock, Power, PowerOff, RotateCw, SearchX, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -208,7 +208,7 @@ function CambiarActivo({ rol, alCambiar, recargar }: { rol: Rol; alCambiar: (r: 
                     {desactivar ? "Desactivar rol" : "Activar rol"}
                 </Boton>
             </TarjetaContenido>
-            <Dialogo open={abierto} onOpenChange={setAbierto}>
+            <DialogoProtegido open={abierto} onOpenChange={setAbierto} sucio={motivo.trim() !== ""} ocupado={enviando}>
                 <DialogoContenido
                     titulo={desactivar ? `¿Desactivar «${rol.nombre}»?` : `¿Activar «${rol.nombre}»?`}
                     descripcion={
@@ -244,17 +244,19 @@ function CambiarActivo({ rol, alCambiar, recargar }: { rol: Rol; alCambiar: (r: 
                             </Aviso>
                         ) : null}
                         <DialogoPie>
-                            <Boton type="button" variante="secundario" onClick={() => setAbierto(false)}>
-                                Cancelar
-                            </Boton>
-                            <Boton type="button" onClick={() => void confirmar()} disabled={enviando}>
+                            <DialogoCerrar asChild>
+                                <Boton type="button" variante="secundario">
+                                    Cancelar
+                                </Boton>
+                            </DialogoCerrar>
+                            <Boton type="button" variante={desactivar ? "peligro" : "primario"} onClick={() => void confirmar()} disabled={enviando}>
                                 {desactivar ? <PowerOff /> : <Power />}
                                 {enviando ? "Guardando…" : desactivar ? "Desactivar" : "Activar"}
                             </Boton>
                         </DialogoPie>
                     </div>
                 </DialogoContenido>
-            </Dialogo>
+            </DialogoProtegido>
         </Tarjeta>
     );
 }

@@ -1,6 +1,17 @@
 "use client";
 
-import { Aviso, Boton, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import {
+    Aviso,
+    Boton,
+    DialogoConfirmar,
+    Esqueleto,
+    EstadoVacio,
+    InsigniaEstado,
+    Tarjeta,
+    TarjetaContenido,
+    TarjetaEncabezado,
+    TarjetaTitulo,
+} from "@iris/ui";
 import { ArrowLeft, Ban, CircleCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -63,6 +74,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
     const [errorEditar, setErrorEditar] = useState<unknown>(null);
     const [errorEstado, setErrorEstado] = useState<unknown>(null);
     const [cambiando, setCambiando] = useState(false);
+    const [confirmar, setConfirmar] = useState(false);
     const claveEditar = useClaveIdempotencia();
     const claveEstado = useClaveIdempotencia();
 
@@ -158,13 +170,30 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
                             </Boton>
                         ) : null}
                         {puedeEstado ? (
-                            <Boton variante={p.activa ? "contorno" : "secundario"} tamano="sm" onClick={cambiarEstado} disabled={cambiando || conflicto(errorEstado)}>
+                            <Boton
+                                variante={p.activa ? "peligro" : "secundario"}
+                                tamano="sm"
+                                onClick={p.activa ? () => setConfirmar(true) : cambiarEstado}
+                                disabled={cambiando || conflicto(errorEstado)}
+                            >
                                 {p.activa ? <Ban /> : <CircleCheck />}
                                 {cambiando ? "Guardando…" : p.activa ? "Desactivar" : "Activar"}
                             </Boton>
                         ) : null}
                     </div>
                 ) : null}
+                <DialogoConfirmar
+                    open={confirmar}
+                    onOpenChange={setConfirmar}
+                    peligro
+                    titulo={`¿Desactivar «${p.nombre}»?`}
+                    descripcion="No se podrá agregar a órdenes nuevas. Las órdenes que ya la tienen la conservan."
+                    textoConfirmar="Desactivar"
+                    alConfirmar={async () => {
+                        setConfirmar(false);
+                        await cambiarEstado();
+                    }}
+                />
                 {porDefectoActiva && !vieja ? <p className="text-sm text-muted-foreground">Es la plantilla por defecto del tipo: no se puede desactivar.</p> : null}
                 {comunBloqueada ? <p className="text-sm text-muted-foreground">Es común a todas las empresas: solo la modifica quien opera en todas.</p> : null}
                 {errorEstado ? (

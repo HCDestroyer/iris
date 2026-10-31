@@ -65,35 +65,67 @@ export const CLIENTES: Schema<"ClienteResumen">[] = [
         zonaNombre: "Zona sur",
         sincronizadoEn: "2026-10-27T20:15:00Z",
     },
+    {
+        id: 503,
+        empresaId: 10,
+        empresas: [10],
+        codigo: "CL-0503",
+        nombre: "Ana Morales",
+        telefono: "5555 0303",
+        direccion: "6a avenida 12-40, zona 10",
+        lat: 14.6,
+        lon: -90.51,
+        zonaId: 1,
+        estado: "activo",
+        tipo: "persona",
+        tipoDocumentoFiscal: "cf",
+        nitCui: "",
+        nitCuiMostrar: "CF",
+        movil: "",
+        correo: "",
+        telefonos: [tel("telefono", "5555 0303", "+50255550303", "+502 5555 0303")],
+        zonaNombre: "Zona norte",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
+    },
 ];
+
+/** Servicios de un cliente de la API falsa: uno por cliente; Ana Morales (503) tiene dos. */
+export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
+    const cliente = CLIENTES.find((c) => c.id === clienteId);
+    if (!cliente) return [];
+    const base: Schema<"Servicio"> = {
+        id: clienteId * 10,
+        empresaId: cliente.empresaId,
+        clienteId,
+        codigo: `SV-${clienteId}`,
+        planId: 3,
+        planNombre: "Fibra 100 Mb/s",
+        routerId: 7,
+        routerNombre: "RB-Norte-01",
+        zonaId: cliente.zonaId,
+        zonaNombre: "Zona norte",
+        ip: clienteId === 503 ? "10.20.30.53" : "10.20.30.40",
+        direccion: `Instalación: ${cliente.direccion}`,
+        lat: cliente.lat,
+        lon: cliente.lon,
+        estado: "activo",
+        userPpp: `cliente${clienteId}`,
+        tipoConexion: "pppoe",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
+    };
+    if (clienteId !== 503) return [base];
+    return [
+        base,
+        { ...base, id: 5031, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", userPpp: "cliente503b", estado: "suspendido" },
+    ];
+}
 
 export function ficha(clienteId: number, stale: boolean, sincronizadoEn = "2026-10-27T20:15:00Z"): Schema<"Ficha"> | undefined {
     const cliente = CLIENTES.find((c) => c.id === clienteId);
     if (!cliente) return undefined;
     return {
         cliente: { ...cliente, sincronizadoEn },
-        servicios: [
-            {
-                id: clienteId * 10,
-                empresaId: cliente.empresaId,
-                clienteId,
-                codigo: `SV-${clienteId}`,
-                planId: 3,
-                planNombre: "Fibra 100 Mb/s",
-                routerId: 7,
-                routerNombre: "RB-Norte-01",
-                zonaId: cliente.zonaId,
-                zonaNombre: "Zona norte",
-                ip: "10.20.30.40",
-                direccion: `Instalación: ${cliente.direccion}`,
-                lat: cliente.lat,
-                lon: cliente.lon,
-                estado: "activo",
-                userPpp: `cliente${clienteId}`,
-                tipoConexion: "pppoe",
-                sincronizadoEn: "2026-10-27T20:15:00Z",
-            },
-        ],
+        servicios: serviciosDe(clienteId),
         estadoCuenta: stale ? undefined : { saldo: "150.00", moneda: "GTQ", facturasVencidas: 1, montoVencido: "150.00" },
         estadoCuentaError: stale ? "argos_no_disponible" : null,
         stale,

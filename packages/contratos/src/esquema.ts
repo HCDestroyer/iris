@@ -4490,6 +4490,8 @@ export interface components {
             /** @description El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF */
             nitCuiMostrar: string;
             nombre: string;
+            /** @description Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id} */
+            servicios?: components["schemas"]["Servicio"][] | null;
             /**
              * Format: date-time
              * @description Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo
@@ -10872,6 +10874,8 @@ export interface operations {
                 limit?: number;
                 /** @description nextCursor de la página anterior (de Argos) */
                 cursor?: string;
+                /** @description true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id} */
+                servicios?: boolean;
             };
             header?: never;
             path?: never;

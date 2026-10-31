@@ -1,7 +1,18 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
+import {
+    Boton,
+    Campo,
+    CampoArea,
+    CampoSelector,
+    DialogoCerrar,
+    DialogoContenido,
+    DialogoDisparador,
+    DialogoPie,
+    DialogoProtegido,
+    useCambiosSinGuardar,
+} from "@iris/ui";
 import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -17,7 +28,7 @@ const CAMPOS = ["nombre", "direccion", "telefono", "correo", "documento", "orige
 export function AltaProspecto({ zonas }: { zonas: readonly Zona[] | null }) {
     const [abierto, setAbierto] = useState(false);
     return (
-        <Dialogo open={abierto} onOpenChange={setAbierto}>
+        <DialogoProtegido open={abierto} onOpenChange={setAbierto}>
             <DialogoDisparador asChild>
                 <Boton>
                     <Plus />
@@ -25,7 +36,7 @@ export function AltaProspecto({ zonas }: { zonas: readonly Zona[] | null }) {
                 </Boton>
             </DialogoDisparador>
             {abierto ? <FormularioAlta zonas={zonas} /> : null}
-        </Dialogo>
+        </DialogoProtegido>
     );
 }
 
@@ -33,6 +44,7 @@ function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
     const router = useRouter();
     const envio = useEnvio();
     const formulario = useForm<DatosProspecto>({ resolver: zodResolver(esquemaProspecto), defaultValues: PROSPECTO_VACIO });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors, isSubmitting } = formulario.formState;
 
     async function enviar(datos: DatosProspecto) {

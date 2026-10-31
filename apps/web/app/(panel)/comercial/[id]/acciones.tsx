@@ -1,10 +1,10 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, CampoArea, CampoSelector, Casilla, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
+import { Aviso, Boton, BotonEnviar, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
 import { CircleCheck, CircleX, PhoneCall, RotateCcw, Trophy, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { AvisoAccion, useEnvio } from "@/componentes/comercial/comun";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -55,7 +55,7 @@ export function BarraAcciones({ detalle, usuarios, recargar }: Props) {
                     );
                 })}
             </div>
-            <Dialogo open={abierta !== null} onOpenChange={(v) => (v ? undefined : cerrar())}>
+            <DialogoProtegido open={abierta !== null} onOpenChange={(v) => (v ? undefined : cerrar())}>
                 {abierta ? (
                     <DialogoContenido titulo={ACCIONES[abierta].titulo} descripcion={`${detalle.numero} · ${detalle.nombre}`}>
                         {abierta === "contactar" ? <FormMotivo accion="contactar" detalle={detalle} alHecho={hecho} recargar={recargar} /> : null}
@@ -65,14 +65,14 @@ export function BarraAcciones({ detalle, usuarios, recargar }: Props) {
                         {abierta === "ganar" ? <FormGanar detalle={detalle} alHecho={hecho} recargar={recargar} /> : null}
                     </DialogoContenido>
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
         </>
     );
 }
 
 type PropsForm = { detalle: ProspectoDetalle; alHecho: () => Promise<void>; recargar: () => Promise<void> };
 
-function Pie({ etiqueta, enviando, deshabilitado, children }: { etiqueta: string; enviando: boolean; deshabilitado?: boolean; children?: ReactNode }) {
+function Pie({ etiqueta, enviando, deshabilitado, faltan, children }: { etiqueta: string; enviando: boolean; deshabilitado?: boolean; faltan?: readonly string[]; children?: ReactNode }) {
     return (
         <DialogoPie>
             <DialogoCerrar asChild>
@@ -80,10 +80,10 @@ function Pie({ etiqueta, enviando, deshabilitado, children }: { etiqueta: string
                     Volver
                 </Boton>
             </DialogoCerrar>
-            <Boton type="submit" disabled={enviando || deshabilitado}>
+            <BotonEnviar enviando={enviando} disabled={deshabilitado} faltan={faltan ?? []}>
                 {children}
                 {enviando ? "Enviando…" : etiqueta}
-            </Boton>
+            </BotonEnviar>
         </DialogoPie>
     );
 }
@@ -91,6 +91,7 @@ function Pie({ etiqueta, enviando, deshabilitado, children }: { etiqueta: string
 function FormMotivo({ accion, detalle, alHecho, recargar }: PropsForm & { accion: "contactar" | "reabrir" }) {
     const envio = useEnvio();
     const formulario = useForm<DatosReabrir>({ resolver: zodResolver(esquemaReabrir), defaultValues: { motivo: "" } });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     async function enviar(d: DatosReabrir) {
         const ruta = accion === "contactar" ? "/api/v1/prospectos/{id}/contactar" : "/api/v1/prospectos/{id}/reabrir";
         const r = await envio.enviar(
@@ -122,6 +123,7 @@ function FormMotivo({ accion, detalle, alHecho, recargar }: PropsForm & { accion
 function FormPerder({ detalle, alHecho, recargar }: PropsForm) {
     const envio = useEnvio();
     const formulario = useForm<DatosPerder>({ resolver: zodResolver(esquemaPerder), defaultValues: { motivo: "" } });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     async function enviar(d: DatosPerder) {
         const r = await envio.enviar(
             (clave) =>
@@ -159,6 +161,8 @@ function FormAsignar({ detalle, usuarios, alHecho, recargar }: PropsForm & { usu
         resolver: zodResolver(esquemaAsignar),
         defaultValues: { vendedorId: detalle.vendedorId === null ? "" : String(detalle.vendedorId) },
     });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
+    const sinVendedor = !useWatch({ control: formulario.control, name: "vendedorId" });
     const otros = (usuarios ?? []).filter((u) => u.id !== yo.usuario.id && u.tipo === "persona" && u.activo);
     const actual = nombreUsuario(usuarios, detalle.vendedorId, { id: yo.usuario.id, nombre: yo.usuario.nombre });
     async function enviar(d: z.infer<typeof esquemaAsignar>) {
@@ -192,7 +196,7 @@ function FormAsignar({ detalle, usuarios, alHecho, recargar }: PropsForm & { usu
                 ))}
             </CampoSelector>
             <AvisoAccion envio={envio} que="asignar el vendedor" recargar={recargar} />
-            <Pie etiqueta="Asignar" enviando={envio.enviando} deshabilitado={envio.conflicto} />
+            <Pie etiqueta="Asignar" enviando={envio.enviando} deshabilitado={envio.conflicto} faltan={sinVendedor ? ["el vendedor"] : []} />
         </form>
     );
 }
@@ -217,7 +221,10 @@ function FormGanar({ detalle, alHecho, recargar }: PropsForm) {
             if (pideRouter && d.routerId === "") ctx.addIssue({ code: "custom", path: ["routerId"], message: "Elige el router desde donde se atenderá" });
         });
     const formulario = useForm<{ confirmarObra: boolean; routerId: string }>({ resolver: zodResolver(esquema), defaultValues: { confirmarObra: false, routerId: "" } });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const requisitos = requisitosGanar(detalle);
+    const routerElegido = useWatch({ control: formulario.control, name: "routerId" });
+    const sinRouter = pideRouter && !routerElegido;
     const faltaRouter = envio.error instanceof ErrorApi && envio.error.codigo === "router_requerido";
     async function enviar(d: { confirmarObra: boolean; routerId: string }) {
         const r = await envio.enviar(
@@ -279,7 +286,12 @@ function FormGanar({ detalle, alHecho, recargar }: PropsForm) {
                 Al ganar se da de alta al cliente y el servicio en Argos (o se crea la orden de instalación si Iris trabaja sin conector).
             </p>
             {faltaRouter ? null : <AvisoAccion envio={envio} que="ganar el prospecto" recargar={recargar} />}
-            <Pie etiqueta="Ganar" enviando={envio.enviando} deshabilitado={envio.conflicto || (sugerido === null && cobertura.estado === "cargando")}>
+            <Pie
+                etiqueta="Ganar"
+                enviando={envio.enviando}
+                deshabilitado={envio.conflicto || (sugerido === null && cobertura.estado === "cargando")}
+                faltan={sinRouter ? ["el router del servicio"] : []}
+            >
                 <Trophy />
             </Pie>
         </form>

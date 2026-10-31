@@ -160,6 +160,17 @@ test.describe("buzones de correo", () => {
         const activar = api.peticiones.find((p) => p.ruta === "/api/v1/buzones/2/activar");
         expect(activar?.cuerpo).toEqual({ version: 1 });
         expect(activar?.idempotencia).toBeTruthy();
+
+        // Desactivar es destructivo: pide confirmación; «Cancelar» no hace nada.
+        await facturas.getByRole("button", { name: "Desactivar" }).click();
+        const confirmar = page.getByRole("alertdialog", { name: "¿Desactivar facturas@isp.gt?" });
+        await confirmar.getByRole("button", { name: "Cancelar" }).click();
+        await expect(confirmar).toHaveCount(0);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/buzones/2/desactivar")).toBe(false);
+        await facturas.getByRole("button", { name: "Desactivar" }).click();
+        await confirmar.getByRole("button", { name: "Desactivar" }).click();
+        await expect(facturas.getByRole("button", { name: "Activar" })).toBeVisible();
+        expect(api.peticiones.find((p) => p.ruta === "/api/v1/buzones/2/desactivar")?.cuerpo).toEqual({ version: 2 });
     });
 
     test("403 por alcance de zona: mensaje claro", async ({ page, context, baseURL }, info) => {

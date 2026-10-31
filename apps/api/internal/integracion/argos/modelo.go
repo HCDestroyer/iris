@@ -33,6 +33,8 @@ type ClienteResumen struct {
 	Telefonos           []formato.Telefono `json:"telefonos" doc:"Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios"`
 	ZonaNombre          string             `json:"zonaNombre" doc:"Nombre de la zona del cliente en Argos"`
 	SincronizadoEn      *time.Time         `json:"sincronizadoEn" nullable:"true" doc:"Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo"`
+	// Servicios: solo en la búsqueda con ?servicios=true (selector de cliente del panel).
+	Servicios []Servicio `json:"servicios" required:"false" nullable:"true" doc:"Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}"`
 }
 
 // Servicio de un cliente de Argos.

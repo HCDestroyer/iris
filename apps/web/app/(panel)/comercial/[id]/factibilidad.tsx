@@ -1,7 +1,22 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import {
+    Aviso,
+    Boton,
+    Campo,
+    CampoArea,
+    CampoSelector,
+    DialogoCerrar,
+    DialogoContenido,
+    DialogoPie,
+    DialogoProtegido,
+    Tarjeta,
+    TarjetaContenido,
+    TarjetaEncabezado,
+    TarjetaTitulo,
+    useCambiosSinGuardar,
+} from "@iris/ui";
 import { ClipboardCheck, Radar } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -124,7 +139,7 @@ export function TarjetaFactibilidad({ detalle, recargar }: Props) {
                 ) : null}
                 <AvisoAccion envio={envio} que="evaluar la factibilidad" recargar={recargar} />
             </TarjetaContenido>
-            <Dialogo open={manual} onOpenChange={setManual}>
+            <DialogoProtegido open={manual} onOpenChange={setManual}>
                 {manual ? (
                     <FactibilidadManual
                         detalle={detalle}
@@ -135,7 +150,7 @@ export function TarjetaFactibilidad({ detalle, recargar }: Props) {
                         }}
                     />
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
         </Tarjeta>
     );
 }
@@ -150,6 +165,7 @@ function FactibilidadManual({ detalle, recargar, alHecho }: Props & { alHecho: (
         resolver: zodResolver(esquemaFactibilidadManual(anula)),
         defaultValues: { ...FACTIBILIDAD_MANUAL_VACIA, routerId: f?.routerId ? String(f.routerId) : "" },
     });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors } = formulario.formState;
     const resultado = useWatch({ control: formulario.control, name: "resultado" });
     async function enviar(d: DatosFactibilidadManual) {

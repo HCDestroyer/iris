@@ -50,6 +50,17 @@ comunes de conectores); aquí queda lo propio de Argos.
   Filtradas por la **empresa activa**: lo de otra empresa (o sin empresa) se descarta o es 404, y
   no se pide el estado de cuenta de un cliente ajeno. Sin empresas registradas: 422
   `empresas_no_registradas`.
+- **Búsqueda con servicios** (`GET /clientes?q=&servicios=true`, selector de cliente del panel):
+  exige `q` de 3 caracteres o más (422) y solo los primeros 8 resultados
+  (`TopeServiciosBusqueda`) traen `servicios` (los de la empresa activa; sin zona, heredan la del
+  cliente; con el convertidor único `AServicio`). Se leen en Argos con los cupos por conector y una
+  caché de 5 min por cliente compartida con la verificación de empresas (solo se pide lo que no
+  está en caché). Cada lectura (también la verificación de clientes desconocidos de la búsqueda)
+  se cobra a la cuota de verificación de `refrescos.go` (usuario, conector y empresa) y respeta la
+  caché negativa y `fallo_en`; agotada la cuota, el resto queda sin leer. Si Argos no responde, de
+  la instantánea. `servicios: null` = no se leyeron. Es solo informativo: el panel
+  toma el servicio elegido de la ficha (`GET /clientes/{id}`, que guarda la instantánea). Sin el
+  parámetro no hay llamadas extra.
 - **Instantáneas** (`argos_clientes`, `argos_servicios`, `argos_zonas`, `argos_routers`): solo lo
   que se muestra, con `empresa_id` y `sincronizado_en`. La ficha se refresca si tiene más de 24 h;
   si Argos no responde se devuelve la última con `stale: true` (y la búsqueda cae a las

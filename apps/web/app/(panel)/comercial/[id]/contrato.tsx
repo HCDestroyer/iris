@@ -4,10 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
     Boton,
     Campo,
-    Dialogo,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
+    DialogoProtegido,
     hayFirma,
     LienzoFirma,
     Tarjeta,
@@ -15,6 +15,7 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
     trazosASvg,
+    useCambiosSinGuardar,
     type Trazo,
 } from "@iris/ui";
 import { FilePen, PenLine } from "lucide-react";
@@ -132,7 +133,7 @@ export function TarjetaContrato({ detalle, recargar }: Props) {
                 </div>
                 <AvisoAccion envio={envio} que="generar el contrato" recargar={recargar} />
             </TarjetaContenido>
-            <Dialogo open={firmando} onOpenChange={setFirmando}>
+            <DialogoProtegido open={firmando} onOpenChange={setFirmando}>
                 {firmando && c ? (
                     <Firmar
                         contrato={c}
@@ -145,7 +146,7 @@ export function TarjetaContrato({ detalle, recargar }: Props) {
                         }}
                     />
                 ) : null}
-            </Dialogo>
+            </DialogoProtegido>
         </Tarjeta>
     );
 }
@@ -169,6 +170,7 @@ function Firmar({
     const [trazos, setTrazos] = useState<Trazos>({ trazos: [], ancho: 0, alto: 0 });
     const [faltaFirma, setFaltaFirma] = useState(false);
     const formulario = useForm<DatosFirma>({ resolver: zodResolver(esquemaFirma), defaultValues: { firmanteNombre: nombreSugerido, firmanteDocumento: documentoSugerido } });
+    useCambiosSinGuardar(formulario.formState.isDirty, formulario.formState.isSubmitting);
     const { errors } = formulario.formState;
 
     async function enviar(d: DatosFirma) {

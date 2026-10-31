@@ -12,7 +12,7 @@ import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
 import { apiRutas, type ApiRutas } from "./api-rutas";
 import { buzonesIniciales, resultadoPrueba } from "./datos-buzones";
 import type { EscenarioOrdenes } from "./datos-ordenes";
-import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha } from "./datos-tickets";
+import { aplicarAccion, CATEGORIAS, CLIENTES, escenarioTickets, ficha, serviciosDe } from "./datos-tickets";
 
 /*
  * API falsa para Playwright, con fixtures tipados con packages/contratos. Reproduce lo que
@@ -341,6 +341,7 @@ export async function conSesion(context: BrowserContext, baseURL: string, correo
 export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promise<ApiFalsa> {
     const mutaciones: ApiFalsa["mutaciones"] = [];
     const peticiones: Peticion[] = [];
+    let busquedasFallidas = 0;
     const fallos = new Map<string, number>();
     const problemas: { prefijo: string; p: Problema; n: number }[] = [];
     const mfaPendiente = new Map<string, number>();
@@ -683,8 +684,21 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             }
             if (ruta === "/api/v1/clientes") {
                 const q = (url.searchParams.get("q") ?? "").toLowerCase();
-                const data = CLIENTES.filter((c) => c.nombre.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q));
+                // «falla»: el primer intento responde 500 (el selector muestra «Reintentar»).
+                if (q === "falla" && busquedasFallidas++ === 0) {
+                    return problema(route, { type: "urn:iris:problema:interno", title: "Error del servidor", status: 500, detail: "Falló la búsqueda" });
+                }
+                const conServicios = url.searchParams.get("servicios") === "true";
+                const data = CLIENTES.filter(
+                    (c) => c.nombre.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q) || c.telefono.replace(/\s/g, "").includes(q.replace(/\s/g, "")),
+                ).map((c) => (conServicios ? { ...c, servicios: serviciosDe(c.id) } : c));
                 return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
+            }
+            if (ruta === "/api/v1/clientes/resolver-ip") {
+                const ip = url.searchParams.get("ip") ?? "";
+                const s = CLIENTES.flatMap((c) => serviciosDe(c.id)).find((x) => x.ip === ip);
+                if (!s) return noEncontrado();
+                return route.fulfill({ json: { ip, clienteId: s.clienteId, servicioId: s.id, empresaId: s.empresaId, fuente: "argos", stale: false } satisfies Schema<"IPResuelta"> });
             }
             const id = Number(ruta.split("/").pop());
             // ?refrescar=true: Argos responde y la instantánea queda al día; con el 502, la cuota de

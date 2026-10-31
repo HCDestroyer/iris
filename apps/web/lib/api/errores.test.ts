@@ -10,3 +10,12 @@ describe("leerRetryAfter", () => {
         expect(leerRetryAfter(new Headers({ "Retry-After": "pronto" }))).toBeUndefined();
     });
 });
+
+describe("mensajeDeError con errors[]", () => {
+    it("agrega los mensajes de errors[] al detalle", async () => {
+        const { ErrorApi, mensajeDeError } = await import("./errores");
+        const e = new ErrorApi({ estado: 422, codigo: "validacion", titulo: "Datos inválidos", detalle: "Revisa los campos", errores: [{ field: "body.version", message: "La versión es vieja" }] });
+        expect(mensajeDeError(e)).toEqual({ titulo: "Datos inválidos", detalle: "Revisa los campos. La versión es vieja" });
+        expect(mensajeDeError(new ErrorApi({ estado: 500, codigo: "x", titulo: "Error" }))).toEqual({ titulo: "Error", detalle: undefined });
+    });
+});

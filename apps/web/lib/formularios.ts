@@ -1,23 +1,17 @@
+import { asignarErrores } from "@iris/ui";
 import type { FieldValues, Path, UseFormSetError } from "react-hook-form";
 import { ErrorApi } from "./api/errores";
 
 /**
  * Lleva los `errors[]` de un 422 a los campos del formulario (`body.asunto` → `asunto`,
- * `body.contacto.correo` → `contacto.correo`). Devuelve `true` si colocó alguno; si no, el error
- * se muestra como aviso general.
+ * `body.contacto.correo` → `contacto.correo`), con `asignarErrores` de `@iris/ui`. Devuelve
+ * `true` solo si todos quedaron en un campo; si alguno no tiene campo visible, devuelve `false`
+ * y la pantalla muestra el aviso general, que lista los restantes (`mensajeDeError`).
  */
 export function erroresACampos<T extends FieldValues>(error: unknown, campos: readonly Path<T>[], setError: UseFormSetError<T>): boolean {
-    if (!(error instanceof ErrorApi) || error.estado !== 422) {
+    if (!(error instanceof ErrorApi) || error.estado !== 422 || error.errores.length === 0) {
         return false;
     }
-    let alguno = false;
-    for (const e of error.errores) {
-        // `body.lineas[0].precio` (API) → `lineas.0.precio` (react-hook-form).
-        const campo = e.field.replace(/^body\./, "").replace(/\[(\d+)\]/g, ".$1") as Path<T>;
-        if (campos.includes(campo)) {
-            setError(campo, { type: "servidor", message: e.message });
-            alguno = true;
-        }
-    }
-    return alguno;
+    const restantes = asignarErrores(error.errores, campos, (campo, e) => setError(campo, e));
+    return restantes.length === 0;
 }

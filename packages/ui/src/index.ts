@@ -19,6 +19,21 @@ export {
 export { Entrada } from "./componentes/entrada";
 export { abrirEscaner, Escaner, FORMATOS_CODIGO, lectorNativo, lectorZxing, type DependenciasEscaner, type Lector, type PropsEscaner } from "./componentes/escaner";
 export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazosASvg, type Punto, type Trazo } from "./componentes/firma";
+export {
+    asignarErrores,
+    BotonEnviar,
+    campoDelFormulario,
+    DialogoConfirmar,
+    DialogoProtegido,
+    ErrorFormulario,
+    textoFaltan,
+    useCambiosSinGuardar,
+    type ErrorDeCampo,
+    type PropsBotonEnviar,
+    type PropsDialogoConfirmar,
+    type PropsDialogoProtegido,
+    type PropsErrorFormulario,
+} from "./componentes/formulario-modal";
 export { Esqueleto } from "./componentes/esqueleto";
 export { EstadoVacio, type PropsEstadoVacio } from "./componentes/estado-vacio";
 export { Etiqueta } from "./componentes/etiqueta";

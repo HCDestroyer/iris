@@ -21,8 +21,8 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   vistas guardadas en `localStorage`, cursor «Cargar más» y SLA visible (`lib/tickets/sla.ts`);
   detalle con conversación (notas internas solo con `tickets.ver_notas`), historial, ficha de
   Argos (`stale`, `conector_apagado`) y acciones explícitas (diálogos con `react-hook-form` + zod
-  espejo de la API, `version` + `Idempotency-Key`, 409 → «Recargar»); alta rápida con búsqueda de
-  cliente en Argos o contacto a mano. «Contacto sin verificar» (correo sin DMARC/DKIM) y correos
+  espejo de la API, `version` + `Idempotency-Key`, 409 → «Recargar»); alta rápida con el selector de
+  cliente o contacto a mano. «Contacto sin verificar» (correo sin DMARC/DKIM) y correos
   retenidos como nota interna; «Ver en Argos/Horus» (`GET /integraciones/enlaces`, `clientes.ver`)
   con `rel="noopener noreferrer"`; incidente maestro y sus tickets. «Crear orden» desde el ticket.
 - **Órdenes** (`/ordenes`, `/ordenes/[id]`, `lib/ordenes`, `componentes/ordenes`): tablero en
@@ -146,6 +146,22 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   entrar en N min» e «Ir a iniciar sesión» (la API ya cerró la sesión). `/cuenta/mfa`: QR del
   `otpauth://` (dibujado en el navegador con `uqr`) y la clave en grupos, `POST /yo/mfa` y
   `/yo/mfa/activar`.
+- **Selector de cliente** (`componentes/clientes/selector-cliente.tsx`, `lib/clientes/selector.ts`):
+  el único del panel (alta rápida de ticket y nueva orden). Busca mientras se escribe en Argos
+  (`GET /clientes?q=&servicios=true`: nombre, código, teléfono, NIT/CUI, dirección) o por IP
+  (`resolver-ip` + ficha); cada resultado con código, dirección, teléfono, empresa y servicios con
+  su estado; recientes por usuario y empresa en `localStorage`; teclado (↑ ↓ Inicio Fin Enter
+  Esc); vacío con mensaje, error con «Reintentar», `stale` y conector apagado; en el teléfono,
+  hoja a pantalla completa. Con varios servicios pide cuál (o «sin servicio específico») y manda
+  `servicioId`.
+- **Formularios en modales**: `DialogoProtegido` (confirma antes de descartar cambios),
+  `BotonEnviar` (deshabilitado con «Falta elegir…» mientras falte una selección obligatoria),
+  `DialogoConfirmar` en las acciones destructivas (desactivar buzón o plantilla) y `errors[]` del
+  `problem+json` en su campo (`lib/formularios.ts`) o listados en el aviso. Ver `packages/ui`.
+- **Comercial sin scrolls propios**: el embudo pasa columnas a la fila siguiente (sin scroll
+  horizontal), cada columna muestra 5 tarjetas y «Ver N más» (sin scroll interno), y las líneas
+  de la cotización son tarjetas en el teléfono. `e2e/comercial-scrolls.spec.ts` lo verifica en
+  390 y 1280 px, claro y oscuro.
 - **Cliente HTTP** (`lib/api/cliente.ts`): `openapi-fetch` de `@iris/contratos`, cookies,
   `X-CSRF-Token` (cookie `iris_csrf`) en todo método que cambia estado y `X-Iris-Empresa`; los
   arreglos de la query van separados por coma (`estado=nuevo,abierto`); errores problem+json →
