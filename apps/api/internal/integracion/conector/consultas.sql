@@ -7,10 +7,12 @@ SELECT nextval(pg_get_serial_sequence('integracion.conectores', 'id'))::bigint A
 -- name: InsertarConector :one
 INSERT INTO integracion.conectores (
     id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, creado_por,
-    token_entregado_id, alcance_global, panel_url
+    token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en
 ) VALUES (
     @id, @sistema, @base_url, @origen, @token_cifrado, @secreto_webhook_cifrado, @remoto_id, @empresas, @creado_por,
-    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global), sqlc.narg(panel_url)
+    sqlc.narg(token_entregado_id), sqlc.narg(alcance_global), sqlc.narg(panel_url), sqlc.narg(version_remota),
+    sqlc.narg(contrato_remoto), sqlc.narg(contrato_informado),
+    CASE WHEN sqlc.narg(version_remota)::text IS NULL AND sqlc.narg(contrato_remoto)::text IS NULL THEN NULL ELSE now() END
 )
 RETURNING *;
 
@@ -61,6 +63,24 @@ UPDATE integracion.conectores
 SET url_publica = sqlc.narg(url_publica), version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
+
+-- name: FijarVersionConector :one
+-- Lo que informó el otro sistema (GET /integraciones/iris/estado, 0.5.0) y el contrato que Iris le
+-- informó (PUT /integraciones/iris/contrato; null = no cambia). No sube la versión de la fila: no es
+-- una edición del administrador.
+UPDATE integracion.conectores
+SET version_remota = coalesce(sqlc.narg(version_remota), version_remota),
+    contrato_remoto = coalesce(sqlc.narg(contrato_remoto), contrato_remoto),
+    contrato_informado = coalesce(sqlc.narg(contrato_informado), contrato_informado),
+    version_consultada_en = now(), updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: ConectoresSinContrato :many
+-- Conectores activos del sistema a los que Iris aún no informó este contrato (job de una vez).
+SELECT id FROM integracion.conectores
+WHERE sistema = @sistema AND estado = 'activo' AND contrato_informado IS DISTINCT FROM @contrato::text
+ORDER BY id;
 
 -- name: TocarWebhookConector :exec
 UPDATE integracion.conectores SET ultimo_webhook_en = now() WHERE id = @id;

@@ -351,7 +351,7 @@ func (q *Queries) CitasDeOrdenes(ctx context.Context, ordenes []int64) ([]Agenda
 
 const clienteArgos = `-- name: ClienteArgos :one
 
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes WHERE id = $1
 `
 
 // Instantáneas de Argos (solo lectura) --------------------------------------------
@@ -382,12 +382,13 @@ func (q *Queries) ClienteArgos(ctx context.Context, id int64) (IntegracionArgosC
 		&i.ZonaNombre,
 		&i.VersionDatos,
 		&i.FalloEn,
+		&i.Referencia,
 	)
 	return i, err
 }
 
 const clientesArgos = `-- name: ClientesArgos :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]IntegracionArgosCliente, error) {
@@ -423,6 +424,7 @@ func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]Integracion
 			&i.ZonaNombre,
 			&i.VersionDatos,
 			&i.FalloEn,
+			&i.Referencia,
 		); err != nil {
 			return nil, err
 		}
@@ -680,10 +682,10 @@ func (q *Queries) CrearItems(ctx context.Context, arg CrearItemsParams) error {
 
 const crearMaterial = `-- name: CrearMaterial :one
 INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
-                                    registrado_por, canal, ocurrido_en, operacion_id)
+                                    registrado_por, canal, ocurrido_en, operacion_id, modalidad)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11)
-RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at
+        $8, $9, $10, $11, $12)
+RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad
 `
 
 type CrearMaterialParams struct {
@@ -698,6 +700,7 @@ type CrearMaterialParams struct {
 	Canal            string
 	OcurridoEn       time.Time
 	OperacionID      *uuid.UUID
+	Modalidad        *string
 }
 
 func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (CampoOrdenMaterial, error) {
@@ -713,6 +716,7 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		arg.Canal,
 		arg.OcurridoEn,
 		arg.OperacionID,
+		arg.Modalidad,
 	)
 	var i CampoOrdenMaterial
 	err := row.Scan(
@@ -729,6 +733,7 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Modalidad,
 	)
 	return i, err
 }
@@ -790,7 +795,7 @@ INSERT INTO campo.ordenes (
     $9, $10, $11, $12, $13, $14, $15, $16,
     $17, $18, $19
 )
-RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg
+RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos
 `
 
 type CrearOrdenParams struct {
@@ -878,6 +883,8 @@ func (q *Queries) CrearOrden(ctx context.Context, arg CrearOrdenParams) (CampoOr
 		&i.PausadaDesde,
 		&i.PausadaEn,
 		&i.PausadaSeg,
+		&i.DatosArgosCambiadosEn,
+		&i.DatosArgosCampos,
 	)
 	return i, err
 }
@@ -1525,7 +1532,7 @@ UPDATE campo.ordenes SET
     pausada_desde = $14, pausada_en = $15, pausada_seg = $16,
     version = version + 1, updated_at = now()
 WHERE id = $17 AND version = $18
-RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg
+RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos
 `
 
 type GuardarOrdenParams struct {
@@ -1612,6 +1619,8 @@ func (q *Queries) GuardarOrden(ctx context.Context, arg GuardarOrdenParams) (Cam
 		&i.PausadaDesde,
 		&i.PausadaEn,
 		&i.PausadaSeg,
+		&i.DatosArgosCambiadosEn,
+		&i.DatosArgosCampos,
 	)
 	return i, err
 }
@@ -1957,7 +1966,7 @@ func (q *Queries) ListarEventosOrden(ctx context.Context, arg ListarEventosOrden
 }
 
 const listarOrdenes = `-- name: ListarOrdenes :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes
 WHERE ($1::bigint IS NULL OR id < $1)
   AND ($2::boolean
        OR ($3::bigint IS NULL AND empresa_id IS NULL)
@@ -2080,6 +2089,8 @@ func (q *Queries) ListarOrdenes(ctx context.Context, arg ListarOrdenesParams) ([
 			&i.PausadaDesde,
 			&i.PausadaEn,
 			&i.PausadaSeg,
+			&i.DatosArgosCambiadosEn,
+			&i.DatosArgosCampos,
 		); err != nil {
 			return nil, err
 		}
@@ -2160,8 +2171,64 @@ func (q *Queries) MarcaChecklist(ctx context.Context, arg MarcaChecklistParams) 
 	return i, err
 }
 
+const marcarDatosArgos = `-- name: MarcarDatosArgos :many
+
+UPDATE campo.ordenes o
+SET datos_argos_cambiados_en = $1,
+    datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || $2::text[]) AS c ORDER BY c),
+    updated_at = now()
+WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')
+  AND (($3::bigint IS NOT NULL AND o.servicio_id = $3::bigint)
+    OR ($4::bigint IS NOT NULL AND o.cliente_id = $4::bigint
+        AND ($5::boolean = false OR o.servicio_id IS NULL)))
+RETURNING o.id, o.numero, o.empresa_id
+`
+
+type MarcarDatosArgosParams struct {
+	CambiadoEn      *time.Time
+	Campos          []string
+	ServicioID      *int64
+	ClienteID       *int64
+	SoloSinServicio bool
+}
+
+type MarcarDatosArgosRow struct {
+	ID        int64
+	Numero    string
+	EmpresaID *int64
+}
+
+// Datos de Argos cambiados (servicio.datos_cambiados / cliente.actualizado, contrato 0.5.0) -------
+// Órdenes abiertas del servicio (o del cliente, sin servicio en la orden): conservan lo que copiaron
+// y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión.
+func (q *Queries) MarcarDatosArgos(ctx context.Context, arg MarcarDatosArgosParams) ([]MarcarDatosArgosRow, error) {
+	rows, err := q.db.Query(ctx, marcarDatosArgos,
+		arg.CambiadoEn,
+		arg.Campos,
+		arg.ServicioID,
+		arg.ClienteID,
+		arg.SoloSinServicio,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MarcarDatosArgosRow
+	for rows.Next() {
+		var i MarcarDatosArgosRow
+		if err := rows.Scan(&i.ID, &i.Numero, &i.EmpresaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const materialPorID = `-- name: MaterialPorID :one
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_materiales WHERE id = $1
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE id = $1
 `
 
 func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMaterial, error) {
@@ -2181,12 +2248,13 @@ func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMa
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Modalidad,
 	)
 	return i, err
 }
 
 const materialesDeOrdenes = `-- name: MaterialesDeOrdenes :many
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenMaterial, error) {
@@ -2212,6 +2280,7 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 			&i.OperacionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Modalidad,
 		); err != nil {
 			return nil, err
 		}
@@ -2342,7 +2411,7 @@ func (q *Queries) OperacionesPorIDs(ctx context.Context, ids []uuid.UUID) ([]Cam
 }
 
 const ordenPorID = `-- name: OrdenPorID :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = $1
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes WHERE id = $1
 `
 
 func (q *Queries) OrdenPorID(ctx context.Context, id int64) (CampoOrden, error) {
@@ -2387,12 +2456,14 @@ func (q *Queries) OrdenPorID(ctx context.Context, id int64) (CampoOrden, error) 
 		&i.PausadaDesde,
 		&i.PausadaEn,
 		&i.PausadaSeg,
+		&i.DatosArgosCambiadosEn,
+		&i.DatosArgosCampos,
 	)
 	return i, err
 }
 
 const ordenPorIDParaActualizar = `-- name: OrdenPorIDParaActualizar :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = $1 FOR UPDATE
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) OrdenPorIDParaActualizar(ctx context.Context, id int64) (CampoOrden, error) {
@@ -2437,12 +2508,14 @@ func (q *Queries) OrdenPorIDParaActualizar(ctx context.Context, id int64) (Campo
 		&i.PausadaDesde,
 		&i.PausadaEn,
 		&i.PausadaSeg,
+		&i.DatosArgosCambiadosEn,
+		&i.DatosArgosCampos,
 	)
 	return i, err
 }
 
 const ordenPorIdempotencia = `-- name: OrdenPorIdempotencia :one
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE idempotencia = $1
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes WHERE idempotencia = $1
 `
 
 func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string) (CampoOrden, error) {
@@ -2487,6 +2560,8 @@ func (q *Queries) OrdenPorIdempotencia(ctx context.Context, idempotencia *string
 		&i.PausadaDesde,
 		&i.PausadaEn,
 		&i.PausadaSeg,
+		&i.DatosArgosCambiadosEn,
+		&i.DatosArgosCampos,
 	)
 	return i, err
 }
@@ -2524,7 +2599,7 @@ func (q *Queries) OrdenesAbiertasDeTicket(ctx context.Context, arg OrdenesAbiert
 }
 
 const ordenesDelPaquete = `-- name: OrdenesDelPaquete :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes
 WHERE tecnico_id = $1
   AND ($2::boolean
        OR ($3::bigint IS NULL AND empresa_id IS NULL)
@@ -2598,6 +2673,8 @@ func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaquetePa
 			&i.PausadaDesde,
 			&i.PausadaEn,
 			&i.PausadaSeg,
+			&i.DatosArgosCambiadosEn,
+			&i.DatosArgosCampos,
 		); err != nil {
 			return nil, err
 		}
@@ -2610,7 +2687,7 @@ func (q *Queries) OrdenesDelPaquete(ctx context.Context, arg OrdenesDelPaquetePa
 }
 
 const ordenesPorIDs = `-- name: OrdenesPorIDs :many
-SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg FROM campo.ordenes WHERE id = ANY($1::bigint[]) ORDER BY id
+SELECT id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos FROM campo.ordenes WHERE id = ANY($1::bigint[]) ORDER BY id
 `
 
 func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden, error) {
@@ -2661,6 +2738,8 @@ func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden,
 			&i.PausadaDesde,
 			&i.PausadaEn,
 			&i.PausadaSeg,
+			&i.DatosArgosCambiadosEn,
+			&i.DatosArgosCampos,
 		); err != nil {
 			return nil, err
 		}
@@ -3262,7 +3341,7 @@ func (q *Queries) RetiroAbiertoDeServicio(ctx context.Context, arg RetiroAbierto
 }
 
 const servicioArgos = `-- name: ServicioArgos :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -3289,12 +3368,15 @@ func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgos
 		&i.UpdatedAt,
 		&i.UserPpp,
 		&i.TipoConexion,
+		&i.Referencia,
+		&i.ContactoNombre,
+		&i.ContactoTelefono,
 	)
 	return i, err
 }
 
 const serviciosArgos = `-- name: ServiciosArgos :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]IntegracionArgosServicio, error) {
@@ -3327,6 +3409,9 @@ func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]Integracio
 			&i.UpdatedAt,
 			&i.UserPpp,
 			&i.TipoConexion,
+			&i.Referencia,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
 		); err != nil {
 			return nil, err
 		}
@@ -3723,4 +3808,16 @@ func (q *Queries) VersionesPorIDs(ctx context.Context, ids []int64) ([]CampoPlan
 		return nil, err
 	}
 	return items, nil
+}
+
+const vinculoArgosDeTecnico = `-- name: VinculoArgosDeTecnico :one
+SELECT coalesce(argos_id_externo, '')::text AS id_externo FROM agenda.tecnicos WHERE usuario_id = $1
+`
+
+// El vínculo con Argos de la ficha del técnico (contrato 0.5.0 §3.3): va como tecnico en orden.cerrada.
+func (q *Queries) VinculoArgosDeTecnico(ctx context.Context, usuarioID int64) (string, error) {
+	row := q.db.QueryRow(ctx, vinculoArgosDeTecnico, usuarioID)
+	var id_externo string
+	err := row.Scan(&id_externo)
+	return id_externo, err
 }

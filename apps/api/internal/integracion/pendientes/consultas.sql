@@ -4,11 +4,12 @@
 -- Idempotente por la Idempotency-Key del contrato: un evento repetido no duplica la acción.
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
-    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar
+    depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
+    tecnico_usuario_id
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
-    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}')
+    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -48,6 +49,7 @@ SET estado          = @estado,
     ultimo_status   = sqlc.narg(ultimo_status),
     hecho_en        = sqlc.narg(hecho_en),
     respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
+    codigo_error    = sqlc.narg(codigo_error),
     tomado_en       = NULL,
     version         = version + 1,
     updated_at      = now()
@@ -86,6 +88,20 @@ SET payload = @payload, ruta = @ruta, depende_de = @depende_de, datos_incompleto
     proximo_intento = @ahora, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING *;
+
+-- name: CorregirTecnico :one
+-- Reintento a mano de un pendiente rechazado por el técnico (tecnico_no_encontrado…, contrato 0.5.0
+-- §3.3): el cuerpo lleva el vínculo actual del técnico. Argos no guardó la clave (un 4xx no la
+-- guarda), así que otro cuerpo con la misma Idempotency-Key es seguro.
+UPDATE integracion.pendientes
+SET payload = @payload, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL, codigo_error = NULL,
+    proximo_intento = @ahora, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: VinculoArgosDeTecnico :one
+-- El vínculo con Argos de la ficha de agenda del usuario (id_externo; vacío = sin vincular).
+SELECT coalesce(argos_id_externo, '')::text AS id_externo FROM agenda.tecnicos WHERE usuario_id = @usuario_id;
 
 -- name: MarcarConflicto :one
 UPDATE integracion.pendientes

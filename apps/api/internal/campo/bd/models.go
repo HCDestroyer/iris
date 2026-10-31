@@ -124,18 +124,23 @@ type AgendaRutaParada struct {
 }
 
 type AgendaTecnico struct {
-	ID          int64
-	UsuarioID   int64
-	CuadrillaID *int64
-	BodegaID    *int64
-	Habilidades []string
-	BaseLat     *float64
-	BaseLon     *float64
-	Activo      bool
-	Version     int32
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Telefono    string
+	ID                int64
+	UsuarioID         int64
+	CuadrillaID       *int64
+	BodegaID          *int64
+	Habilidades       []string
+	BaseLat           *float64
+	BaseLon           *float64
+	Activo            bool
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	Telefono          string
+	ArgosIDExterno    *string
+	ArgosCorreo       *string
+	ArgosNombre       *string
+	ArgosVinculadoEn  *time.Time
+	ArgosVinculadoPor *int64
 }
 
 type AgendaTurno struct {
@@ -232,44 +237,46 @@ type CampoOperacionesSync struct {
 }
 
 type CampoOrden struct {
-	ID               int64
-	Numero           string
-	EmpresaID        *int64
-	TipoID           int64
-	PlantillaID      *int64
-	TicketID         *int64
-	ProspectoID      *int64
-	ClienteID        *int64
-	ServicioID       *int64
-	ZonaID           *int64
-	CuadrillaID      *int64
-	BodegaID         *int64
-	Direccion        string
-	Lat              *float64
-	Lon              *float64
-	ContactoNombre   *string
-	ContactoTelefono *string
-	Descripcion      string
-	TecnicoID        *int64
-	AsignadaEn       *time.Time
-	Estado           string
-	ProgramadaInicio *time.Time
-	ProgramadaFin    *time.Time
-	EnCaminoEn       *time.Time
-	EnSitioEn        *time.Time
-	FinalizadaEn     *time.Time
-	Resultado        *string
-	MotivoFalla      *string
-	Motivo           *string
-	CreadoPor        *int64
-	Idempotencia     *string
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Origen           string
-	PausadaDesde     *string
-	PausadaEn        *time.Time
-	PausadaSeg       int64
+	ID                    int64
+	Numero                string
+	EmpresaID             *int64
+	TipoID                int64
+	PlantillaID           *int64
+	TicketID              *int64
+	ProspectoID           *int64
+	ClienteID             *int64
+	ServicioID            *int64
+	ZonaID                *int64
+	CuadrillaID           *int64
+	BodegaID              *int64
+	Direccion             string
+	Lat                   *float64
+	Lon                   *float64
+	ContactoNombre        *string
+	ContactoTelefono      *string
+	Descripcion           string
+	TecnicoID             *int64
+	AsignadaEn            *time.Time
+	Estado                string
+	ProgramadaInicio      *time.Time
+	ProgramadaFin         *time.Time
+	EnCaminoEn            *time.Time
+	EnSitioEn             *time.Time
+	FinalizadaEn          *time.Time
+	Resultado             *string
+	MotivoFalla           *string
+	Motivo                *string
+	CreadoPor             *int64
+	Idempotencia          *string
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Origen                string
+	PausadaDesde          *string
+	PausadaEn             *time.Time
+	PausadaSeg            int64
+	DatosArgosCambiadosEn *time.Time
+	DatosArgosCampos      []string
 }
 
 type CampoOrdenAdjunto struct {
@@ -389,6 +396,7 @@ type CampoOrdenMaterial struct {
 	OperacionID      *uuid.UUID
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	Modalidad        *string
 }
 
 type CampoOrdenNota struct {
@@ -710,6 +718,7 @@ type IntegracionArgosCliente struct {
 	ZonaNombre          string
 	VersionDatos        int16
 	FalloEn             *time.Time
+	Referencia          string
 }
 
 type IntegracionArgosCopia struct {
@@ -749,29 +758,53 @@ type IntegracionArgosRouter struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Activo         bool
 }
 
 type IntegracionArgosServicio struct {
-	ID             int64
-	EmpresaID      int64
-	ClienteID      int64
-	Codigo         string
-	PlanID         *int64
-	PlanNombre     string
-	RouterID       *int64
-	RouterNombre   string
-	ZonaID         *int64
-	ZonaNombre     string
-	Ip             string
-	Direccion      string
-	Lat            *float64
-	Lon            *float64
-	Estado         string
-	SincronizadoEn time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	UserPpp        string
-	TipoConexion   string
+	ID               int64
+	EmpresaID        int64
+	ClienteID        int64
+	Codigo           string
+	PlanID           *int64
+	PlanNombre       string
+	RouterID         *int64
+	RouterNombre     string
+	ZonaID           *int64
+	ZonaNombre       string
+	Ip               string
+	Direccion        string
+	Lat              *float64
+	Lon              *float64
+	Estado           string
+	SincronizadoEn   time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	UserPpp          string
+	TipoConexion     string
+	Referencia       string
+	ContactoNombre   string
+	ContactoTelefono string
+}
+
+type IntegracionArgosTraslado struct {
+	ID               int64
+	EmpresaID        *int64
+	BodegaDestinoID  *int64
+	TecnicoIDExterno *string
+	TecnicoCorreo    *string
+	Estado           string
+	Lineas           []byte
+	EnviadoEn        *time.Time
+	RecibidoEn       *time.Time
+	RecibidoPor      *string
+	MetodoRecepcion  *string
+	OrigenRecepcion  *string
+	CanceladoEn      *time.Time
+	Motivo           *string
+	EntranteID       *int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type IntegracionArgosZona struct {
@@ -781,6 +814,7 @@ type IntegracionArgosZona struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Activo         bool
 }
 
 type IntegracionAutorizacione struct {
@@ -831,6 +865,10 @@ type IntegracionConectore struct {
 	TokenEntregadoID      *int64
 	AlcanceGlobal         *bool
 	PanelUrl              *string
+	VersionRemota         *string
+	ContratoRemoto        *string
+	ContratoInformado     *string
+	VersionConsultadaEn   *time.Time
 }
 
 type IntegracionEntrante struct {
@@ -898,6 +936,8 @@ type IntegracionPendiente struct {
 	Plantilla        []byte
 	PorResolver      bool
 	Verificar        []string
+	TecnicoUsuarioID *int64
+	CodigoError      *string
 }
 
 type NucleoAcceso struct {

@@ -475,3 +475,22 @@ LIMIT 20000;
 -- name: UltimaPosicionEnEmpresa :one
 SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas
 WHERE tecnico_id = @tecnico_id AND empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint;
+
+-- Vínculo con el usuario de Argos (contrato 0.5.0 §3.3; I1) --------------------------------
+
+-- name: VincularArgosTecnico :one
+UPDATE agenda.tecnicos
+SET argos_id_externo = @id_externo, argos_correo = sqlc.narg(correo), argos_nombre = sqlc.narg(nombre),
+    argos_vinculado_en = @vinculado_en, argos_vinculado_por = sqlc.narg(vinculado_por), version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: DesvincularArgosTecnico :one
+UPDATE agenda.tecnicos
+SET argos_id_externo = NULL, argos_correo = NULL, argos_nombre = NULL, argos_vinculado_en = NULL, argos_vinculado_por = NULL,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: TecnicoPorArgos :one
+SELECT * FROM agenda.tecnicos WHERE argos_id_externo = @id_externo;
