@@ -156,6 +156,10 @@ No emite ni consume eventos.
   comportamiento de antes. `@internationalized/date` maneja las fechas de calendario de los
   selectores.
 - Se quitaron `radix-ui` y `class-variance-authority`: ya no hacen falta.
+- `pnpm-workspace.yaml` corta `@react-types/color` → `@react-spectrum/color` / `@react-spectrum/provider`
+  (solo tipos; traían React Spectrum entero y una segunda copia de React Aria) y fija
+  `react-stately` 3.50.0: queda una sola versión de `react-aria`, `react-aria-components` y
+  `react-stately`.
 
 - `@zxing/browser` + `@zxing/library`: respaldo del escáner de serie/MAC donde no hay
   `BarcodeDetector` (Safari en iPhone, Firefox). Import dinámico: solo se descarga al escanear.
