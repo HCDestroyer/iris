@@ -1,7 +1,7 @@
 "use client";
 
 import type { OrdenVista } from "@iris/sync";
-import { estadoPasos, faltantesAntesDeFirmar, llego, progresoPasos, siguientePaso, TITULOS_PASO } from "@iris/sync/campo";
+import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, siguientePaso, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
 import {
     ArrowLeft,
@@ -39,7 +39,6 @@ import { Materiales } from "./materiales";
 import { Notas } from "./notas";
 import { PausaOrden } from "./pausa";
 import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
-import { PASOS_ORDEN, urlDeVista, type PasoOrden } from "@/lib/campo/vista";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar, estado } = useCampo();

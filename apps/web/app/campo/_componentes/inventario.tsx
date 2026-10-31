@@ -1,14 +1,19 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ErrorTransporte, type MiBodega as DatosBodega, type OperacionTrasladoLocal, type Traslado } from "@iris/sync";
+import { type MiBodega as DatosBodega, type OperacionTrasladoLocal, type Traslado } from "@iris/sync";
 import {
     esquemaFormularioRecepcion,
     formularioRecepcionInicial,
     lineasDeRecepcion,
+    MODALIDADES_BODEGA,
     sePuedeRehacerRecepcion,
+    SITUACIONES_TRASLADO,
+    situacionLocal,
     situacionTraslado,
+    textoErrorLectura,
     textoProblema,
+    urlDeVista,
     type FormularioRecepcion,
     type SituacionTraslado,
 } from "@iris/sync/campo";
@@ -53,38 +58,23 @@ import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { haceTiempo } from "@/lib/datos/presentacion";
 import { formatearFecha } from "@/lib/fechas";
-import { urlDeVista } from "@/lib/campo/vista";
 import { useCampo } from "./contexto";
 import { EstadoAdjunto } from "./fotos";
 import { useInventario, type Lectura } from "./inventario-datos";
 
-const SITUACIONES: Record<SituacionTraslado, { tono: Tono; icono: LucideIcon; texto: string }> = {
-    por_recibir: { tono: "neutral", icono: PackageOpen, texto: "Por recibir" },
-    en_telefono: { tono: "warning", icono: CloudUpload, texto: "Recibido · por enviar" },
-    rechazado_telefono: { tono: "error", icono: TriangleAlert, texto: "Rechazado" },
-    enviando: { tono: "info", icono: Send, texto: "Enviando a Argos" },
-    recibido: { tono: "success", icono: CircleCheck, texto: "Recibido" },
-    rechazado_argos: { tono: "error", icono: TriangleAlert, texto: "Argos lo rechazó" },
-    agotado: { tono: "warning", icono: Hourglass, texto: "Argos no respondió" },
+const ICONOS_SITUACION: Record<SituacionTraslado, LucideIcon> = {
+    por_recibir: PackageOpen,
+    en_telefono: CloudUpload,
+    rechazado_telefono: TriangleAlert,
+    enviando: Send,
+    recibido: CircleCheck,
+    rechazado_argos: TriangleAlert,
+    agotado: Hourglass,
 };
 
-/** Problemas de la lectura del inventario en palabras del técnico. */
-const PROBLEMAS_INVENTARIO: Record<string, string> = {
-    tecnico_sin_vincular: "Tu ficha no está vinculada con tu usuario de Argos. Pide a tu supervisor que la vincule.",
-    argos_sin_inventario_tecnico: "Argos todavía no maneja inventario por técnico.",
-    tecnico_sin_bodega: "No tienes bodega en Argos. Pide a bodega que te asigne una.",
-    tecnico_ambiguo: "Argos tiene más de un usuario para ti. Pide a tu supervisor que revise el vínculo.",
-    conector_apagado: "Iris no está conectado a Argos en este momento.",
-    empresa_requerida: "Elige la empresa en la que trabajas.",
-};
-
-function textoErrorLectura(error: unknown, que: string): { sinSenal: boolean; texto: string } {
-    if (error instanceof ErrorTransporte && error.tipo === "red") {
-        return { sinSenal: true, texto: `Sin señal: conéctate para ver ${que}.` };
-    }
-    const codigo = error instanceof ErrorTransporte ? error.codigo : null;
-    return { sinSenal: false, texto: (codigo ? PROBLEMAS_INVENTARIO[codigo] : undefined) ?? `No se pudo leer ${que}.` };
-}
+const SITUACIONES = Object.fromEntries(
+    (Object.keys(ICONOS_SITUACION) as SituacionTraslado[]).map((s) => [s, { ...SITUACIONES_TRASLADO[s], icono: ICONOS_SITUACION[s] }]),
+) as Record<SituacionTraslado, { tono: Tono; icono: LucideIcon; texto: string }>;
 
 /** Descripción de un producto: de las existencias del paquete o de «Mi bodega», si ya se leyó. */
 function useDescripciones(): (productoId: number) => string {
@@ -176,7 +166,7 @@ export function PorRecibir() {
                         <TarjetaTraslado key={t.id} id={t.id} lineas={t.lineas?.length ?? 0} enviadoEn={t.enviadoEn} situacion={situacionTraslado(t, estado.recepciones)} />
                     ))}
                     {soloLocales.map((op) => (
-                        <TarjetaTraslado key={op.id} id={op.datos.trasladoId} lineas={null} enviadoEn={undefined} situacion={op.estado === "rechazada" ? "rechazado_telefono" : "en_telefono"} />
+                        <TarjetaTraslado key={op.id} id={op.datos.trasladoId} lineas={null} enviadoEn={undefined} situacion={situacionLocal(op)} />
                     ))}
                 </ul>
             ) : null}
@@ -234,7 +224,7 @@ export function DetalleTraslado({ id }: { id: number }) {
             Por recibir
         </Boton>
     );
-    const situacion = traslado ? situacionTraslado(traslado, estado.recepciones) : local ? (local.estado === "rechazada" ? "rechazado_telefono" : "en_telefono") : null;
+    const situacion = traslado ? situacionTraslado(traslado, estado.recepciones) : local ? situacionLocal(local) : null;
     const s = situacion ? SITUACIONES[situacion] : null;
 
     return (
@@ -492,11 +482,6 @@ export function MiBodega() {
 
 const mayuscula = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
 
-const MODALIDADES: Record<string, string> = {
-    comodato: "Comodato",
-    consumible_cobro: "Se cobra al cliente",
-    consumible_gasto: "Gasto",
-};
 
 function ContenidoBodega({ bodega }: { bodega: DatosBodega }) {
     const { navegar } = useCampo();
@@ -531,7 +516,7 @@ function ContenidoBodega({ bodega }: { bodega: DatosBodega }) {
                                 <li key={e.productoId} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                                     <span className="min-w-0 break-words">
                                         {e.descripcion}
-                                        {MODALIDADES[e.modalidad] ? <span className="block text-xs text-muted-foreground">{MODALIDADES[e.modalidad]}</span> : null}
+                                        {MODALIDADES_BODEGA[e.modalidad] ? <span className="block text-xs text-muted-foreground">{MODALIDADES_BODEGA[e.modalidad]}</span> : null}
                                     </span>
                                     <span className="font-semibold tabular-nums">
                                         {e.cantidad.toLocaleString("es-GT")} {e.unidad}

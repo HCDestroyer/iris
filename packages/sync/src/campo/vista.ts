@@ -1,8 +1,8 @@
-// Vista de la app de campo en la URL (una sola página que funciona sin señal): cada pantalla y cada
-// paso de una orden tiene su dirección (se puede volver con «Atrás» y abrir un enlace directo).
-import { PASOS_ORDEN, type PasoOrden } from "@iris/sync/campo";
-
-export { PASOS_ORDEN, type PasoOrden };
+// Vista de la app de campo: qué pantalla se ve y a qué pestaña de la barra inferior pertenece.
+// En la PWA cada vista va en la URL (`vistaDeUrl` / `urlDeVista`: se puede volver con «Atrás» y
+// abrir un enlace directo); la app nativa usa las mismas vistas con su propia pila de «Atrás».
+// Compartido con la app nativa.
+import { PASOS_ORDEN, type PasoOrden } from "./pasos";
 
 /** Pestañas de la barra inferior. */
 export type Pestana = "hoy" | "recibir" | "pendientes" | "yo";
@@ -18,6 +18,14 @@ export type Vista =
     | { tipo: "yo" }
     /** «Mi bodega» (dentro de «Yo»). */
     | { tipo: "bodega" };
+
+/** Pestañas en orden, con su texto y la vista con la que abren. */
+export const PESTANAS: readonly { id: Pestana; texto: string; vista: Vista }[] = [
+    { id: "hoy", texto: "Hoy", vista: { tipo: "lista" } },
+    { id: "recibir", texto: "Por recibir", vista: { tipo: "recibir" } },
+    { id: "pendientes", texto: "Pendientes", vista: { tipo: "pendientes" } },
+    { id: "yo", texto: "Yo", vista: { tipo: "yo" } },
+];
 
 function idDe(valor: string | null): number | null {
     const n = Number(valor);
@@ -81,4 +89,15 @@ export function pestanaDe(v: Vista): Pestana {
         case "bodega":
             return "yo";
     }
+}
+
+/** ¿Es la misma vista? (misma pantalla, misma orden y mismo paso). */
+export function mismaVista(a: Vista, b: Vista): boolean {
+    return urlDeVista(a) === urlDeVista(b);
+}
+
+/** Paso anterior y siguiente de la orden («Anterior» / «Siguiente»); `null` en los extremos. */
+export function vecinosPaso(paso: PasoOrden): { anterior: PasoOrden | null; siguiente: PasoOrden | null } {
+    const i = PASOS_ORDEN.indexOf(paso);
+    return { anterior: PASOS_ORDEN[i - 1] ?? null, siguiente: PASOS_ORDEN[i + 1] ?? null };
 }

@@ -3,11 +3,9 @@
 import { cn } from "@iris/ui";
 import { CalendarCheck, CloudUpload, PackageOpen, UserRound, type LucideIcon } from "lucide-react";
 import type { MouseEvent } from "react";
-import { pestanaDe, urlDeVista, type Pestana, type Vista } from "@/lib/campo/vista";
-import { resumenEnvio } from "./barra-conexion";
 import { useCampo } from "./contexto";
 import { useInventario } from "./inventario-datos";
-import { porRecibir } from "@iris/sync/campo";
+import { contadoresPestanas, pestanaDe, urlDeVista, type Pestana, type Vista } from "@iris/sync/campo";
 
 const PESTANAS: { id: Pestana; texto: string; icono: LucideIcon; vista: Vista }[] = [
     { id: "hoy", texto: "Hoy", icono: CalendarCheck, vista: { tipo: "lista" } },
@@ -21,11 +19,7 @@ export function NavegacionInferior() {
     const { vista, navegar, estado } = useCampo();
     const { traslados } = useInventario();
     const actual = pestanaDe(vista);
-    const envio = resumenEnvio(estado);
-    const cuentas: Partial<Record<Pestana, number>> = {
-        pendientes: envio.porEnviar + Math.max(0, envio.archivos) + envio.rechazos,
-        recibir: traslados.datos ? porRecibir(traslados.datos, estado.recepciones).length : 0,
-    };
+    const cuentas = contadoresPestanas(estado, traslados.datos);
     return (
         <nav
             aria-label="Secciones de la app"

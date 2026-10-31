@@ -5,7 +5,7 @@ import type { Tono } from "@iris/ui";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SesionCampo } from "@/lib/campo/sesion";
 import { useEstadoMotor } from "@/lib/campo/motor";
-import { urlDeVista, vistaDeUrl, type Vista } from "@/lib/campo/vista";
+import { urlDeVista, vistaDeUrl, type Vista } from "@iris/sync/campo";
 
 export { urlDeVista, type Vista };
 

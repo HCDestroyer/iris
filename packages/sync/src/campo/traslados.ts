@@ -3,8 +3,9 @@
 // Compartido con la app nativa.
 import { z } from "zod";
 import type { LineaRecepcion, Traslado } from "../contrato";
-import { codigoProblema } from "../errores";
+import { codigoProblema, ErrorTransporte } from "../errores";
 import type { OperacionTrasladoLocal } from "../modelo";
+import type { TonoEstado } from "./textos";
 
 /**
  * - `por_recibir`: nadie lo recibió desde Iris (o Argos rechazó la recepción anterior).
@@ -107,3 +108,45 @@ export function lineasDeRecepcion(traslado: Pick<Traslado, "lineas">, datos: For
     });
     return lineas;
 }
+
+/** Situación de un traslado en palabras del técnico y su tono (el icono lo pone cada app). */
+export const SITUACIONES_TRASLADO: Record<SituacionTraslado, { tono: TonoEstado; texto: string }> = {
+    por_recibir: { tono: "neutral", texto: "Por recibir" },
+    en_telefono: { tono: "warning", texto: "Recibido · por enviar" },
+    rechazado_telefono: { tono: "error", texto: "Rechazado" },
+    enviando: { tono: "info", texto: "Enviando a Argos" },
+    recibido: { tono: "success", texto: "Recibido" },
+    rechazado_argos: { tono: "error", texto: "Argos lo rechazó" },
+    agotado: { tono: "warning", texto: "Argos no respondió" },
+};
+
+/** Situación de una recepción que solo está en el teléfono (la lista de Argos no la trae). */
+export function situacionLocal(op: Pick<OperacionTrasladoLocal, "estado">): SituacionTraslado {
+    return op.estado === "rechazada" ? "rechazado_telefono" : "en_telefono";
+}
+
+/** Problemas al leer el inventario de Argos («Por recibir», «Mi bodega») en palabras del técnico. */
+export const PROBLEMAS_INVENTARIO: Record<string, string> = {
+    tecnico_sin_vincular: "Tu ficha no está vinculada con tu usuario de Argos. Pide a tu supervisor que la vincule.",
+    argos_sin_inventario_tecnico: "Argos todavía no maneja inventario por técnico.",
+    tecnico_sin_bodega: "No tienes bodega en Argos. Pide a bodega que te asigne una.",
+    tecnico_ambiguo: "Argos tiene más de un usuario para ti. Pide a tu supervisor que revise el vínculo.",
+    conector_apagado: "Iris no está conectado a Argos en este momento.",
+    empresa_requerida: "Elige la empresa en la que trabajas.",
+};
+
+/** Error de una lectura del inventario: sin señal (aviso) o un problema de Argos (error). */
+export function textoErrorLectura(error: unknown, que: string): { sinSenal: boolean; texto: string } {
+    if (error instanceof ErrorTransporte && error.tipo === "red") {
+        return { sinSenal: true, texto: `Sin señal: conéctate para ver ${que}.` };
+    }
+    const codigo = error instanceof ErrorTransporte ? error.codigo : null;
+    return { sinSenal: false, texto: (codigo ? PROBLEMAS_INVENTARIO[codigo] : undefined) ?? `No se pudo leer ${que}.` };
+}
+
+/** Modalidad de una existencia de «Mi bodega». */
+export const MODALIDADES_BODEGA: Record<string, string> = {
+    comodato: "Comodato",
+    consumible_cobro: "Se cobra al cliente",
+    consumible_gasto: "Gasto",
+};
