@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/HCDestroyer/iris/compare/v0.3.0...v0.4.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **panel:** crear, editar y desactivar usuarios, sus empresas y crear el usuario desde «Nuevo técnico» ([#75](https://github.com/HCDestroyer/iris/issues/75)) ([9362005](https://github.com/HCDestroyer/iris/commit/9362005dd360142e11855fbb98293608b982d087))
+
 ## [0.3.0](https://github.com/HCDestroyer/iris/compare/v0.2.0...v0.3.0) (2026-10-31)
 
 
