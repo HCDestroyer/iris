@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0](https://github.com/HCDestroyer/iris/compare/v0.5.0...v0.6.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **integracion:** contrato Argos 0.5.0 (versión, vínculo técnico ↔ Argos, cierre con técnico y webhooks nuevos) ([#81](https://github.com/HCDestroyer/iris/issues/81)) ([8cad8c1](https://github.com/HCDestroyer/iris/commit/8cad8c18eb153a583744bd2f9987550bbfe299b9))
+* **integracion:** recepción de traslados con firma desde campo, mi bodega y teléfonos (contrato Argos 0.5.x, parte B) ([#83](https://github.com/HCDestroyer/iris/issues/83)) ([15efa32](https://github.com/HCDestroyer/iris/commit/15efa326b175b99d8a4b8269953106d9f5b808bd))
+* **panel:** formularios en pantalla propia con HeroUI, fase 2 ([#84](https://github.com/HCDestroyer/iris/issues/84)) ([89fb992](https://github.com/HCDestroyer/iris/commit/89fb99227ce6d2f21e912dbb8d30de05b9516d17))
+
 ## [0.5.0](https://github.com/HCDestroyer/iris/compare/v0.4.0...v0.5.0) (2026-10-31)
 
 
