@@ -226,16 +226,69 @@ func (q *Queries) CorregirTecnico(ctx context.Context, arg CorregirTecnicoParams
 	return i, err
 }
 
-const dependientesEsperanRespuesta = `-- name: DependientesEsperanRespuesta :one
-SELECT EXISTS (SELECT 1 FROM integracion.pendientes WHERE $1::bigint = ANY (depende_de) AND por_resolver)::boolean AS esperan
+const dependientesAbiertos = `-- name: DependientesAbiertos :many
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+WHERE $1::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+ORDER BY id
+FOR UPDATE
 `
 
-// Algún dependiente de @id necesita su respuesta (cuerpo con marcadores): resolverlo a mano no sirve.
-func (q *Queries) DependientesEsperanRespuesta(ctx context.Context, id int64) (bool, error) {
-	row := q.db.QueryRow(ctx, dependientesEsperanRespuesta, id)
-	var esperan bool
-	err := row.Scan(&esperan)
-	return esperan, err
+// Los dependientes de @id que aún esperan (pendiente o bloqueado), bloqueados para decidir qué hacer
+// con ellos al resolver @id a mano.
+func (q *Queries) DependientesAbiertos(ctx context.Context, id int64) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, dependientesAbiertos, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+			&i.Verificar,
+			&i.TecnicoUsuarioID,
+			&i.CodigoError,
+			&i.ResueltoMotivo,
+			&i.ResueltoPor,
+			&i.ResueltoEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const dependientesPorResolver = `-- name: DependientesPorResolver :many
@@ -372,6 +425,65 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 		return nil, err
 	}
 	return items, nil
+}
+
+const fallarPorResolucionManual = `-- name: FallarPorResolucionManual :one
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = $1::text,
+    codigo_error = 'dependencia_resuelta_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = $2 AND estado IN ('pendiente', 'bloqueado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+`
+
+type FallarPorResolucionManualParams struct {
+	Motivo string
+	ID     int64
+}
+
+// La dependencia se resolvió a mano y este cuerpo esperaba su respuesta (marcadores): nunca la
+// tendrá. Queda incompleto (fallido_negocio + datos_incompletos) para resolverlo también a mano o
+// corregirlo con los datos reales; sin marcadores pendientes (por_resolver = false).
+func (q *Queries) FallarPorResolucionManual(ctx context.Context, arg FallarPorResolucionManualParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, fallarPorResolucionManual, arg.Motivo, arg.ID)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+	)
+	return i, err
 }
 
 const fallarResolucion = `-- name: FallarResolucion :one
@@ -1180,6 +1292,70 @@ func (q *Queries) ResolverManual(ctx context.Context, arg ResolverManualParams) 
 		arg.Ahora,
 		arg.ID,
 		arg.Version,
+	)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+	)
+	return i, err
+}
+
+const resolverManualDependiente = `-- name: ResolverManualDependiente :one
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_por = $2, resuelto_en = $3::timestamptz,
+    tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = $4 AND estado IN ('pendiente', 'bloqueado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+`
+
+type ResolverManualDependienteParams struct {
+	Motivo      string
+	ResueltoPor *int64
+	Ahora       time.Time
+	ID          int64
+}
+
+// El cargo que esperaba al consumo resuelto a mano también se da por resuelto (resolver_tambien).
+func (q *Queries) ResolverManualDependiente(ctx context.Context, arg ResolverManualDependienteParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, resolverManualDependiente,
+		arg.Motivo,
+		arg.ResueltoPor,
+		arg.Ahora,
+		arg.ID,
 	)
 	var i IntegracionPendiente
 	err := row.Scan(

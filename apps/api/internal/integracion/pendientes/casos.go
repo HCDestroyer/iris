@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -226,7 +227,19 @@ type EntradaResolverManual struct {
 	ID      int64  `json:"-"`
 	Version int32  `json:"version" minimum:"1"`
 	Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (queda en la auditoría y en el pendiente)"`
+	// Cargo: obligatorio si un cargo único esperaba a este consumo por un producto del consumo.
+	Cargo string `json:"cargo,omitempty" required:"false" enum:"liberar,resolver_tambien" doc:"Solo al resolver un consumo con un cargo de un producto del consumo esperándolo (si no, 422 decision_cargo_requerida). liberar: el cargo sale hacia Argos (el consumo hecho en Argos no lo cobró). resolver_tambien: el cargo también queda resuelto_manual con el mismo motivo y no sale (Argos ya lo cobró al consumir un consumible_cobro)"`
 }
+
+// Decisiones sobre el cargo que esperaba al consumo resuelto a mano.
+const (
+	CargoLiberar         = "liberar"
+	CargoResolverTambien = "resolver_tambien"
+)
+
+// MotivoDependenciaResueltaAMano: el dependiente esperaba la respuesta (marcadores) de un pendiente
+// que se resolvió a mano; queda incompleto.
+const MotivoDependenciaResueltaAMano = "dependencia_resuelta_a_mano"
 
 type eventoResueltoManual struct {
 	PendienteID    int64  `json:"pendiente_id"`
@@ -241,8 +254,14 @@ type eventoResueltoManual struct {
 
 // nuevoResolverManual: solo desde fallido_negocio (incluido el incompleto). Lo agotado se
 // reintenta y lo bloqueado espera a su dependencia: ninguno se puede saltar. Queda
-// resuelto_manual (final, nunca vuelve a salir) y sus dependientes salen como si estuviera hecho,
-// salvo que alguno espere su respuesta (marcadores sin resolver): sin ella no hay cuerpo que mandar.
+// resuelto_manual (final, nunca vuelve a salir) y sus dependientes:
+//
+//   - los que esperaban su respuesta (marcadores) nunca la tendrán: quedan incompletos
+//     (dependencia_resuelta_a_mano), para resolverlos también a mano o corregirlos con los datos;
+//   - un cargo de un producto del consumo exige la decisión explícita (cargo): liberar o
+//     resolver_tambien, porque el consumo rehecho en Argos sin el origen_id de la orden pudo
+//     cobrarlo ya (consumible_cobro) y Argos no respondería 409 cargo_duplicado;
+//   - el resto sale como si estuviera hecho.
 func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendiente] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaResolverManual, Pendiente]{
 		Accion: "integraciones.resolver_pendiente",
@@ -266,18 +285,29 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if n := utf8.RuneCountInString(motivo); n < 5 || n > 1000 {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "motivo", Message: "Escribe qué se hizo en Argos (5 a 1000 caracteres)", Rule: "longitud"})
 			}
+			if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
+				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "cargo", Message: "liberar o resolver_tambien", Rule: "enum"})
+			}
 			if f.Estado != EstadoFallidoNegocio {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
 			}
-			esperan, err := q.DependientesEsperanRespuesta(ctx, f.ID)
+			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
 			if err != nil {
 				return Pendiente{}, err
 			}
-			if esperan {
-				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
-					"Otra acción espera la respuesta de esta en Argos (p. ej. el id que devuelve): resuélvela también a mano en Argos")
+			cargos := cargosDelConsumo(f, dependientes)
+			if len(cargos) > 0 && in.Cargo == "" {
+				ids := make([]string, 0, len(cargos))
+				for _, c := range cargos {
+					ids = append(ids, strconv.FormatInt(c.ID, 10))
+				}
+				return Pendiente{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "decision_cargo_requerida", "Decide qué pasa con el cargo",
+					"El cargo único (pendiente "+strings.Join(ids, ", ")+") espera a este consumo y es de un producto del consumo: si el "+
+						"consumo hecho a mano en Argos ya lo cobró (consumible_cobro), manda cargo = resolver_tambien; si no, "+
+						"cargo = liberar y sale hacia Argos",
+					nucleo.ErrorCampo{Field: "cargo", Message: "Obligatorio: liberar o resolver_tambien", Rule: "requerido"})
 			}
 			var usuario *int64
 			if a := contexto.ActorDe(ctx); a.EsUsuario() {
@@ -302,12 +332,97 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}); err != nil {
 				return Pendiente{}, err
 			}
+			if in.Cargo == CargoResolverTambien {
+				for _, c := range cargos {
+					if err := m.resolverCargoTambien(ctx, t, q, c, motivo, usuario, ahora); err != nil {
+						return Pendiente{}, err
+					}
+				}
+			}
+			for _, d := range dependientes {
+				if d.PorResolver {
+					if err := m.fallarPorResolucionManual(ctx, t, q, d, f.ID); err != nil {
+						return Pendiente{}, err
+					}
+				}
+			}
 			if err := m.desbloquearDependientes(ctx, t, f.ID, ahora); err != nil {
 				return Pendiente{}, err
 			}
 			return aPendiente(nueva), m.avisarCola(ctx, t.Tx)
 		},
 	})
+}
+
+// cargosDelConsumo: los cargos dependientes de un consumo cuyo producto_id está en sus lineas[].
+func cargosDelConsumo(f pendientesbd.IntegracionPendiente, dependientes []pendientesbd.IntegracionPendiente) []pendientesbd.IntegracionPendiente {
+	if f.Operacion != OpConsumo {
+		return nil
+	}
+	var consumo struct {
+		Lineas []struct {
+			ProductoID json.Number `json:"producto_id"`
+		} `json:"lineas"`
+	}
+	if json.Unmarshal(f.Payload, &consumo) != nil {
+		return nil
+	}
+	productos := map[string]bool{}
+	for _, l := range consumo.Lineas {
+		if l.ProductoID != "" {
+			productos[l.ProductoID.String()] = true
+		}
+	}
+	var salida []pendientesbd.IntegracionPendiente
+	for _, d := range dependientes {
+		if d.Operacion != OpCargo {
+			continue
+		}
+		var cargo struct {
+			ProductoID json.Number `json:"producto_id"`
+		}
+		if json.Unmarshal(d.Payload, &cargo) == nil && cargo.ProductoID != "" && productos[cargo.ProductoID.String()] {
+			salida = append(salida, d)
+		}
+	}
+	return salida
+}
+
+// resolverCargoTambien: cargo = resolver_tambien. Mismo motivo, auditado y con su evento; no sale.
+func (m *Modulo) resolverCargoTambien(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
+	c pendientesbd.IntegracionPendiente, motivo string, usuario *int64, ahora time.Time) error {
+	g, err := q.ResolverManualDependiente(ctx, pendientesbd.ResolverManualDependienteParams{
+		Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: c.ID,
+	})
+	if err != nil {
+		return err
+	}
+	t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": c.Estado},
+		map[string]any{"estado": g.Estado, "resuelto_motivo": motivo})
+	if err := t.Emitir(EventoResueltoManual, eventoResueltoManual{
+		PendienteID: g.ID, Operacion: g.Operacion, Entidad: g.Entidad, EntidadID: g.EntidadID,
+		IdempotencyKey: g.IdempotencyKey, De: c.Estado, Motivo: motivo, UsuarioID: usuario,
+	}); err != nil {
+		return err
+	}
+	return m.desbloquearDependientes(ctx, t, g.ID, ahora)
+}
+
+// fallarPorResolucionManual: el dependiente esperaba la respuesta del pendiente resuelto a mano.
+func (m *Modulo) fallarPorResolucionManual(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
+	d pendientesbd.IntegracionPendiente, padre int64) error {
+	motivo := fmt.Sprintf("%s: el pendiente %d se resolvió a mano y este esperaba su respuesta; resuélvelo también a mano o corrígelo con los datos reales",
+		MotivoDependenciaResueltaAMano, padre)
+	g, err := q.FallarPorResolucionManual(ctx, pendientesbd.FallarPorResolucionManualParams{Motivo: motivo, ID: d.ID})
+	if err != nil {
+		return err
+	}
+	t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": d.Estado},
+		map[string]any{"estado": g.Estado, "datos_incompletos": true, "codigo_error": MotivoDependenciaResueltaAMano})
+	if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Intentos: g.Intentos, Detalle: motivo}); err != nil {
+		return err
+	}
+	return bloquearDependientes(ctx, t, g.ID, g.Estado)
 }
 
 func deref(s *string) string {

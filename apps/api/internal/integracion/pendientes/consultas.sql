@@ -180,6 +180,28 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
 WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
 RETURNING *;
 
--- name: DependientesEsperanRespuesta :one
--- Algún dependiente de @id necesita su respuesta (cuerpo con marcadores): resolverlo a mano no sirve.
-SELECT EXISTS (SELECT 1 FROM integracion.pendientes WHERE @id::bigint = ANY (depende_de) AND por_resolver)::boolean AS esperan;
+-- name: DependientesAbiertos :many
+-- Los dependientes de @id que aún esperan (pendiente o bloqueado), bloqueados para decidir qué hacer
+-- con ellos al resolver @id a mano.
+SELECT * FROM integracion.pendientes
+WHERE @id::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+ORDER BY id
+FOR UPDATE;
+
+-- name: FallarPorResolucionManual :one
+-- La dependencia se resolvió a mano y este cuerpo esperaba su respuesta (marcadores): nunca la
+-- tendrá. Queda incompleto (fallido_negocio + datos_incompletos) para resolverlo también a mano o
+-- corregirlo con los datos reales; sin marcadores pendientes (por_resolver = false).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = @motivo::text,
+    codigo_error = 'dependencia_resuelta_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: ResolverManualDependiente :one
+-- El cargo que esperaba al consumo resuelto a mano también se da por resuelto (resolver_tambien).
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
+    tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;

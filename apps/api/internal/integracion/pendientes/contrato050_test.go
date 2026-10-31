@@ -3,6 +3,7 @@ package pendientes_test
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,8 +383,17 @@ func TestResolverManualLiberaElCargo(t *testing.T) {
 		t.Fatal("sin integraciones.resolver_pendiente no se resuelve")
 	}
 
+	// El cargo es de un producto del consumo: sin decidir qué pasa con él, 422 (y nada cambia).
+	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
+		Motivo: "Consumo hecho a mano en Argos"})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "decision_cargo_requerida" || !strings.Contains(p.Detail, strconv.FormatInt(cargo.ID, 10)) {
+		t.Fatalf("decisión del cargo obligatoria: %v", err)
+	}
+	if ps := e.pendientes(orden); ps["iris:consumo:"+orden].Estado != "fallido_negocio" || ps["iris:cargo:"+orden].Estado != "bloqueado" {
+		t.Fatalf("sin decisión nada cambia: %+v", ps)
+	}
 	r, err := e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
-		Motivo: "  Consumo hecho a mano en Argos (bodega central)  "})
+		Motivo: "  Consumo hecho a mano en Argos (bodega central)  ", Cargo: pendientes.CargoLiberar})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,5 +472,58 @@ func TestBodegaRequeridaPorCampoYReleeContrato(t *testing.T) {
 	}
 	if informar != 1 {
 		t.Fatalf("se relee el contrato de Argos enseguida: %v", (*e.encolados)[antes:])
+	}
+}
+
+// Tercera revisión (LOW 1): el consumo se rehízo en Argos sin el origen_id de la orden y Argos ya
+// cobró el consumible_cobro: con cargo = resolver_tambien el cargo queda resuelto a mano (mismo
+// motivo, auditado, con evento) y nunca sale (Argos no respondería 409 cargo_duplicado).
+func TestResolverManualConCargoResueltoTambien(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-tambien")
+	orden := nuevaOrden()
+	e.argos.mu.Lock()
+	e.argos.tipos["/inventario/consumos"] = "urn:argosisp:problema:existencia_insuficiente"
+	e.argos.mu.Unlock()
+	e.argos.responder("/inventario/consumos", 409)
+	e.cerrar(map[string]any{
+		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
+		"tecnico":    map[string]any{"id_externo": "u-tambien"},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
+	})
+	e.procesar()
+	consumo := e.pendientes(orden)["iris:consumo:"+orden]
+	u, err := identidad.Nuevo(identidad.Config{}).CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup-tambien"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesResolverPendiente)
+	llamadas := len(e.argos.copia())
+	if _, err := e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
+		Motivo: "Consumo y cobro hechos en el panel de Argos", Cargo: pendientes.CargoResolverTambien}); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	ps := e.pendientes(orden)
+	if ps["iris:consumo:"+orden].Estado != "resuelto_manual" || ps["iris:cargo:"+orden].Estado != "resuelto_manual" {
+		t.Fatalf("los dos resueltos a mano: %+v", ps)
+	}
+	if n := len(e.argos.copia()); n != llamadas {
+		t.Fatalf("nada sale hacia Argos: %d llamadas nuevas", n-llamadas)
+	}
+	if n := e.eventos("integracion.pendiente_resuelto_manual", orden); n != 2 {
+		t.Fatalf("un evento por pendiente: %d", n)
+	}
+	cargo := ps["iris:cargo:"+orden]
+	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND resuelto_motivo = 'Consumo y cobro hechos en el panel de Argos'
+		AND resuelto_por = $2`, cargo.ID, u.ID); n != 1 {
+		t.Fatal("el cargo guarda el mismo motivo y quién")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.cambios WHERE entidad = 'pendiente' AND entidad_id = $1
+		AND campo = 'estado' AND despues #>> '{}' = 'resuelto_manual'`, strconv.FormatInt(cargo.ID, 10)); n != 1 {
+		t.Fatalf("auditoría del cargo: %d", n)
 	}
 }

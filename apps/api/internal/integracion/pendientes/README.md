@@ -80,8 +80,18 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   (`fallido_negocio`, también incompleto) y ya se corrigió directo en Argos queda `resuelto_manual`
   (final, con `resueltoMotivo`, `resueltoPor`, `resueltoEn`): nunca vuelve a salir y sus dependientes
   (el cargo que esperaba al consumo) vuelven a la cola. 422 `pendiente_no_resoluble` desde otro estado
-  (lo agotado se reintenta; lo bloqueado espera a su dependencia) o si un dependiente espera su
-  respuesta. `ConPendienteEnArgos` lo cuenta como hecho. Un cargo bloqueado no se reintenta solo.
+  (lo agotado se reintenta; lo bloqueado espera a su dependencia). `ConPendienteEnArgos` lo cuenta
+  como hecho. Un cargo bloqueado no se reintenta solo.
+  - **Consumo con cargo del mismo producto:** `cargo` es obligatorio (422 `decision_cargo_requerida`
+    sin él). `liberar`: el cargo sale. `resolver_tambien`: queda también `resuelto_manual` (mismo motivo,
+    auditado, con su evento) y no se manda. Si Argos ya cobró el `consumible_cobro` al rehacer el consumo
+    y el cargo se libera, Argos no lo reconoce como duplicado (su `origen_id` no coincide) y cobra dos
+    veces. **El consumo rehecho a mano en Argos debe llevar el `origen_tipo`/`origen_id` de la orden**
+    (así un cargo liberado responde `409 cargo_duplicado` y se concilia).
+  - **Dependientes que esperaban su respuesta** (marcadores, p. ej. el servicio del alta de un
+    prospecto cuyo `POST /clientes` falló): quedan `fallido_negocio` incompletos (`codigoError` =
+    `dependencia_resuelta_a_mano`, sin marcadores pendientes) para resolverlos también a mano o
+    corregirlos con los datos reales; lo que dependía de ellos sigue bloqueado hasta entonces.
 - Para campo y el panel: `pendientes.DeEntidad(ctx, q, "orden", id)` y `ConPendienteEnArgos(ps)`
   («cerrada con pendiente en Argos»).
 
