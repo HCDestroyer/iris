@@ -244,4 +244,20 @@ describe("Formulario en pantalla propia", () => {
         expect(html).toContain(">Cancelar<");
         expect(html.indexOf("barra-guardar")).toBeLessThan(html.indexOf("</form>"));
     });
+
+    it("FormularioPagina: el formulario se nombra con el título; sin migas propias no las dibuja", () => {
+        const html = renderToStaticMarkup(
+            <FormularioPagina titulo="Nuevo ticket" descripcion="Alta rápida." alEnviar={() => undefined} volverA="/tickets" barra={{ textoGuardar: "Crear ticket" }}>
+                <p>Campos</p>
+            </FormularioPagina>,
+        );
+        expect(html).not.toContain('aria-label="Ruta de navegación"');
+        const titulo = /<h1 id="([^"]+)"[^>]*>Nuevo ticket<\/h1>/.exec(html)?.[1];
+        const descripcion = /<p id="([^"]+)"[^>]*>Alta rápida\.<\/p>/.exec(html)?.[1];
+        expect(titulo).toBeTruthy();
+        expect(html).toContain(`aria-labelledby="${titulo}"`);
+        expect(html).toContain(`aria-describedby="${descripcion}"`);
+        // Con `volverA` hay «Cancelar» aunque no haya migas.
+        expect(html).toContain(">Cancelar<");
+    });
 });
