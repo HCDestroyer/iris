@@ -259,7 +259,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				return Orden{}, err
 			}
 			// La referencia (cómo llegar) sale de la instantánea de Argos, como al aplicar sus datos.
-			argosHoy, _, err := datosArgosActuales(ctx, q, campobd.CampoOrden{ClienteID: datos.ClienteID, ServicioID: datos.ServicioID})
+			argosHoy, _, err := datosArgosActuales(ctx, q, campobd.CampoOrden{ClienteID: datos.ClienteID, ServicioID: datos.ServicioID, EmpresaID: empresa})
 			if err != nil {
 				return Orden{}, err
 			}

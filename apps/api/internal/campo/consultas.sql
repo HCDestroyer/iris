@@ -595,9 +595,14 @@ ORDER BY registrada_en;
 
 -- name: MarcarDatosArgos :many
 -- Órdenes abiertas del servicio (o del cliente, sin servicio en la orden): conservan lo que copiaron
--- y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión.
+-- y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión. La marca
+-- cambia de `en` (siempre creciente) solo si trae un campo que no estaba: así quien la leyó antes
+-- (avisoEn) recibe 409 al atenderla; un aviso repetido no la cambia.
 UPDATE campo.ordenes o
-SET datos_argos_cambiados_en = @cambiado_en,
+SET datos_argos_cambiados_en = CASE
+        WHEN o.datos_argos_cambiados_en IS NOT NULL AND @campos::text[] <@ o.datos_argos_campos THEN o.datos_argos_cambiados_en
+        ELSE GREATEST(@cambiado_en::timestamptz, o.datos_argos_cambiados_en + interval '1 microsecond')
+    END,
     datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || @campos::text[]) AS c ORDER BY c),
     updated_at = now()
 WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')
@@ -608,12 +613,15 @@ RETURNING o.id, o.numero, o.empresa_id;
 
 -- name: AplicarDatosArgosOrden :one
 -- Despacho aplica a la orden los datos actuales de la instantánea de Argos (dirección, coordenadas,
--- referencia y contacto, ya calculados por el caso de uso) y quita la marca «dato de Argos cambió».
--- Sube la versión: con una versión vieja no actualiza nada (409).
+-- referencia y contacto, ya calculados por el caso de uso). De la marca «dato de Argos cambió» quedan
+-- solo @campos_restantes (sin ninguno, se quita). Sube la versión: con una versión vieja no actualiza
+-- nada (409).
 UPDATE campo.ordenes SET
     direccion = @direccion, lat = sqlc.narg(lat), lon = sqlc.narg(lon), referencia = sqlc.narg(referencia),
     contacto_nombre = sqlc.narg(contacto_nombre), contacto_telefono = sqlc.narg(contacto_telefono),
-    datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
+    datos_argos_campos = @campos_restantes::text[],
+    datos_argos_cambiados_en = CASE WHEN cardinality(@campos_restantes::text[]) = 0 THEN NULL ELSE datos_argos_cambiados_en END,
+    version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 

@@ -3359,8 +3359,13 @@
       "EntradaAplicarDatosArgos": {
         "additionalProperties": false,
         "properties": {
+          "avisoEn": {
+            "description": "datosArgosCambiados.en que leíste; si Argos avisó algo después, 409 aviso_argos_cambiado",
+            "format": "date-time",
+            "type": "string"
+          },
           "campos": {
-            "description": "Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden",
+            "description": "Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden. Del aviso se quitan solo los campos de lo aplicado: si queda algo, sigue avisado",
             "items": {
               "enum": [
                 "direccion",
@@ -3385,7 +3390,8 @@
           }
         },
         "required": [
-          "version"
+          "version",
+          "avisoEn"
         ],
         "type": "object"
       },
@@ -4683,6 +4689,11 @@
       "EntradaDescartarDatosArgos": {
         "additionalProperties": false,
         "properties": {
+          "avisoEn": {
+            "description": "datosArgosCambiados.en que leíste; si Argos avisó algo después, 409 aviso_argos_cambiado",
+            "format": "date-time",
+            "type": "string"
+          },
           "motivo": {
             "description": "Por qué la orden se queda con sus datos",
             "maxLength": 500,
@@ -4696,7 +4707,8 @@
           }
         },
         "required": [
-          "version"
+          "version",
+          "avisoEn"
         ],
         "type": "object"
       },

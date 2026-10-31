@@ -5187,7 +5187,12 @@ export interface components {
             version: number;
         };
         EntradaAplicarDatosArgos: {
-            /** @description Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden */
+            /**
+             * Format: date-time
+             * @description datosArgosCambiados.en que leíste; si Argos avisó algo después, 409 aviso_argos_cambiado
+             */
+            avisoEn: string;
+            /** @description Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden. Del aviso se quitan solo los campos de lo aplicado: si queda algo, sigue avisado */
             campos?: ("direccion" | "coordenadas" | "referencia" | "contacto")[] | null;
             /**
              * Format: int32
@@ -5731,6 +5736,11 @@ export interface components {
             version: number;
         };
         EntradaDescartarDatosArgos: {
+            /**
+             * Format: date-time
+             * @description datosArgosCambiados.en que leíste; si Argos avisó algo después, 409 aviso_argos_cambiado
+             */
+            avisoEn: string;
             /** @description Por qué la orden se queda con sus datos */
             motivo?: string;
             /**

@@ -114,8 +114,10 @@ const aplicarDatosArgosOrden = `-- name: AplicarDatosArgosOrden :one
 UPDATE campo.ordenes SET
     direccion = $1, lat = $2, lon = $3, referencia = $4,
     contacto_nombre = $5, contacto_telefono = $6,
-    datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
-WHERE id = $7 AND version = $8
+    datos_argos_campos = $7::text[],
+    datos_argos_cambiados_en = CASE WHEN cardinality($7::text[]) = 0 THEN NULL ELSE datos_argos_cambiados_en END,
+    version = version + 1, updated_at = now()
+WHERE id = $8 AND version = $9
 RETURNING id, numero, empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id, cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion, tecnico_id, asignada_en, estado, programada_inicio, programada_fin, en_camino_en, en_sitio_en, finalizada_en, resultado, motivo_falla, motivo, creado_por, idempotencia, version, created_at, updated_at, origen, pausada_desde, pausada_en, pausada_seg, datos_argos_cambiados_en, datos_argos_campos, referencia
 `
 
@@ -126,13 +128,15 @@ type AplicarDatosArgosOrdenParams struct {
 	Referencia       *string
 	ContactoNombre   *string
 	ContactoTelefono *string
+	CamposRestantes  []string
 	ID               int64
 	Version          int32
 }
 
 // Despacho aplica a la orden los datos actuales de la instantánea de Argos (dirección, coordenadas,
-// referencia y contacto, ya calculados por el caso de uso) y quita la marca «dato de Argos cambió».
-// Sube la versión: con una versión vieja no actualiza nada (409).
+// referencia y contacto, ya calculados por el caso de uso). De la marca «dato de Argos cambió» quedan
+// solo @campos_restantes (sin ninguno, se quita). Sube la versión: con una versión vieja no actualiza
+// nada (409).
 func (q *Queries) AplicarDatosArgosOrden(ctx context.Context, arg AplicarDatosArgosOrdenParams) (CampoOrden, error) {
 	row := q.db.QueryRow(ctx, aplicarDatosArgosOrden,
 		arg.Direccion,
@@ -141,6 +145,7 @@ func (q *Queries) AplicarDatosArgosOrden(ctx context.Context, arg AplicarDatosAr
 		arg.Referencia,
 		arg.ContactoNombre,
 		arg.ContactoTelefono,
+		arg.CamposRestantes,
 		arg.ID,
 		arg.Version,
 	)
@@ -2322,8 +2327,11 @@ func (q *Queries) MarcaChecklist(ctx context.Context, arg MarcaChecklistParams) 
 const marcarDatosArgos = `-- name: MarcarDatosArgos :many
 
 UPDATE campo.ordenes o
-SET datos_argos_cambiados_en = $1,
-    datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || $2::text[]) AS c ORDER BY c),
+SET datos_argos_cambiados_en = CASE
+        WHEN o.datos_argos_cambiados_en IS NOT NULL AND $1::text[] <@ o.datos_argos_campos THEN o.datos_argos_cambiados_en
+        ELSE GREATEST($2::timestamptz, o.datos_argos_cambiados_en + interval '1 microsecond')
+    END,
+    datos_argos_campos = ARRAY(SELECT DISTINCT c FROM unnest(o.datos_argos_campos || $1::text[]) AS c ORDER BY c),
     updated_at = now()
 WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')
   AND (($3::bigint IS NOT NULL AND o.servicio_id = $3::bigint)
@@ -2333,8 +2341,8 @@ RETURNING o.id, o.numero, o.empresa_id
 `
 
 type MarcarDatosArgosParams struct {
-	CambiadoEn      *time.Time
 	Campos          []string
+	CambiadoEn      time.Time
 	ServicioID      *int64
 	ClienteID       *int64
 	SoloSinServicio bool
@@ -2348,11 +2356,13 @@ type MarcarDatosArgosRow struct {
 
 // Datos de Argos cambiados (servicio.datos_cambiados / cliente.actualizado, contrato 0.5.0) -------
 // Órdenes abiertas del servicio (o del cliente, sin servicio en la orden): conservan lo que copiaron
-// y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión.
+// y quedan marcadas «dato de Argos cambió» con los campos acumulados. No sube la versión. La marca
+// cambia de `en` (siempre creciente) solo si trae un campo que no estaba: así quien la leyó antes
+// (avisoEn) recibe 409 al atenderla; un aviso repetido no la cambia.
 func (q *Queries) MarcarDatosArgos(ctx context.Context, arg MarcarDatosArgosParams) ([]MarcarDatosArgosRow, error) {
 	rows, err := q.db.Query(ctx, marcarDatosArgos,
-		arg.CambiadoEn,
 		arg.Campos,
+		arg.CambiadoEn,
 		arg.ServicioID,
 		arg.ClienteID,
 		arg.SoloSinServicio,
