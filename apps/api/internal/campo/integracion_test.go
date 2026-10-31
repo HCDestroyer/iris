@@ -272,7 +272,7 @@ func TestIntegracionAdjuntosInventarioYPendientes(t *testing.T) {
 	cd0, ct0 := como(t, d0, "despacho"), como(t, t0, "tecnico")
 	o0 := deber(sinAdj.CrearOrden.Ejecutar(cd0, campo.EntradaCrearOrden{Tipo: "instalacion", Direccion: ptr("Zona 1"),
 		ClienteID: ptr(int64(990)), ServicioID: ptr(int64(9901))}))(t)
-	o0 = deber(sinAdj.ProgramarOrden.Ejecutar(cd0, campo.EntradaProgramarOrden{ID: o0.ID, Version: o0.Version, TecnicoID: &t0, BodegaID: ptr(int64(9)), Inicio: time.Now()}))(t)
+	o0 = deber(sinAdj.ProgramarOrden.Ejecutar(cd0, campo.EntradaProgramarOrden{ID: o0.ID, Version: o0.Version, TecnicoID: &t0, BodegaID: ptr(int64(9)), Inicio: hoyEnGuatemala(10)}))(t)
 	r := deber(sinAdj.Lote(ct0, campo.EntradaLote{DispositivoID: "tel-sin-" + pruebas.Unico(), Operaciones: trabajoDeInstalacion(o0.ID)}))(t)
 	if final := r.Resultados[len(r.Resultados)-1]; final.Estado != "aplicada" {
 		t.Fatalf("cierre sin conector: %+v", final)
@@ -293,7 +293,7 @@ func TestIntegracionAdjuntosInventarioYPendientes(t *testing.T) {
 	o := deber(e.m.CrearOrden.Ejecutar(cd, campo.EntradaCrearOrden{Tipo: "instalacion", Direccion: ptr("Zona 10"),
 		ClienteID: ptr(int64(990)), ServicioID: ptr(int64(9901))}))(t)
 	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tecA,
-		BodegaID: ptr(int64(9)), Inicio: time.Now()}))(t)
+		BodegaID: ptr(int64(9)), Inicio: hoyEnGuatemala(10)}))(t)
 
 	// Paquete con el inventario de Argos (comodato del servicio y existencias de la bodega 9).
 	p := deber(e.m.Paquete(ctA, campo.EntradaPaquete{}))(t)
@@ -391,7 +391,7 @@ func TestIntegracionAdjuntosInventarioYPendientes(t *testing.T) {
 	// Retiro: lo retirado se valida contra el comodato de Argos; con el conector apagado, no.
 	ret := deber(e.m.CrearOrden.Ejecutar(cd, campo.EntradaCrearOrden{Tipo: "retiro", Direccion: ptr("Zona 10"),
 		ClienteID: ptr(int64(990)), ServicioID: ptr(int64(9901))}))(t)
-	ret = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: ret.ID, Version: ret.Version, TecnicoID: &tecA, BodegaID: ptr(int64(9)), Inicio: time.Now()}))(t)
+	ret = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: ret.ID, Version: ret.Version, TecnicoID: &tecA, BodegaID: ptr(int64(9)), Inicio: hoyEnGuatemala(10)}))(t)
 	r = deber(e.m.Lote(ctA, campo.EntradaLote{DispositivoID: "tel-a-3-" + pruebas.Unico(), Operaciones: []campo.OperacionLote{
 		op(campo.OpLlegar, ret.ID, nil),
 		op(campo.OpEquipoRetirar, ret.ID, map[string]any{"serie": "OTRA", "condicion": "buena"}),
@@ -434,4 +434,16 @@ func entrarComo(t *testing.T, base string, id int64) *clienteHTTP {
 	}
 	c.csrf, _ = r.cuerpo["csrfToken"].(string)
 	return c
+}
+
+// hoyEnGuatemala da la hora h de hoy en Guatemala. Con time.Now() la cita de 2 h
+// cruzaba la medianoche de Guatemala si la prueba corría entre las 22:00 y las 24:00
+// (04:00–06:00 UTC) y ProgramarOrden la rechazaba.
+func hoyEnGuatemala(h int) time.Time {
+	loc, err := time.LoadLocation("America/Guatemala")
+	if err != nil {
+		loc = time.FixedZone("America/Guatemala", -6*3600)
+	}
+	ahora := time.Now().In(loc)
+	return time.Date(ahora.Year(), ahora.Month(), ahora.Day(), h, 0, 0, 0, loc)
 }
