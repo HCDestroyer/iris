@@ -81,6 +81,29 @@ export function rutaQueSale(clic: ClicEnlace, ubicacion: Pick<Location, "origin"
 
 const MARCA_HISTORIAL = "__irisCambiosSinGuardar";
 
+/** Se guardó: la protección de la pantalla ya no pregunta (hasta que se monte otro formulario). */
+let liberada = false;
+
+/**
+ * Suelta la protección tras guardar, antes de navegar: deja de preguntar y quita la entrada propia
+ * del historial («Atrás» desde lo que se abra después no vuelve a un formulario vacío). Resuelve
+ * cuando el historial ya está en su lugar; luego se navega con `router.replace`.
+ */
+export function liberarProteccion(): Promise<void> {
+    liberada = true;
+    if (typeof window === "undefined" || !(window.history.state as Record<string, unknown> | null)?.[MARCA_HISTORIAL]) return Promise.resolve();
+    return new Promise((resolver) => {
+        const listo = () => {
+            window.removeEventListener("popstate", listo);
+            window.clearTimeout(limite);
+            resolver();
+        };
+        const limite = window.setTimeout(listo, 500);
+        window.addEventListener("popstate", listo);
+        window.history.back();
+    });
+}
+
 export type ProteccionSalida = {
     /** Destino pendiente de confirmar (`null` si no hay pregunta abierta). */
     pendiente: string | null;
@@ -103,6 +126,10 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         activaRef.current = activa;
     }, [activa]);
+    // Un formulario nuevo vuelve a proteger.
+    useEffect(() => {
+        liberada = false;
+    }, []);
     // Solo rutas internas: lo que no pasa `rutaInterna` va al inicio, nunca a otro sitio.
     const ir = useCallback(
         (ruta: string) => {
@@ -117,6 +144,7 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         if (!activa) return undefined;
         const antesDeSalir = (evento: BeforeUnloadEvent) => {
+            if (liberada) return;
             evento.preventDefault();
             evento.returnValue = "";
         };
@@ -128,6 +156,7 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         if (!activa) return undefined;
         const alClic = (evento: MouseEvent) => {
+            if (liberada) return;
             const ruta = rutaQueSale(evento, window.location);
             if (!ruta) return;
             evento.preventDefault();
@@ -141,14 +170,14 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     // «Atrás» del navegador: una entrada propia en el historial que se consume al volver.
     useEffect(() => {
         const marcada = Boolean((window.history.state as Record<string, unknown> | null)?.[MARCA_HISTORIAL]);
-        if (!activa) {
+        if (!activa || liberada) {
             // Sin cambios, la entrada propia sobra (misma URL): se quita para que «Atrás» funcione a la primera.
-            if (marcada && !saliendoRef.current) window.history.back();
+            if (marcada && !saliendoRef.current && !liberada) window.history.back();
             return undefined;
         }
         if (!marcada) window.history.pushState({ ...(window.history.state as object | null), [MARCA_HISTORIAL]: true }, "", window.location.href);
         const alVolver = () => {
-            if (activaRef.current) setPendiente(ATRAS);
+            if (activaRef.current && !liberada) setPendiente(ATRAS);
         };
         window.addEventListener("popstate", alVolver);
         return () => window.removeEventListener("popstate", alVolver);

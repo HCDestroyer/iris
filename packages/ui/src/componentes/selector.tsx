@@ -1,8 +1,11 @@
+"use client";
+
 import { inputVariants } from "@heroui/styles";
 import { ChevronDown } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo, type PropsEnvolturaCampo } from "./campo";
+import { useErrorEstable } from "./error-estable";
 import { Etiqueta } from "./etiqueta";
 
 export type PropsSelector = ComponentProps<"select"> & { tamano?: "md" | "sm" };
@@ -35,14 +38,16 @@ export type PropsCampoSelector = ComponentProps<"select"> & PropsEnvolturaCampo;
 
 /** Etiqueta + lista desplegable + ayuda/error. */
 export function CampoSelector({ etiqueta, error, ayuda, id, className, children, ...props }: PropsCampoSelector) {
-    const ids = useIdsCampo(id, error, ayuda);
+    // Un error que aparece al salir del campo no mueve el botón que se está pulsando.
+    const visible = useErrorEstable(error);
+    const ids = useIdsCampo(id, visible, ayuda);
     return (
         <div className={cn("grid gap-1.5", className)}>
             <Etiqueta htmlFor={ids.idCampo}>{etiqueta}</Etiqueta>
             <Selector {...ids.control} {...props}>
                 {children}
             </Selector>
-            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={error} />
+            <PieCampo idAyuda={ids.idAyuda} idError={ids.idError} ayuda={ayuda} error={visible} />
         </div>
     );
 }

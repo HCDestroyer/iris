@@ -52,6 +52,7 @@ export {
 export {
     BarraGuardar,
     FormularioPagina,
+    liberarProteccion,
     rutaInterna,
     rutaQueSale,
     SeccionFormulario,
