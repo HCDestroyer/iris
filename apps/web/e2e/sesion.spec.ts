@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, BLOQUEADO, CODIGO_BLOQUEA, CODIGO_OK, CON_MFA, CONTRASENA, CSRF, conSesion, simularApi } from "./api-falsa";
-import { abrirMenu, avisoError, entrar, menu } from "./ayudas";
+import { abrirCuenta, avisoError, enlaceMenu, entrar } from "./ayudas";
 
 test.describe("inicio de sesión", () => {
     test("login correcto lleva al panel con el menú de sus permisos", async ({ page }) => {
@@ -10,9 +10,8 @@ test.describe("inicio de sesión", () => {
         await entrar(page, ADMIN.correo, CONTRASENA);
         await expect(page).toHaveURL(/\/$/);
         await expect(page.getByRole("heading", { name: "Hola, Ana" })).toBeVisible();
-        await abrirMenu(page);
-        await expect(menu(page).getByRole("link", { name: "Usuarios" })).toBeVisible();
-        await expect(menu(page).getByRole("link", { name: /Administración/ })).toBeVisible();
+        await expect(await enlaceMenu(page, "Usuarios")).toBeVisible();
+        await expect(await enlaceMenu(page, /Administración/)).toBeVisible();
     });
 
     test("valida el formulario antes de llamar a la API", async ({ page }) => {
@@ -92,7 +91,7 @@ test.describe("inicio de sesión", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await abrirCuenta(page);
         await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
         await expect(page).toHaveURL(/\/entrar$/);
         expect(api.mutaciones).toContainEqual({ metodo: "DELETE", ruta: "/api/v1/sesion", csrf: CSRF });

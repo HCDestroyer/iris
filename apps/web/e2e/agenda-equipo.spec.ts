@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { abrirMenu, menu } from "./ayudas";
+import { confirmacion, enlaceMenu, irA, sinEntradas } from "./ayudas";
 import { JORGE, LUCIA } from "./datos-agenda";
 
 /*
@@ -144,8 +144,7 @@ test.describe("técnicos", () => {
         const api = await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Técnicos/ }).click();
+        await irA(page, /^Técnicos/);
         await expect(page.getByRole("heading", { name: "Técnicos", exact: true })).toBeVisible();
         await expect(page.locator("[data-tecnico]")).toHaveCount(3);
         await expect(page.locator("[data-tecnico]").first()).toContainText("Cuadrilla");
@@ -219,9 +218,9 @@ test.describe("técnicos", () => {
 
         // Desactivar pide confirmación y manda la versión.
         await page.locator('[data-tecnico="22"]').getByRole("button", { name: "Desactivar Jorge Méndez" }).click();
-        await expect(page.getByRole("alertdialog")).toContainText("Deja de ser asignable");
-        await page.getByRole("alertdialog").getByRole("button", { name: "Desactivar" }).click();
-        await expect(page.getByRole("alertdialog")).toHaveCount(0);
+        await expect(confirmacion(page)).toContainText("Deja de ser asignable");
+        await confirmacion(page).getByRole("button", { name: "Desactivar" }).click();
+        await expect(confirmacion(page)).toHaveCount(0);
         expect(ultima(api, "/api/v1/tecnicos/22/desactivar", "POST")?.cuerpo).toEqual({ version: 1 });
         await expect(page.locator('[data-tecnico="22"]')).toHaveCount(0);
         await page.getByRole("radio", { name: "Inactivos" }).click();
@@ -274,7 +273,7 @@ test.describe("técnicos", () => {
 
         // Anular la ausencia.
         await fila.getByRole("button", { name: /Anular la ausencia/ }).click();
-        await page.getByRole("alertdialog").getByRole("button", { name: "Anular ausencia" }).click();
+        await confirmacion(page).getByRole("button", { name: "Anular ausencia" }).click();
         await expect(page.locator("[data-ausencia]").filter({ hasText: "Enfermedad" })).toHaveCount(0);
     });
 
@@ -308,9 +307,8 @@ test.describe("técnicos", () => {
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await expect(menu(page).getByRole("link", { name: /^Agenda/ })).toBeVisible();
-        await expect(menu(page).getByRole("link", { name: /^Técnicos/ })).toHaveCount(0);
+        await expect(await enlaceMenu(page, /^Agenda/)).toBeVisible();
+        await sinEntradas(page, [/^Técnicos/]);
         await page.goto("/tecnicos");
         await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
     });
@@ -347,7 +345,7 @@ test.describe("cuadrillas y zonas", () => {
         await expect(tarjeta).toContainText("Atiende: Mixco, Villa Nueva");
 
         await tarjeta.getByRole("button", { name: "Desactivar Cuadrilla Oeste" }).click();
-        await page.getByRole("alertdialog").getByRole("button", { name: "Desactivar" }).click();
+        await confirmacion(page).getByRole("button", { name: "Desactivar" }).click();
         await expect(tarjeta).toContainText("Inactiva");
     });
 });
