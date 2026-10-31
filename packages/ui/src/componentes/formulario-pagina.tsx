@@ -86,9 +86,8 @@ let liberada = false;
 
 /** Copia de `history.state` sin las marcas indicadas (por defecto, la de cambios sin guardar). */
 export function estadoSinMarcas(estado: unknown, marcas: readonly string[] = [MARCA_HISTORIAL]): Record<string, unknown> {
-    const copia: Record<string, unknown> = { ...((estado as Record<string, unknown> | null) ?? {}) };
-    for (const marca of marcas) delete copia[marca];
-    return copia;
+    const original = (estado as Record<string, unknown> | null) ?? {};
+    return Object.fromEntries(Object.entries(original).filter(([clave]) => !marcas.includes(clave)));
 }
 
 const ESPERA_HISTORIAL_MS = 500;
