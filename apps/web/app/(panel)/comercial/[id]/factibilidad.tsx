@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Aviso,
     Boton,
     Campo,
@@ -52,7 +53,10 @@ export function TarjetaFactibilidad({ detalle, recargar }: Props) {
                 }),
             ),
         );
-        if (r) await recargar();
+        if (r) {
+            avisar({ titulo: `Factibilidad de ${detalle.numero} evaluada` });
+            await recargar();
+        }
     }
 
     return (
@@ -179,7 +183,10 @@ function FactibilidadManual({ detalle, recargar, alHecho }: Props & { alHecho: (
                 ),
             { nombres: ["notas", "resultado", "caja", "routerId", "motivoAnulacion"], setError: formulario.setError },
         );
-        if (r) await alHecho();
+        if (r) {
+            avisar({ titulo: `Factibilidad de ${detalle.numero} registrada` });
+            await alHecho();
+        }
     }
     return (
         <DialogoContenido titulo="Visita técnica" descripcion="El resultado de revisar la dirección en el terreno.">

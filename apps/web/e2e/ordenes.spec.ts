@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADJ } from "./datos-ordenes";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi } from "./api-falsa";
-import { abrirMenu, menu } from "./ayudas";
+import { irA } from "./ayudas";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -15,8 +15,7 @@ test.describe("tablero de órdenes", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Órdenes/ }).click();
+        await irA(page, /^Órdenes/);
         await expect(page).toHaveURL(/\/ordenes$/);
         await expect(page.getByRole("heading", { name: "Órdenes" })).toBeVisible();
         await expect(tarjetas(page)).toHaveCount(30);

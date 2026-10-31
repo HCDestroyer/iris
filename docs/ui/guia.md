@@ -148,6 +148,41 @@ lectores de pantalla.
 - **Sin animación de salida en diálogos y hojas:** se desmontan en el acto, como antes. Con salida
   animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo.
 
+## Navegación del panel (fase 1, hecha)
+
+- **Barra lateral por grupos:**
+    - Operación: Inicio, Tickets, Órdenes, Agenda, Despacho;
+    - Equipo: Técnicos, Usuarios;
+    - Ventas: Comercial, Encuestas;
+    - Análisis: Reportes;
+    - Administración.
+
+  Se filtra por permiso (`lib/menu.ts`, `menuAgrupado`). «Contraer menú» la deja en solo íconos,
+  con un globo en cada uno; la preferencia se guarda en este navegador (`localStorage`, con
+  `try/catch`).
+- **Migas en cada pantalla** (`lib/migas.ts` + `componentes/migas-panel.tsx`):
+    - salen de la ruta, con el nombre del registro cuando la ficha ya lo leyó
+      (`useNombreEnMigas("OT-000042")`);
+    - reemplazaron los enlaces «← Volver»;
+    - una pantalla nueva agrega su etiqueta en `lib/migas.ts`.
+- **Buscador global**, con Ctrl/⌘ + K o el botón «Buscador global» de la barra superior:
+    - busca pantallas por permiso;
+    - busca tickets, órdenes y prospectos desde 2 letras, y clientes de Argos desde 3;
+    - usa los listados de siempre con `q` y `limit`, sin endpoints nuevos;
+    - un cliente lleva a sus tickets (`/tickets?clienteId=`); la bandeja lee el nombre de la API y muestra «Cliente #id» mientras tanto o si falla. Las respuestas se guardan por empresa y se olvidan al cerrar el buscador.
+- **Avisos emergentes:**
+    - van después de cada acción que cambia algo, con el texto en `lib/avisos.ts`
+      («Orden OT-000042 asignada a Luis Pérez»);
+    - salen abajo a la derecha en escritorio y arriba en el teléfono, para no tapar la barra
+      inferior ni las hojas;
+    - donde la pantalla ya confirmaba en línea con detalle (mover una cita, publicar una ruta,
+      guardar un rol o una plantilla, conectar Argos), se queda esa confirmación y no se duplica;
+    - los errores siguen en la pantalla.
+- **Teléfono (debajo de `lg`):**
+    - barra inferior con Inicio, Tickets, Órdenes, Agenda y «Más», con el área segura;
+    - «Más» abre una hoja con el resto del menú, la empresa, la cuenta (como menú) y el tema;
+    - ya no hay hamburguesa.
+
 ## Plan por fases
 
 Cada fase:
@@ -159,7 +194,7 @@ Cada fase:
 | Fase | Qué | Quién |
 | --- | --- | --- |
 | 0 · Base | HeroUI instalado, tema Horus, interior de `packages/ui` en HeroUI con los mismos nombres, componentes nuevos y esta guía | I3 |
-| 1 · Navegación del panel | Barra lateral agrupada (Operación, Equipo, Ventas, Análisis, Administración; contraíble), migas, buscador Ctrl + K, avisos emergentes al guardar y barra inferior en el teléfono (Inicio, Tickets, Órdenes, Agenda, Más) | I3 |
+| 1 · Navegación del panel (hecha) | Barra lateral agrupada (Operación, Equipo, Ventas, Análisis, Administración; contraíble), migas, buscador Ctrl + K, avisos emergentes al guardar y barra inferior en el teléfono (Inicio, Tickets, Órdenes, Agenda, Más) | I3 |
 | 2 · Formularios a pantalla propia | Primero tickets, órdenes, usuarios y técnicos; después comercial y administración (buzón en dos pasos) | I3 |
 | 3 · Fichas con pestañas | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral | I3 |
 | 4 · App de campo en el navegador | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes | I4 |

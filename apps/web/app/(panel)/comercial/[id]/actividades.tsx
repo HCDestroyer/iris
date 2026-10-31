@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Boton, Campo, CampoArea, CampoSelector, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Boton, Campo, CampoArea, CampoSelector, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { CalendarClock, Plus } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -107,7 +107,10 @@ function NuevaActividad({ prospectoId, alCancelar, alHecho }: { prospectoId: num
                 ),
             { nombres: ["tipo", "descripcion", "resultado", "proximaAccion"], setError: formulario.setError },
         );
-        if (r) alHecho(r);
+        if (r) {
+            avisar({ titulo: "Actividad registrada" });
+            alHecho(r);
+        }
     }
     return (
         <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-3 rounded-lg border p-3" aria-label="Nueva actividad">

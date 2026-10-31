@@ -204,6 +204,7 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
+| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

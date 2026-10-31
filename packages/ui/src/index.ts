@@ -80,10 +80,13 @@ export {
     MenuDesplegableElemento,
     MenuDesplegableEtiqueta,
     MenuDesplegableSeparador,
+    MenuEnLinea,
+    type PropsMenuEnLinea,
     type PropsMenuDesplegable,
     type PropsMenuDesplegableContenido,
     type PropsMenuDesplegableElemento,
 } from "./componentes/menu-desplegable";
+export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
 export { CampoSelector, Selector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";

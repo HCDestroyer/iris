@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Aviso,
     Boton,
     BotonEnviar,
@@ -33,6 +34,7 @@ import {
     type DatosEditarUsuario,
     type Usuario,
 } from "@/lib/usuarios/esquemas";
+import { avisoEstado } from "@/lib/avisos";
 
 type Props = {
     usuario: Usuario;
@@ -124,6 +126,7 @@ function FormularioEditar({ usuario, propio, alCambiar, alGuardar }: { usuario: 
             );
             clave.renovar();
             form.reset({ nombre: u.nombre, correo: u.correo });
+            avisar({ titulo: `Usuario ${u.nombre} guardado` });
             alGuardar(u);
         } catch (e) {
             clave.trasError(e);
@@ -209,6 +212,7 @@ function ConfirmarDesactivar({
                 }),
             );
             clave.renovar();
+            avisar({ titulo: avisoEstado(u.nombre, false) });
             alDesactivar(u);
         } catch (e) {
             clave.trasError(e);

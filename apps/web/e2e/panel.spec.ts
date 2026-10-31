@@ -1,23 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, LECTOR, PAGINA_1, PAGINA_2, conSesion, simularApi } from "./api-falsa";
-import { abrirMenu, avisoError, menu } from "./ayudas";
+import { avisoError, enlaceMenu, irA, sinEntradas } from "./ayudas";
 
 test.describe("menú por permisos", () => {
     test("sin usuarios.ver, tokens.ver, tickets.ver, ordenes.*, agenda.ver prospectos.ver ni reportes.ver no aparecen Usuarios, Administración, Tickets, Órdenes, Agenda, Despacho, Comercial ni Reportes", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        const nav = menu(page);
-        await expect(nav.getByRole("link", { name: /^Inicio/ })).toBeVisible();
-        await expect(nav.getByRole("link", { name: /^Comercial/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /^Agenda/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /^Despacho/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /^Tickets/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /^Órdenes/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: "Usuarios" })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /Administración/ })).toHaveCount(0);
-        await expect(nav.getByRole("link", { name: /^Reportes/ })).toHaveCount(0);
+        await expect(await enlaceMenu(page, /^Inicio/)).toBeVisible();
+        await sinEntradas(page, [/^Comercial/, /^Agenda/, /^Despacho/, /^Tickets/, /^Órdenes/, "Usuarios", /Administración/, /^Reportes/]);
     });
 
     test("entrar directo a una sección sin permiso muestra «Sin permiso»", async ({ page, context, baseURL }) => {
@@ -31,8 +22,7 @@ test.describe("menú por permisos", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Comercial/ }).click();
+        await irA(page, /^Comercial/);
         await expect(page).toHaveURL(/\/comercial$/);
         await expect(page.getByRole("heading", { name: "Comercial" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Próximamente" })).toHaveCount(0);

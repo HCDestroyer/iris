@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { TOKENS } from "./api-encuestas";
 import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
-import { abrirMenu, avisoError, menu } from "./ayudas";
+import { avisoError, irA, sinEntradas } from "./ayudas";
 
 /*
  * Encuesta de satisfacción (Fase 5 · punto 2): página pública `/encuesta#<token>` sin sesión
@@ -203,10 +203,9 @@ test.describe("panel", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await page.goto("/tickets/1");
-        await expect(page.getByRole("heading", { name: /TK-000101/ }).or(page.getByText("TK-000101").first())).toBeVisible();
+        await expect(page.getByRole("heading", { name: /TK-000101/ }).or(page.getByText("TK-000101").filter({ visible: true }).first())).toBeVisible();
         await expect(page.getByTestId("tarjeta-encuesta")).toHaveCount(0);
-        await abrirMenu(page);
-        await expect(menu(page).getByRole("link", { name: /^Encuestas/ })).toHaveCount(0);
+        await sinEntradas(page, [/^Encuestas/]);
         await page.goto("/encuestas");
         await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
         expect(api.peticiones.filter((p) => p.ruta === "/api/v1/encuestas")).toHaveLength(0);
@@ -216,8 +215,7 @@ test.describe("panel", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Encuestas/ }).click();
+        await irA(page, /^Encuestas/);
         await expect(page).toHaveURL(/\/encuestas$/);
         const filas = page.locator("[data-encuesta]");
         await expect(filas).toHaveCount(25);

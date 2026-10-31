@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Aviso, Boton, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { ClipboardList, OctagonAlert, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useEnvio } from "@/componentes/comercial/comun";
@@ -80,7 +80,10 @@ function FilaPendiente({ pendiente: p, recargar }: { pendiente: PendienteArgos; 
         const r = await envio.enviar((clave) =>
             resolver(api().POST("/api/v1/integraciones/pendientes/{id}/reintentar", { params: { path: { id: p.id }, header: { "Idempotency-Key": clave } }, body: { version: p.version } })),
         );
-        if (r) await recargar();
+        if (r) {
+            avisar({ tono: "info", titulo: "Reintento enviado a Argos" });
+            await recargar();
+        }
     }
     return (
         <li className="grid gap-2 rounded-lg border p-3 text-sm" data-pendiente={p.operacion} data-estado={p.estado}>

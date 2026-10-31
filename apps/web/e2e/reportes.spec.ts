@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { abrirMenu, avisoError, menu } from "./ayudas";
+import { avisoError, enlaceMenu, irA, sinEntradas } from "./ayudas";
 
 /*
  * Reportes (Fase 5): menú con `reportes.ver`, filtros en la URL (atajos de período, zona,
@@ -40,8 +40,7 @@ test.describe("menú y permiso", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Reportes/ }).click();
+        await irA(page, /^Reportes/);
         await expect(page).toHaveURL(/\/reportes$/);
         await expect(page.getByRole("heading", { name: "Reportes", level: 1 })).toBeVisible();
         await expect(indicador(page, "Respuesta en tiempo")).toContainText("92.7 %");
@@ -54,9 +53,8 @@ test.describe("menú y permiso", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", LECTOR.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await expect(menu(page).getByRole("link", { name: /^Inicio/ })).toBeVisible();
-        await expect(menu(page).getByRole("link", { name: /^Reportes/ })).toHaveCount(0);
+        await expect(await enlaceMenu(page, /^Inicio/)).toBeVisible();
+        await sinEntradas(page, [/^Reportes/]);
         await page.goto("/reportes");
         await expect(page.getByText("No tienes permiso para ver esta sección")).toBeVisible();
         expect(api.peticiones.filter((p) => p.ruta.startsWith("/api/v1/reportes"))).toHaveLength(0);

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    avisar,
     Aviso,
     Boton,
     DialogoConfirmar,
@@ -12,7 +13,7 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { ArrowLeft, Ban, CircleCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
+import { Ban, CircleCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -20,6 +21,7 @@ import { ErrorLectura } from "@/componentes/error-lectura";
 import { EditorPlantilla } from "@/componentes/plantillas/editor";
 import { InsigniasPlantilla, textoTipoPlantilla } from "@/componentes/plantillas/insignias";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { formatearFecha } from "@/lib/fechas";
 import { erroresACampos } from "@/lib/formularios";
@@ -28,15 +30,8 @@ import { useLectura } from "@/lib/lectura";
 import { cuerpoEditarPlantilla, datosDePlantilla, TIPOS_ITEM, type DatosCrearPlantilla, type PlantillaDetalle } from "@/lib/plantillas/esquemas";
 import { puedeModificar } from "@/lib/plantillas/permisos";
 import { useSesion } from "@/lib/sesion";
+import { avisoEstado } from "@/lib/avisos";
 
-function Volver() {
-    return (
-        <Link href="/administracion/plantillas" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft aria-hidden className="size-4" />
-            Plantillas
-        </Link>
-    );
-}
 
 export function DetallePlantilla() {
     const params = useParams<{ id: string }>();
@@ -51,7 +46,6 @@ export function DetallePlantilla() {
 function NoEncontrada() {
     return (
         <>
-            <Volver />
             <Tarjeta>
                 <EstadoVacio icono={SearchX} titulo="No encontramos esta plantilla" descripcion="Puede que no exista o que sea de otra empresa." />
             </Tarjeta>
@@ -69,6 +63,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
     const lectura = useLectura<PlantillaDetalle>((signal) =>
         resolver(api().GET("/api/v1/plantillas/{id}", { params: { path: { id }, query: numeroVersion !== null ? { numeroVersion } : {} }, signal })),
     );
+    useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.nombre : null);
     const [editando, setEditando] = useState(false);
     const [guardada, setGuardada] = useState<number | null>(null);
     const [errorEditar, setErrorEditar] = useState<unknown>(null);
@@ -81,7 +76,6 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
     if (lectura.estado === "cargando") {
         return (
             <>
-                <Volver />
                 <Esqueleto className="mb-4 h-10 w-72" />
                 <Esqueleto className="h-64" />
             </>
@@ -91,7 +85,6 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
         if (lectura.error instanceof ErrorApi && lectura.error.estado === 404) return <NoEncontrada />;
         return (
             <>
-                <Volver />
                 <ErrorLectura error={lectura.error} que="la plantilla" reintentar={lectura.reintentar} />
             </>
         );
@@ -115,6 +108,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
             const ruta = accionEstado === "activar" ? "/api/v1/plantillas/{id}/activar" : "/api/v1/plantillas/{id}/desactivar";
             await resolver(api().POST(ruta, { params: { path: { id }, header: { "Idempotency-Key": claveEstado.actual() } }, body: { version: p.version } }));
             claveEstado.renovar();
+            avisar({ titulo: avisoEstado(p.nombre, accionEstado === "activar") });
             await lectura.refrescar();
         } catch (e) {
             claveEstado.trasError(e);
@@ -149,7 +143,6 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
 
     return (
         <>
-            <Volver />
             <header className="mb-4 grid gap-2">
                 <span className="font-mono text-sm text-muted-foreground">{p.codigo}</span>
                 <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{p.nombre}</h1>

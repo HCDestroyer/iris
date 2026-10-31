@@ -1,7 +1,7 @@
 "use client";
 
-import { Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
-import { ArrowLeft, CalendarDays, CalendarOff, CalendarPlus, Clock, Pencil, Phone, CircleX } from "lucide-react";
+import { avisar, Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
+import { CalendarDays, CalendarOff, CalendarPlus, Clock, Pencil, Phone, CircleX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -16,6 +16,7 @@ import { InsigniaActivo } from "@/componentes/equipo/insignias";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { DIAS_SEMANA, textoMotivo, type Ausencia, type TecnicoDetalle } from "@/lib/agenda/esquemas";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { mensajeDeError } from "@/lib/api/errores";
 import { diaDesdeIso, etiquetaDia, horaDe } from "@/lib/despacho/fechas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -31,22 +32,14 @@ export function FichaTecnico() {
     const { puede } = useSesion();
     const catalogos = useCatalogosAgenda();
     const ficha = useLectura<TecnicoDetalle>((signal) => resolver(api().GET("/api/v1/tecnicos/{id}", { params: { path: { id } }, signal })));
+    useNombreEnMigas(ficha.estado === "listo" ? ficha.datos?.nombre : null);
     const [abierto, setAbierto] = useState<Abierto>(null);
     const cuadrillas = catalogos.cuadrillas.estado === "listo" ? catalogos.cuadrillas.datos : undefined;
     const zonas = catalogos.zonas.estado === "listo" ? catalogos.zonas.datos : undefined;
-    const volver = (
-        <Boton asChild variante="enlace" tamano="sm" className="mb-3">
-            <Link href="/tecnicos">
-                <ArrowLeft />
-                Técnicos
-            </Link>
-        </Boton>
-    );
 
     if (ficha.estado === "cargando") {
         return (
             <>
-                {volver}
                 <div className="grid gap-3" aria-busy="true" aria-label="Cargando la ficha">
                     <Esqueleto className="h-10 w-64" />
                     <Esqueleto className="h-40" />
@@ -58,7 +51,6 @@ export function FichaTecnico() {
     if (ficha.estado === "error") {
         return (
             <>
-                {volver}
                 <ErrorLectura error={ficha.error} que="la ficha del técnico" reintentar={ficha.reintentar} />
             </>
         );
@@ -75,7 +67,6 @@ export function FichaTecnico() {
 
     return (
         <>
-            {volver}
             <EncabezadoPagina
                 titulo={t.nombre}
                 descripcion={t.correo}
@@ -243,6 +234,7 @@ function FilaAusencia({ tecnico, ausencia: a, alAnular }: { tecnico: TecnicoDeta
             );
             clave.renovar();
             setConfirmando(false);
+            avisar({ titulo: `Ausencia de ${tecnico.nombre} anulada` });
             alAnular();
         } catch (e) {
             clave.trasError(e);

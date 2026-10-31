@@ -3,6 +3,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, CONSULTA, conSesion, ELENA, EMPRESAS, LECTOR, simularApi, type OpcionesApi } from "./api-falsa";
 import { simularUsuarios, type OpcionesUsuarios } from "./api-usuarios";
+import { confirmacion } from "./ayudas";
 
 // «Aún no puedo crear usuarios» (PM): «Nuevo usuario» en /usuarios; en la ficha, «Editar»,
 // «Desactivar» y empresas; y «Crear usuario» desde «Nuevo técnico». En escritorio y teléfono,
@@ -149,7 +150,7 @@ test.describe("administración de usuarios", () => {
         const { admin } = await preparar(page, context, baseURL, { usuarios: { ultimosAdmin: [ELENA.id] } });
         await page.goto(`/usuarios/${ELENA.id}`);
         await page.getByRole("button", { name: "Desactivar" }).click();
-        const c = page.getByRole("alertdialog");
+        const c = confirmacion(page);
         await expect(c).toContainText(`¿Desactivar a ${ELENA.nombre}?`);
         await c.getByRole("button", { name: "Desactivar" }).click();
         await expect(c.getByText("Escribe el motivo")).toBeVisible();
@@ -163,9 +164,9 @@ test.describe("administración de usuarios", () => {
 
         await page.goto(`/usuarios/${LECTOR.id}`);
         await page.getByRole("button", { name: "Desactivar" }).click();
-        await page.getByRole("alertdialog").getByLabel("Motivo").fill("Ya no trabaja en la empresa");
-        await page.getByRole("alertdialog").getByRole("button", { name: "Desactivar" }).click();
-        await expect(page.getByRole("alertdialog")).toHaveCount(0);
+        await confirmacion(page).getByLabel("Motivo").fill("Ya no trabaja en la empresa");
+        await confirmacion(page).getByRole("button", { name: "Desactivar" }).click();
+        await expect(confirmacion(page)).toHaveCount(0);
         await expect(page.getByText("Inactivo", { exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: "Desactivar" })).toHaveCount(0);
         expect(admin.peticiones.find((p) => p.ruta === `/api/v1/usuarios/${LECTOR.id}/desactivar`)?.cuerpo).toEqual({ version: 1, motivo: "Ya no trabaja en la empresa" });
@@ -187,7 +188,7 @@ test.describe("administración de usuarios", () => {
         await page.screenshot({ path: path.join(carpeta, `usuarios-empresas-${info.project.name}.png`), fullPage: true });
 
         await s.getByRole("button", { name: "Quitar Fibra Sur" }).click();
-        const c = page.getByRole("alertdialog");
+        const c = confirmacion(page);
         await expect(c).toContainText(`¿Quitar Fibra Sur a ${LECTOR.nombre}?`);
         await c.getByRole("button", { name: "Quitar" }).click();
         await expect(c).toHaveCount(0);

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, BotonEnviar, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonEnviar, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
 import { CircleCheck, CircleX, PhoneCall, RotateCcw, Trophy, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -16,6 +16,7 @@ import { esquemaPerder, esquemaReabrir, type DatosPerder, type DatosReabrir } fr
 import { requisitosGanar, type Cobertura, type ProspectoDetalle } from "@/lib/comercial/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
+import { avisoProspecto } from "@/lib/avisos";
 
 type Accion = AccionProspecto;
 
@@ -38,6 +39,7 @@ export function BarraAcciones({ detalle, usuarios, recargar }: Props) {
     if (visibles.length === 0) return null;
     const cerrar = () => setAbierta(null);
     const hecho = async () => {
+        if (abierta) avisar({ titulo: avisoProspecto(abierta, detalle.numero) });
         setAbierta(null);
         await recargar();
     };

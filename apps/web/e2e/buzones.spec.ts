@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Schema } from "@iris/contratos";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
-import { abrirMenu, menu } from "./ayudas";
+import { irA } from "./ayudas";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 const tarjeta = (page: Page, correo: string) => page.locator(`[data-buzon="${correo}"]`);
@@ -12,8 +12,7 @@ test.describe("buzones de correo", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /Administración/ }).click();
+        await irA(page, /Administración/);
         await page.getByRole("link", { name: /Buzones de correo/ }).click();
         await expect(page.getByRole("heading", { name: "Buzones de correo" })).toBeVisible();
 

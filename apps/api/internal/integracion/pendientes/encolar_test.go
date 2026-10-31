@@ -11,6 +11,9 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // encolar corre pendientes.Encolar en un caso de uso de prueba (actor sistema), como lo hace
@@ -394,6 +397,75 @@ func TestRespuestaInconsistenteNoResuelveDependientes(t *testing.T) {
 			Entidad: "prueba", EntidadID: "1", Ruta: "/clientes", Desde: e.reloj, Cuerpo: []byte(`{"nombre":"x"}`), Verificar: v})
 		if err == nil {
 			t.Fatalf("verificar %v debía fallar al encolar", v)
+		}
+	}
+}
+
+// Tercera revisión (LOW 2): un padre cuyos dependientes esperan su respuesta (alta de un prospecto:
+// POST /clientes falló y el servicio con marcadores quedó bloqueado) se puede resolver a mano: el
+// servicio queda incompleto (dependencia_resuelta_a_mano) y se resuelve también a mano; lo que
+// esperaba al servicio sale después.
+func TestResolverManualConDependientePorResolver(t *testing.T) {
+	e := nuevoEntorno(t)
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	e.argos.responder("/clientes", 422)
+	cli := e.encolar(pendientes.Accion{Operacion: "crear_cliente", IdempotencyKey: "iris:cliente:" + sufijo, Ruta: "/clientes",
+		Cuerpo: []byte(`{"nombre":"Ana"}`)})
+	srv := e.encolar(pendientes.Accion{Operacion: "crear_servicio", IdempotencyKey: "iris:servicio:" + sufijo, Ruta: "/servicios",
+		Cuerpo: cuerpo(t, map[string]any{"cliente_id": pendientes.Ref(0, "id"), "plan_id": 300}), DependeDe: []int64{cli.ID}})
+	nota := e.encolar(pendientes.Accion{Operacion: "nota", IdempotencyKey: "iris:nota:" + sufijo, Ruta: "/notas",
+		Cuerpo: []byte(`{"texto":"alta"}`), DependeDe: []int64{srv.ID}})
+	e.procesar()
+	if c, s := e.registro(cli.IdempotencyKey), e.registro(srv.IdempotencyKey); c.Estado != "fallido_negocio" || s.Estado != "bloqueado" || !s.PorResolver {
+		t.Fatalf("cliente rechazado y servicio esperándolo: %+v %+v", c, s)
+	}
+	u, err := identidad.Nuevo(identidad.Config{}).CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup-padre"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesReintentar)
+	c := e.registro(cli.IdempotencyKey)
+	if _, err := e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: c.ID, Version: int32(e.contar(`SELECT version FROM integracion.pendientes WHERE id = $1`, c.ID)),
+		Motivo: "Cliente creado a mano en Argos"}); err != nil {
+		t.Fatalf("el padre se resuelve aunque el servicio espere su respuesta: %v", err)
+	}
+	ps, err := pendientes.DeEntidad(context.Background(), e.pool, "prueba", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s, n pendientes.Pendiente
+	for _, p := range ps {
+		switch p.ID {
+		case srv.ID:
+			s = p
+		case nota.ID:
+			n = p
+		}
+	}
+	if s.Estado != "fallido_negocio" || !s.DatosIncompletos || s.PorResolver || s.CodigoError == nil ||
+		*s.CodigoError != pendientes.MotivoDependenciaResueltaAMano || n.Estado != "bloqueado" {
+		t.Fatalf("servicio incompleto y la nota sigue esperándolo: %+v %+v", s, n)
+	}
+	if k := e.eventos("integracion.pendiente_fallido", "1"); k < 2 {
+		t.Fatalf("evento fallido del servicio: %d", k)
+	}
+	// No se reintenta (sin los datos), pero se resuelve a mano; entonces la nota sale.
+	_, err = e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: s.ID, Version: s.Version})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_incompleto" {
+		t.Fatalf("incompleto no se reintenta: %v", err)
+	}
+	if _, err := e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: s.ID, Version: s.Version,
+		Motivo: "Servicio creado a mano en Argos"}); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	if r := e.registro(nota.IdempotencyKey); r.Estado != "hecho" {
+		t.Fatalf("la nota sale: %+v", r)
+	}
+	for _, l := range e.argos.copia() {
+		if l.Ruta == "/servicios" {
+			t.Fatalf("el servicio nunca sale: %s", l.Crudo)
 		}
 	}
 }

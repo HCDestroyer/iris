@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    avisar,
     Aviso,
     Boton,
     Campo,
@@ -93,6 +94,7 @@ export function FormularioBuzon({ buzon, alCerrar, alGuardar }: Props) {
                   )
                 : await resolver(api().POST("/api/v1/buzones", { params: { header: { "Idempotency-Key": clave.actual() } }, body: entrada }));
             clave.renovar();
+            avisar({ titulo: antes ? `Buzón «${b.nombre}» guardado` : `Buzón «${b.nombre}» creado` });
             alGuardar(b);
         } catch (e) {
             clave.trasError(e);
