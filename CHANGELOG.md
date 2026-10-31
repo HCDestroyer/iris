@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/HCDestroyer/iris/compare/v0.2.0...v0.3.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **campo:** crear orden y asignar desde el ticket, igualar asignación y propuesta de resolver al cerrar ([#69](https://github.com/HCDestroyer/iris/issues/69)) ([f7a7d06](https://github.com/HCDestroyer/iris/commit/f7a7d064b3de61c353835a6cd9df73215aedaf95))
+* **infra:** instalador de producción (install.sh / irisctl) y paquete en cada release ([#66](https://github.com/HCDestroyer/iris/issues/66)) ([a2b426d](https://github.com/HCDestroyer/iris/commit/a2b426d3e165ebe6e92204e4d6ad81e3462a3731))
+* **integracion:** conectar con Argos con un botón (contrato 0.4.0 §1.4) y panel/API por separado ([#68](https://github.com/HCDestroyer/iris/issues/68)) ([4fe365a](https://github.com/HCDestroyer/iris/commit/4fe365a46d1f75332936864f321a4475f8e45174))
+* **integracion:** contrato ArgosISP 0.3.1, servicio y router eliminados, 409 de negocio y alcance del canje ([#60](https://github.com/HCDestroyer/iris/issues/60)) ([b87dd4d](https://github.com/HCDestroyer/iris/commit/b87dd4df9ff2cb87fc6eb816cb8f20bc19031112))
+* **nucleo:** historial de accesos, actividad de la app de campo y roles y permisos ([#71](https://github.com/HCDestroyer/iris/issues/71)) ([87ce483](https://github.com/HCDestroyer/iris/commit/87ce483db0bb5b65d974810451e46889bbc1ccc6))
+* **panel:** agenda en calendario y pantallas de técnicos, cuadrillas y zonas ([#72](https://github.com/HCDestroyer/iris/issues/72)) ([fd22c8a](https://github.com/HCDestroyer/iris/commit/fd22c8a49037fb1e8f3dc61cbf73f63e8c4544cc))
+* **web:** selector de cliente, comercial sin scrolls y patrón de modales con validación ([#73](https://github.com/HCDestroyer/iris/issues/73)) ([36b88b6](https://github.com/HCDestroyer/iris/commit/36b88b6683f0d796ff28f94ba45fbb13474a362b))
+
+
+### Correcciones
+
+* **infra:** certificados de Mailpit compatibles con OpenSSL 1.1.1 ([#65](https://github.com/HCDestroyer/iris/issues/65)) ([59e6070](https://github.com/HCDestroyer/iris/commit/59e60708132f3998de5fae133e22c4de3befff1d))
+* **integracion:** datos de Argos coherentes y aislados por empresa ([#70](https://github.com/HCDestroyer/iris/issues/70)) ([57f8aa8](https://github.com/HCDestroyer/iris/commit/57f8aa83f4a7597479bc5a08b949a3de1048439d))
+* **movil:** la firma del APK no falla en silencio por el resumen del certificado ([#64](https://github.com/HCDestroyer/iris/issues/64)) ([828eaa7](https://github.com/HCDestroyer/iris/commit/828eaa75dd42108a644db740750073e92ac13b3a))
+
 ## [0.2.0](https://github.com/HCDestroyer/iris/compare/v0.1.0...v0.2.0) (2026-10-30)
 
 
