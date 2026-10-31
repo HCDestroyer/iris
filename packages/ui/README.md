@@ -51,7 +51,8 @@ Mismos nombres y props de siempre; por dentro, HeroUI:
 - `Etiqueta`: `Label`.
 - `Selector`, `CampoSelector`: `<select>` nativo con el estilo de campo de HeroUI; en el teléfono
   abre el selector del sistema.
-- `Dialogo*`: `Modal` de React Aria, en vidrio fuerte; en el teléfono sube desde abajo
+- `Dialogo*`: `Modal` de React Aria, en vidrio fuerte; en el teléfono sube desde abajo.
+  `DialogoContenido cerrable={false}` no se cierra con Escape ni tocando fuera, y no tiene «X»
   (`DialogoPie`).
 - `Hoja*`: `Drawer`.
 - `MenuDesplegable*`: `Dropdown`.
@@ -71,19 +72,29 @@ Siguen como estaban:
 - `LogoIris`, `MarcaIris`;
 - `cn`.
 
-Nuevos (fases 1 a 3; todavía no están en las pantallas):
+Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos emergentes,
+`Globo`, `PaletaBusqueda` y `MenuEnLinea`; los demás llegan con las fases 2 y 3:
 
 - `Pestanas`: HeroUI `Tabs`. Las pestañas pueden tener `href`, para fichas con URL.
 - `ProveedorAvisosEmergentes` + `avisar` / `useAvisoEmergente` / `cerrarAviso`: HeroUI `Toast`, en una
-  cola fuera de React. Duran 5 s, u 8 s si llevan «Deshacer».
+  cola fuera de React. Duran 5 s, u 8 s si llevan «Deshacer». `className` permite moverlos (el
+  panel los pone arriba en el teléfono). HeroUI anuncia cada aviso como `alertdialog` no modal: en
+  las pruebas, las confirmaciones se buscan sin contarlos (`confirmacion(page)` en
+  `apps/web/e2e/ayudas.ts`).
 - `Migas`: `Breadcrumbs` dentro de `<nav aria-label="Ruta de navegación">`. La última miga es la
-  pantalla actual.
+  pantalla actual. En el teléfono solo queda el enlace a la anterior («‹ Órdenes»), y la actual
+  sigue para lectores de pantalla.
 - `ProveedorRutas`: el `RouterProvider` de React Aria. Va en el layout con `navegar={router.push}`.
 - `SelectorFecha`, `SelectorRangoFechas`: `DatePicker` / `DateRangePicker`. Valores `AAAA-MM-DD`,
   formato `es-GT`, y `hoyEnGuatemala()` para «hoy».
 - `Autocompletar`: `ComboBox`. Filtra en el navegador, o busca en el servidor con `alBuscar`.
 - `Globo`: `Tooltip`. Usa al hijo como disparador (`Focusable`).
 - `PanelEmergente`: `Popover`, un diálogo no modal junto a su disparador.
+- `PaletaBusqueda`: el buscador global (Ctrl/⌘ + K), con el `Autocomplete` de React Aria. El foco
+  queda en el campo y las flechas recorren los resultados por secciones (foco virtual); Enter elige.
+  Debajo muestra el estado («Buscando…», errores con «Reintentar»). Quien lo usa decide qué buscar.
+- `MenuEnLinea`: las mismas opciones de `MenuDesplegable`, siempre a la vista (p. ej. la cuenta en
+  «Más» del teléfono), con `role="menu"`.
 - `BarraGuardar`: pie fijo con «Cancelar» y «Guardar», con el área segura del teléfono.
 - `FormularioPagina` + `SeccionFormulario`: formulario en pantalla propia, con migas, título,
   secciones y barra. Al salir con cambios sin guardar (enlaces, «Cancelar», «Atrás» o recargar)
