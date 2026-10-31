@@ -265,7 +265,10 @@ test.describe("técnicos", () => {
         await captura(page, info, "57-ausencia");
         await registrar.click();
         const hoy = hoyGt();
-        expect(ultima(api, "/api/v1/tecnicos/21/ausencias", "POST")?.cuerpo).toEqual({ motivo: "enfermedad", inicio: utc(hoy, "00:00"), fin: new Date(Date.parse(utc(hoy, "00:00")) + 86_400_000).toISOString().replace(".000Z", "Z") });
+        // La petición sale tras el clic: se espera a que llegue en lugar de leerla en el acto.
+        await expect
+            .poll(() => ultima(api, "/api/v1/tecnicos/21/ausencias", "POST")?.cuerpo)
+            .toEqual({ motivo: "enfermedad", inicio: utc(hoy, "00:00"), fin: new Date(Date.parse(utc(hoy, "00:00")) + 86_400_000).toISOString().replace(".000Z", "Z") });
         await expect(page.getByTestId("ausencia-conflictos")).toContainText("OT-000003");
         await page.getByTestId("ausencia-conflictos").getByRole("button", { name: "Entendido" }).click();
         const fila = page.locator("[data-ausencia]").filter({ hasText: "Enfermedad" });
