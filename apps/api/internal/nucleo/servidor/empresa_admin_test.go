@@ -133,11 +133,8 @@ func TestAdministrarSoloUsuariosDeEmpresasPropias(t *testing.T) {
 
 	// Tokens para integraciones: solo la de 101.
 	integ := func(empresa int64) int64 {
-		r := admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Integ", "correo": pruebas.Correo("integ"), "tipo": "integracion", "roles": []map[string]any{{"rol": "lectura"}}})
-		if r.status != 201 {
-			t.Fatalf("integración: %d %s", r.status, r.crudo)
-		}
-		id := int64(r.cuerpo["id"].(float64))
+		// Fixture (como la consola): por HTTP una integración solo lleva su rol de contrato.
+		id := e.integracion("Integ", "lectura")
 		if r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/asignar-empresa", id), map[string]any{"empresaId": empresa}); r.status != 200 {
 			t.Fatalf("asignar: %d %s", r.status, r.crudo)
 		}

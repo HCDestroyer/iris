@@ -3426,7 +3426,7 @@ export interface paths {
         put?: never;
         /**
          * Crear un usuario
-         * @description Permiso: `usuarios.crear`.
+         * @description Permiso: `usuarios.crear`. Una persona queda con su contraseña como temporal (`cambioContrasenaRequerido`): al entrar debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa. Un usuario de tipo `integracion` exige `empresas.todas` e `integraciones.conectar` sin límite de alcance (403 `integracion_no_permitida`) y solo admite su rol de contrato (`integracion_argos`, `integracion_horus`; si no, 422). 409 `correo_en_uso`.
          */
         post: operations["crearUsuario"];
         delete?: never;
@@ -3566,7 +3566,7 @@ export interface paths {
         put?: never;
         /**
          * Editar un usuario
-         * @description Permiso: `usuarios.editar`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
+         * @description Permiso: `usuarios.editar`. Una contraseña puesta a otro usuario queda temporal (`cambioContrasenaRequerido`) y cierra sus sesiones; cambiarle el correo también cierra sus sesiones y borra sus vínculos de autologin. Cambiar el nombre, el correo o la contraseña de otro exige superarlo (403). Cambiar el correo propio exige re-autenticarse (403 `reautenticacion_requerida`). Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera (no se revela su versión).
          */
         post: operations["editarUsuario"];
         delete?: never;

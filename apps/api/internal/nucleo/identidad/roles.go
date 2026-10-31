@@ -46,18 +46,25 @@ func exigirReautenticacionSensibles(ctx context.Context, permisos []string, que 
 	}
 	slices.Sort(sensibles)
 	sensibles = slices.Compact(sensibles)
+	return exigirReautenticacion(ctx, fmt.Sprintf("%s da permisos sensibles (%s)", que, strings.Join(sensibles, ", ")))
+}
+
+// exigirReautenticacion: una acción sensible (dar permisos sensibles, cambiar el correo propio)
+// exige una sesión del panel que confirmó su contraseña hace poco. El sistema (consola, semilla)
+// y una llamada interna sin sesión no pasan por HTTP y no se piden. `motivo` va en el detalle.
+func exigirReautenticacion(ctx context.Context, motivo string) error {
 	a, s := contexto.ActorDe(ctx), contexto.SesionDe(ctx)
 	switch {
 	case a.Tipo == contexto.ActorSistema:
 		return nil
 	case a.Tipo != contexto.ActorUsuario:
 		return nucleo.NuevoProblema(http.StatusForbidden, "requiere_sesion", "Requiere una sesión del panel",
-			fmt.Sprintf("%s da permisos sensibles (%s): solo desde una sesión del panel, confirmando la contraseña", que, strings.Join(sensibles, ", ")))
+			motivo+": solo desde una sesión del panel, confirmando la contraseña")
 	case s.ID == 0 || s.Reautenticada:
 		return nil
 	}
 	return nucleo.NuevoProblema(http.StatusForbidden, "reautenticacion_requerida", "Re-autenticación requerida",
-		fmt.Sprintf("%s da permisos sensibles (%s): confirma tu contraseña (POST /api/v1/sesion/reautenticar) y vuelve a intentarlo", que, strings.Join(sensibles, ", ")))
+		motivo+": confirma tu contraseña (POST /api/v1/sesion/reautenticar) y vuelve a intentarlo")
 }
 
 // exigirTenerPermisos: quien actúa tiene sin límite de alcance cada permiso.

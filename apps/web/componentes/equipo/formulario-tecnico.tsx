@@ -2,10 +2,11 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Aviso, Boton, Campo, CampoSelector, DialogoCerrar, DialogoPie } from "@iris/ui";
-import { RotateCw } from "lucide-react";
-import { useState } from "react";
+import { RotateCw, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { DialogoFormulario } from "@/componentes/cierre-seguro";
+import { DialogoCrearUsuario } from "@/componentes/usuarios/crear-usuario";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import {
@@ -24,6 +25,7 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useDiferido } from "@/lib/diferido";
 import { useLectura } from "@/lib/lectura";
+import { useSesion } from "@/lib/sesion";
 import type { UseFormRegisterReturn } from "react-hook-form";
 
 const CAMPOS = ["usuarioId", "cuadrillaId", "telefono", "habilidades", "bodegaId"] as const;
@@ -63,6 +65,10 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, alCerrar, alGuar
     const { errors, isSubmitting, isDirty, touchedFields, isSubmitted } = form.formState;
     const [busqueda, setBusqueda] = useState("");
     const q = useDiferido(busqueda.trim(), 300);
+    const { puede } = useSesion();
+    const [creandoUsuario, setCreandoUsuario] = useState(false);
+    // Usuario recién creado desde aquí: se busca por su correo y queda elegido al aparecer.
+    const [recienCreado, setRecienCreado] = useState<{ id: number; correo: string } | null>(null);
     const activas = cuadrillas.filter((c) => c.activa || String(c.id) === valores.cuadrillaId);
     const cuadrilla = cuadrillas.find((c) => String(c.id) === valores.cuadrillaId);
     // Las selecciones obligatorias avisan desde el inicio; los textos, al salir del campo o al enviar.
@@ -120,7 +126,25 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, alCerrar, alGuar
                                 if (form.getValues("usuarioId") !== "") form.setValue("usuarioId", "", { shouldDirty: true });
                             }}
                         />
-                        <SelectorCandidato key={q} q={q} error={mensaje("usuarioId", true)} registro={form.register("usuarioId")} />
+                        <SelectorCandidato
+                            key={q}
+                            q={q}
+                            error={mensaje("usuarioId", true)}
+                            registro={form.register("usuarioId")}
+                            preferido={recienCreado && recienCreado.correo === q ? recienCreado.id : null}
+                            alElegir={(id) => form.setValue("usuarioId", String(id), { shouldDirty: true, shouldValidate: true })}
+                        />
+                        {puede(["usuarios.crear"]) ? (
+                            <div className="-mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <span>¿Aún no tiene usuario?</span>
+                                <Boton type="button" variante="secundario" tamano="sm" onClick={() => setCreandoUsuario(true)}>
+                                    <UserPlus />
+                                    Crear usuario
+                                </Boton>
+                            </div>
+                        ) : (
+                            <p className="-mt-2 text-sm text-muted-foreground">¿Aún no tiene usuario? Pide a un administrador que lo cree con el rol Técnico.</p>
+                        )}
                     </>
                 )}
                 <CampoSelector
@@ -176,6 +200,21 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, alCerrar, alGuar
                     </Boton>
                 </DialogoPie>
             </form>
+            {/* Fuera del <form>: el envío del diálogo anidado no debe llegar a este formulario. */}
+            {editando ? null : (
+                <DialogoCrearUsuario
+                    abierto={creandoUsuario}
+                    rolFijo="tecnico"
+                    textoContinuar="Continuar con la ficha"
+                    alCerrar={() => setCreandoUsuario(false)}
+                    alCrear={(u) => {
+                        setRecienCreado({ id: u.id, correo: u.correo });
+                        setBusqueda(u.correo);
+                        if (form.getValues("usuarioId") !== "") form.setValue("usuarioId", "", { shouldDirty: true });
+                    }}
+                    alContinuar={() => setCreandoUsuario(false)}
+                />
+            )}
         </DialogoFormulario>
     );
 }
@@ -186,11 +225,30 @@ const LIMITE_CANDIDATOS = 50;
  * Usuarios que pueden recibir ficha (`GET /tecnicos/candidatos?q=`): se busca con `q` en el
  * servidor; si hay más de los que caben, se pide afinar la búsqueda.
  */
-function SelectorCandidato({ q, error, registro }: { q: string; error: string | undefined; registro: UseFormRegisterReturn<"usuarioId"> }) {
+function SelectorCandidato({
+    q,
+    error,
+    registro,
+    preferido,
+    alElegir,
+}: {
+    q: string;
+    error: string | undefined;
+    registro: UseFormRegisterReturn<"usuarioId">;
+    /** Usuario recién creado: si aparece en la lista, queda elegido. */
+    preferido: number | null;
+    alElegir: (usuarioId: number) => void;
+}) {
     const candidatos = useLectura<{ lista: CandidatoTecnico[]; hayMas: boolean }>(async (signal) => {
         const p = await resolver(api().GET("/api/v1/tecnicos/candidatos", { params: { query: { limit: LIMITE_CANDIDATOS, ...(q ? { q } : {}) } }, signal }));
         return { lista: p.data ?? [], hayMas: p.nextCursor !== null };
     });
+    const encontrado = preferido !== null && candidatos.estado === "listo" && candidatos.datos.lista.some((c) => c.usuarioId === preferido);
+    useEffect(() => {
+        if (encontrado && preferido !== null) alElegir(preferido);
+        // Solo al aparecer en la lista: elegir otro después no se pisa.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [encontrado, preferido]);
     if (candidatos.estado === "error") {
         return (
             <Aviso
@@ -208,6 +266,14 @@ function SelectorCandidato({ q, error, registro }: { q: string; error: string | 
         );
     }
     const vacio = candidatos.estado === "listo" && candidatos.datos.lista.length === 0;
+    if (preferido !== null && candidatos.estado === "listo" && !encontrado) {
+        return (
+            <Aviso tono="warning" titulo="El usuario se creó, pero aún no aparece como candidato">
+                Solo aparecen personas activas con el rol Técnico, sin ficha y que operan en la empresa activa. Revisa su rol y sus empresas en
+                «Usuarios» y vuelve a buscarlo.
+            </Aviso>
+        );
+    }
     const ayuda =
         candidatos.estado === "cargando"
             ? "Cargando usuarios…"

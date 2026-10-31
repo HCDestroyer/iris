@@ -83,17 +83,19 @@ func (q *Queries) ActualizarRol(ctx context.Context, arg ActualizarRolParams) (N
 const actualizarUsuario = `-- name: ActualizarUsuario :one
 UPDATE nucleo.usuarios
 SET nombre = $1, correo = $2, contrasena_hash = $3,
+    debe_cambiar_contrasena = $4,
     version = version + 1, updated_at = now()
-WHERE id = $4 AND version = $5
+WHERE id = $5 AND version = $6
 RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type ActualizarUsuarioParams struct {
-	Nombre         string
-	Correo         string
-	ContrasenaHash *string
-	ID             int64
-	Version        int32
+	Nombre                string
+	Correo                string
+	ContrasenaHash        *string
+	DebeCambiarContrasena bool
+	ID                    int64
+	Version               int32
 }
 
 func (q *Queries) ActualizarUsuario(ctx context.Context, arg ActualizarUsuarioParams) (NucleoUsuario, error) {
@@ -101,6 +103,7 @@ func (q *Queries) ActualizarUsuario(ctx context.Context, arg ActualizarUsuarioPa
 		arg.Nombre,
 		arg.Correo,
 		arg.ContrasenaHash,
+		arg.DebeCambiarContrasena,
 		arg.ID,
 		arg.Version,
 	)
@@ -748,25 +751,29 @@ func (q *Queries) CrearToken(ctx context.Context, arg CrearTokenParams) (NucleoT
 
 const crearUsuario = `-- name: CrearUsuario :one
 
-INSERT INTO nucleo.usuarios (nombre, correo, tipo, contrasena_hash)
-VALUES ($1, $2, $3, $4)
+INSERT INTO nucleo.usuarios (nombre, correo, tipo, contrasena_hash, debe_cambiar_contrasena)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
 `
 
 type CrearUsuarioParams struct {
-	Nombre         string
-	Correo         string
-	Tipo           string
-	ContrasenaHash *string
+	Nombre                string
+	Correo                string
+	Tipo                  string
+	ContrasenaHash        *string
+	DebeCambiarContrasena bool
 }
 
 // Usuarios -----------------------------------------------------------------
+// debe_cambiar_contrasena: la contraseña la eligió otra persona (temporal); al entrar, el usuario
+// solo puede cambiarla (middleware.go, 403 cambio_contrasena_requerido).
 func (q *Queries) CrearUsuario(ctx context.Context, arg CrearUsuarioParams) (NucleoUsuario, error) {
 	row := q.db.QueryRow(ctx, crearUsuario,
 		arg.Nombre,
 		arg.Correo,
 		arg.Tipo,
 		arg.ContrasenaHash,
+		arg.DebeCambiarContrasena,
 	)
 	var i NucleoUsuario
 	err := row.Scan(

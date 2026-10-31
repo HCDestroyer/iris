@@ -116,7 +116,7 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 	if r := admin.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}); r.status != 200 {
 		t.Fatalf("reautenticar: %d %s", r.status, r.crudo)
 	}
-	r := admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Horus", "correo": pruebas.Correo("horus"), "tipo": "integracion", "roles": []map[string]any{{"rol": "admin"}}})
+	r := admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Horus", "correo": pruebas.Correo("horus"), "tipo": "integracion", "roles": []map[string]any{{"rol": "integracion_horus"}}})
 	if r.status != 201 {
 		t.Fatalf("crear integración: %d %s", r.status, r.crudo)
 	}

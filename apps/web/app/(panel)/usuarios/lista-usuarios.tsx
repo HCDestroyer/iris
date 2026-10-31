@@ -16,7 +16,7 @@ import {
     TablaTitulo,
     Tarjeta,
 } from "@iris/ui";
-import { Bot, ChevronDown, RotateCcw, RotateCw, ShieldCheck, ShieldOff, User, UserCheck, Users, UserX } from "lucide-react";
+import { Bot, ChevronDown, RotateCcw, RotateCw, ShieldCheck, ShieldOff, User, UserCheck, UserPlus, Users, UserX } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -27,6 +27,8 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { DialogoReiniciarMfa } from "./reiniciar-mfa";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { DialogoCrearUsuario } from "@/componentes/usuarios/crear-usuario";
 
 type Usuario = Schema<"Usuario">;
 type Pagina = Schema<"PaginaUsuario">;
@@ -100,14 +102,42 @@ export function ListaUsuarios() {
     const [extra, setExtra] = useState<{ usuarios: Usuario[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
-    const { permisos } = useSesion();
+    const { permisos, puede } = useSesion();
+    const router = useRouter();
     const conAcciones = permisos.includes("usuarios.reiniciar_mfa");
+    const [creando, setCreando] = useState(false);
+    const [recienCreados, setRecienCreados] = useState<Usuario[]>([]);
     // Lo que devolvieron las acciones (versión y MFA nuevos) sobre lo leído.
     const [cambios, setCambios] = useState<Record<number, Usuario>>({});
     const [reinicio, setReinicio] = useState<Usuario | null>(null);
     const actualizar = (u: Usuario) => setCambios((c) => ({ ...c, [u.id]: u }));
 
-    const encabezado = <EncabezadoPagina titulo="Usuarios" descripcion="Personas e integraciones con acceso a Iris." />;
+    const encabezado = (
+        <>
+            <EncabezadoPagina
+                titulo="Usuarios"
+                descripcion="Personas e integraciones con acceso a Iris."
+                acciones={
+                    puede(["usuarios.crear"]) ? (
+                        <Boton onClick={() => setCreando(true)}>
+                            <UserPlus />
+                            Nuevo usuario
+                        </Boton>
+                    ) : null
+                }
+            />
+            <DialogoCrearUsuario
+                abierto={creando}
+                alCerrar={() => setCreando(false)}
+                alCrear={(u) => setRecienCreados((r) => [u, ...r.filter((x) => x.id !== u.id)])}
+                textoContinuar="Ver usuario"
+                alContinuar={(u) => {
+                    setCreando(false);
+                    router.push(`/usuarios/${u.id}`);
+                }}
+            />
+        </>
+    );
 
     if (primera.estado === "cargando") {
         return (
@@ -140,12 +170,15 @@ export function ListaUsuarios() {
         );
     }
 
-    const usuarios = [...(primera.datos.data ?? []), ...(extra?.usuarios ?? [])].map((u) => cambios[u.id] ?? u);
+    const leidos = [...(primera.datos.data ?? []), ...(extra?.usuarios ?? [])];
+    // Los recién creados arriba (hasta recargar), sin repetir si la lista ya los trae.
+    const usuarios = [...recienCreados.filter((n) => !leidos.some((u) => u.id === n.id)), ...leidos].map((u) => cambios[u.id] ?? u);
 
     function recargarLista() {
         setReinicio(null);
         setExtra(null);
         setCambios({});
+        setRecienCreados([]);
         primera.reintentar();
     }
     const siguiente = extra ? extra.cursor : primera.datos.nextCursor;

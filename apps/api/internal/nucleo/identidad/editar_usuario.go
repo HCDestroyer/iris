@@ -68,16 +68,25 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 			// Tomar la cuenta (contraseña, correo) o quitar roles exige superar al objetivo; con
 			// sesión propia no (un token, aunque sea del mismo usuario, sí: no puede escalar a
 			// la sesión completa cambiando la contraseña).
+			// Renombrar a otro también: el nombre es lo que ven los demás (despacho, tickets).
 			quitaRoles := in.Roles != nil && quitaAsignaciones(rolesPrevios[in.ID], *in.Roles)
-			if in.Contrasena != nil || correo != antes.Correo || quitaRoles {
+			if in.Contrasena != nil || correo != antes.Correo || nombre != antes.Nombre || quitaRoles {
 				if !propio {
-					if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "cambiar la contraseña, el correo o quitar roles a este usuario"); err != nil {
+					if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "cambiar el nombre, la contraseña, el correo o quitar roles a este usuario"); err != nil {
 						return Usuario{}, err
 					}
 				}
 			}
-			hash := antes.ContrasenaHash
+			// El correo propio es con lo que se entra (y se recupera la cuenta): confirmar la
+			// contraseña, como las demás acciones sensibles.
+			if propio && correo != antes.Correo {
+				if err := exigirReautenticacion(ctx, "Cambiar tu correo"); err != nil {
+					return Usuario{}, err
+				}
+			}
+			hash, debeCambiar := antes.ContrasenaHash, antes.DebeCambiarContrasena
 			if in.Contrasena != nil {
+				debeCambiar = !propio
 				if antes.Tipo == "integracion" {
 					return Usuario{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "contrasena", Message: "Las integraciones entran solo con token", Rule: "prohibido"})
 				}
@@ -128,6 +137,9 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 
 			despues, err := q.ActualizarUsuario(ctx, identidadbd.ActualizarUsuarioParams{
 				ID: in.ID, Version: in.Version, Nombre: nombre, Correo: correo, ContrasenaHash: hash,
+				// Una contraseña puesta por un administrador es temporal: hay que cambiarla al
+				// entrar. La propia no (y deja de ser temporal).
+				DebeCambiarContrasena: debeCambiar,
 			})
 			if err != nil {
 				return Usuario{}, nucleo.VerificarVersion(err, "usuario", in.ID)
@@ -144,8 +156,14 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 				}
 			}
 
-			// Un administrador que cambia el correo de otro: el vínculo de autologin no se hereda.
+			// Un administrador que cambia el correo de otro: sus sesiones se cierran (las abrió con
+			// el correo anterior) y el vínculo de autologin no se hereda.
 			if correo != antes.Correo && !propio {
+				if in.Contrasena == nil {
+					if _, err := q.RevocarSesionesDeUsuario(ctx, in.ID); err != nil {
+						return Usuario{}, err
+					}
+				}
 				if err := borrarVinculosSSO(ctx, t, q, in.ID, "correo_cambiado"); err != nil {
 					return Usuario{}, err
 				}
