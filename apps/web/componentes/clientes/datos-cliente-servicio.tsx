@@ -36,9 +36,9 @@ export type CopiaArgos = Schema<"CopiaArgos">;
 
 /** Lo mínimo que se muestra de un cliente: la ficha trae todo; la copia, solo lo operativo. */
 type ClienteVista = Pick<ClienteArgos, "id" | "codigo" | "nombre" | "direccion" | "lat" | "lon" | "zonaNombre" | "estado"> &
-    Partial<Pick<ClienteArgos, "tipo" | "tipoDocumentoFiscal" | "nitCuiMostrar" | "correo" | "telefonos">>;
+    Partial<Pick<ClienteArgos, "tipo" | "tipoDocumentoFiscal" | "nitCuiMostrar" | "correo" | "telefonos" | "referencia">>;
 type ServicioVista = Pick<ServicioArgos, "id" | "planNombre" | "estado" | "direccion" | "lat" | "lon" | "ip" | "routerNombre"> &
-    Partial<Pick<ServicioArgos, "userPpp" | "tipoConexion">>;
+    Partial<Pick<ServicioArgos, "userPpp" | "tipoConexion" | "referencia" | "contactoNombre" | "contactoTelefonos">>;
 
 /** El cliente de una copia, con su teléfono principal (la copia no guarda los demás). */
 function clienteDeCopia(copia: CopiaArgos): ClienteVista {
@@ -295,6 +295,7 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
                     <span className="grid">
                         <span className="text-xs text-muted-foreground">Dirección del cliente</span>
                         <span>{cliente.direccion || <span className="text-muted-foreground">Sin dirección en Argos</span>}</span>
+                        {cliente.referencia ? <span className="text-muted-foreground" data-testid="referencia-cliente">Referencia: {cliente.referencia}</span> : null}
                         <Coordenadas lat={cliente.lat} lon={cliente.lon} />
                     </span>
                 </Fila>
@@ -336,9 +337,31 @@ function VistaServicio({ servicio: s }: { servicio: ServicioVista }) {
                     <span className="grid">
                         <span className="text-xs text-muted-foreground">Dirección de instalación</span>
                         {s.direccion ? <span>{s.direccion}</span> : <span className="text-muted-foreground">Sin dirección propia en Argos: aplica la del cliente</span>}
+                        {s.referencia ? <span className="text-muted-foreground" data-testid="referencia-servicio">Referencia: {s.referencia}</span> : null}
                         <Coordenadas lat={s.lat} lon={s.lon} />
                     </span>
                 </Fila>
+                {s.contactoNombre || (s.contactoTelefonos ?? []).length > 0 ? (
+                    <Fila icono={UserRound} etiqueta="Contacto en sitio">
+                        <span className="grid" data-testid="contacto-en-sitio">
+                            <span className="text-xs text-muted-foreground">Contacto en sitio</span>
+                            {s.contactoNombre ? <span>{s.contactoNombre}</span> : null}
+                            <span className="flex flex-wrap gap-x-3">
+                                {(s.contactoTelefonos ?? []).map((t) =>
+                                    t.e164 ? (
+                                        <a key={t.original} href={`tel:${t.e164}`} className="text-primary tabular-nums hover:underline">
+                                            {t.mostrar}
+                                        </a>
+                                    ) : (
+                                        <span key={t.original} className="tabular-nums">
+                                            {t.mostrar}
+                                        </span>
+                                    ),
+                                )}
+                            </span>
+                        </span>
+                    </Fila>
+                ) : null}
                 {s.ip || s.userPpp ? (
                     <Fila icono={Network} etiqueta="Conexión">
                         <span className="flex flex-wrap gap-x-3">

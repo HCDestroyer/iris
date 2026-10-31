@@ -6,7 +6,8 @@ import { simularTeselas } from "./teselas";
 /*
  * Pedido del PM (8): Comercial sin scrolls innecesarios. En 390 px y 1280 px, claro y oscuro,
  * la lista y el detalle no desbordan la página ni tienen contenedores con desplazamiento propio
- * (ni doble scroll): todo se ve completo y la página es lo único que se desplaza.
+ * (ni doble scroll): todo se ve completo y la página es lo único que se desplaza. La única
+ * excepción es la tira de pestañas de la ficha (fase 3), que se desliza en horizontal.
  */
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
@@ -16,6 +17,9 @@ async function contenedoresConScroll(page: Page) {
     return page.evaluate(() => {
         const salida: string[] = [];
         for (const el of Array.from(document.querySelectorAll<HTMLElement>("main *"))) {
+            // Excepción a propósito: la tira de pestañas de la ficha se desliza en horizontal en el
+            // teléfono (5 pestañas no caben en 390 px); el contenido no tiene scroll propio.
+            if (el.closest('[role="tablist"]') || el.querySelector(':scope > [role="tablist"], :scope > * > [role="tablist"]')) continue;
             const estilo = getComputedStyle(el);
             const y = /(auto|scroll)/.test(estilo.overflowY) && el.scrollHeight > el.clientHeight + 1;
             const x = /(auto|scroll)/.test(estilo.overflowX) && el.scrollWidth > el.clientWidth + 1;
@@ -53,7 +57,7 @@ test("comercial sin scrolls innecesarios: lista, embudo y detalle", async ({ pag
         await revisar(page, nombre("02-lista"));
     }
 
-    await page.goto("/comercial/4");
+    await page.goto("/comercial/4?pestana=cotizacion");
     await expect(page.getByTestId("cotizacion").getByTestId("total-mensual")).toBeVisible();
     await revisar(page, nombre("03-detalle-cotizado"));
 
@@ -61,7 +65,7 @@ test("comercial sin scrolls innecesarios: lista, embudo y detalle", async ({ pag
     await expect(page.getByTestId("alta")).toBeVisible();
     await revisar(page, nombre("04-detalle-alta"));
 
-    await page.goto("/comercial/5");
+    await page.goto("/comercial/5?pestana=contrato");
     await expect(page.getByTestId("contrato")).toBeVisible();
     await revisar(page, nombre("05-detalle-contrato"));
 });

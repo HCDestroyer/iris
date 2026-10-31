@@ -18,7 +18,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import type { PendientesPorOrden } from "@/componentes/ordenes/catalogos";
+import { MarcaDatosArgos } from "@/componentes/ordenes/datos-argos";
 import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
+import { cambiosDeArgos } from "@/lib/ordenes/datos-argos";
 import { PieLista } from "@/componentes/pie-lista";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
 import { useAhora } from "@/componentes/tickets/insignias";
@@ -87,7 +89,14 @@ export function ListaOrdenes({ consulta, vista, usuarios, pendientes, yo, hayFil
     const marca = (o: Orden) => {
         const lista = mapa?.porOrden.get(String(o.id));
         const resumen = lista ? resumirPendientes(lista) : undefined;
-        return resumen ? <MarcaPendienteArgos resumen={resumen} /> : null;
+        const cambios = cambiosDeArgos(o);
+        if (!resumen && !cambios) return null;
+        return (
+            <>
+                {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
+                {cambios ? <MarcaDatosArgos cambios={cambios} /> : null}
+            </>
+        );
     };
     const tecnico = (o: Orden) => nombreUsuario(usuarios, o.tecnicoId, yo);
     const props: PropsTarjeta = { marca, tecnico, ahora };

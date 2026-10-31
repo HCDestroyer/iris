@@ -106,3 +106,9 @@ export function confirmacion(page: Page) {
 export function avisoError(page: Page) {
     return page.locator('[data-slot="aviso"][role="alert"]');
 }
+
+/** Abre la pestaña `nombre` de una ficha (Resumen, Conversación, Argos…). */
+export async function pestana(page: Page, nombre: string) {
+    await page.getByRole("tab", { name: nombre, exact: true }).click();
+    await expect(page.getByRole("tab", { name: nombre, exact: true })).toHaveAttribute("aria-selected", "true");
+}

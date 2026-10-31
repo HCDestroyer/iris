@@ -14,6 +14,8 @@ import {
     textoMarcaPendiente,
     textoOperacion,
     type Pendiente,
+    MODALIDADES,
+    presentacionModalidad,
 } from "./presentacion";
 
 const enumEstado = (s: Schema<"Orden">["estado"]) => s;
@@ -167,5 +169,24 @@ describe("historial y GPS", () => {
             [1, "Salió hacia el sitio", undefined],
             [2, "Llegó al sitio", 8],
         ]);
+    });
+});
+
+describe("presentacionModalidad", () => {
+    it("usa la insignia conocida de cada modalidad", () => {
+        expect(presentacionModalidad("consumible_cobro")).toBe(MODALIDADES.consumible_cobro);
+        expect(presentacionModalidad("comodato").texto).toBe("Comodato: regístralo como equipo");
+    });
+
+    it("una modalidad desconocida se muestra tal cual en neutral, con icono", () => {
+        const p = presentacionModalidad("arrendamiento");
+        expect(p.tono).toBe("neutral");
+        expect(p.texto).toBe("arrendamiento");
+        expect(p.icono).toBeDefined();
+    });
+
+    it("no confunde propiedades heredadas con modalidades", () => {
+        expect(presentacionModalidad("toString").texto).toBe("toString");
+        expect(presentacionModalidad("__proto__").tono).toBe("neutral");
     });
 });

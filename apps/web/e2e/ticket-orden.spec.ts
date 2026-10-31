@@ -60,7 +60,7 @@ test.describe("ticket y orden de la mano", () => {
         expect(igualar?.idempotencia).toBeTruthy();
 
         // Desde el ticket: sus órdenes con estado, técnico y fecha, ya sin diferencia.
-        await page.goto("/tickets/1");
+        await page.goto("/tickets/1?pestana=ordenes");
         const fila = page.getByTestId("ordenes-del-ticket").locator('[data-orden="1000"]');
         await expect(fila).toContainText("OT-001000");
         await expect(fila).toContainText("Programada");
@@ -88,7 +88,7 @@ test.describe("ticket y orden de la mano", () => {
         await expect(page).toHaveURL(/\/ordenes\/1000$/);
         await expect(page.getByTestId("tecnico")).toHaveText("Sin técnico");
 
-        await page.goto("/tickets/1");
+        await page.goto("/tickets/1?pestana=ordenes");
         const aviso = page.getByTestId("igualar-1000");
         await expect(aviso).toContainText("Ticket: Lucía Ramírez · Orden: Cuadrilla 2");
         await page.screenshot({ path: path.join(carpeta, `27-ticket-igualar-orden-${info.project.name}.png`), fullPage: true });

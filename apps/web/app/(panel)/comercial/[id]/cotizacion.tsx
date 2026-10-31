@@ -277,7 +277,7 @@ function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<
         if (r) {
             avisar({ titulo: `Cotización ${r.numero} creada` });
             await liberarProteccion();
-            router.replace(`/comercial/${detalle.id}`);
+            router.replace(`/comercial/${detalle.id}?pestana=cotizacion`);
         }
     }
 
@@ -287,7 +287,7 @@ function FormCotizacion({ detalle, planes, recargar }: Props & { planes: Schema<
             descripcion={`${detalle.numero} · ${detalle.nombre}`}
             alEnviar={formulario.handleSubmit(enviar)}
             navegar={router.push}
-            volverA={`/comercial/${detalle.id}`}
+            volverA={`/comercial/${detalle.id}?pestana=cotizacion`}
             sucio={formulario.formState.isDirty}
             barra={{
                 textoGuardar: "Guardar cotización",

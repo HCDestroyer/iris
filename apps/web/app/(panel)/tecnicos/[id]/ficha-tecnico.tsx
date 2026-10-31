@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
+import { avisar, Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Pestanas } from "@iris/ui";
 import { CalendarDays, CalendarOff, CalendarPlus, Clock, Pencil, Phone, CircleX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -12,6 +12,8 @@ import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
 import { textoZonas } from "@/componentes/equipo/formulario-tecnico";
 import { FormularioTurnos } from "@/componentes/equipo/formulario-turnos";
 import { InsigniaActivo } from "@/componentes/equipo/insignias";
+import { Seccion } from "@/componentes/equipo/seccion-ficha";
+import { VinculoArgos } from "@/componentes/equipo/vinculo-argos";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { DIAS_SEMANA, textoMotivo, type Ausencia, type TecnicoDetalle } from "@/lib/agenda/esquemas";
 import { api, resolver } from "@/lib/api/cliente";
@@ -20,9 +22,14 @@ import { mensajeDeError } from "@/lib/api/errores";
 import { diaDesdeIso, etiquetaDia, horaDe } from "@/lib/despacho/fechas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
+import { usePestanaUrl } from "@/lib/pestanas";
 import { useSesion } from "@/lib/sesion";
 
 type Abierto = "turnos" | null;
+
+/** Pestañas de la ficha del técnico (`?pestana=`). */
+const PESTANAS_TECNICO = ["datos", "agenda", "ausencias"] as const;
+type PestanaTecnico = (typeof PESTANAS_TECNICO)[number];
 
 /** Ficha de un técnico: datos de contacto, cuadrilla y zonas, turnos semanales y ausencias. */
 export function FichaTecnico() {
@@ -33,6 +40,7 @@ export function FichaTecnico() {
     const ficha = useLectura<TecnicoDetalle>((signal) => resolver(api().GET("/api/v1/tecnicos/{id}", { params: { path: { id } }, signal })));
     useNombreEnMigas(ficha.estado === "listo" ? ficha.datos?.nombre : null);
     const [abierto, setAbierto] = useState<Abierto>(null);
+    const [pestana, setPestana] = usePestanaUrl(PESTANAS_TECNICO, "datos");
     const cuadrillas = catalogos.cuadrillas.estado === "listo" ? catalogos.cuadrillas.datos : undefined;
     const zonas = catalogos.zonas.estado === "listo" ? catalogos.zonas.datos : undefined;
 
@@ -97,107 +105,132 @@ export function FichaTecnico() {
                 }
             />
             <AvisoCatalogos {...catalogos} />
-            <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
-                <Seccion
-                    titulo="Datos de la ficha"
-                    accion={
-                        puede(["agenda.editar_tecnico"]) && cuadrillas ? (
-                            <Boton asChild variante="contorno" tamano="sm">
-                                <Link href={`/tecnicos/${t.id}/editar`}>
-                                    <Pencil />
-                                    Editar
-                                </Link>
-                            </Boton>
-                        ) : null
-                    }
-                >
-                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                        <Dato etiqueta="Cuadrilla">
-                            {t.cuadrillaId === null ? "Sin cuadrilla" : (cuadrilla?.nombre ?? `Cuadrilla ${t.cuadrillaId}`)}
-                            {cuadrilla ? <span className="block text-xs text-muted-foreground">{textoZonas(cuadrilla, zonas)}</span> : null}
-                        </Dato>
-                        <Dato etiqueta="Teléfono">
-                            {t.telefono ? (
-                                <a href={`tel:${t.telefono.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
-                                    <Phone aria-hidden className="size-3.5" />
-                                    {t.telefono}
-                                </a>
-                            ) : (
-                                <span className="text-muted-foreground">Sin teléfono</span>
-                            )}
-                        </Dato>
-                        <Dato etiqueta="Correo">{t.correo}</Dato>
-                        <Dato etiqueta="Habilidades">{(t.habilidades ?? []).length > 0 ? (t.habilidades ?? []).join(", ") : <span className="text-muted-foreground">Ninguna</span>}</Dato>
-                        <Dato etiqueta="Bodega en Argos">{t.bodegaId ?? <span className="text-muted-foreground">Sin bodega</span>}</Dato>
-                    </dl>
-                </Seccion>
-                <Seccion
-                    titulo="Turnos semanales"
-                    accion={
-                        puede(["agenda.fijar_turnos"]) ? (
-                            <Boton variante="contorno" tamano="sm" onClick={() => setAbierto("turnos")}>
-                                <Clock />
-                                Editar turnos
-                            </Boton>
-                        ) : null
-                    }
-                >
-                    {turnos.length === 0 ? (
-                        <Aviso tono="warning" titulo="Sin turnos">
-                            No se le pueden programar órdenes hasta fijar sus turnos.
-                        </Aviso>
-                    ) : (
-                        <ul className="grid gap-1 text-sm" aria-label="Turnos">
-                            {turnos.map((tu) => (
-                                <li key={`${tu.dia}-${tu.inicio}`} className="flex justify-between gap-3 border-b border-border/60 py-1 last:border-b-0">
-                                    <span>{DIAS_SEMANA[tu.dia - 1]?.texto ?? tu.dia}</span>
-                                    <span className="tabular-nums">
-                                        {tu.inicio}–{tu.fin}
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </Seccion>
-                <Seccion
-                    titulo="Ausencias"
-                    className="lg:col-span-2"
-                    accion={
-                        puede(["agenda.registrar_ausencia"]) ? (
-                            <Boton asChild variante="contorno" tamano="sm">
-                                <Link href={`/tecnicos/${t.id}/ausencias/nueva`}>
-                                    <CalendarPlus />
-                                    Registrar ausencia
-                                </Link>
-                            </Boton>
-                        ) : null
-                    }
-                >
-                    {ausencias.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Sin ausencias vigentes ni próximas.</p>
-                    ) : (
-                        <ul className="grid gap-2" aria-label="Ausencias">
-                            {ausencias.map((a) => (
-                                <FilaAusencia key={a.id} tecnico={t} ausencia={a} alAnular={() => void ficha.refrescar()} />
-                            ))}
-                        </ul>
-                    )}
-                </Seccion>
-            </div>
+            <Pestanas<PestanaTecnico>
+                etiqueta="Secciones del técnico"
+                seleccionada={pestana}
+                alCambiar={setPestana}
+                pestanas={[
+                    {
+                        id: "datos",
+                        etiqueta: "Datos",
+                        contenido: (
+                            <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+                                <Seccion
+                                    titulo="Datos de la ficha"
+                                    accion={
+                                        puede(["agenda.editar_tecnico"]) && cuadrillas ? (
+                                            <Boton asChild variante="contorno" tamano="sm">
+                                                <Link href={`/tecnicos/${t.id}/editar`}>
+                                                    <Pencil />
+                                                    Editar
+                                                </Link>
+                                            </Boton>
+                                        ) : null
+                                    }
+                                >
+                                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                                        <Dato etiqueta="Cuadrilla">
+                                            {t.cuadrillaId === null ? "Sin cuadrilla" : (cuadrilla?.nombre ?? `Cuadrilla ${t.cuadrillaId}`)}
+                                            {cuadrilla ? <span className="block text-xs text-muted-foreground">{textoZonas(cuadrilla, zonas)}</span> : null}
+                                        </Dato>
+                                        <Dato etiqueta="Teléfono">
+                                            {t.telefono ? (
+                                                <a href={`tel:${t.telefono.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
+                                                    <Phone aria-hidden className="size-3.5" />
+                                                    {t.telefono}
+                                                </a>
+                                            ) : (
+                                                <span className="text-muted-foreground">Sin teléfono</span>
+                                            )}
+                                        </Dato>
+                                        <Dato etiqueta="Correo">{t.correo}</Dato>
+                                        <Dato etiqueta="Habilidades">{(t.habilidades ?? []).length > 0 ? (t.habilidades ?? []).join(", ") : <span className="text-muted-foreground">Ninguna</span>}</Dato>
+                                        <Dato etiqueta="Bodega en Argos">{t.bodegaId ?? <span className="text-muted-foreground">Sin bodega</span>}</Dato>
+                                    </dl>
+                                </Seccion>
+                                <VinculoArgos tecnico={t} alCambiar={(nueva) => ficha.reemplazar(nueva)} />
+                            </div>
+                        ),
+                    },
+                    {
+                        id: "agenda",
+                        etiqueta: "Agenda",
+                        contenido: (
+                            <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+                                <Seccion
+                                    titulo="Turnos semanales"
+                                    accion={
+                                        puede(["agenda.fijar_turnos"]) ? (
+                                            <Boton variante="contorno" tamano="sm" onClick={() => setAbierto("turnos")}>
+                                                <Clock />
+                                                Editar turnos
+                                            </Boton>
+                                        ) : null
+                                    }
+                                >
+                                    {turnos.length === 0 ? (
+                                        <Aviso tono="warning" titulo="Sin turnos">
+                                            No se le pueden programar órdenes hasta fijar sus turnos.
+                                        </Aviso>
+                                    ) : (
+                                        <ul className="grid gap-1 text-sm" aria-label="Turnos">
+                                            {turnos.map((tu) => (
+                                                <li key={`${tu.dia}-${tu.inicio}`} className="flex justify-between gap-3 border-b border-border/60 py-1 last:border-b-0">
+                                                    <span>{DIAS_SEMANA[tu.dia - 1]?.texto ?? tu.dia}</span>
+                                                    <span className="tabular-nums">
+                                                        {tu.inicio}–{tu.fin}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </Seccion>
+                                <Seccion titulo="Citas">
+                                    <p className="text-sm text-muted-foreground">Las órdenes programadas de {t.nombre} están en la agenda, por día o por semana.</p>
+                                    <Boton asChild variante="secundario" tamano="sm" className="justify-self-start">
+                                        <Link href={`/agenda?tecnico=${t.usuarioId}`}>
+                                            <CalendarDays />
+                                            Abrir su agenda
+                                        </Link>
+                                    </Boton>
+                                </Seccion>
+                            </div>
+                        ),
+                    },
+                    {
+                        id: "ausencias",
+                        etiqueta: "Ausencias",
+                        ...(ausencias.length > 0 ? { contador: ausencias.length } : {}),
+                        contenido: (
+                            <Seccion
+                                titulo="Ausencias"
+                                accion={
+                                    puede(["agenda.registrar_ausencia"]) ? (
+                                        <Boton asChild variante="contorno" tamano="sm">
+                                            <Link href={`/tecnicos/${t.id}/ausencias/nueva`}>
+                                                <CalendarPlus />
+                                                Registrar ausencia
+                                            </Link>
+                                        </Boton>
+                                    ) : null
+                                }
+                            >
+                                {ausencias.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground">Sin ausencias vigentes ni próximas.</p>
+                                ) : (
+                                    <ul className="grid gap-2" aria-label="Ausencias">
+                                        {ausencias.map((a) => (
+                                            <FilaAusencia key={a.id} tecnico={t} ausencia={a} alAnular={() => void ficha.refrescar()} />
+                                        ))}
+                                    </ul>
+                                )}
+                            </Seccion>
+                        ),
+                    },
+                ]}
+            />
             {abierto === "turnos" ? <FormularioTurnos tecnico={t} alCerrar={() => setAbierto(null)} alGuardar={tras} /> : null}
         </>
-    );
-}
-
-function Seccion({ titulo, accion, className, children }: { titulo: string; accion?: ReactNode; className?: string; children: ReactNode }) {
-    return (
-        <Tarjeta className={`grid content-start gap-3 p-4 [&>*]:min-w-0 ${className ?? ""}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-base font-semibold tracking-[-0.015em]">{titulo}</h2>
-                {accion}
-            </div>
-            {children}
-        </Tarjeta>
     );
 }
 

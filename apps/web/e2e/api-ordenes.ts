@@ -54,6 +54,8 @@ const TRANSICIONES: Record<string, readonly Orden["estado"][]> = {
 };
 
 export type OpcionesOrdenes = {
+    /** Casos de Argos 0.5.0 (ver `OpcionesApi.argos050`). */
+    argos050?: boolean;
     /** Usuarios técnicos que la API acepta al asignar o programar (por defecto, solo Lucía). */
     tecnicos?: readonly number[];
     /** Reglas de la agenda al programar, reprogramar o asignar (422 legibles). */
@@ -76,7 +78,7 @@ function cerrarPausa(o: Orden, cierre: NonNullable<Schema<"PausaOrden">["cierre"
 }
 
 export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdenes = {}): ApiOrdenes {
-    const esc = escenarioOrdenes(Date.now(), empresas);
+    const esc = escenarioOrdenes(Date.now(), empresas, { argos050: opciones.argos050 === true });
     const tecnicos = opciones.tecnicos ?? [3];
     let siguiente = 1000;
     let siguienteEvento = 5000;
@@ -115,7 +117,7 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                 .filter((o) => !texto || o.numero.toLowerCase().includes(texto) || o.direccion.toLowerCase().includes(texto))
                 // La API ordena por id desc; aquí ascendente para que los casos salgan en la primera página.
                 .sort((a, b) => a.id - b.id)
-                .map(soloOrden);
+                .map((o) => ({ ...soloOrden(o), ...(esc.datosArgos.get(o.id) ? { datosArgosCambiados: esc.datosArgos.get(o.id) } : {}) }));
             await json(route, pagina(lista, query) satisfies Schema<"PaginaOrden">);
             return true;
         }
@@ -510,6 +512,43 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                 return true;
             }
             Object.assign(p, { estado: "pendiente", intentos: 0, proximoIntento: new Date().toISOString(), version: p.version + 1 } satisfies Partial<Schema<"Pendiente">>);
+            await json(route, p);
+            return true;
+        }
+        const aMano = /^\/api\/v1\/integraciones\/pendientes\/(\d+)\/resolver-manual$/.exec(ruta);
+        if (aMano && metodo === "POST") {
+            if (!puede("integraciones.resolver_pendiente")) return prohibido(route).then(() => true);
+            const p = esc.pendientes.find((x) => x.id === Number(aMano[1]));
+            if (!p) return noEncontrado(route).then(() => true);
+            const b = (cuerpo ?? {}) as Partial<Schema<"EntradaResolverManualHTTPBody">>;
+            if (!c.idempotencia || !b.motivo?.trim()) {
+                await problema(route, { type: "urn:iris:problema:validacion", title: "Datos inválidos", status: 422, errors: [{ field: "body.motivo", message: "Obligatorio" }] });
+                return true;
+            }
+            if (b.version !== p.version) {
+                await problema(route, { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409, detail: "El pendiente cambió" });
+                return true;
+            }
+            if (p.estado !== "fallido_negocio") {
+                await problema(route, { type: "urn:iris:problema:pendiente_no_resoluble", title: "No se puede resolver a mano", status: 422, detail: "Solo lo rechazado por Argos" });
+                return true;
+            }
+            // Un cargo de un producto del consumo lo espera: hay que decidir qué hacer con él.
+            const cargos = esc.pendientes.filter((x) => x.operacion === "cargo" && (x.dependeDe ?? []).includes(p.id) && x.estado !== "hecho" && x.estado !== "resuelto_manual");
+            if (p.operacion === "consumo" && cargos.length > 0 && !b.cargo) {
+                await problema(route, { type: "urn:iris:problema:decision_cargo_requerida", title: "Falta decidir el cargo", status: 422, detail: "Un cargo de un producto del consumo espera su respuesta: manda cargo = liberar o resolver_tambien" });
+                return true;
+            }
+            const ahora = new Date().toISOString();
+            Object.assign(p, { estado: "resuelto_manual", resueltoMotivo: b.motivo.trim(), resueltoPor: c.actual.id, resueltoEn: ahora, version: p.version + 1 } satisfies Partial<Schema<"Pendiente">>);
+            for (const cargo of cargos) {
+                if (b.cargo === "resolver_tambien") Object.assign(cargo, { estado: "resuelto_manual", resueltoMotivo: b.motivo.trim(), resueltoPor: c.actual.id, resueltoEn: ahora, ultimoError: null, version: cargo.version + 1 });
+                else Object.assign(cargo, { estado: "pendiente", ultimoError: null, proximoIntento: ahora, version: cargo.version + 1 });
+            }
+            // Los demás que esperaban su respuesta quedan rechazados e incompletos.
+            for (const d of esc.pendientes.filter((x) => x.operacion !== "cargo" && (x.dependeDe ?? []).includes(p.id) && x.estado === "bloqueado")) {
+                Object.assign(d, { estado: "fallido_negocio", datosIncompletos: true, codigoError: "dependencia_resuelta_a_mano", ultimoError: "La acción de la que dependía se resolvió a mano", version: d.version + 1 });
+            }
             await json(route, p);
             return true;
         }

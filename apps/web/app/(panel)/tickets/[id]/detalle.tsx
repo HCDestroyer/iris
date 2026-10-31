@@ -5,6 +5,7 @@ import {
     Aviso,
     Boton,
     cn,
+    Pestanas,
     Esqueleto,
     EstadoVacio,
     InsigniaEstado,
@@ -31,6 +32,7 @@ import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { enlaceHorusTicket } from "@/lib/enlaces";
 import { useLectura, type Lectura } from "@/lib/lectura";
 import { usePaginado, type Paginado } from "@/lib/paginado";
+import { usePestanaUrl } from "@/lib/pestanas";
 import { PieLista } from "@/componentes/pie-lista";
 import { useSesion } from "@/lib/sesion";
 import { ESTADOS, ORIGENES, PRIORIDADES, type EstadoTicket, type Prioridad } from "@/lib/tickets/presentacion";
@@ -72,6 +74,10 @@ function NoEncontrado() {
     );
 }
 
+/** Pestañas de la ficha del ticket (`?pestana=`). */
+const PESTANAS_TICKET = ["resumen", "conversacion", "ordenes", "historial"] as const;
+type PestanaTicket = (typeof PESTANAS_TICKET)[number];
+
 function Detalle({ id }: { id: number }) {
     const { yo, puede } = useSesion();
     const ahora = useAhora();
@@ -97,6 +103,7 @@ function Detalle({ id }: { id: number }) {
     const categorias = useCategorias();
     const usuarios = useUsuarios();
     const enlaces = useEnlacesExternos();
+    const [pestana, setPestana] = usePestanaUrl(PESTANAS_TICKET, "resumen");
 
     if (ticket.estado === "cargando") {
         return (
@@ -194,44 +201,66 @@ function Detalle({ id }: { id: number }) {
                 </div>
             </header>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="grid min-w-0 content-start gap-4">
-                    <Tarjeta>
-                        <TarjetaContenido className="grid gap-4 pt-5 sm:grid-cols-2">
-                            <div className="grid gap-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">SLA de primera respuesta</span>
-                                <SlaVisible reloj={t.slaRespuesta} tipo="respuesta" ahora={ahora} />
-                            </div>
-                            <div className="grid gap-1.5">
-                                <span className="text-xs font-medium text-muted-foreground">SLA de resolución</span>
-                                <SlaVisible reloj={t.slaResolucion} tipo="resolucion" ahora={ahora} />
-                            </div>
-                            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm sm:col-span-2">
-                                <dt className="text-muted-foreground">Asignado</dt>
-                                <dd data-testid="asignado">{asignado ?? "Sin asignar"}</dd>
-                                <dt className="text-muted-foreground">Origen</dt>
-                                <dd>{ORIGENES[t.origen]}</dd>
-                                <dt className="text-muted-foreground">Creado</dt>
-                                <dd className="tabular-nums">{formatearFecha(t.creadoEn)}</dd>
-                                <dt className="text-muted-foreground">Actualizado</dt>
-                                <dd className="tabular-nums">{formatearFecha(t.actualizadoEn)}</dd>
-                            </dl>
-                        </TarjetaContenido>
-                    </Tarjeta>
-
-                    <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} />
-                    <TicketsHijos ticketId={t.id} />
-                    {puede(["ordenes.ver", "ordenes.ver_propias"]) ? (
-                        <OrdenesDelTicket
-                            ticket={t}
-                            usuarios={listaUsuarios}
-                            alCambiarTicket={(nuevo) => {
-                                ticket.reemplazar(nuevo);
-                                void eventos.refrescar();
-                            }}
-                        />
-                    ) : null}
-                    <Historial paginado={eventos} ahora={ahora} />
+                    <Pestanas<PestanaTicket>
+                        etiqueta="Secciones del ticket"
+                        seleccionada={pestana}
+                        alCambiar={setPestana}
+                        pestanas={[
+                            {
+                                id: "resumen",
+                                etiqueta: "Resumen",
+                                contenido: (
+                                    <div className="grid gap-4">
+                                        <Tarjeta>
+                                            <TarjetaContenido className="grid gap-4 pt-5 sm:grid-cols-2">
+                                                <div className="grid gap-1.5">
+                                                    <span className="text-xs font-medium text-muted-foreground">SLA de primera respuesta</span>
+                                                    <SlaVisible reloj={t.slaRespuesta} tipo="respuesta" ahora={ahora} />
+                                                </div>
+                                                <div className="grid gap-1.5">
+                                                    <span className="text-xs font-medium text-muted-foreground">SLA de resolución</span>
+                                                    <SlaVisible reloj={t.slaResolucion} tipo="resolucion" ahora={ahora} />
+                                                </div>
+                                                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm sm:col-span-2">
+                                                    <dt className="text-muted-foreground">Asignado</dt>
+                                                    <dd data-testid="asignado">{asignado ?? "Sin asignar"}</dd>
+                                                    <dt className="text-muted-foreground">Origen</dt>
+                                                    <dd>{ORIGENES[t.origen]}</dd>
+                                                    <dt className="text-muted-foreground">Creado</dt>
+                                                    <dd className="tabular-nums">{formatearFecha(t.creadoEn)}</dd>
+                                                    <dt className="text-muted-foreground">Actualizado</dt>
+                                                    <dd className="tabular-nums">{formatearFecha(t.actualizadoEn)}</dd>
+                                                </dl>
+                                            </TarjetaContenido>
+                                        </Tarjeta>
+                                        <TicketsHijos ticketId={t.id} />
+                                    </div>
+                                ),
+                            },
+                            { id: "conversacion", etiqueta: "Conversación", contenido: <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} /> },
+                            ...(puede(["ordenes.ver", "ordenes.ver_propias"])
+                                ? [
+                                      {
+                                          id: "ordenes" as const,
+                                          etiqueta: "Órdenes",
+                                          contenido: (
+                                              <OrdenesDelTicket
+                                                  ticket={t}
+                                                  usuarios={listaUsuarios}
+                                                  alCambiarTicket={(nuevo) => {
+                                                      ticket.reemplazar(nuevo);
+                                                      void eventos.refrescar();
+                                                  }}
+                                              />
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                            { id: "historial", etiqueta: "Historial", contenido: <Historial paginado={eventos} ahora={ahora} /> },
+                        ]}
+                    />
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente">
                     {t.contacto.verificado ? null : (

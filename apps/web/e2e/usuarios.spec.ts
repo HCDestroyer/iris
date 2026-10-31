@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, CONSULTA, conSesion, ELENA, EMPRESAS, LECTOR, simularApi, type OpcionesApi } from "./api-falsa";
 import { simularUsuarios, type OpcionesUsuarios } from "./api-usuarios";
-import { confirmacion } from "./ayudas";
+import { confirmacion, pestana } from "./ayudas";
 
 // «Aún no puedo crear usuarios» (PM): «Nuevo usuario» en /usuarios; en la ficha, «Editar»,
 // «Desactivar» y empresas; y «Crear usuario» desde «Nuevo técnico». En escritorio y teléfono,
@@ -79,6 +79,7 @@ test.describe("administración de usuarios", () => {
         await r.getByRole("button", { name: "Ver usuario" }).click();
         await expect(page).toHaveURL(/\/usuarios\/500$/);
         await expect(page.getByRole("heading", { name: "Marta Xol" })).toBeVisible();
+        await pestana(page, "Empresas");
         await expect(page.locator('[data-seccion="empresas"]')).toContainText("Cable Norte");
         await sinDesborde(page);
     });
@@ -180,7 +181,7 @@ test.describe("administración de usuarios", () => {
 
     test("ficha: empresas, asignar y quitar (con confirmación)", async ({ page, context, baseURL }, info) => {
         const { admin } = await preparar(page, context, baseURL, { api: { empresas: EMPRESAS } });
-        await page.goto(`/usuarios/${LECTOR.id}`);
+        await page.goto(`/usuarios/${LECTOR.id}?pestana=empresas`);
         const s = page.locator('[data-seccion="empresas"]');
         await expect(s).toContainText("Sin empresas");
         const asignar = s.getByRole("button", { name: "Asignar empresa" });
@@ -211,7 +212,7 @@ test.describe("administración de usuarios", () => {
         await expect(page.getByRole("heading", { name: "Usuarios" })).toBeVisible();
         await expect(page.getByRole("link", { name: ADMIN.nombre }).first()).toBeAttached();
         await expect(page.getByRole("link", { name: "Nuevo usuario" })).toHaveCount(0);
-        await page.goto(`/usuarios/${CON_MFA.id}`);
+        await page.goto(`/usuarios/${CON_MFA.id}?pestana=empresas`);
         await expect(page.getByRole("heading", { name: CON_MFA.nombre })).toBeVisible();
         await expect(page.locator('[data-seccion="empresas"]')).toBeVisible();
         await expect(page.getByRole("link", { name: "Editar" })).toHaveCount(0);

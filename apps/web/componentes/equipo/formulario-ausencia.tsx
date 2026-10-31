@@ -35,7 +35,7 @@ type Respuesta = Schema<"RespuestaAusencia">;
  */
 export function FormularioAusencia({ tecnico }: { tecnico: TecnicoDetalle }) {
     const router = useRouter();
-    const ficha = `/tecnicos/${tecnico.id}`;
+    const ficha = `/tecnicos/${tecnico.id}?pestana=ausencias`;
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
     const [hecho, setHecho] = useState<Respuesta | null>(null);

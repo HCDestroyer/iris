@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { confirmacion, enlaceMenu, irA, sinEntradas } from "./ayudas";
+import { confirmacion, enlaceMenu, irA, pestana, sinEntradas } from "./ayudas";
 import { JORGE, LUCIA } from "./datos-agenda";
 
 /*
@@ -241,6 +241,8 @@ test.describe("técnicos", () => {
         // Ficha: turnos.
         await page.goto("/tecnicos/21");
         await expect(page.getByRole("heading", { name: "Lucía Ramírez" })).toBeVisible();
+        await pestana(page, "Agenda");
+        await expect(page).toHaveURL(/\/tecnicos\/21\?pestana=agenda$/);
         await expect(page.getByRole("list", { name: "Turnos" })).toContainText("Lunes");
         await sinDesborde(page);
         await captura(page, info, "55-ficha-tecnico");
@@ -267,6 +269,7 @@ test.describe("técnicos", () => {
         await expect(page.getByRole("list", { name: "Turnos" })).toContainText("Sábado");
 
         // Ausencia: sin motivo no se registra; las citas que caen dentro se listan.
+        await pestana(page, "Ausencias");
         await page.getByRole("link", { name: "Registrar ausencia" }).click();
         await expect(page).toHaveURL(/\/tecnicos\/21\/ausencias\/nueva$/);
         const a = pantalla(page, "Ausencia de Lucía Ramírez");
@@ -285,7 +288,8 @@ test.describe("técnicos", () => {
             .toEqual({ motivo: "enfermedad", inicio: utc(hoy, "00:00"), fin: new Date(Date.parse(utc(hoy, "00:00")) + 86_400_000).toISOString().replace(".000Z", "Z") });
         await expect(page.getByTestId("ausencia-conflictos")).toContainText("OT-000003");
         await page.getByTestId("ausencia-conflictos").getByRole("button", { name: "Entendido" }).click();
-        await expect(page).toHaveURL(/\/tecnicos\/21$/);
+        // De vuelta en la ficha, en la pestaña «Ausencias».
+        await expect(page).toHaveURL(/\/tecnicos\/21\?pestana=ausencias$/);
         const fila = page.locator("[data-ausencia]").filter({ hasText: "Enfermedad" });
         await expect(fila).toBeVisible();
 

@@ -10,9 +10,8 @@ import {
     CampoArea,
     CampoSelector,
     DialogoCerrar,
-    DialogoContenido,
     DialogoPie,
-    DialogoProtegido,
+    PanelProtegido,
     useCambiosSinGuardar,
 } from "@iris/ui";
 import {
@@ -235,20 +234,18 @@ function DialogoAccion({
 
     const props: PropsFormulario = { ticket, enviar, pie };
     return (
-        <DialogoProtegido open onOpenChange={(a) => !a && alCerrar()}>
-            <DialogoContenido titulo={def.titulo} descripcion={`${ticket.numero} · ${ticket.asunto}`}>
-                {accion === "responder" ? <FormResponder {...props} /> : null}
-                {accion === "nota_interna" ? <FormNota {...props} /> : null}
-                {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
-                {accion === "escalar" ? <FormEscalar {...props} /> : null}
-                {accion === "poner_en_espera" ? <FormMotivo {...props} accion="poner_en_espera" /> : null}
-                {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
-                {accion === "reanudar" ? <FormReanudar {...props} /> : null}
-                {accion === "resolver" ? <FormResolver {...props} /> : null}
-                {accion === "cerrar" ? <FormCerrar {...props} /> : null}
-                {accion === "fusionar" ? <FormFusionar {...props} /> : null}
-            </DialogoContenido>
-        </DialogoProtegido>
+        <PanelProtegido open onOpenChange={(a) => !a && alCerrar()} titulo={def.titulo} descripcion={`${ticket.numero} · ${ticket.asunto}`}>
+            {accion === "responder" ? <FormResponder {...props} /> : null}
+            {accion === "nota_interna" ? <FormNota {...props} /> : null}
+            {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
+            {accion === "escalar" ? <FormEscalar {...props} /> : null}
+            {accion === "poner_en_espera" ? <FormMotivo {...props} accion="poner_en_espera" /> : null}
+            {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
+            {accion === "reanudar" ? <FormReanudar {...props} /> : null}
+            {accion === "resolver" ? <FormResolver {...props} /> : null}
+            {accion === "cerrar" ? <FormCerrar {...props} /> : null}
+            {accion === "fusionar" ? <FormFusionar {...props} /> : null}
+        </PanelProtegido>
     );
 }
 

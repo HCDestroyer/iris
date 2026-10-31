@@ -56,6 +56,8 @@ export type EscenarioOrdenes = {
     eventos: (Evento & { ordenId: number })[];
     adjuntos: Adjunto[];
     pendientes: Pendiente[];
+    /** «Dato de Argos cambió» por orden (va en `Orden`: lista y tablero). */
+    datosArgos: Map<number, Schema<"DatosArgosCambiados">>;
 };
 
 function base(id: number, ahora: number, empresa: number | null, p: Partial<OrdenDetalle>): OrdenDetalle {
@@ -150,7 +152,7 @@ function hoyA(ahora: number, hora: number): number {
  * ticket 2, 3 programada, 4 en camino, 5 en sitio, 6 fallida, 7 cancelada, 8 cerrada con un
  * conflicto) y 9–35 de relleno (dos páginas de 30).
  */
-export function escenarioOrdenes(ahora: number, empresas: readonly number[]): EscenarioOrdenes {
+export function escenarioOrdenes(ahora: number, empresas: readonly number[], { argos050 = false }: { argos050?: boolean } = {}): EscenarioOrdenes {
     const empresa = empresas[0] ?? null;
     const t = (h: number) => iso(hoyA(ahora, h));
     const ordenes: OrdenDetalle[] = [
@@ -187,8 +189,8 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[]): Es
             ],
             notas: [{ id: "n1", texto: "El cliente pidió el router en la sala.", autorId: TECNICO_ID, autorNombre: "Lucía Ramírez", canal: "campo", ocurridoEn: t(9.2) }],
             materiales: [
-                { id: "m1", productoId: 801, descripcion: "Cable drop 1 hilo (m)", cantidad: 85, bodegaId: 30, excedeExistencia: false, ocurridoEn: t(9.3) },
-                { id: "m2", productoId: 802, descripcion: "Conector SC/APC", cantidad: 2, bodegaId: 30, excedeExistencia: true, ocurridoEn: t(9.3) },
+                { id: "m1", productoId: 801, descripcion: "Cable drop 1 hilo (m)", cantidad: 85, bodegaId: 30, excedeExistencia: false, modalidad: "consumible_gasto", ocurridoEn: t(9.3) },
+                { id: "m2", productoId: 802, descripcion: "Conector SC/APC", cantidad: 2, bodegaId: 30, excedeExistencia: true, modalidad: "consumible_cobro", ocurridoEn: t(9.3) },
             ],
             equipos: [{ id: "e1", accion: "instalar", unidadId: 9001, serie: "ZTEG12345678", mac: "AA:BB:CC:DD:EE:01", modelo: "ZTE F670L", condicion: null, validado: false, ocurridoEn: t(9.4) }],
             adjuntos: [{ id: ADJ.fotoOnt, tipo: "foto", itemId: null, descripcion: "ONT instalada", ocurridoEn: t(9.45) }],
@@ -295,7 +297,39 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[]): Es
         pendiente(103, 1, { operacion: "asignar_comodato", estado: "bloqueado", dependeDe: [102], ultimoError: "depende_de_102_fallido", version: 2 }),
         pendiente(104, 8, { operacion: "retiro", estado: "hecho", intentos: 1, hechoEn: t(7), conflicto: "cierre_repetido_con_otros_datos", conflictoEn: t(7.2), payloadConflicto: {} }),
     ];
-    return { ordenes, eventos, adjuntos, pendientes };
+    const datosArgos = new Map<number, Schema<"DatosArgosCambiados">>();
+    if (argos050) {
+        const consumo = pendientes.find((p) => p.id === 102);
+        if (consumo) Object.assign(consumo, { codigoError: "existencia_insuficiente" });
+        pendientes.push(
+            // Cargo del producto 802 (consumible_cobro) que espera al consumo rechazado.
+            pendiente(105, 1, { operacion: "cargo", ruta: "/clientes/501/cargos", estado: "bloqueado", dependeDe: [102], ultimoError: "depende_de_102_fallido", version: 1 }),
+            pendiente(106, 8, {
+                operacion: "consumo",
+                estado: "fallido_negocio",
+                intentos: 1,
+                ultimoStatus: 422,
+                codigoError: "tecnico_no_encontrado",
+                corregible: true,
+                ultimoError: "Argos no encontró al técnico con id_externo 77 en la empresa.",
+                version: 2,
+            }),
+            pendiente(107, 8, {
+                operacion: "consumo",
+                estado: "hecho",
+                intentos: 1,
+                hechoEn: t(7.1),
+                cargos: [
+                    { id: 9101, productoId: 802, monto: "45.00" },
+                    { id: 9102, productoId: 805, monto: "120.50" },
+                ],
+                facturaId: 7001,
+                version: 2,
+            }),
+        );
+        datosArgos.set(2, { en: t(6.2), campos: ["servicio.direccion", "servicio.contacto_telefono"] });
+    }
+    return { ordenes, eventos, adjuntos, pendientes, datosArgos };
 }
 
 /** `Orden` (respuesta de las acciones) a partir del detalle. */

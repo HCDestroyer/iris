@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
+import { pestana } from "./ayudas";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -84,10 +85,11 @@ test.describe("detalle del ticket", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
         await expect(page.getByRole("heading", { name: "Sin internet desde la mañana" })).toBeVisible();
+        await expect(page.locator('[data-reloj="respuesta"]')).toContainText("En riesgo");
+        await pestana(page, "Conversación");
         const nota = page.locator('[data-publico="false"]');
         await expect(nota).toContainText("Nota interna");
         await expect(nota).toContainText("Revisar la ONT antes de mandar cuadrilla.");
-        await expect(page.locator('[data-reloj="respuesta"]')).toContainText("En riesgo");
         await expect(page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Responder" })).toBeVisible();
         await expect(page.getByTestId("ficha-cliente")).toContainText("María Castillo");
         await expect(page.getByTestId("ficha-cliente")).toContainText("GTQ 150.00");
@@ -96,7 +98,7 @@ test.describe("detalle del ticket", () => {
     test("sin tickets.ver_notas no se piden ni se ven notas, ni hay acciones", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
-        await page.goto("/tickets/1");
+        await page.goto("/tickets/1?pestana=conversacion");
         await expect(page.getByRole("heading", { name: "Sin internet desde la mañana" })).toBeVisible();
         await expect(page.getByText("Sin acceso a notas internas")).toBeVisible();
         await expect(page.getByText("Hola, sin internet desde la mañana.")).toBeVisible();
@@ -117,9 +119,10 @@ test.describe("detalle del ticket", () => {
         await dialogo.getByLabel("Respuesta").fill("Ya revisamos la línea, ¿puede reiniciar el equipo?");
         await dialogo.getByRole("button", { name: "Enviar respuesta" }).click();
         await expect(dialogo).toHaveCount(0);
-        await expect(page.getByText("Ya revisamos la línea, ¿puede reiniciar el equipo?")).toBeVisible();
         await expect(page.locator("header [data-estado]")).toContainText("Abierto");
         await expect(page.locator('[data-reloj="respuesta"]')).toContainText("Cumplido");
+        await pestana(page, "Conversación");
+        await expect(page.getByText("Ya revisamos la línea, ¿puede reiniciar el equipo?")).toBeVisible();
         const envio = api.peticiones.find((p) => p.ruta === "/api/v1/tickets/1/responder");
         expect(envio?.idempotencia).toBeTruthy();
         expect(envio?.cuerpo).toMatchObject({ version: 1 });
@@ -287,6 +290,7 @@ test.describe("«Ver en Argos/Horus» y contacto sin verificar", () => {
         await expect(insignia).toContainText("Contacto sin verificar");
         await expect(insignia.locator("svg")).toBeVisible();
         await expect(page.getByRole("complementary", { name: "Cliente" })).toContainText("no se pudo autenticar (DMARC/DKIM)");
+        await pestana(page, "Conversación");
         const retenido = page.locator('[data-correo-retenido="remitente_no_verificado"]');
         await expect(retenido).toContainText("Correo sin verificar");
         await expect(retenido).toContainText("no cambió el estado del ticket");
