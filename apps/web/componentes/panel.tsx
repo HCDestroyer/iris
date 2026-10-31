@@ -175,6 +175,16 @@ function Estructura({ children }: { children: ReactNode }) {
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
 
+/**
+ * Región de avisos en el teléfono: dentro de la barra superior (56 px), desde el borde izquierdo
+ * hasta antes del buscador; el texto en letra pequeña y hasta dos líneas para que quepa.
+ */
+const CLASES_AVISOS_TELEFONO = [
+    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-14 w-auto translate-x-0 sm:w-auto",
+    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-12 [&_[data-slot=toast]]:py-1.5",
+    "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
+].join(" ");
+
 function suscribirAncho(avisar: () => void) {
     const consulta = window.matchMedia(CONSULTA_ESCRITORIO);
     consulta.addEventListener("change", avisar);
@@ -182,8 +192,9 @@ function suscribirAncho(avisar: () => void) {
 }
 
 /**
- * Avisos emergentes: abajo a la derecha en escritorio; en el teléfono arriba, bajo la barra
- * superior, para no tapar la barra inferior ni los botones de las hojas que suben desde abajo.
+ * Avisos emergentes: abajo a la derecha en escritorio. En el teléfono, sobre la propia barra
+ * superior (a la altura del logo, dejando libre el botón del buscador): así no tapan la miga
+ * «‹ …» de la pantalla, ni la barra inferior, ni «Guardar», ni las hojas que suben desde abajo.
  */
 function AvisosDelPanel() {
     const escritorio = useSyncExternalStore(
@@ -194,7 +205,7 @@ function AvisosDelPanel() {
     return escritorio ? (
         <ProveedorAvisosEmergentes ubicacion="bottom end" />
     ) : (
-        <ProveedorAvisosEmergentes ubicacion="top" className="top-[calc(4rem+env(safe-area-inset-top))]" />
+        <ProveedorAvisosEmergentes ubicacion="top" className={CLASES_AVISOS_TELEFONO} />
     );
 }
 
