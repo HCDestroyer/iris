@@ -7,10 +7,13 @@ import {
     CircleDashed,
     CirclePause,
     CircleX,
+    HandCoins,
     Hammer,
     Lock,
     MapPinCheck,
+    Package,
     PackageMinus,
+    PackagePlus,
     PlugZap,
     Repeat,
     Router,
@@ -61,6 +64,25 @@ export const TIPOS_ORDEN: Record<TipoOrden, { icono: LucideIcon; texto: string }
 export const ORDEN_TIPOS: readonly TipoOrden[] = ["instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"];
 
 /** Columnas del tablero: los tres estados finales comparten la última. */
+export type ModalidadMaterial = NonNullable<NonNullable<OrdenDetalle["materiales"]>[number]["modalidad"]>;
+
+/** Cómo trata Argos cada material (contrato 0.5.0): cobro al cliente, comodato o gasto. */
+export const MODALIDADES: Record<ModalidadMaterial, Presentacion> = {
+    consumible_cobro: { tono: "info", icono: HandCoins, texto: "Se cobra al cliente" },
+    comodato: { tono: "warning", icono: PackagePlus, texto: "Comodato: regístralo como equipo" },
+    consumible_gasto: { tono: "neutral", icono: Package, texto: "Gasto" },
+};
+
+/**
+ * Insignia de la modalidad. Si Argos manda una modalidad que esta versión no conoce, se muestra
+ * tal cual en neutral (con icono) en vez de romper la pestaña.
+ */
+export function presentacionModalidad(modalidad: string): Presentacion {
+    return Object.hasOwn(MODALIDADES, modalidad)
+        ? MODALIDADES[modalidad as ModalidadMaterial]
+        : { tono: "neutral", icono: Package, texto: modalidad };
+}
+
 export type Columna = { id: string; titulo: string; estados: readonly EstadoOrden[] };
 export const COLUMNAS: readonly Columna[] = [
     { id: "pendiente", titulo: "Pendiente", estados: ["pendiente"] },

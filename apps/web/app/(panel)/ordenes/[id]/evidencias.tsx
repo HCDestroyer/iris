@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, type Tono } from "@iris/ui";
+import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import {
     Camera,
     CircleCheck,
@@ -9,17 +9,14 @@ import {
     CircleX,
     ExternalLink,
     Gauge,
-    HandCoins,
     MessageSquareText,
     MapPin,
-    Package,
     PackageCheck,
     PackageMinus,
     PackagePlus,
     ShieldCheck,
     ShieldQuestion,
     TriangleAlert,
-    type LucideIcon,
 } from "lucide-react";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { Galeria, ImagenConReintento, type Foto } from "@/componentes/ordenes/imagen-adjunto";
@@ -29,7 +26,7 @@ import type { Lectura } from "@/lib/lectura";
 import { enlaceMapa, esImagenMostrable, textoCoordenadas, type Adjunto } from "@/lib/ordenes/adjuntos";
 import { puntosGps, type EventoOrden } from "@/lib/ordenes/historial";
 import type { Paginado } from "@/lib/paginado";
-import { CONDICIONES, type OrdenDetalle } from "@/lib/ordenes/presentacion";
+import { CONDICIONES, presentacionModalidad, type OrdenDetalle } from "@/lib/ordenes/presentacion";
 
 type Item = Schema<"ItemChecklist">;
 export type Yo = { id: number; nombre: string };
@@ -258,13 +255,6 @@ export function Gps({ orden, eventos }: { orden: OrdenDetalle; eventos: Paginado
 }
 
 /** Materiales usados y equipos instalados/retirados (serie y MAC). */
-/** Cómo trata Argos cada material (contrato 0.5.0): cobro al cliente, comodato o gasto. */
-const MODALIDADES = {
-    consumible_cobro: { tono: "info", icono: HandCoins, texto: "Se cobra al cliente" },
-    comodato: { tono: "warning", icono: PackagePlus, texto: "Comodato: regístralo como equipo" },
-    consumible_gasto: { tono: "neutral", icono: Package, texto: "Gasto" },
-} as const satisfies Record<NonNullable<OrdenDetalle["materiales"]>[number]["modalidad"] & string, { tono: Tono; icono: LucideIcon; texto: string }>;
-
 export function MaterialesYEquipos({ orden }: { orden: OrdenDetalle }) {
     const materiales = orden.materiales ?? [];
     const equipos = orden.equipos ?? [];
@@ -284,7 +274,7 @@ export function MaterialesYEquipos({ orden }: { orden: OrdenDetalle }) {
                                 <li key={m.id} className="flex flex-wrap items-center justify-between gap-2" data-material={m.productoId}>
                                     <span className="min-w-0 break-words">{m.descripcion || `Producto ${m.productoId}`}</span>
                                     <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                                        {m.modalidad ? <InsigniaEstado {...MODALIDADES[m.modalidad]} data-modalidad={m.modalidad} /> : null}
+                                        {m.modalidad ? <InsigniaEstado {...presentacionModalidad(m.modalidad)} data-modalidad={m.modalidad} /> : null}
                                         {m.excedeExistencia ? <InsigniaEstado tono="warning" icono={TriangleAlert} texto="Más de lo que había en bodega" /> : null}
                                         <span className="font-medium tabular-nums">{m.cantidad.toLocaleString("es-GT")}</span>
                                     </span>
