@@ -1409,6 +1409,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/aplicar-datos-argos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aplicar a la orden los datos nuevos de Argos
+         * @description Permiso: `ordenes.aplicar_datos_argos`. Atiende el aviso `datosArgosCambiados`: copia de la instantánea actual de Argos la dirección, las coordenadas, la referencia y el contacto (los `campos` pedidos; sin `campos`, todos; lo que Argos no tiene se queda) con la regla de la creación (servicio y, si no, cliente), quita el aviso y sube la versión. Orden abierta con aviso (422 `sin_aviso_argos`, `transicion_invalida`); 422 `sin_instantanea_argos` si Iris no tiene la instantánea; 409 por `version`. Auditado con el diff por campo; emite `orden.datos_argos_aplicados`; el técnico la recibe actualizada.
+         */
+        post: operations["aplicarDatosArgosOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/asignar": {
         parameters: {
             query?: never;
@@ -1483,6 +1503,26 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Gana la marca más reciente (por hora del hecho); la otra queda en el historial (`aviso: checklist_no_vigente`).
          */
         post: operations["marcarChecklistOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/descartar-datos-argos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Descartar el aviso «Dato de Argos cambió»
+         * @description Permiso: `ordenes.descartar_datos_argos`. La orden se queda con sus datos: solo quita el aviso `datosArgosCambiados` y sube la versión. 422 `sin_aviso_argos` o `transicion_invalida`; 409 por `version`. Auditado (con el `motivo`); emite `orden.datos_argos_descartados`.
+         */
+        post: operations["descartarDatosArgosOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5146,6 +5186,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaAplicarDatosArgos: {
+            /** @description Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden */
+            campos?: ("direccion" | "coordenadas" | "referencia" | "contacto")[] | null;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EntradaAsignarOrden: {
             /**
              * Format: int64
@@ -5675,6 +5724,15 @@ export interface components {
         };
         EntradaDesactivarUsuario: {
             motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
+        EntradaDescartarDatosArgos: {
+            /** @description Por qué la orden se queda con sus datos */
+            motivo?: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -7407,6 +7465,8 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Cómo llegar, copiada de Argos (servicio o cliente) al crear la orden o al aplicar sus datos nuevos; ausente si no hay */
+            referencia?: string;
             /** @enum {string|null} */
             resultado: "exitosa" | "parcial" | "fallida" | "cancelada" | null;
             /**
@@ -7476,6 +7536,8 @@ export interface components {
             cuadrillaId: number | null;
             /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
             datosArgos?: components["schemas"]["CopiaArgos"];
+            /** @description «Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios */
+            datosArgosCambiados?: components["schemas"]["DatosArgosCambiados"];
             descripcion: string;
             direccion: string;
             /**
@@ -7544,6 +7606,8 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Cómo llegar, copiada de Argos (servicio o cliente) al crear la orden o al aplicar sus datos nuevos; ausente si no hay */
+            referencia?: string;
             /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
@@ -7614,6 +7678,8 @@ export interface components {
             cuadrillaId: number | null;
             /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
             datosArgos?: components["schemas"]["CopiaArgos"];
+            /** @description «Dato de Argos cambió»: Argos avisó un cambio en la dirección, coordenadas, referencia o contacto del servicio o del cliente después de copiarlos. La orden conserva lo suyo; despacho lo revisa y aplica. Ausente si no hubo cambios */
+            datosArgosCambiados?: components["schemas"]["DatosArgosCambiados"];
             descripcion: string;
             direccion: string;
             /**
@@ -7682,6 +7748,8 @@ export interface components {
              * @description Prospecto de origen (fase 4)
              */
             prospectoId: number | null;
+            /** @description Cómo llegar, copiada de Argos (servicio o cliente) al crear la orden o al aplicar sus datos nuevos; ausente si no hay */
+            referencia?: string;
             /** @description Algún formulario pide la firma del cliente */
             requiereFirma: boolean;
             /** @enum {string|null} */
@@ -8180,7 +8248,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -15331,6 +15399,89 @@ export interface operations {
             };
         };
     };
+    aplicarDatosArgosOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAplicarDatosArgos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     asignarOrden: {
         parameters: {
             query?: never;
@@ -15595,6 +15746,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaMarcarChecklist"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    descartarDatosArgosOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaDescartarDatosArgos"];
             };
         };
         responses: {

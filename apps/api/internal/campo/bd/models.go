@@ -277,6 +277,7 @@ type CampoOrden struct {
 	PausadaSeg            int64
 	DatosArgosCambiadosEn *time.Time
 	DatosArgosCampos      []string
+	Referencia            *string
 }
 
 type CampoOrdenAdjunto struct {

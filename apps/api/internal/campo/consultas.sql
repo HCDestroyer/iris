@@ -167,11 +167,11 @@ SELECT * FROM integracion.argos_servicios WHERE id = ANY(@ids::bigint[]);
 INSERT INTO campo.ordenes (
     empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id,
     cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion,
-    creado_por, idempotencia, origen
+    creado_por, idempotencia, origen, referencia
 ) VALUES (
     @empresa_id, @tipo_id, @plantilla_id, @ticket_id, @prospecto_id, @cliente_id, @servicio_id, @zona_id,
     @cuadrilla_id, @bodega_id, @direccion, @lat, @lon, @contacto_nombre, @contacto_telefono, @descripcion,
-    @creado_por, sqlc.narg(idempotencia), @origen
+    @creado_por, sqlc.narg(idempotencia), @origen, sqlc.narg(referencia)
 )
 RETURNING *;
 
@@ -605,3 +605,21 @@ WHERE o.estado NOT IN ('cerrada', 'fallida', 'cancelada')
     OR (sqlc.narg(cliente_id)::bigint IS NOT NULL AND o.cliente_id = sqlc.narg(cliente_id)::bigint
         AND (@solo_sin_servicio::boolean = false OR o.servicio_id IS NULL)))
 RETURNING o.id, o.numero, o.empresa_id;
+
+-- name: AplicarDatosArgosOrden :one
+-- Despacho aplica a la orden los datos actuales de la instantánea de Argos (dirección, coordenadas,
+-- referencia y contacto, ya calculados por el caso de uso) y quita la marca «dato de Argos cambió».
+-- Sube la versión: con una versión vieja no actualiza nada (409).
+UPDATE campo.ordenes SET
+    direccion = @direccion, lat = sqlc.narg(lat), lon = sqlc.narg(lon), referencia = sqlc.narg(referencia),
+    contacto_nombre = sqlc.narg(contacto_nombre), contacto_telefono = sqlc.narg(contacto_telefono),
+    datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: DescartarDatosArgosOrden :one
+-- Despacho revisó el aviso y la orden se queda con lo suyo: solo se quita la marca.
+UPDATE campo.ordenes SET
+    datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;

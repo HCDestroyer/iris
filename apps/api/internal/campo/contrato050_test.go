@@ -54,8 +54,8 @@ func TestContrato050EnCampo(t *testing.T) {
 			Entidad: "servicio", ServicioID: &servicio, Campos: campos, EntranteID: 5}))(t)
 	}
 	v := deber(e.m.VerOrden.Ejecutar(cd, campo.EntradaVerOrden{ID: abierta.ID}))(t).Orden
-	if v.DatosArgos == nil || len(v.DatosArgos.Campos) != 2 || v.DatosArgos.Campos[0] != "servicio.direccion" || v.Version != abierta.Version {
-		t.Fatalf("marca «dato de Argos cambió» (sin subir la versión): %+v", v.DatosArgos)
+	if v.DatosArgosCambiados == nil || len(v.DatosArgosCambiados.Campos) != 2 || v.DatosArgosCambiados.Campos[0] != "servicio.direccion" || v.Version != abierta.Version {
+		t.Fatalf("marca «dato de Argos cambió» (sin subir la versión): %+v", v.DatosArgosCambiados)
 	}
 	if v.Direccion != abierta.Direccion {
 		t.Fatal("la dirección copiada no se pisa")

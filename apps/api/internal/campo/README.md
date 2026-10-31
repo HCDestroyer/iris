@@ -254,4 +254,12 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   marca las órdenes abiertas del servicio o del cliente (`datos_argos_cambiados_en`,
   `datos_argos_campos`, sin subir la versión ni pisar lo copiado; `ordenes.marcar_datos_argos`,
   auditado). La API expone `datosArgosCambiados { en, campos[] }` y emite
-  `orden.datos_argos_cambiados`. Aplicar el dato nuevo es de despacho (pendiente para I2/I3).
+  `orden.datos_argos_cambiados`. Despacho lo atiende con `POST /ordenes/{id}/aplicar-datos-argos
+  { version, campos? }` (`ordenes.aplicar_datos_argos`: copia de la instantánea actual la dirección,
+  las coordenadas, la referencia y el contacto —`campos` = direccion, coordenadas, referencia,
+  contacto; sin ellos, todo— con la regla de la creación, quita la marca y sube la versión; emite
+  `orden.datos_argos_aplicados`) o `POST /ordenes/{id}/descartar-datos-argos { version, motivo? }`
+  (`ordenes.descartar_datos_argos`: solo quita la marca; emite `orden.datos_argos_descartados`). Orden
+  abierta con aviso (422 `sin_aviso_argos`, `transicion_invalida`), 422 `sin_instantanea_argos`, 409
+  por `version`; auditadas con el diff por campo; el técnico la recibe actualizada. La orden guarda
+  también la `referencia` de Argos (cómo llegar) al crearse.

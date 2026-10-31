@@ -3,14 +3,20 @@ package campo
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -108,4 +114,250 @@ func (m *Modulo) SuscribirDatosArgos(bus *integracion.Bus, bd nucleo.BD, log *sl
 		_, err := m.MarcarDatosArgos.Ejecutar(nucleo.ConBD(ctx, bd), in)
 		return err
 	})
+}
+
+// Atender el aviso «Dato de Argos cambió» (despacho, supervisor): aplicar los datos actuales de la
+// instantánea de Argos a la orden abierta, o descartar el aviso. Ambas quitan la marca, suben la
+// versión (409 con una vieja), auditan el diff por campo y avisan al técnico (feed «actualizada»).
+
+// Grupos de datos que se aplican.
+const (
+	GrupoDireccion   = "direccion"
+	GrupoCoordenadas = "coordenadas"
+	GrupoReferencia  = "referencia"
+	GrupoContacto    = "contacto"
+)
+
+var gruposDatosArgos = []string{GrupoDireccion, GrupoCoordenadas, GrupoReferencia, GrupoContacto}
+
+// EntradaAplicarDatosArgos es la entrada de ordenes.aplicar_datos_argos.
+type EntradaAplicarDatosArgos struct {
+	ID      int64    `json:"-"`
+	Version int32    `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
+	Campos  []string `json:"campos,omitempty" required:"false" maxItems:"4" uniqueItems:"true" enum:"direccion,coordenadas,referencia,contacto" doc:"Qué aplicar; sin campos, todo. Lo que Argos no tiene se queda como está en la orden"`
+}
+
+// EntradaDescartarDatosArgos es la entrada de ordenes.descartar_datos_argos.
+type EntradaDescartarDatosArgos struct {
+	ID      int64   `json:"-"`
+	Version int32   `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
+	Motivo  *string `json:"motivo,omitempty" required:"false" maxLength:"500" doc:"Por qué la orden se queda con sus datos"`
+}
+
+func (e EntradaAplicarDatosArgos) ordenID() int64   { return e.ID }
+func (e EntradaDescartarDatosArgos) ordenID() int64 { return e.ID }
+
+// datosArgosActuales: lo que Argos dice hoy, con la regla de la creación de la orden: dirección y
+// coordenadas del servicio y, si no tiene, del cliente; referencia del servicio o del cliente;
+// contacto del servicio o, si no, el nombre y el teléfono principal del cliente. ok = false sin
+// ninguna instantánea.
+type datosArgos struct {
+	direccion                        *string
+	lat, lon                         *float64
+	referencia                       *string
+	contactoNombre, contactoTelefono *string
+}
+
+func noVacio(s string) *string {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	return &s
+}
+
+func datosArgosActuales(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden) (datosArgos, bool, error) {
+	var d datosArgos
+	hay := false
+	if f.ServicioID != nil {
+		s, err := q.ServicioArgos(ctx, *f.ServicioID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return d, false, err
+		default:
+			hay = true
+			d.direccion, d.referencia = noVacio(s.Direccion), noVacio(s.Referencia)
+			if s.Lat != nil && s.Lon != nil {
+				d.lat, d.lon = s.Lat, s.Lon
+			}
+			d.contactoNombre = noVacio(s.ContactoNombre)
+			if p := formato.Principal(formato.Telefonos("telefono", s.ContactoTelefono)); p != nil {
+				d.contactoTelefono = &p.Mostrar
+			}
+		}
+	}
+	if f.ClienteID != nil {
+		c, err := q.ClienteArgos(ctx, *f.ClienteID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return d, false, err
+		default:
+			hay = true
+			if d.direccion == nil {
+				d.direccion = noVacio(c.Direccion)
+			}
+			if d.lat == nil && c.Lat != nil && c.Lon != nil {
+				d.lat, d.lon = c.Lat, c.Lon
+			}
+			if d.referencia == nil {
+				d.referencia = noVacio(c.Referencia)
+			}
+			if d.contactoNombre == nil && d.contactoTelefono == nil {
+				d.contactoNombre = noVacio(c.Nombre)
+				tels := append(formato.Telefonos("telefono", c.Telefono), formato.Telefonos("movil", c.Movil)...)
+				if p := formato.Principal(tels); p != nil {
+					d.contactoTelefono = &p.Mostrar
+				}
+			}
+		}
+	}
+	return d, hay, nil
+}
+
+func recortar(s *string, n int) *string {
+	if s == nil {
+		return nil
+	}
+	if r := []rune(*s); len(r) > n {
+		v := string(r[:n])
+		return &v
+	}
+	return s
+}
+
+func exigirAvisoAbierto(f campobd.CampoOrden, accion string) error {
+	if err := exigirEstado(f, accion, EstadoPendiente, EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada); err != nil {
+		return err
+	}
+	if f.DatosArgosCambiadosEn == nil {
+		return nucleo.ReglaNegocio("sin_aviso_argos", "La orden no tiene el aviso «Dato de Argos cambió»")
+	}
+	return nil
+}
+
+func (m *Modulo) nuevoAplicarDatosArgos() *auditoria.Caso[EntradaAplicarDatosArgos, Orden] {
+	return accionOrden("ordenes.aplicar_datos_argos", nucleo.PermOrdenesAplicarDatosArgos, sinLote[EntradaAplicarDatosArgos],
+		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaAplicarDatosArgos) (campobd.CampoOrden, string, error) {
+			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesAplicarDatosArgos, &in.Version, nil)
+			if err != nil {
+				return antes, "", err
+			}
+			if err := exigirAvisoAbierto(antes, "aplicar los datos de Argos a"); err != nil {
+				return antes, "", err
+			}
+			grupos := gruposDatosArgos
+			if len(in.Campos) > 0 {
+				grupos = slices.Clone(in.Campos)
+				slices.Sort(grupos)
+				grupos = slices.Compact(grupos)
+				for i, g := range grupos {
+					if !slices.Contains(gruposDatosArgos, g) {
+						return antes, "", campoInvalido(fmt.Sprintf("campos[%d]", i), "direccion, coordenadas, referencia o contacto", "enum")
+					}
+				}
+			}
+			d, hay, err := datosArgosActuales(ctx, q, antes)
+			if err != nil {
+				return antes, "", err
+			}
+			if !hay {
+				return antes, "", nucleo.ReglaNegocio("sin_instantanea_argos",
+					"Iris no tiene la instantánea del cliente ni del servicio de Argos de esta orden: ábrela en la ficha (Refrescar) y vuelve a intentar")
+			}
+			p := campobd.AplicarDatosArgosOrdenParams{
+				Direccion: antes.Direccion, Lat: antes.Lat, Lon: antes.Lon, Referencia: antes.Referencia,
+				ContactoNombre: antes.ContactoNombre, ContactoTelefono: antes.ContactoTelefono, ID: antes.ID, Version: antes.Version,
+			}
+			for _, g := range grupos {
+				switch g {
+				case GrupoDireccion:
+					if d.direccion != nil {
+						p.Direccion = *recortar(d.direccion, 500)
+					}
+				case GrupoCoordenadas:
+					if d.lat != nil {
+						p.Lat, p.Lon = d.lat, d.lon
+					}
+				case GrupoReferencia:
+					if d.referencia != nil {
+						p.Referencia = recortar(d.referencia, 500)
+					}
+				case GrupoContacto:
+					if d.contactoNombre != nil || d.contactoTelefono != nil {
+						p.ContactoNombre, p.ContactoTelefono = recortar(d.contactoNombre, 200), recortar(d.contactoTelefono, 50)
+					}
+				}
+			}
+			f, err := q.AplicarDatosArgosOrden(ctx, p)
+			if err != nil {
+				return f, "", nucleo.VerificarVersion(err, "orden", antes.ID)
+			}
+			t.RegistrarCambios("orden", f.ID, antes, f)
+			if err := alimentarFeed(ctx, q, &antes, f); err != nil {
+				return f, "", err
+			}
+			cambiados := []string{}
+			if f.Direccion != antes.Direccion {
+				cambiados = append(cambiados, "direccion")
+			}
+			if !igualPtr(f.Lat, antes.Lat) || !igualPtr(f.Lon, antes.Lon) {
+				cambiados = append(cambiados, "coordenadas")
+			}
+			if !igualPtr(f.Referencia, antes.Referencia) {
+				cambiados = append(cambiados, "referencia")
+			}
+			if !igualPtr(f.ContactoNombre, antes.ContactoNombre) || !igualPtr(f.ContactoTelefono, antes.ContactoTelefono) {
+				cambiados = append(cambiados, "contacto")
+			}
+			return f, "", t.Emitir("orden.datos_argos_aplicados", map[string]any{
+				"orden_id": f.ID, "numero": f.Numero, "campos": grupos, "cambiados": cambiados, "campos_argos": nuncaNil(antes.DatosArgosCampos),
+			})
+		})
+}
+
+func (m *Modulo) nuevoDescartarDatosArgos() *auditoria.Caso[EntradaDescartarDatosArgos, Orden] {
+	return accionOrden("ordenes.descartar_datos_argos", nucleo.PermOrdenesDescartarDatosArgos, sinLote[EntradaDescartarDatosArgos],
+		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaDescartarDatosArgos) (campobd.CampoOrden, string, error) {
+			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesDescartarDatosArgos, &in.Version, nil)
+			if err != nil {
+				return antes, "", err
+			}
+			if err := exigirAvisoAbierto(antes, "descartar el aviso de Argos de"); err != nil {
+				return antes, "", err
+			}
+			var motivo *string
+			if in.Motivo != nil {
+				v, err := texto("motivo", *in.Motivo, 0, 500)
+				if err != nil {
+					return antes, "", err
+				}
+				motivo = noVacio(v)
+			}
+			f, err := q.DescartarDatosArgosOrden(ctx, campobd.DescartarDatosArgosOrdenParams{ID: antes.ID, Version: antes.Version})
+			if err != nil {
+				return f, "", nucleo.VerificarVersion(err, "orden", antes.ID)
+			}
+			t.RegistrarCambios("orden", f.ID, antes, f)
+			if motivo != nil {
+				t.Anotar(map[string]any{"motivo": *motivo})
+			}
+			return f, "", t.Emitir("orden.datos_argos_descartados", map[string]any{
+				"orden_id": f.ID, "numero": f.Numero, "campos_argos": nuncaNil(antes.DatosArgosCampos), "motivo": motivo,
+			})
+		})
+}
+
+func igualPtr[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func nuncaNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

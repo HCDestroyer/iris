@@ -258,6 +258,11 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			if err := completarDesdeArgos(ctx, q, &datos, empresa, in.Contacto == nil || contactoDeTicket); err != nil {
 				return Orden{}, err
 			}
+			// La referencia (cómo llegar) sale de la instantánea de Argos, como al aplicar sus datos.
+			argosHoy, _, err := datosArgosActuales(ctx, q, campobd.CampoOrden{ClienteID: datos.ClienteID, ServicioID: datos.ServicioID})
+			if err != nil {
+				return Orden{}, err
+			}
 			// Zona y cuadrilla del catálogo de agenda (llaves foráneas): la indicada debe existir,
 			// estar activa y ser de la empresa; la que viene de la instantánea de Argos se copia
 			// al catálogo si falta (la del ticket ya está en él).
@@ -310,7 +315,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				BodegaID: datos.BodegaID, Direccion: *direccion, Lat: datos.Lat, Lon: datos.Lon,
 				ContactoNombre: contacto.Nombre, ContactoTelefono: contacto.Telefono,
 				Descripcion: strings.TrimSpace(in.Descripcion), CreadoPor: actorUsuario(t), Idempotencia: idem,
-				Origen: origenDe(ctx, in.Origen),
+				Origen: origenDe(ctx, in.Origen), Referencia: recortar(argosHoy.referencia, 500),
 			})
 			if err != nil {
 				return Orden{}, err
