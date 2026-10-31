@@ -6,21 +6,27 @@ export type PropsCasilla = Omit<ComponentProps<"input">, "type"> & {
     etiqueta: ReactNode;
     ayuda?: ReactNode;
     error?: string | undefined;
+    /** `lg`: etiqueta de al menos 44 px de alto (zona táctil de la app de campo). */
+    tamano?: "md" | "lg";
 };
 
 /**
  * Casilla de verificación nativa (accesible y sin trampas de foco) con etiqueta clicable, ayuda y
  * error. El color de marca solo marca la selección (`accent-color`).
  */
-export function Casilla({ etiqueta, ayuda, error, id, className, ...props }: PropsCasilla) {
+export function Casilla({ etiqueta, ayuda, error, id, className, tamano = "md", ...props }: PropsCasilla) {
     const ids = useIdsCampo(id, error, ayuda);
     return (
         <div data-slot="casilla" className={cn("grid gap-1", className)}>
-            <label htmlFor={ids.idCampo} className="inline-flex min-h-6 cursor-pointer items-center gap-2.5 text-sm font-medium">
+            <label
+                htmlFor={ids.idCampo}
+                className={cn("inline-flex min-h-6 cursor-pointer items-center gap-2.5 text-sm font-medium", tamano === "lg" && "min-h-11 text-base")}
+            >
                 <input
                     type="checkbox"
                     className={cn(
                         "size-4 shrink-0 cursor-pointer rounded-sm border border-input accent-primary",
+                        tamano === "lg" && "size-5",
                         "focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-55",
                     )}
                     {...ids.control}

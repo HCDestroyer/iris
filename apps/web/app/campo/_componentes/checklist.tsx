@@ -110,7 +110,7 @@ function TarjetaFormulario({
                     {quitable ? (
                         <Boton
                             variante="fantasma"
-                            tamano="sm"
+                            tamano="lg"
                             onClick={() =>
                                 void ejecutar(() => motor.registrar("orden.quitar_formulario", orden.id, { formularioId: formulario.id }), `«${formulario.nombre}» quitado`)
                             }
@@ -178,7 +178,7 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
                     <ul className="grid gap-2" aria-label="Formularios disponibles">
                         {disponibles.map((p) => (
                             <li key={p.id}>
-                                <Boton variante="secundario" className="h-auto w-full justify-start py-2 text-left whitespace-normal" onClick={() => void agregar(p)}>
+                                <Boton tamano="lg" variante="secundario" className="h-auto w-full justify-start py-2 text-left whitespace-normal" onClick={() => void agregar(p)}>
                                     <span className="grid gap-0.5">
                                         <span className="font-semibold">{p.nombre}</span>
                                         <span className="text-xs font-normal text-muted-foreground">
@@ -192,7 +192,7 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
                     </ul>
                 )}
                 <DialogoPie>
-                    <Boton variante="fantasma" onClick={() => setAbierto(false)}>
+                    <Boton tamano="lg" variante="fantasma" onClick={() => setAbierto(false)}>
                         Volver
                     </Boton>
                 </DialogoPie>
@@ -401,7 +401,7 @@ function ItemValor({
                         ) : null}
                     </div>
                     {editable ? (
-                        <Boton variante="secundario" onClick={() => void guardar()} aria-label={`Guardar ${item.etiqueta}`}>
+                        <Boton tamano="lg" variante="secundario" onClick={() => void guardar()} aria-label={`Guardar ${item.etiqueta}`}>
                             Guardar
                         </Boton>
                     ) : null}

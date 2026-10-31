@@ -84,7 +84,7 @@ export function Materiales({ orden, editable }: { orden: OrdenVista; editable: b
                             ))}
                         </CampoSelector>
                         <Campo etiqueta="Cantidad" inputMode="decimal" autoComplete="off" error={form.formState.errors.cantidad?.message} {...form.register("cantidad")} />
-                        <Boton type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
+                        <Boton tamano="lg" type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
                             Registrar material
                         </Boton>
                     </form>

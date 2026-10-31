@@ -5,5 +5,7 @@
 export * from "./codigos";
 export * from "./esquemas";
 export * from "./fechas";
+export * from "./pasos";
+export * from "./traslados";
 export * from "./reglas";
 export * from "./textos";

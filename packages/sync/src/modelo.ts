@@ -2,6 +2,7 @@
 import type {
     AvisoResultado,
     DatosPorTipo,
+    EntradaRecibirTraslado,
     Existencias,
     OrdenCampo,
     PlantillaFormulario,
@@ -20,7 +21,45 @@ import type {
  */
 export type EstadoOperacionLocal = "pendiente" | "rechazada" | "esperando_adjuntos";
 
-export type OperacionLocal = {
+/** Lo que comparte toda operación de la cola. */
+interface OperacionBase {
+    /** UUID v7 del teléfono: idempotencia en la API. */
+    id: string;
+    /** Hora del teléfono sin corregir (la API la corrige con `enviadoEn`). */
+    ocurridoEn: string;
+    secuencia: number;
+    estado: EstadoOperacionLocal;
+    error: Problema | null;
+    intentos: number;
+    esperaHasta?: number;
+    esperaDesde?: number;
+    esperas?: number;
+}
+
+/**
+ * Clave de grupo de una recepción de traslado en la cola: `-trasladoId` (como `grupoDe` en la API).
+ * Negativa para no chocar nunca con una orden (ni con `0`): la espera propia y los rechazos detienen
+ * solo lo que sigue de ese mismo traslado.
+ */
+export function grupoTraslado(trasladoId: number): number {
+    return -Math.abs(trasladoId);
+}
+
+/** `traslado.recibir` en la cola: no es de una orden; `ordenId` lleva la clave de grupo negativa. */
+export interface OperacionTrasladoLocal extends OperacionBase {
+    tipo: "traslado.recibir";
+    /** `grupoTraslado(datos.trasladoId)`: siempre negativa. */
+    ordenId: number;
+    /** Sin versión: siempre 0 (no viaja en el lote). */
+    versionBase: 0;
+    datos: EntradaRecibirTraslado;
+    plantilla?: undefined;
+}
+
+export type OperacionLocal = OperacionOrdenLocal | OperacionTrasladoLocal;
+
+/** Operación de una orden (todas menos `traslado.recibir`). */
+export type OperacionOrdenLocal = {
     [T in TipoOperacion]: {
         /** UUID v7 del teléfono: idempotencia en la API. */
         id: string;
@@ -70,7 +109,17 @@ export type EstadoSubida = "por_crear" | "subiendo" | "subido" | "rechazado";
 
 export interface AdjuntoLocal {
     id: string;
+    /** Orden del adjunto; en la firma de un traslado, `grupoTraslado(trasladoId)` (negativa). */
     ordenId: number;
+    /** Entidad del alta: ausente = `orden`; `traslado` = firma de una recepción. */
+    entidad?: "traslado";
+    /**
+     * Firma de traslado con 404 en el alta (el traslado aún no llega a Iris): no se reintenta antes
+     * de `esperaHasta`; `esperaDesde` es el primer 404 (tope `ESPERA_OPERACION_MAX_MS`).
+     */
+    esperaHasta?: number;
+    esperaDesde?: number;
+    esperas?: number;
     tipo: TipoAdjunto;
     /** Código del ítem foto del checklist que respalda (`claveChecklist` del alta). */
     claveChecklist: string | null;

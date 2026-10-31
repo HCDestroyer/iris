@@ -29,7 +29,7 @@ export function ElegirEmpresa({
                     </Boton>
                 ))}
                 {alCancelar ? (
-                    <Boton variante="fantasma" onClick={alCancelar}>
+                    <Boton tamano="lg" variante="fantasma" onClick={alCancelar}>
                         Cancelar
                     </Boton>
                 ) : null}

@@ -27,10 +27,24 @@ export {
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
+    crearInventarioApi,
+    type InventarioCampo,
     valorCabeceraApp,
     type IdentidadApp,
 } from "./http";
-export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
+export { grupoTraslado } from "./modelo";
+export type {
+    AdjuntoLocal,
+    EstadoOperacionLocal,
+    EstadoSubida,
+    AvisoServidor,
+    MetaSync,
+    OperacionLocal,
+    OperacionOrdenLocal,
+    OperacionTrasladoLocal,
+    OrdenLocal,
+    TurnoDelDia,
+} from "./modelo";
 export {
     CODIGO_BLOQUEADA,
     CODIGOS_ESPERA_OPERACION,
@@ -46,6 +60,7 @@ export {
     type Aviso,
     type Conexion,
     type EntradaAdjunto,
+    type EntradaRecepcion,
     type ErrorVisible,
     type EstadoSync,
     type OpcionesMotor,

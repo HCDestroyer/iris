@@ -40,7 +40,7 @@ export function Notas({ orden, editable }: { orden: OrdenVista; editable: boolea
                 {editable ? (
                     <form onSubmit={enviar} className="grid gap-2" noValidate>
                         <CampoArea etiqueta="Nueva nota" rows={3} error={form.formState.errors.texto?.message} {...form.register("texto")} />
-                        <Boton type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
+                        <Boton tamano="lg" type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
                             Agregar nota
                         </Boton>
                     </form>

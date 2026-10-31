@@ -13,21 +13,23 @@ import {
     TIPOS_BLOQUEADOS_EN_PAUSA,
     TIPOS_EVIDENCIA,
 } from "./aplicar";
-import type {
-    CambiosConTurno,
-    DatosPorTipo,
-    PlantillaFormulario,
-    Existencias,
-    OperacionCable,
-    OrdenCampo,
-    Problema,
-    ResultadoOperacion,
-    RutaCampo,
-    TipoAdjunto,
-    TipoOperacion,
+import {
+    operacionRecibirTraslado,
+    type CambiosConTurno,
+    type DatosPorTipo,
+    type LineaRecepcion,
+    type PlantillaFormulario,
+    type Existencias,
+    type OperacionCable,
+    type OrdenCampo,
+    type Problema,
+    type ResultadoOperacion,
+    type RutaCampo,
+    type TipoAdjunto,
+    type TipoOperacion,
 } from "./contrato";
 import { codigoProblema, ErrorSync, ErrorTransporte } from "./errores";
-import type { AdjuntoLocal, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
+import { grupoTraslado, type AdjuntoLocal, type AvisoServidor, type MetaSync, type OperacionLocal, type OperacionTrasladoLocal, type OrdenLocal, type TurnoDelDia } from "./modelo";
 import { calcularEspera, ESPERA_POR_DEFECTO, relojSistema, type OpcionesEspera, type Reloj } from "./reloj";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
 import { crearGeneradorUuid7 } from "./uuid7";
@@ -60,6 +62,15 @@ export const ESPERA_OPERACION_MAX_MS = 24 * 60 * 60 * 1000;
 /** La operación sin su espera propia (al rehacerla o aplicarla). */
 function sinEspera(op: OperacionLocal): OperacionLocal {
     const resto = { ...op };
+    delete resto.esperaHasta;
+    delete resto.esperaDesde;
+    delete resto.esperas;
+    return resto;
+}
+
+/** El adjunto sin su espera propia (al subirlo, rehacerlo o rechazarlo). */
+function sinEsperaAdjunto(adjunto: AdjuntoLocal): AdjuntoLocal {
+    const resto = { ...adjunto };
     delete resto.esperaHasta;
     delete resto.esperaDesde;
     delete resto.esperas;
@@ -150,6 +161,8 @@ export interface EstadoSync {
     rechazos: readonly OperacionLocal[];
     /** `orden.cerrar` que reintentará sola cuando terminen sus subidas. */
     esperandoAdjuntos: readonly OperacionLocal[];
+    /** Recepciones de traslado en la cola (por enviar, en espera o rechazadas), en su orden. */
+    recepciones: readonly OperacionTrasladoLocal[];
     subidas: ResumenSubidas;
     adjuntos: readonly AdjuntoLocal[];
     ordenes: readonly OrdenVista[];
@@ -193,6 +206,15 @@ export interface EntradaAdjunto {
     descripcion?: string;
 }
 
+/** Recepción de un traslado de Argos firmada por el técnico (contrato 0.5.0 §3.3). */
+export interface EntradaRecepcion {
+    trasladoId: number;
+    /** PNG de la firma del técnico (entidad `traslado`). */
+    firma: Uint8Array;
+    /** Solo si faltó algo: por línea lo recibido y las series que no llegaron. */
+    lineas?: LineaRecepcion[];
+}
+
 type Oyente = (estado: EstadoSync) => void;
 
 async function sha256Sistema(datos: Uint8Array): Promise<string> {
@@ -209,6 +231,8 @@ function adjuntoDeOp(op: OperacionLocal): string | null {
             return op.datos.adjuntoId ?? null;
         case "checklist.marcar":
             return typeof op.datos.valor === "string" ? op.datos.valor : null;
+        case "traslado.recibir":
+            return op.datos.firmaAdjuntoId;
         default:
             return null;
     }
@@ -223,6 +247,8 @@ function cambiarAdjunto(op: OperacionLocal, de: string, a: string): OperacionLoc
             return op.datos.adjuntoId === de ? { ...op, datos: { ...op.datos, adjuntoId: a } } : op;
         case "checklist.marcar":
             return op.datos.valor === de ? { ...op, datos: { ...op.datos, valor: a } } : op;
+        case "traslado.recibir":
+            return op.datos.firmaAdjuntoId === de ? { ...op, datos: { ...op.datos, firmaAdjuntoId: a } } : op;
         default:
             return op;
     }
@@ -245,6 +271,10 @@ function renombrarFormulario(op: OperacionLocal, renombres: ReadonlyMap<string, 
 }
 
 function aCable(op: OperacionLocal): OperacionCable {
+    if (op.tipo === "traslado.recibir") {
+        // Sin `ordenId` ni `versionBase`: la API la agrupa por traslado.
+        return operacionRecibirTraslado(op.id, op.datos, op.ocurridoEn) as unknown as OperacionCable;
+    }
     return {
         id: op.id,
         tipo: op.tipo,
@@ -499,6 +529,69 @@ export class MotorSync {
         return { adjunto, operacion };
     }
 
+    /**
+     * Recibe un traslado: guarda la firma (adjunto de la entidad `traslado`) y encola
+     * `traslado.recibir`, todo en una escritura. Se agrupa por traslado (`grupoTraslado`): no la
+     * retiene ninguna orden y su espera o su rechazo solo detienen lo que sigue de ese traslado.
+     */
+    async recibirTraslado(entrada: EntradaRecepcion): Promise<{ adjunto: AdjuntoLocal; operacion: OperacionTrasladoLocal }> {
+        if (!Number.isSafeInteger(entrada.trasladoId) || entrada.trasladoId <= 0) {
+            throw new ErrorSync("traslado_invalido", "Traslado inválido");
+        }
+        const grupo = grupoTraslado(entrada.trasladoId);
+        if ([...this.ops.values()].some((op) => op.ordenId === grupo)) {
+            throw new ErrorSync("traslado_en_cola", "Ya recibiste este traslado: está por enviar");
+        }
+        const id = this.generarId();
+        const adjunto: AdjuntoLocal = {
+            id,
+            ordenId: grupo,
+            entidad: "traslado",
+            tipo: "firma",
+            claveChecklist: null,
+            obligatorio: true,
+            mime: "image/png",
+            tamano: entrada.firma.byteLength,
+            sha256: await this.sha256(entrada.firma),
+            lat: null,
+            lon: null,
+            tomadoEn: null,
+            estado: "por_crear",
+            offset: 0,
+            intentos: 0,
+            ultimoError: null,
+            problema: null,
+        };
+        const ahora = this.ocurridoAhora();
+        const secuencia = this.meta.secuencia + 1;
+        const operacion: OperacionTrasladoLocal = {
+            id: this.generarId(),
+            tipo: "traslado.recibir",
+            ordenId: grupo,
+            versionBase: 0,
+            ocurridoEn: ahora,
+            datos: {
+                trasladoId: entrada.trasladoId,
+                firmaAdjuntoId: id,
+                recibidoEn: ahora,
+                ...(entrada.lineas && entrada.lineas.length > 0 ? { lineas: entrada.lineas } : {}),
+            },
+            secuencia,
+            estado: "pendiente",
+            error: null,
+            intentos: 0,
+        };
+        await this.guardar({
+            adjuntos: { poner: [adjunto] },
+            bytes: { poner: [{ id, datos: entrada.firma }] },
+            operaciones: { poner: [operacion] },
+            meta: { secuencia },
+        });
+        this.emitir();
+        this.despertar();
+        return { adjunto, operacion };
+    }
+
     /** El técnico ya vio el aviso de una operación aplicada. */
     async descartarAviso(id: string): Promise<void> {
         await this.serializar(() => this.guardar({ meta: { avisos: this.meta.avisos.filter((a) => a.id !== id) } }));
@@ -583,7 +676,7 @@ export class MotorSync {
             throw new ErrorSync("adjunto_desconocido", "Los bytes del adjunto ya no están en el teléfono");
         }
         const nuevoId = this.generarId();
-        const nuevo: AdjuntoLocal = { ...previo, id: nuevoId, estado: "por_crear", offset: 0, intentos: 0, ultimoError: null, problema: null };
+        const nuevo: AdjuntoLocal = { ...sinEsperaAdjunto(previo), id: nuevoId, estado: "por_crear", offset: 0, intentos: 0, ultimoError: null, problema: null };
         const reescritas = [...this.ops.values()]
             .filter((op) => adjuntoDeOp(op) === id && !this.enVuelo.has(op.id))
             .map((op) => cambiarAdjunto({ ...op, estado: "pendiente", error: null } as OperacionLocal, id, nuevoId));
@@ -592,7 +685,7 @@ export class MotorSync {
             bytes: { borrar: [id], poner: [{ id: nuevoId, datos: bytes }] },
             operaciones: { poner: reescritas },
         };
-        if (!reescritas.some((op) => op.tipo === "adjunto.registrar")) {
+        if (previo.entidad !== "traslado" && !reescritas.some((op) => op.tipo === "adjunto.registrar")) {
             const orden = this.ordenes.get(previo.ordenId);
             const item = orden?.base.checklist?.find((i) => i.codigo === previo.claveChecklist);
             const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: nuevoId, tipo: previo.tipo };
@@ -881,7 +974,10 @@ export class MotorSync {
             return null;
         }
         let reintentable: ErrorTransporte | null = null;
-        const porSubir = [...this.adjuntos.values()].filter((a) => a.estado === "por_crear" || a.estado === "subiendo");
+        const ahora = this.reloj.ahora();
+        const porSubir = [...this.adjuntos.values()].filter(
+            (a) => (a.estado === "por_crear" || a.estado === "subiendo") && (a.esperaHasta === undefined || a.esperaHasta <= ahora),
+        );
         for (const adjunto of porSubir) {
             try {
                 await this.subirUno(this.subidor, adjunto);
@@ -890,7 +986,30 @@ export class MotorSync {
                     throw e;
                 }
                 const actual = this.adjuntos.get(adjunto.id);
-                if (e.esReintentable) {
+                if (actual?.entidad === "traslado" && actual.estado === "por_crear" && e.status === 404) {
+                    // El traslado aún no llega a Iris (webhook de Argos): la firma espera con su
+                    // propia espera exponencial; tras ESPERA_OPERACION_MAX_MS queda rechazada.
+                    const momento = this.reloj.ahora();
+                    const desde = actual.esperaDesde ?? momento;
+                    const esperas = actual.esperas ?? 0;
+                    const agotada = momento - desde >= ESPERA_OPERACION_MAX_MS;
+                    await this.guardar({
+                        adjuntos: {
+                            poner: [
+                                agotada
+                                    ? { ...sinEsperaAdjunto(actual), estado: "rechazado", intentos: actual.intentos + 1, ultimoError: e.message, problema: e.problema }
+                                    : {
+                                          ...actual,
+                                          intentos: actual.intentos + 1,
+                                          ultimoError: e.message,
+                                          esperaDesde: desde,
+                                          esperas: esperas + 1,
+                                          esperaHasta: momento + calcularEspera(esperas, this.espera),
+                                      },
+                            ],
+                        },
+                    });
+                } else if (e.esReintentable) {
                     // 429 `demasiadas_subidas`, 5xx (`almacen_no_disponible`…): temporal.
                     reintentable ??= e;
                     if (actual) {
@@ -971,7 +1090,7 @@ export class MotorSync {
     }
 
     private async terminarSubida(adjunto: AdjuntoLocal): Promise<void> {
-        const listo: AdjuntoLocal = { ...adjunto, estado: "subido", offset: adjunto.tamano, ultimoError: null, problema: null };
+        const listo: AdjuntoLocal = { ...sinEsperaAdjunto(adjunto), estado: "subido", offset: adjunto.tamano, ultimoError: null, problema: null };
         await this.guardar({ adjuntos: { poner: [listo] }, bytes: { borrar: [adjunto.id] } });
         await this.liberarEsperas(adjunto.ordenId);
         this.emitir();
@@ -981,8 +1100,9 @@ export class MotorSync {
     private entradaAlta(adjunto: AdjuntoLocal): Parameters<Subidor["crear"]>[0] {
         const entrada: Parameters<Subidor["crear"]>[0] = {
             id: adjunto.id,
-            entidad: "orden",
-            entidadId: String(adjunto.ordenId),
+            entidad: adjunto.entidad ?? "orden",
+            // La firma de un traslado lleva el id del traslado (su grupo es negativo).
+            entidadId: String(adjunto.entidad === "traslado" ? -adjunto.ordenId : adjunto.ordenId),
             tipo: adjunto.tipo,
             mime: adjunto.mime,
             tamano: adjunto.tamano,
@@ -1027,7 +1147,13 @@ export class MotorSync {
 
     private borrarAdjuntoDe(ops: readonly OperacionLocal[]): LoteEscritura {
         const ids = ops
-            .map((op) => (op.tipo === "adjunto.registrar" ? this.adjuntos.get(op.datos.adjuntoId) : undefined))
+            .map((op) =>
+                op.tipo === "adjunto.registrar"
+                    ? this.adjuntos.get(op.datos.adjuntoId)
+                    : op.tipo === "traslado.recibir"
+                      ? this.adjuntos.get(op.datos.firmaAdjuntoId)
+                      : undefined,
+            )
             .filter((a): a is AdjuntoLocal => a !== undefined && a.estado !== "subido")
             .map((a) => a.id);
         return ids.length > 0 ? { adjuntos: { borrar: ids }, bytes: { borrar: ids } } : {};
@@ -1261,7 +1387,7 @@ export class MotorSync {
             const orden = leerOrden(op.ordenId);
             if (r.estado === "aplicada" || r.estado === "duplicada") {
                 borrar.push(op.id);
-                if (r.aviso === "version_anterior" || r.aviso === "pausa_ajustada") {
+                if (op.tipo !== "traslado.recibir" && (r.aviso === "version_anterior" || r.aviso === "pausa_ajustada")) {
                     avisos.push({ id: op.id, ordenId: op.ordenId, tipo: op.tipo, aviso: r.aviso });
                 }
                 if (orden) {
@@ -1549,6 +1675,7 @@ export class MotorSync {
             cola: pendientes,
             rechazos: ops.filter((op) => op.estado === "rechazada"),
             esperandoAdjuntos: ops.filter((op) => op.estado === "esperando_adjuntos"),
+            recepciones: ops.filter((op): op is OperacionTrasladoLocal => op.tipo === "traslado.recibir"),
             subidas: {
                 pendientes: porSubir.length,
                 bytesPendientes: porSubir.reduce((s, a) => s + (a.tamano - a.offset), 0),

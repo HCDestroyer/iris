@@ -158,7 +158,7 @@ function FormularioEquipo({
                     Elige el equipo del comodato para que coincida con Argos.
                 </p>
             ) : null}
-            <Boton type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
+            <Boton tamano="lg" type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
                 {accion === "instalar" ? "Registrar equipo instalado" : "Registrar equipo retirado"}
             </Boton>
         </form>

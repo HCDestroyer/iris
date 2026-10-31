@@ -1,9 +1,25 @@
 "use client";
 
 import type { OrdenVista } from "@iris/sync";
-import { Aviso, Boton, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ArrowLeft, FileQuestion, MapPin, MapPinCheck, Navigation, Phone, Route } from "lucide-react";
-import { useState } from "react";
+import { estadoPasos, faltantesAntesDeFirmar, llego, progresoPasos, siguientePaso, TITULOS_PASO } from "@iris/sync/campo";
+import { Aviso, Boton, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
+import {
+    ArrowLeft,
+    ArrowRight,
+    CircleCheck,
+    CircleDashed,
+    FileQuestion,
+    ListChecks,
+    Lock,
+    MapPin,
+    MapPinCheck,
+    Navigation,
+    PenLine,
+    Phone,
+    Play,
+    Route,
+} from "lucide-react";
+import { useState, type MouseEvent } from "react";
 import { ListaTelefonos } from "@/componentes/clientes/telefonos";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
@@ -14,43 +30,51 @@ import { haceTiempo } from "@/lib/datos/presentacion";
 import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
-import { CerrarOrden, FallarOrden } from "./cierre";
+import { FallarOrden, PasoCierre } from "./cierre";
 import { useCampo, useOrden } from "./contexto";
 import { Equipos } from "./equipos";
-import { Firma } from "./firma";
 import { FotosOrden } from "./fotos";
 import { InsigniaOrden } from "./insignias";
 import { Materiales } from "./materiales";
 import { Notas } from "./notas";
 import { PausaOrden } from "./pausa";
 import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
+import { PASOS_ORDEN, urlDeVista, type PasoOrden } from "@/lib/campo/vista";
 
-export function DetalleOrden({ id }: { id: number }) {
+export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar } = useCampo();
     const orden = useOrden(id);
-    const volver = (
-        <Boton variante="fantasma" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "lista" })}>
-            <ArrowLeft aria-hidden />
-            Mis órdenes
-        </Boton>
-    );
     if (!orden) {
         return (
             <div className="grid gap-4">
-                {volver}
+                <Boton variante="fantasma" tamano="lg" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "lista" })}>
+                    <ArrowLeft aria-hidden />
+                    Mis órdenes
+                </Boton>
                 <EstadoVacio icono={FileQuestion} titulo="La orden ya no está en el teléfono" descripcion="Puede que se haya reasignado o que no sea de hoy." />
             </div>
         );
     }
+    return paso ? <PasoDeOrden orden={orden} paso={paso} /> : <ResumenOrden orden={orden} />;
+}
+
+/** Resumen: cliente, avisos, pausa, avance y «Empezar trabajo» (o «Continuar trabajo»). */
+function ResumenOrden({ orden }: { orden: OrdenVista }) {
+    const { navegar } = useCampo();
     const acciones = accionesDe(orden);
     const inicio = orden.cita?.inicio ?? orden.programadaInicio;
     const fin = orden.cita?.fin ?? orden.programadaFin;
     const ventana = ventanaCita(orden.cita);
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "Cliente sin nombre";
+    const trabajable = acciones.iniciarCamino || acciones.llegar || acciones.trabajo;
+    const empezado = llego(orden);
 
     return (
         <article aria-labelledby="titulo-orden" className="grid gap-4">
-            {volver}
+            <Boton variante="fantasma" tamano="lg" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "lista" })}>
+                <ArrowLeft aria-hidden />
+                Mis órdenes
+            </Boton>
             <header className="grid gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                     <h1 id="titulo-orden" className="font-mono text-xl font-semibold">
@@ -66,32 +90,217 @@ export function DetalleOrden({ id }: { id: number }) {
             </header>
 
             <AvisosOrden orden={orden} />
-            <Cliente orden={orden} nombre={nombre} />
-            {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
                 </Aviso>
             ) : null}
-
-            {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
-                <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
+            {trabajable ? (
+                <Boton tamano="lg" className="h-12 w-full text-base" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: empezado ? siguientePaso(orden) : "llegada" })}>
+                    {empezado ? <ListChecks aria-hidden /> : <Play aria-hidden />}
+                    {empezado ? "Continuar trabajo" : "Empezar trabajo"}
+                </Boton>
             ) : null}
-            {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
-            <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
-            {acciones.trabajo || orden.firma ? <Firma orden={orden} editable={acciones.trabajo} /> : null}
-            {acciones.notas ? <FotosOrden orden={orden} /> : null}
-            <Comodato orden={orden} />
+            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+            <Cliente orden={orden} nombre={nombre} />
+            {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} />
+            {acciones.fallar ? <FallarOrden orden={orden} /> : null}
+        </article>
+    );
+}
 
-            {acciones.cerrar || acciones.fallar ? (
-                <div className="glass-material sticky bottom-0 z-20 -mx-4 flex gap-2 border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-                    {acciones.fallar ? <FallarOrden orden={orden} /> : null}
-                    {acciones.cerrar ? <CerrarOrden orden={orden} /> : null}
+/** Un paso de trabajo: su contenido, el avance y «Anterior» / «Siguiente». Todo se guarda solo. */
+function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
+    const { navegar } = useCampo();
+    const acciones = accionesDe(orden);
+    const indice = PASOS_ORDEN.indexOf(paso);
+    const anterior = PASOS_ORDEN[indice - 1];
+    const siguiente = PASOS_ORDEN[indice + 1];
+    const estado = estadoPasos(orden).find((p) => p.paso === paso);
+    const sinLlegar = !acciones.trabajo && !llego(orden);
+    const irALlegada = sinLlegar ? (
+        <Aviso
+            tono="neutral"
+            titulo="Marca tu llegada para llenar este paso"
+            accion={
+                <Boton variante="secundario" tamano="lg" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: "llegada" })}>
+                    Ir a la llegada
+                </Boton>
+            }
+        />
+    ) : null;
+
+    return (
+        <article aria-labelledby="titulo-paso" className="grid gap-4" data-paso={paso}>
+            <Boton variante="fantasma" tamano="lg" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
+                <ArrowLeft aria-hidden />
+                Resumen de {orden.numero}
+            </Boton>
+            <header className="grid gap-1">
+                <p className="text-sm text-muted-foreground">
+                    <span className="font-mono">{orden.numero}</span> · {paso === "cierre" ? "Paso final" : `Paso ${indice + 1} de ${PASOS_ORDEN.length}`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    <h1 id="titulo-paso" className="text-2xl font-semibold tracking-[-0.015em]">
+                        {TITULOS_PASO[paso]}
+                    </h1>
+                    {estado && paso !== "cierre" ? (
+                        estado.completo ? (
+                            <InsigniaEstado tono="success" icono={CircleCheck} texto={estado.opcional ? "Opcional" : "Listo"} />
+                        ) : (
+                            <InsigniaEstado tono="warning" icono={CircleDashed} texto={`Falta${estado.faltan.length === 1 ? "" : "n"} ${estado.faltan.length}`} />
+                        )
+                    ) : null}
                 </div>
+            </header>
+            <ProgresoOrden orden={orden} actual={paso} compacto />
+            <AvisosOrden orden={orden} />
+
+            {paso === "llegada" ? (
+                <>
+                    {orden.estado === "pendiente" ? (
+                        <Aviso tono="neutral" titulo="Esperando programación">
+                            Despacho todavía no le dio hora a esta orden.
+                        </Aviso>
+                    ) : null}
+                    {llego(orden) ? (
+                        <Aviso tono="success" icono={MapPinCheck} titulo="Llegaste al sitio">
+                            {orden.enSitioEn ? `Llegada registrada a las ${horaCorta(orden.enSitioEn)}.` : "Llegada registrada."}
+                        </Aviso>
+                    ) : null}
+                    {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
+                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+                </>
+            ) : null}
+            {paso === "checklist" ? (
+                <>
+                    {irALlegada}
+                    {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
+                        <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
+                    ) : null}
+                </>
+            ) : null}
+            {paso === "materiales" ? (
+                <>
+                    {irALlegada}
+                    {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
+                    <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
+                    <Comodato orden={orden} />
+                </>
+            ) : null}
+            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} /> : <p className="text-sm text-muted-foreground">Esta orden ya no admite fotos.</p> : null}
+            {paso === "cierre" ? <PasoCierre orden={orden} /> : null}
+
+            {paso !== "cierre" ? (
+                <nav
+                    aria-label="Pasos"
+                    className="glass-material sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 grid grid-cols-2 gap-2 border-t border-border px-4 py-3"
+                >
+                    {anterior ? (
+                        <Boton variante="secundario" tamano="lg" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: anterior })}>
+                            <ArrowLeft aria-hidden />
+                            Anterior
+                        </Boton>
+                    ) : (
+                        <Boton variante="secundario" tamano="lg" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
+                            <ArrowLeft aria-hidden />
+                            Resumen
+                        </Boton>
+                    )}
+                    {siguiente ? (
+                        <Boton tamano="lg" className="h-auto min-h-11 whitespace-normal py-1.5" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: siguiente })}>
+                            {siguiente === "cierre" ? "Firma y cierre" : `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`}
+                            <ArrowRight aria-hidden />
+                        </Boton>
+                    ) : null}
+                </nav>
             ) : null}
         </article>
+    );
+}
+
+/**
+ * Avance de la orden: barra con los pasos listos y cada paso como enlace (se puede volver a
+ * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada.
+ */
+function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista; actual?: PasoOrden; compacto?: boolean }) {
+    const { navegar } = useCampo();
+    const pasos = estadoPasos(orden);
+    const { listos, total } = progresoPasos(orden);
+    const listaParaFirmar = faltantesAntesDeFirmar(orden).length === 0;
+    const texto = `${listos} de ${total} pasos listos`;
+    const ir = (p: PasoOrden) => (e: MouseEvent<HTMLAnchorElement>) => {
+        e.preventDefault();
+        navegar({ tipo: "orden", id: orden.id, paso: p });
+    };
+    return (
+        <nav aria-label="Pasos de la orden" className={cn("grid gap-2", !compacto && "surface-card rounded-card p-4")}>
+            <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-semibold">{compacto ? "Avance" : "Trabajo en la orden"}</span>
+                <span className="text-muted-foreground tabular-nums">{texto}</span>
+            </div>
+            <div
+                role="progressbar"
+                aria-label="Avance de la orden"
+                aria-valuemin={0}
+                aria-valuemax={total}
+                aria-valuenow={listos}
+                aria-valuetext={texto}
+                className="h-2 overflow-hidden rounded-full bg-muted"
+            >
+                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round((listos / total) * 100)}%` }} />
+            </div>
+            <ol className={cn(compacto ? "grid grid-cols-5 gap-1" : "grid gap-1")}>
+                {pasos.map((p, i) => {
+                    const bloqueado = p.paso === "cierre" && !listaParaFirmar && orden.estado !== "cerrada";
+                    const Icono = p.paso === "cierre" ? (orden.estado === "cerrada" ? CircleCheck : bloqueado ? Lock : PenLine) : p.completo ? CircleCheck : CircleDashed;
+                    const tono = p.completo && p.paso !== "cierre" ? "text-success" : p.paso === "cierre" && orden.estado === "cerrada" ? "text-success" : "text-muted-foreground";
+                    const estadoTexto =
+                        p.paso === "cierre" ? (orden.estado === "cerrada" ? "hecho" : bloqueado ? "bloqueado" : "listo para firmar") : p.completo ? (p.opcional ? "opcional" : "listo") : `faltan ${p.faltan.length}`;
+                    return (
+                        <li key={p.paso}>
+                            <a
+                                href={urlDeVista({ tipo: "orden", id: orden.id, paso: p.paso })}
+                                onClick={ir(p.paso)}
+                                aria-current={actual === p.paso ? "step" : undefined}
+                                aria-label={`${i + 1}. ${p.titulo}: ${estadoTexto}`}
+                                data-paso={p.paso}
+                                className={cn(
+                                    "flex min-h-11 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-elevated focus-visible:outline-2 focus-visible:outline-offset-2",
+                                    compacto && "flex-col justify-center gap-0.5 px-0 py-1 text-center text-[0.7rem] leading-tight",
+                                    actual === p.paso && "bg-primary/10 font-semibold text-primary",
+                                )}
+                            >
+                                <Icono aria-hidden className={cn("size-5 shrink-0", actual === p.paso ? "text-primary" : tono)} />
+                                {compacto ? (
+                                    <span aria-hidden className="line-clamp-2">
+                                        {i + 1}
+                                    </span>
+                                ) : (
+                                    <>
+                                        <span className="flex-1">{p.titulo}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                            {p.paso === "cierre"
+                                                ? orden.estado === "cerrada"
+                                                    ? "Hecho"
+                                                    : bloqueado
+                                                      ? "Al terminar lo demás"
+                                                      : "Listo para firmar"
+                                                : p.completo
+                                                  ? p.opcional
+                                                      ? "Opcional"
+                                                      : "Listo"
+                                                  : `Falta${p.faltan.length === 1 ? "" : "n"} ${p.faltan.length}`}
+                                        </span>
+                                    </>
+                                )}
+                            </a>
+                        </li>
+                    );
+                })}
+            </ol>
+        </nav>
     );
 }
 
@@ -106,7 +315,7 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
                     titulo="Esta orden se asignó a otro técnico"
                     accion={
                         orden.pendientes + orden.rechazos > 0 ? (
-                            <Boton variante="secundario" onClick={() => void ejecutar(() => motor.descartarOrden(orden.id), "Se descartó lo pendiente")}>
+                            <Boton tamano="lg" variante="secundario" onClick={() => void ejecutar(() => motor.descartarOrden(orden.id), "Se descartó lo pendiente")}>
                                 Descartar lo pendiente
                             </Boton>
                         ) : undefined
@@ -125,7 +334,7 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
                     tono="error"
                     titulo={`${orden.rechazos} ${orden.rechazos === 1 ? "acción rechazada" : "acciones rechazadas"} por el servidor`}
                     accion={
-                        <Boton variante="secundario" onClick={() => navegar({ tipo: "pendientes" })}>
+                        <Boton tamano="lg" variante="secundario" onClick={() => navegar({ tipo: "pendientes" })}>
                             Revisar
                         </Boton>
                     }
@@ -146,7 +355,7 @@ function AvisosOrden({ orden }: { orden: OrdenVista }) {
                         tono="info"
                         titulo={`${OPERACIONES[a.tipo]}: el servidor lo guardó con un ajuste`}
                         accion={
-                            <Boton variante="secundario" onClick={() => void motor.descartarAviso(a.id)}>
+                            <Boton tamano="lg" variante="secundario" onClick={() => void motor.descartarAviso(a.id)}>
                                 Entendido
                             </Boton>
                         }

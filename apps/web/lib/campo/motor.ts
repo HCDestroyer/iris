@@ -4,6 +4,7 @@
 import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
+    crearInventarioApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
@@ -11,6 +12,7 @@ import {
     MotorSync,
     type EstadoPosiciones,
     type EstadoSync,
+    type InventarioCampo,
 } from "@iris/sync";
 import { AlmacenDexie } from "@iris/sync/dexie";
 import { useSyncExternalStore } from "react";
@@ -31,6 +33,8 @@ export interface MotorAbierto {
     /** Cola de la ubicación en vivo, en la misma base (mismo aislamiento por usuario y empresa). */
     posiciones: ColaPosiciones;
     almacen: AlmacenDexie;
+    /** «Por recibir» y «Mi bodega» (solo con señal), comprobando antes que la sesión sea del dueño. */
+    inventario: InventarioCampo;
 }
 
 /**
@@ -69,7 +73,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
         dispositivoId: motor.dispositivoId,
         verificarIdentidad,
     });
-    return { motor, posiciones, almacen };
+    const lecturas = crearInventarioApi(cliente, app);
+    const inventario: InventarioCampo = {
+        porRecibir: async () => {
+            await verificarIdentidad();
+            return lecturas.porRecibir();
+        },
+        miBodega: async () => {
+            await verificarIdentidad();
+            return lecturas.miBodega();
+        },
+    };
+    return { motor, posiciones, almacen, inventario };
 }
 
 /** Estado de la cola de posiciones para React. */

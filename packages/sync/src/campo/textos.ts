@@ -1,7 +1,7 @@
 // Textos de la app de campo en lenguaje claro: estados (texto + tono), tipos, motivos y problemas
 // de la API. Un solo lugar para que la PWA, la app nativa y sus pruebas digan lo mismo; cada app
 // pone el icono de cada estado (Lucide de su plataforma).
-import type { AvisoResultado, EstadoOrden, FormularioOrden, MotivoFalla, MotivoPausa, OrdenCampo, Problema, TipoOperacion, TipoOrden } from "../contrato";
+import type { AvisoResultado, EstadoOrden, FormularioOrden, MotivoFalla, MotivoPausa, OrdenCampo, Problema, TipoOperacionLote, TipoOrden } from "../contrato";
 import { codigoProblema } from "../errores";
 
 /** Tono de un estado (mismos nombres que `Tono` de `@iris/ui`). */
@@ -60,7 +60,7 @@ export const AVISOS_SERVIDOR: Partial<Record<AvisoResultado, string>> = {
 
 export const CONDICIONES = { buena: "Buena", danada: "Dañada", perdido: "Perdido" } as const;
 
-export const OPERACIONES: Record<TipoOperacion, string> = {
+export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "orden.iniciar_camino": "En camino",
     "orden.llegar": "Llegué",
     "checklist.marcar": "Checklist",
@@ -76,6 +76,7 @@ export const OPERACIONES: Record<TipoOperacion, string> = {
     "orden.reanudar": "Reanudación",
     "orden.agregar_formulario": "Formulario agregado",
     "orden.quitar_formulario": "Formulario quitado",
+    "traslado.recibir": "Recepción de traslado",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */
@@ -114,6 +115,14 @@ const PROBLEMAS: Record<string, string> = {
     orden_ya_pausada: "La orden ya estaba pausada (despacho u otro teléfono la pausó).",
     orden_no_pausada: "La orden ya no estaba pausada (despacho la reanudó, reprogramó o canceló).",
     orden_pausada: "La orden está pausada: primero reanúdala.",
+    traslado_no_encontrado: "Argos no tiene ese traslado para ti (o ya no es tuyo). Descártalo: si llegó el material, avisa a bodega.",
+    traslado_sin_confirmar: "Argos no respondió durante 24 h. Vuelve a intentarlo con «Rehacer».",
+    recepcion_en_envio: "Otra recepción de este traslado se estaba enviando. Vuelve a intentarlo con «Rehacer».",
+    traslado_cancelado: "Bodega canceló el traslado: ya no se recibe.",
+    traslado_ya_recibido: "Ese traslado ya estaba recibido.",
+    traslado_de_otro_tecnico: "Ese traslado es para otro técnico.",
+    lineas_invalidas: "Las líneas recibidas no coinciden con el traslado.",
+    firma_invalida: "La firma no es válida: vuelve a firmar.",
 };
 
 export function textoProblema(problema: Problema | null | undefined, porDefecto = "El servidor no aceptó la acción."): string {

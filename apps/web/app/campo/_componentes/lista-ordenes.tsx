@@ -47,7 +47,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                     tono="warning"
                     titulo="Pasaron 7 días sin sincronizar"
                     accion={
-                        <Boton variante="secundario" onClick={() => void bajarPaquete()}>
+                        <Boton tamano="lg" variante="secundario" onClick={() => void bajarPaquete()}>
                             Bajar órdenes
                         </Boton>
                     }
@@ -60,7 +60,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                     tono={estado.fecha ? "warning" : "error"}
                     titulo={carga.mensaje}
                     accion={
-                        <Boton variante="secundario" onClick={() => void bajarPaquete()}>
+                        <Boton tamano="lg" variante="secundario" onClick={() => void bajarPaquete()}>
                             <RefreshCw aria-hidden />
                             Reintentar
                         </Boton>

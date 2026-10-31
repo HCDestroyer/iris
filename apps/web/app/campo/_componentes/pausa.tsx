@@ -67,7 +67,7 @@ function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number
             titulo={`Orden pausada${motivo ? `: ${motivo}` : ""}`}
             data-testid="orden-pausada"
             accion={
-                <Boton variante="secundario" onClick={() => void reanudar()}>
+                <Boton tamano="lg" variante="secundario" onClick={() => void reanudar()}>
                     <CirclePlay aria-hidden />
                     Reanudar
                 </Boton>
@@ -112,10 +112,10 @@ function PausarOrden({ orden }: { orden: OrdenVista }) {
                     </CampoSelector>
                     <CampoArea etiqueta="Nota" ayuda="Obligatoria con «Otro motivo»." rows={3} error={form.formState.errors.nota?.message} {...form.register("nota")} />
                     <DialogoPie>
-                        <Boton variante="fantasma" onClick={() => setAbierto(false)}>
+                        <Boton tamano="lg" variante="fantasma" onClick={() => setAbierto(false)}>
                             Volver
                         </Boton>
-                        <Boton type="submit" disabled={form.formState.isSubmitting}>
+                        <Boton tamano="lg" type="submit" disabled={form.formState.isSubmitting}>
                             Pausar
                         </Boton>
                     </DialogoPie>

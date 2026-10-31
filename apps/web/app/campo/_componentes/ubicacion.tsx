@@ -243,10 +243,10 @@ export function ProveedorUbicacion({
                         <li>Fuera de turno no se registra nada. Si no la permites, la app funciona igual.</li>
                     </ul>
                     <DialogoPie className="mt-4">
-                        <Boton variante="fantasma" onClick={() => void cerrarExplicacion(false)}>
+                        <Boton tamano="lg" variante="fantasma" onClick={() => void cerrarExplicacion(false)}>
                             Ahora no
                         </Boton>
-                        <Boton onClick={() => void cerrarExplicacion(true)}>
+                        <Boton tamano="lg" onClick={() => void cerrarExplicacion(true)}>
                             <MapPin aria-hidden />
                             Permitir ubicación
                         </Boton>
@@ -270,7 +270,7 @@ export function IndicadorUbicacion({ className }: { className?: string }) {
             tamano="sm"
             data-testid="indicador-ubicacion"
             data-tono={r.tono}
-            className={cn("h-auto min-h-8 gap-1.5 px-2 py-1 whitespace-normal text-left text-xs font-semibold", className)}
+            className={cn("h-auto min-h-11 gap-1.5 px-2 py-1 whitespace-normal text-left text-xs font-semibold", className)}
             onClick={abrirPanel}
             aria-label={`Ubicación: ${textoIndicador(estado)}${envio.pendientes > 0 ? `. Pendientes de enviar: ${envio.pendientes}` : ""}. Ver detalle`}
         >
@@ -378,7 +378,7 @@ function PanelUbicacion({
                             tono="error"
                             titulo="Tu sesión terminó: las ubicaciones no se envían"
                             accion={
-                                <Boton asChild variante="secundario">
+                                <Boton tamano="lg" asChild variante="secundario">
                                     <a href={RUTA_VOLVER_A_ENTRAR}>Vuelve a entrar</a>
                                 </Boton>
                             }
@@ -390,7 +390,7 @@ function PanelUbicacion({
                             tono="warning"
                             titulo="Envío de ubicaciones en pausa"
                             accion={
-                                <Boton variante="secundario" onClick={() => cola.reintentarAhora()}>
+                                <Boton tamano="lg" variante="secundario" onClick={() => cola.reintentarAhora()}>
                                     <RefreshCw aria-hidden />
                                     Reintentar
                                 </Boton>
@@ -405,7 +405,7 @@ function PanelUbicacion({
                             titulo={envio.ultimoError.status === 422 ? "El servidor no aceptó un lote de ubicaciones" : "No se pudieron enviar las ubicaciones"}
                             accion={
                                 envio.pendientes > 0 ? (
-                                    <Boton variante="secundario" onClick={() => cola.reintentarAhora()}>
+                                    <Boton tamano="lg" variante="secundario" onClick={() => cola.reintentarAhora()}>
                                         <RefreshCw aria-hidden />
                                         Reintentar
                                     </Boton>
@@ -420,12 +420,13 @@ function PanelUbicacion({
 
                     <DialogoPie>
                         {estado.enTurno ? (
-                            <Boton variante="secundario" onClick={() => contexto.terminarTurno()}>
+                            <Boton tamano="lg" variante="secundario" onClick={() => contexto.terminarTurno()}>
                                 <Square aria-hidden />
                                 Terminar turno
                             </Boton>
                         ) : (
                             <Boton
+                                tamano="lg"
                                 onClick={() => {
                                     alCambiar(false);
                                     void contexto.iniciarTurno();
