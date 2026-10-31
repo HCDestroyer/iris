@@ -283,7 +283,7 @@ export function MaterialesYEquipos({ orden }: { orden: OrdenDetalle }) {
                             {materiales.map((m) => (
                                 <li key={m.id} className="flex flex-wrap items-center justify-between gap-2" data-material={m.productoId}>
                                     <span className="min-w-0 break-words">{m.descripcion || `Producto ${m.productoId}`}</span>
-                                    <span className="flex items-center gap-2">
+                                    <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                                         {m.modalidad ? <InsigniaEstado {...MODALIDADES[m.modalidad]} data-modalidad={m.modalidad} /> : null}
                                         {m.excedeExistencia ? <InsigniaEstado tono="warning" icono={TriangleAlert} texto="Más de lo que había en bodega" /> : null}
                                         <span className="font-medium tabular-nums">{m.cantidad.toLocaleString("es-GT")}</span>

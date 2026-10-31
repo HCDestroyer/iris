@@ -41,7 +41,7 @@ export function Pestanas<I extends string = string>({ etiqueta, pestanas, selecc
     return (
         <Tabs
             data-slot="pestanas"
-            className={cn("w-full", className)}
+            className={cn("w-full min-w-0 max-w-full", className)}
             {...(elegida !== undefined ? { selectedKey: elegida } : {})}
             {...(inicial !== undefined ? { defaultSelectedKey: inicial } : {})}
             disabledKeys={deshabilitadas}

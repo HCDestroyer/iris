@@ -201,7 +201,7 @@ function Detalle({ id }: { id: number }) {
                 </div>
             </header>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="grid min-w-0 content-start gap-4">
                     <Pestanas<PestanaTicket>
                         etiqueta="Secciones del ticket"

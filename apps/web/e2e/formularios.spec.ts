@@ -189,7 +189,7 @@ test.describe("formularios de la orden", () => {
     test("muestra origen y versión; quita uno de despacho (nunca el del tipo) y agrega otro", async ({ page, context, baseURL }, info) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", DESPACHO.correo);
-        await page.goto("/ordenes/4");
+        await page.goto("/ordenes/4?pestana=formularios");
         const formularios = page.getByTestId("formularios");
         const tipo = formularios.locator('[data-formulario="cambio_equipo"]');
         const seguridad = formularios.locator('[data-formulario="seguridad"]');
@@ -228,7 +228,7 @@ test.describe("formularios de la orden", () => {
         const api = await simularApi(page);
         api.plantillas.agregarRelleno(60);
         await conSesion(context, baseURL ?? "", DESPACHO.correo);
-        await page.goto("/ordenes/4");
+        await page.goto("/ordenes/4?pestana=formularios");
         await page.getByTestId("formularios").getByRole("button", { name: "Agregar formulario" }).click();
         const dialogo = page.getByRole("dialog", { name: "Agregar formulario" });
         const opciones = dialogo.getByLabel("Formulario", { exact: true }).locator("option");
@@ -250,7 +250,7 @@ test.describe("formularios de la orden", () => {
     test("una orden cerrada no ofrece agregar ni quitar", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/ordenes/1");
+        await page.goto("/ordenes/1?pestana=formularios");
         const formularios = page.getByTestId("formularios");
         await expect(formularios.locator('[data-formulario="instalacion_basica"]')).toContainText("versión 2");
         await expect(formularios.getByRole("button", { name: "Agregar formulario" })).toHaveCount(0);

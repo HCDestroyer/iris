@@ -185,7 +185,7 @@ export function PanelProtegido({ open, onOpenChange, titulo, descripcion, ocupad
             {/* Contexto de diálogo para `DialogoCerrar` («Cancelar») dentro del panel. */}
             <Dialogo open={open} onOpenChange={pedirCierre}>
                 <Hoja open={open} onOpenChange={pedirCierre}>
-                    <HojaContenido titulo={titulo} descripcion={descripcion} lado="derecha" fondo="transparente" className="w-full sm:w-[min(30rem,100vw)]" data-slot="panel-accion">
+                    <HojaContenido titulo={titulo} descripcion={descripcion} lado="derecha" fondo="transparente" className="left-0 w-auto max-w-full sm:left-auto sm:w-[min(30rem,100vw)]" data-slot="panel-accion">
                         {children}
                     </HojaContenido>
                 </Hoja>

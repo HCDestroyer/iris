@@ -53,7 +53,7 @@ test("comercial sin scrolls innecesarios: lista, embudo y detalle", async ({ pag
         await revisar(page, nombre("02-lista"));
     }
 
-    await page.goto("/comercial/4");
+    await page.goto("/comercial/4?pestana=cotizacion");
     await expect(page.getByTestId("cotizacion").getByTestId("total-mensual")).toBeVisible();
     await revisar(page, nombre("03-detalle-cotizado"));
 
@@ -61,7 +61,7 @@ test("comercial sin scrolls innecesarios: lista, embudo y detalle", async ({ pag
     await expect(page.getByTestId("alta")).toBeVisible();
     await revisar(page, nombre("04-detalle-alta"));
 
-    await page.goto("/comercial/5");
+    await page.goto("/comercial/5?pestana=contrato");
     await expect(page.getByTestId("contrato")).toBeVisible();
     await revisar(page, nombre("05-detalle-contrato"));
 });

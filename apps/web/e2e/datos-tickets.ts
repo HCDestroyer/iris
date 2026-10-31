@@ -42,6 +42,7 @@ export const CLIENTES: Schema<"ClienteResumen">[] = [
         correo: "maria@ejemplo.gt",
         telefonos: [tel("telefono", "5555 0101", "+50255550101", "+502 5555 0101"), tel("movil", "4455-6677", "+50244556677", "+502 4455 6677")],
         zonaNombre: "Zona norte",
+        referencia: "Frente a la iglesia de San José",
         sincronizadoEn: "2026-10-27T20:15:00Z",
     },
     {
@@ -113,6 +114,8 @@ export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
         tipoConexion: "pppoe",
         sincronizadoEn: "2026-10-27T20:15:00Z",
     };
+    // Argos 1.6.0: referencia y contacto en sitio del servicio (solo el de María Castillo).
+    if (clienteId === 501) return [{ ...base, referencia: "Portón negro, segundo nivel", contactoNombre: "Rosa Castillo", contactoTelefonos: [tel("telefono", "5555 0909", "+50255550909", "+502 5555 0909")] }];
     if (clienteId !== 503) return [base];
     return [
         base,

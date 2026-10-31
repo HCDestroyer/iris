@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, ELENA, LECTOR, VENDEDORA, conSesion, simularApi } from "./api-falsa";
 import { simularUsuarios } from "./api-usuarios";
+import { pestana } from "./ayudas";
 
 /*
  * Fase 2 de la interfaz: los formularios de más de 3 campos van en pantalla propia
@@ -222,7 +223,8 @@ test.describe("formularios en pantalla propia", () => {
         await descartar(page).getByRole("button", { name: "Descartar cambios" }).click();
         await expect(page).toHaveURL(/\/tecnicos\/21$/);
 
-        // Nueva ausencia.
+        // Nueva ausencia (pestaña «Ausencias» de la ficha).
+        await pestana(page, "Ausencias");
         await page.getByRole("link", { name: "Registrar ausencia" }).click();
         await expect(page).toHaveURL(/\/tecnicos\/21\/ausencias\/nueva$/);
         const a = page.getByRole("form", { name: "Ausencia de Lucía Ramírez" });
@@ -238,7 +240,7 @@ test.describe("formularios en pantalla propia", () => {
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Ausencia de Lucía Ramírez registrada" })).toBeVisible();
         // Con citas dentro de la ausencia, la pantalla las lista; «Entendido» vuelve a la ficha.
         await page.getByTestId("ausencia-conflictos").getByRole("button", { name: "Entendido" }).click();
-        await expect(page).toHaveURL(/\/tecnicos\/21$/);
+        await expect(page).toHaveURL(/\/tecnicos\/21\?pestana=ausencias$/);
     });
 
     test("Nuevo prospecto y Cotización", async ({ page, context, baseURL }) => {
@@ -261,9 +263,10 @@ test.describe("formularios en pantalla propia", () => {
         await expect(page.getByRole("heading", { name: "Rosa Pérez" })).toBeVisible();
 
         // Cotización con los planes de Argos.
-        await page.goto("/comercial/2");
+        await page.goto("/comercial/2?pestana=factibilidad");
         await page.getByTestId("factibilidad").getByRole("button", { name: "Evaluar" }).click();
         await expect(page.getByTestId("distancia")).toBeVisible();
+        await pestana(page, "Cotización");
         await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
         await expect(page).toHaveURL(/\/comercial\/2\/cotizacion$/);
         const c = page.getByRole("form", { name: "Cotizar" });
@@ -277,7 +280,8 @@ test.describe("formularios en pantalla propia", () => {
         await c.getByRole("button", { name: "Guardar cotización" }).click();
         await expect(c.getByText("Las notas no pueden pasar de 2000 caracteres")).toBeVisible();
         await c.getByRole("button", { name: "Guardar cotización" }).click();
-        await expect(page).toHaveURL(/\/comercial\/2$/);
+        // Vuelve a la ficha, en la pestaña «Cotización».
+        await expect(page).toHaveURL(/\/comercial\/2\?pestana=cotizacion$/);
         await expect(avisos(page).getByRole("alertdialog").filter({ hasText: /Cotización .+ creada/ })).toBeVisible();
         await expect(page.getByTestId("total-mensual")).toContainText("400.00");
     });
