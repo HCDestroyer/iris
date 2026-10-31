@@ -3,11 +3,12 @@
 // **toda** salida: desmontar (sesión vencida, sesión ajena, cambiar de empresa), cerrar sesión o
 // perder la sesión con la app abierta. Lo nativo llega por `DependenciasCampo` (las pruebas lo
 // reemplazan).
-import { ErrorTransporte, type ColaPosiciones, type Conexion, type MotorSync } from "@iris/sync";
+import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCampo, type MotorSync } from "@iris/sync";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
 import { Aviso } from "../componentes";
+import { ProveedorInventario } from "../campo/inventario";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
 import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo, type GpsFondo } from "../campo/ubicacion";
 import type { AlmacenClaves } from "../entorno";
@@ -18,6 +19,8 @@ import { Marco } from "./Marco";
 export interface MotorDeSesion {
     motor: MotorSync;
     posiciones: ColaPosiciones;
+    /** «Por recibir» y «Mi bodega» (lecturas de la API con señal). */
+    inventario: InventarioCampo;
     /** Archivo de la base (lo lee la tarea del GPS con la app cerrada). */
     nombre: string;
     /** Cierra la conexión con la base. */
@@ -256,7 +259,9 @@ function CampoAbierto({
             servicios={deps.servicios}
             cerrarSesion={cerrarSesion}
         >
-            <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+            <ProveedorInventario inventario={abierto.inventario}>
+                <Marco empresa={nombreEmpresa} alSesionVencida={sesionVencida} {...(cambiarEmpresa ? { cambiarEmpresa } : {})} />
+            </ProveedorInventario>
         </ProveedorCampo>
     );
 }

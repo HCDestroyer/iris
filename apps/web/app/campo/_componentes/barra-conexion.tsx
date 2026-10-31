@@ -1,18 +1,21 @@
 "use client";
 
-import type { Conexion, EstadoSync } from "@iris/sync";
+import type { Conexion } from "@iris/sync";
+import { CONEXION_TEXTO, etiquetaPunto, partesEnvio, resumenEnvio } from "@iris/sync/campo";
 import { Boton, cn, type Tono } from "@iris/ui";
 import { CloudUpload, KeyRound, Building2, RefreshCw, TriangleAlert, Wifi, WifiOff, type LucideIcon } from "lucide-react";
 import { horaCorta } from "@/lib/campo/fechas";
 import { useCampo } from "./contexto";
 
-const CONEXION: Record<Conexion, { tono: Tono; icono: LucideIcon; texto: string }> = {
-    en_linea: { tono: "success", icono: Wifi, texto: "En línea" },
-    desconocida: { tono: "neutral", icono: Wifi, texto: "Conectando…" },
-    sin_conexion: { tono: "warning", icono: WifiOff, texto: "Sin conexión" },
-    sin_sesion: { tono: "error", icono: KeyRound, texto: "Sesión vencida" },
-    sin_empresa: { tono: "error", icono: Building2, texto: "Empresa no válida" },
+const ICONOS_CONEXION: Record<Conexion, LucideIcon> = {
+    en_linea: Wifi,
+    desconocida: Wifi,
+    sin_conexion: WifiOff,
+    sin_sesion: KeyRound,
+    sin_empresa: Building2,
 };
+
+const CONEXION = (c: Conexion): { tono: Tono; icono: LucideIcon; texto: string } => ({ ...CONEXION_TEXTO[c], icono: ICONOS_CONEXION[c] });
 
 const TEXTO_TONO: Record<Tono, string> = {
     neutral: "text-muted-foreground",
@@ -30,30 +33,6 @@ const FONDO_TONO: Record<Tono, string> = {
     error: "bg-error",
 };
 
-export interface ResumenEnvio {
-    /** Operaciones por enviar (incluye las que esperan archivos). */
-    porEnviar: number;
-    /** Archivos por subir que no fueron rechazados. */
-    archivos: number;
-    /** Operaciones y archivos rechazados: piden decidir. */
-    rechazos: number;
-    /** La barra se abre: hay algo por enviar, un rechazo, la sesión venció o la empresa no vale. */
-    abierta: boolean;
-    /** Texto del estado (también en el punto, para lectores de pantalla y pruebas). */
-    texto: string;
-}
-
-/** Qué mostrar: un punto si todo va bien; la barra con texto y acción solo cuando hace falta. */
-export function resumenEnvio(estado: EstadoSync): ResumenEnvio {
-    const rechazos = estado.rechazos.length + estado.subidas.rechazadas;
-    const porEnviar = estado.pendientes + estado.esperandoAdjuntos.length;
-    const archivos = estado.subidas.pendientes - estado.subidas.rechazadas;
-    const bloqueo = estado.conexion === "sin_sesion" || estado.conexion === "sin_empresa";
-    const abierta = bloqueo || rechazos > 0 || porEnviar > 0 || archivos > 0;
-    const enviando = estado.sincronizando && estado.conexion !== "sin_conexion" && !bloqueo && (porEnviar > 0 || archivos > 0);
-    return { porEnviar, archivos, rechazos, abierta, texto: enviando ? "Sincronizando…" : CONEXION[estado.conexion].texto };
-}
-
 /**
  * Punto de estado junto al título: con conexión y todo enviado es solo esto («En línea, todo
  * enviado»). Cuando la barra está abierta, el punto acompaña y la barra explica.
@@ -61,8 +40,8 @@ export function resumenEnvio(estado: EstadoSync): ResumenEnvio {
 export function PuntoConexion() {
     const { estado } = useCampo();
     const r = resumenEnvio(estado);
-    const c = CONEXION[estado.conexion];
-    const etiqueta = r.abierta ? r.texto : estado.conexion === "en_linea" ? "En línea, todo enviado" : `${c.texto}, todo enviado`;
+    const c = CONEXION(estado.conexion);
+    const etiqueta = etiquetaPunto(estado.conexion, r);
     return (
         <span role="status" aria-label={etiqueta} title={etiqueta} data-slot="punto-conexion" data-conexion={estado.conexion} className="inline-flex items-center">
             <span aria-hidden className={cn("size-2.5 rounded-full", FONDO_TONO[c.tono], estado.conexion === "desconocida" && "animate-pulse")} />
@@ -85,12 +64,9 @@ export function BarraConexion() {
     if (!r.abierta) {
         return null;
     }
-    const c = CONEXION[estado.conexion];
+    const c = CONEXION(estado.conexion);
     const Icono = c.icono;
-    const partes = [
-        r.porEnviar > 0 ? `${r.porEnviar} ${r.porEnviar === 1 ? "pendiente" : "pendientes"} por enviar` : null,
-        r.archivos > 0 ? `${r.archivos} ${r.archivos === 1 ? "archivo" : "archivos"} por subir` : null,
-    ].filter(Boolean);
+    const partes = partesEnvio(r).pendientes;
     const hayAlgo = partes.length > 0 || r.rechazos > 0;
 
     return (

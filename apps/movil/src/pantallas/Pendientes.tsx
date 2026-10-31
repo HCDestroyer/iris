@@ -1,26 +1,27 @@
 // «Por enviar»: la cola del teléfono, lo que espera archivos y los rechazos del servidor con su
 // motivo y qué hacer (Descartar / Rehacer), con «Reintentar» siempre a mano. Como la PWA.
 import { CODIGOS_TERMINALES, codigoProblema, faltantesDe, type AdjuntoLocal, type OperacionLocal } from "@iris/sync";
-import { describirCampo, detallesProblema, horaCorta, OPERACIONES, textoProblema } from "@iris/sync/campo";
-import { ArrowLeft, CloudCheck, CloudUpload, Hourglass, RefreshCw, Trash2, TriangleAlert, Undo2 } from "lucide-react-native";
+import { describirCampo, detallesProblema, horaCorta, OPERACIONES, sePuedeRehacerRecepcion, textoProblema } from "@iris/sync/campo";
+import { CloudCheck, CloudUpload, Hourglass, RefreshCw, Trash2, TriangleAlert, Undo2 } from "lucide-react-native";
 import { StyleSheet, View } from "react-native";
 import { Aviso, Boton, Fila, Insignia, Pila, Tarjeta, Texto, Titulo } from "../componentes";
 import { useCampo } from "../campo/contexto";
 
+/** Número de la orden; una recepción de traslado va agrupada con su clave negativa (`-trasladoId`). */
 function numeroOrden(ordenes: readonly { id: number; numero: string }[], id: number): string {
+    if (id < 0) {
+        return `Traslado ${-id}`;
+    }
     return ordenes.find((o) => o.id === id)?.numero ?? `Orden ${id}`;
 }
 
 export function Pendientes() {
-    const { estado, navegar, motor } = useCampo();
+    const { estado, motor } = useCampo();
     const adjuntosRechazados = estado.adjuntos.filter((a) => a.estado === "rechazado");
     const subiendo = estado.adjuntos.filter((a) => a.estado === "por_crear" || a.estado === "subiendo");
     const nada = estado.cola.length + estado.rechazos.length + estado.esperandoAdjuntos.length + estado.adjuntos.filter((a) => a.estado !== "subido").length === 0;
     return (
         <Pila espacio={14}>
-            <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "lista" })} estilo={estilos.volver}>
-                Mis órdenes
-            </Boton>
             <Fila entre>
                 <Titulo>Por enviar</Titulo>
                 {!nada ? (
@@ -68,7 +69,7 @@ export function Pendientes() {
                     {subiendo.map((a) => (
                         <Fila key={a.id} entre>
                             <Texto>
-                                {a.tipo === "firma" ? "Firma" : "Foto"} · {numeroOrden(estado.ordenes, a.ordenId)}
+                                {a.entidad === "traslado" ? "Firma de la recepción" : a.tipo === "firma" ? "Firma" : "Foto"} · {numeroOrden(estado.ordenes, a.ordenId)}
                             </Texto>
                             <Insignia tono="warning" icono={CloudUpload} texto={a.estado === "por_crear" ? "Por subir" : `${Math.floor((a.offset / Math.max(1, a.tamano)) * 100)} %`} />
                         </Fila>
@@ -95,24 +96,26 @@ export function Pendientes() {
 function Rechazo({ op }: { op: OperacionLocal }) {
     const { estado, motor, ejecutar } = useCampo();
     const orden = estado.ordenes.find((o) => o.id === op.ordenId);
-    const terminal = CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? "");
+    const traslado = op.tipo === "traslado.recibir";
+    const terminal = !traslado && CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? "");
+    const rehacer = traslado ? sePuedeRehacerRecepcion(op) : !terminal;
     const detalles = detallesProblema(op.error, orden);
     return (
         <Aviso
             tono="error"
             icono={TriangleAlert}
-            titulo={`${OPERACIONES[op.tipo]} · ${orden?.numero ?? `Orden ${op.ordenId}`}`}
+            titulo={`${OPERACIONES[op.tipo]} · ${orden?.numero ?? numeroOrden(estado.ordenes, op.ordenId)}`}
             testID="rechazo"
             accion={
                 <>
                     <Boton variante="secundario" icono={Trash2} alPresionar={() => void ejecutar(() => motor.descartar(op.id), "Se descartó")}>
                         Descartar
                     </Boton>
-                    {!terminal ? (
+                    {rehacer ? (
                         <Boton variante="secundario" icono={Undo2} alPresionar={() => void ejecutar(() => motor.rehacer(op.id), "Se volverá a enviar")}>
                             Rehacer
                         </Boton>
-                    ) : (
+                    ) : traslado ? null : (
                         <Boton variante="secundario" icono={Trash2} alPresionar={() => void ejecutar(() => motor.descartarOrden(op.ordenId), "Se descartó lo pendiente de la orden")}>
                             Descartar todo de esta orden
                         </Boton>
@@ -147,7 +150,7 @@ function AdjuntoRechazado({ adjunto }: { adjunto: AdjuntoLocal }) {
     return (
         <Aviso
             tono="error"
-            titulo={`${adjunto.tipo === "firma" ? "Firma" : "Foto"} · ${numeroOrden(estado.ordenes, adjunto.ordenId)}`}
+            titulo={`${adjunto.entidad === "traslado" ? "Firma de la recepción" : adjunto.tipo === "firma" ? "Firma" : "Foto"} · ${numeroOrden(estado.ordenes, adjunto.ordenId)}`}
             testID="adjunto-rechazado"
             accion={
                 <View style={estilos.fila}>

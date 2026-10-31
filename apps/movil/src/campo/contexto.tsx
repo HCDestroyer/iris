@@ -1,16 +1,17 @@
 // Estado de la app de campo para las pantallas: el motor (y su estado con
-// `useSyncExternalStore`), la vista actual, los avisos flotantes y los servicios nativos (cámara y
-// GPS), que las pruebas reemplazan. Igual que `ProveedorCampo` de la PWA.
+// `useSyncExternalStore`), la vista actual con su pila de «Atrás», los avisos flotantes y los
+// servicios nativos (cámara y GPS), que las pruebas reemplazan. Igual que `ProveedorCampo` de la PWA.
 import { ErrorSync, type ColaPosiciones, type EstadoPosiciones, type EstadoSync, type MotorSync, type OrdenVista } from "@iris/sync";
-import type { TonoEstado } from "@iris/sync/campo";
+import type { TonoEstado, Vista } from "@iris/sync/campo";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { SesionCampo } from "../sesion/sesion";
 import type { FotoTomada } from "./foto";
 import type { Posicion } from "./gps-nativo";
+import { irA, pilaInicial, retroceder } from "./navegacion";
 import type { EstadoRastreo, RastreoUbicacion } from "./ubicacion";
 
-/** Pantalla visible: la lista del día, el detalle de una orden o lo pendiente por enviar. */
-export type Vista = { tipo: "lista" } | { tipo: "orden"; id: number } | { tipo: "pendientes" };
+/** Pantalla visible (las mismas vistas que la PWA). */
+export type { Vista };
 
 export type Notificacion = { tono: TonoEstado; texto: string };
 
@@ -35,6 +36,8 @@ interface ContextoCampo {
     servicios: ServiciosNativos;
     vista: Vista;
     navegar: (v: Vista) => void;
+    /** «Atrás» de Android o de la pantalla: `false` si no hay a dónde volver (sale de la app). */
+    atras: () => boolean;
     notificacion: Notificacion | null;
     notificar: (n: Notificacion) => void;
     /** Corre una acción del técnico y avisa «Guardado en el teléfono» o el error. Devuelve si se guardó. */
@@ -101,7 +104,24 @@ export function ProveedorCampo({
     children: ReactNode;
 }) {
     const estado = useEstadoMotor(motor);
-    const [vista, setVista] = useState<Vista>(vistaInicial);
+    const [pila, setPila] = useState(() => pilaInicial(vistaInicial));
+    const vista = pila.actual;
+    const navegar = useCallback((v: Vista) => setPila((p) => irA(p, v)), []);
+    // «Atrás» lee la pila de un ref (actualizado al confirmar cada render) para que el oyente de
+    // Android se registre una sola vez y nunca use una pila vieja.
+    const pilaConfirmada = useRef(pila);
+    useEffect(() => {
+        pilaConfirmada.current = pila;
+    }, [pila]);
+    const atras = useCallback(() => {
+        const anterior = retroceder(pilaConfirmada.current);
+        if (!anterior) {
+            return false;
+        }
+        pilaConfirmada.current = anterior;
+        setPila(anterior);
+        return true;
+    }, []);
     const [notificacion, setNotificacion] = useState<Notificacion | null>(null);
     const [miniaturas, setMiniaturas] = useState<ReadonlyMap<string, string>>(new Map());
     const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,7 +171,8 @@ export function ProveedorCampo({
             sesion,
             servicios,
             vista,
-            navegar: setVista,
+            navegar,
+            atras,
             notificacion,
             notificar,
             ejecutar,
@@ -159,7 +180,7 @@ export function ProveedorCampo({
             agregarMiniatura,
             cerrarSesion,
         }),
-        [motor, estado, posiciones, rastreo, estadoRastreo, sesion, servicios, vista, notificacion, notificar, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
+        [motor, estado, posiciones, rastreo, estadoRastreo, sesion, servicios, vista, navegar, atras, notificacion, notificar, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }

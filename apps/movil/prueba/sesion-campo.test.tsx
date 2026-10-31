@@ -12,6 +12,7 @@ import { RecuperarError } from "../src/pantallas/RecuperarError";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 import { clavesMemoria } from "./preparar";
+import { InventarioFalso } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -72,7 +73,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
                 alConfirmarServidor();
                 return r;
             };
-            return { motor: m.motor, posiciones, nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
+            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
         },
         gps,
         claves,
@@ -160,7 +161,9 @@ describe("GPS y salidas de la sesión de campo", () => {
     it("cambiar de empresa: apaga el GPS y borra la marca", async () => {
         const { gps, claves, salidas } = await preparar();
         await esperarEncendido(gps);
-        await fireEvent.press(screen.getByRole("button", { name: "Cambiar de empresa" }));
+        // «Cambiar de empresa» está en «Yo».
+        await fireEvent.press(screen.getByRole("tab", { name: "Yo" }));
+        await fireEvent.press(await screen.findByRole("button", { name: "Cambiar de empresa" }));
         expect(salidas).toEqual(["empresa"]);
         await waitFor(() => expect(gps.corriendo).toBe(false));
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();

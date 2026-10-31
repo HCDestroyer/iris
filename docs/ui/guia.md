@@ -275,7 +275,7 @@ lectores de pantalla.
 
 - **Barra inferior** Hoy · Por recibir · Pendientes · Yo (zonas de 56 px, con contador de lo que
   falta por enviar y por recibir). «Mapa» no entra: la app no tiene vista de mapa y «Cómo llegar»
-  ya abre la app de mapas del teléfono. Cada vista tiene su URL (`lib/campo/vista.ts`):
+  ya abre la app de mapas del teléfono. Cada vista tiene su URL (`@iris/sync/campo`, `vista.ts`, compartido con la app nativa):
   `?orden=N`, `?orden=N&paso=…`, `?vista=pendientes|recibir|yo|bodega`, `?traslado=N`.
 - **La orden paso a paso** (`@iris/sync/campo` `estadoPasos`): resumen (cliente, avisos, pausa,
   avance, notas, «No se pudo») → «Empezar trabajo» → **Llegada · Checklist · Materiales y equipos ·

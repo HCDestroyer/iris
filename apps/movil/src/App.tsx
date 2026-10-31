@@ -54,7 +54,7 @@ function dependenciasNativas(): DependenciasCampo {
     depsNativas ??= {
         async abrirMotor(clave, alSesionAjena, alConfirmarServidor) {
             const m = await abrirMotor(clave, alSesionAjena, alConfirmarServidor);
-            return { motor: m.motor, posiciones: m.posiciones, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
+            return { motor: m.motor, posiciones: m.posiciones, inventario: m.inventario, nombre: m.nombre, cerrar: () => m.almacen.cerrar(), borrar: () => borrarBase(m) };
         },
         gps: gpsNativo,
         claves: entorno().claves,

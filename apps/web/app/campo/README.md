@@ -27,7 +27,7 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
 - **Navegación (fase 4):** barra inferior Hoy · Por recibir · Pendientes · Yo; cada vista y cada
-  paso con su URL (`lib/campo/vista.ts`). La barra de estado es un punto con todo enviado y crece
+  paso con su URL (`@iris/sync/campo` `vista.ts`). La barra de estado es un punto con todo enviado y crece
   solo cuando hace falta (por enviar, rechazos, sesión vencida, empresa no válida).
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).

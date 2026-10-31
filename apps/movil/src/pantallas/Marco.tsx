@@ -1,48 +1,42 @@
-// Marco de la app: encabezado, barra de conexión (siempre visible: conexión + «N pendientes por
-// enviar»), ubicación, la vista actual y el aviso flotante. Baja el paquete del día al abrir y al
-// cambiar el día, con espera exponencial tras un error (como la PWA).
+// Marco de la app (fase 4 de la PWA en nativo): encabezado «Iris Campo» con el punto de estado y la
+// ubicación, la barra de estado discreta (solo crece cuando hace falta), la vista actual, el aviso
+// flotante y la barra inferior Hoy · Por recibir · Pendientes · Yo. «Atrás» de Android vuelve a la
+// vista anterior. Baja el paquete del día al abrir y al cambiar el día, con espera exponencial tras
+// un error (como la PWA).
 import { ErrorTransporte, type Conexion } from "@iris/sync";
-import { hoyEnGuatemala, horaCorta } from "@iris/sync/campo";
-import {
-    Building2,
-    CloudCheck,
-    CloudUpload,
-    KeyRound,
-    LocateFixed,
-    LocateOff,
-    LogOut,
-    RefreshCw,
-    TriangleAlert,
-    Wifi,
-    WifiOff,
-    type LucideIcon,
-} from "lucide-react-native";
+import { CONEXION_TEXTO, etiquetaPunto, hoyEnGuatemala, horaCorta, partesEnvio, resumenEnvio, urlDeVista, type TonoEstado } from "@iris/sync/campo";
+import { Building2, CloudUpload, KeyRound, LocateFixed, LocateOff, RefreshCw, TriangleAlert, Wifi, WifiOff, type LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, Boton, Dialogo, Insignia, Texto } from "../componentes";
+import { Aviso, Boton, Insignia, Texto } from "../componentes";
+import { useAtrasAndroid } from "../campo/atras";
 import { useCampo, useEstadoPosiciones } from "../campo/contexto";
 import type { EstadoRastreo } from "../campo/ubicacion";
 import { CODIGO_CAMBIO_CONTRASENA } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
-import type { TonoEstado } from "@iris/sync/campo";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
+import { MiBodega } from "./MiBodega";
+import { NavegacionInferior } from "./NavegacionInferior";
 import { DetalleOrden } from "./orden/DetalleOrden";
 import { Pendientes } from "./Pendientes";
+import { DetalleTraslado, PorRecibir } from "./PorRecibir";
+import { Yo } from "./Yo";
 
-const CONEXION: Record<Conexion, { tono: TonoEstado; icono: LucideIcon; texto: string }> = {
-    en_linea: { tono: "success", icono: Wifi, texto: "En línea" },
-    desconocida: { tono: "neutral", icono: Wifi, texto: "Conectando…" },
-    sin_conexion: { tono: "warning", icono: WifiOff, texto: "Sin conexión" },
-    sin_sesion: { tono: "error", icono: KeyRound, texto: "Sesión vencida" },
-    sin_empresa: { tono: "error", icono: Building2, texto: "Empresa no válida" },
+const ICONOS_CONEXION: Record<Conexion, LucideIcon> = {
+    en_linea: Wifi,
+    desconocida: Wifi,
+    sin_conexion: WifiOff,
+    sin_sesion: KeyRound,
+    sin_empresa: Building2,
 };
 
 const ESPERA_BASE_MS = 5_000;
 const ESPERA_MAX_MS = 10 * 60_000;
 
 export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: string | null; cambiarEmpresa?: () => void; alSesionVencida: () => void }) {
-    const { motor, estado, sesion, vista, notificacion } = useCampo();
+    const { motor, estado, sesion, vista, notificacion, atras } = useCampo();
+    useAtrasAndroid(atras);
     const { colores } = useTema();
     const margen = useSafeAreaInsets();
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
@@ -98,105 +92,124 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
 
     return (
         <View style={[estilos.pantalla, { backgroundColor: colores.fondo, paddingTop: margen.top }]}>
-            <Encabezado empresa={empresa} cambiarEmpresa={cambiarEmpresa} nombre={sesion.nombre} />
+            <Encabezado empresa={empresa} nombre={sesion.nombre} />
             <BarraConexion />
-            <ScrollView contentContainerStyle={[estilos.contenido, { paddingBottom: margen.bottom + 80 }]} keyboardShouldPersistTaps="handled">
+            {/* Cada vista empieza arriba (como la PWA al navegar). */}
+            <ScrollView key={urlDeVista(vista)} contentContainerStyle={estilos.contenido} keyboardShouldPersistTaps="handled">
                 <ExplicacionUbicacion />
-                {vista.tipo === "orden" ? <DetalleOrden id={vista.id} /> : vista.tipo === "pendientes" ? <Pendientes /> : <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />}
-            </ScrollView>
-            {notificacion ? (
-                <View style={[estilos.notificacion, { bottom: margen.bottom + 16 }]} pointerEvents="none">
-                    <Aviso tono={notificacion.tono} titulo={notificacion.texto} testID="notificacion" />
-                </View>
-            ) : null}
-            {estado.conexion === "sin_sesion" ? (
-                <View style={[estilos.notificacion, { bottom: margen.bottom + 16 }]}>
+                {estado.conexion === "sin_sesion" ? (
                     <Aviso tono="error" icono={KeyRound} titulo="Tu sesión venció" accion={<Boton alPresionar={alSesionVencida}>Volver a entrar</Boton>}>
                         Lo pendiente sigue guardado y se envía al volver a entrar.
                     </Aviso>
+                ) : null}
+                {estado.conexion === "sin_empresa" ? (
+                    <Aviso
+                        tono="error"
+                        icono={Building2}
+                        titulo="Ya no puedes trabajar en esta empresa"
+                        accion={cambiarEmpresa ? <Boton variante="secundario" alPresionar={cambiarEmpresa}>Elegir empresa</Boton> : undefined}
+                    >
+                        Lo pendiente sigue guardado en el teléfono.
+                    </Aviso>
+                ) : null}
+                {vista.tipo === "orden" ? (
+                    <DetalleOrden id={vista.id} paso={vista.paso} />
+                ) : vista.tipo === "pendientes" ? (
+                    <Pendientes />
+                ) : vista.tipo === "recibir" ? (
+                    <PorRecibir />
+                ) : vista.tipo === "traslado" ? (
+                    <DetalleTraslado id={vista.id} />
+                ) : vista.tipo === "yo" ? (
+                    <Yo empresa={empresa} cambiarEmpresa={cambiarEmpresa} bajarPaquete={() => bajarPaquete(true)} />
+                ) : vista.tipo === "bodega" ? (
+                    <MiBodega />
+                ) : (
+                    <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
+                )}
+            </ScrollView>
+            {notificacion ? (
+                <View style={[estilos.notificacion, { bottom: margen.bottom + 72 }]} pointerEvents="none">
+                    <Aviso tono={notificacion.tono} titulo={notificacion.texto} testID="notificacion" />
                 </View>
             ) : null}
+            <NavegacionInferior />
         </View>
     );
 }
 
-function Encabezado({ nombre, empresa, cambiarEmpresa }: { nombre: string; empresa: string | null; cambiarEmpresa: (() => void) | undefined }) {
+/** «Iris Campo» con el punto de estado, quién está y en qué empresa, y la ubicación. */
+function Encabezado({ nombre, empresa }: { nombre: string; empresa: string | null }) {
     const { colores } = useTema();
-    const { cerrarSesion, estado } = useCampo();
-    const [saliendo, setSaliendo] = useState(false);
-    const pendientes = estado.cola.length + estado.rechazos.length + estado.esperandoAdjuntos.length + estado.subidas.pendientes;
     return (
         <View style={[estilos.encabezado, { borderColor: colores.borde, backgroundColor: colores.vidrio }]}>
-            <View style={estilos.flex}>
+            <View style={estilos.fila}>
                 <Texto negrita>Iris Campo</Texto>
-                <Texto suave>
-                    {nombre}
-                    {empresa ? ` · ${empresa}` : ""}
-                </Texto>
+                <PuntoConexion />
             </View>
-            {cambiarEmpresa ? (
-                <Boton variante="fantasma" icono={Building2} etiqueta="Cambiar de empresa" alPresionar={cambiarEmpresa}>
-                    Empresa
-                </Boton>
-            ) : null}
-            <Boton variante="fantasma" icono={LogOut} etiqueta="Cerrar sesión" alPresionar={() => setSaliendo(true)}>
-                Salir
-            </Boton>
-            <Dialogo
-                abierto={saliendo}
-                alCerrar={() => setSaliendo(false)}
-                titulo="¿Cerrar sesión?"
-                descripcion={pendientes > 0 ? `Quedan ${pendientes} cosas sin enviar en este teléfono.` : "Se borran las órdenes guardadas en este teléfono."}
-            >
-                {pendientes > 0 ? (
-                    <>
-                        <Aviso tono="warning" titulo="Si sales, lo pendiente no se envía hasta que vuelvas a entrar">
-                            «Salir y conservarlos» guarda solo lo pendiente (la cola y las fotos) para enviarlo al volver.
-                        </Aviso>
-                        <Boton alPresionar={() => void cerrarSesion({ conservarPendientes: true })}>Salir y conservarlos</Boton>
-                    </>
-                ) : (
-                    <Boton alPresionar={() => void cerrarSesion({ conservarPendientes: false })}>Cerrar sesión</Boton>
-                )}
-                <Boton variante="fantasma" alPresionar={() => setSaliendo(false)}>
-                    Volver
-                </Boton>
-            </Dialogo>
+            <Texto suave>
+                {nombre}
+                {empresa ? ` · ${empresa}` : ""}
+            </Texto>
+            <IndicadorUbicacion />
         </View>
     );
 }
 
-/** Conexión (icono + texto + color), «N pendientes por enviar» con acceso a lo pendiente y la ubicación. */
+/**
+ * Punto de estado junto al título: con conexión y todo enviado es solo esto («En línea, todo
+ * enviado»). Cuando la barra está abierta, el punto acompaña y la barra explica.
+ */
+export function PuntoConexion() {
+    const { estado } = useCampo();
+    const { colores } = useTema();
+    const r = resumenEnvio(estado);
+    const tono = CONEXION_TEXTO[estado.conexion].tono;
+    return (
+        <View
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={etiquetaPunto(estado.conexion, r)}
+            accessibilityLiveRegion="polite"
+            testID="punto-conexion"
+            style={[estilos.punto, { backgroundColor: colores.tono[tono] }]}
+        />
+    );
+}
+
+/**
+ * Barra que crece solo cuando hace falta: algo por enviar (sin señal o enviando), un rechazo, la
+ * sesión vencida o la empresa no válida. Con todo enviado no se muestra (queda el punto).
+ */
 export function BarraConexion() {
     const { estado, motor, navegar } = useCampo();
     const { colores } = useTema();
-    const c = CONEXION[estado.conexion];
-    const rechazos = estado.rechazos.length + estado.subidas.rechazadas;
-    const porEnviar = estado.pendientes + estado.esperandoAdjuntos.length;
-    const fotos = estado.subidas.pendientes - estado.subidas.rechazadas;
-    const nada = porEnviar === 0 && fotos === 0 && rechazos === 0;
-    const partes = [
-        porEnviar > 0 ? `${porEnviar} ${porEnviar === 1 ? "pendiente" : "pendientes"} por enviar` : null,
-        fotos > 0 ? `${fotos} ${fotos === 1 ? "archivo" : "archivos"} por subir` : null,
-        rechazos > 0 ? `${rechazos} ${rechazos === 1 ? "rechazado" : "rechazados"}` : null,
-    ].filter((p): p is string => p !== null);
+    const r = resumenEnvio(estado);
+    if (!r.abierta) {
+        return null;
+    }
+    const c = CONEXION_TEXTO[estado.conexion];
+    const { pendientes, rechazos } = partesEnvio(r);
+    const hayAlgo = pendientes.length > 0 || rechazos !== null;
+    const texto = [...pendientes, ...(rechazos ? [rechazos] : [])];
     return (
-        <View accessibilityLabel="Estado de la sincronización" style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.fondo }]}>
+        <View accessibilityLabel="Estado de la sincronización" testID="barra-conexion" style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.fondo }]}>
             <View style={estilos.filaBarra}>
-                <Insignia tono={c.tono} icono={c.icono} texto={estado.sincronizando && estado.conexion !== "sin_conexion" ? "Sincronizando…" : c.texto} testID="estado-conexion" />
+                <Insignia tono={c.tono} icono={ICONOS_CONEXION[estado.conexion]} texto={r.texto} testID="estado-conexion" />
                 <View style={estilos.flex} />
-                <Boton
-                    variante={rechazos > 0 ? "secundario" : "fantasma"}
-                    icono={nada ? CloudCheck : rechazos > 0 ? TriangleAlert : CloudUpload}
-                    etiqueta={nada ? "Todo enviado. Ver detalle" : `${partes.join(", ")}. Ver detalle`}
-                    testID="pendientes-por-enviar"
-                    alPresionar={() => navegar({ tipo: "pendientes" })}
-                >
-                    {nada ? "Todo enviado" : partes.join(" · ")}
-                </Boton>
+                {hayAlgo ? (
+                    <Boton
+                        variante={rechazos ? "secundario" : "fantasma"}
+                        icono={rechazos ? TriangleAlert : CloudUpload}
+                        etiqueta={`${texto.join(", ")}. Ver detalle`}
+                        testID="pendientes-por-enviar"
+                        alPresionar={() => navegar({ tipo: "pendientes" })}
+                    >
+                        {texto.join(" · ")}
+                    </Boton>
+                ) : null}
             </View>
-            <IndicadorUbicacion />
-            {estado.proximoIntento !== null && estado.conexion !== "sin_sesion" && !nada ? (
+            {estado.proximoIntento !== null && estado.conexion !== "sin_sesion" && hayAlgo ? (
                 <View style={estilos.filaBarra}>
                     <Texto suave>Reintento a las {horaCorta(new Date(estado.proximoIntento).toISOString()) ?? ""}</Texto>
                     <Boton variante="fantasma" icono={RefreshCw} alPresionar={() => motor.reintentarAhora()}>
@@ -301,9 +314,11 @@ function ExplicacionUbicacion() {
 const estilos = StyleSheet.create({
     flex: { flex: 1 },
     pantalla: { flex: 1 },
-    encabezado: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1 },
+    fila: { flexDirection: "row", alignItems: "center", gap: 8 },
+    encabezado: { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, gap: 2 },
+    punto: { width: 10, height: 10, borderRadius: 5 },
     barra: { paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 1, gap: 4 },
     filaBarra: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-    contenido: { padding: 16, gap: 14 },
+    contenido: { padding: 16, gap: 14, paddingBottom: 32 },
     notificacion: { position: "absolute", left: 16, right: 16 },
 });

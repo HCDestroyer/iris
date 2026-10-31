@@ -6,12 +6,14 @@ import {
     CODIGO_SESION_AJENA,
     ColaPosiciones,
     crearGeneradorUuid7,
+    crearInventarioApi,
     crearSubidorApi,
     crearTransporteApi,
     crearTransportePosicionesApi,
     ErrorTransporte,
     MotorSync,
     type IdentidadApp,
+    type InventarioCampo,
     type Transporte,
 } from "@iris/sync";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
@@ -35,6 +37,8 @@ export interface MotorAbierto {
     posiciones: ColaPosiciones;
     almacen: AlmacenSqlite;
     nombre: string;
+    /** «Por recibir» y «Mi bodega» (solo con señal, tras comprobar el dueño de la sesión). */
+    inventario: InventarioCampo;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -99,7 +103,18 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         dispositivoId: motor.dispositivoId,
         verificarIdentidad,
     });
-    return { motor, posiciones, almacen, nombre };
+    const lecturas = crearInventarioApi(api, app);
+    const inventario: InventarioCampo = {
+        porRecibir: async () => {
+            await verificarIdentidad();
+            return lecturas.porRecibir();
+        },
+        miBodega: async () => {
+            await verificarIdentidad();
+            return lecturas.miBodega();
+        },
+    };
+    return { motor, posiciones, almacen, nombre, inventario };
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */

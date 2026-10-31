@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { MOTIVOS_FALLA as CODIGOS_FALLA, valorDe, type OrdenVista } from "@iris/sync";
-import { estadoPasos, faltantesAntesDeFirmar } from "@iris/sync/campo";
+import { MOTIVOS_FALLA as CODIGOS_FALLA, type OrdenVista } from "@iris/sync";
+import { encolarFirmaYCierre, estadoPasos, faltantesAntesDeFirmar, resumenTrabajo } from "@iris/sync/campo";
 import {
     Aviso,
     Boton,
@@ -30,7 +30,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { esquemaFallar, esquemaFirma, type DatosFallar, type DatosFirma } from "@/lib/campo/esquemas";
 import { accionesDe } from "@/lib/campo/reglas";
-import { MOTIVOS_FALLA, TIPOS_ORDEN } from "@/lib/campo/textos";
+import { MOTIVOS_FALLA } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
 import { useUbicacion } from "./ubicacion";
 
@@ -39,62 +39,53 @@ function useConPosicion() {
     const { posicionSiPermitida } = useUbicacion();
     return async () => {
         const p = await posicionSiPermitida();
-        return p ? { lat: p.lat, lon: p.lon } : {};
+        return p ? { lat: p.lat, lon: p.lon } : null;
     };
 }
 
 /** Lo hecho en la orden, en palabras del cliente: checklist, fotos, materiales y equipos. */
 function ResumenTrabajo({ orden }: { orden: OrdenVista }) {
-    const respondidos = (orden.checklist ?? []).filter((i) => {
-        const v = valorDe(i);
-        return v !== null && v !== "";
-    });
-    const fotos = (orden.adjuntos ?? []).filter((a) => a.tipo === "foto").length;
-    const materiales = orden.materiales ?? [];
-    const equipos = orden.equipos ?? [];
+    const r = resumenTrabajo(orden);
     return (
         <Tarjeta data-slot="resumen-trabajo">
             <TarjetaEncabezado>
                 <TarjetaTitulo>Resumen del trabajo</TarjetaTitulo>
-                <TarjetaDescripcion>
-                    {TIPOS_ORDEN[orden.tipo]} · checklist {respondidos.length}/{(orden.checklist ?? []).length} · {fotos} {fotos === 1 ? "foto" : "fotos"} ·{" "}
-                    {materiales.length} {materiales.length === 1 ? "material" : "materiales"} · {equipos.length} {equipos.length === 1 ? "equipo" : "equipos"}
-                </TarjetaDescripcion>
+                <TarjetaDescripcion>{r.descripcion}</TarjetaDescripcion>
             </TarjetaEncabezado>
             <TarjetaContenido className="grid gap-4 text-sm">
-                {respondidos.length > 0 ? (
+                {r.checklist.length > 0 ? (
                     <section aria-label="Checklist" className="grid gap-1">
                         <h3 className="text-xs font-semibold text-muted-foreground">Checklist</h3>
                         <ul className="grid gap-1">
-                            {respondidos.map((i) => (
-                                <li key={`${i.formularioId ?? ""}:${i.codigo}`} className="flex items-start justify-between gap-3">
+                            {r.checklist.map((i) => (
+                                <li key={i.clave} className="flex items-start justify-between gap-3">
                                     <span className="min-w-0 break-words">{i.etiqueta}</span>
-                                    <span className="shrink-0 text-right font-medium">{textoValor(i)}</span>
+                                    <span className="shrink-0 text-right font-medium">{i.valor}</span>
                                 </li>
                             ))}
                         </ul>
                     </section>
                 ) : null}
-                {materiales.length > 0 ? (
+                {r.materiales.length > 0 ? (
                     <section aria-label="Materiales" className="grid gap-1">
                         <h3 className="text-xs font-semibold text-muted-foreground">Materiales</h3>
                         <ul className="grid gap-1">
-                            {materiales.map((m) => (
-                                <li key={m.id} className="flex items-start justify-between gap-3">
-                                    <span className="min-w-0 break-words">{m.descripcion || `Producto ${m.productoId}`}</span>
-                                    <span className="shrink-0 font-medium tabular-nums">{m.cantidad.toLocaleString("es-GT")}</span>
+                            {r.materiales.map((m) => (
+                                <li key={m.clave} className="flex items-start justify-between gap-3">
+                                    <span className="min-w-0 break-words">{m.descripcion}</span>
+                                    <span className="shrink-0 font-medium tabular-nums">{m.cantidad}</span>
                                 </li>
                             ))}
                         </ul>
                     </section>
                 ) : null}
-                {equipos.length > 0 ? (
+                {r.equipos.length > 0 ? (
                     <section aria-label="Equipos" className="grid gap-1">
                         <h3 className="text-xs font-semibold text-muted-foreground">Equipos</h3>
                         <ul className="grid gap-1">
-                            {equipos.map((e) => (
-                                <li key={e.id} className="break-words">
-                                    {e.accion === "instalar" ? "Instalado" : "Retirado"}: {e.modelo || "equipo"}
+                            {r.equipos.map((e) => (
+                                <li key={e.clave} className="break-words">
+                                    {e.texto}
                                     {e.serie ? <span className="font-mono"> · {e.serie}</span> : null}
                                 </li>
                             ))}
@@ -104,17 +95,6 @@ function ResumenTrabajo({ orden }: { orden: OrdenVista }) {
             </TarjetaContenido>
         </Tarjeta>
     );
-}
-
-function textoValor(item: Parameters<typeof valorDe>[0]): string {
-    const v = valorDe(item);
-    if (typeof v === "boolean") {
-        return v ? "Sí" : "No";
-    }
-    if (typeof v === "number") {
-        return `${v.toLocaleString("es-GT")}${item.unidad ? ` ${item.unidad}` : ""}`;
-    }
-    return item.tipo === "foto" ? "Foto" : String(v ?? "");
 }
 
 /**
@@ -205,25 +185,17 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
         enviando.current = true;
         setOcupado(true);
         const ok = await ejecutar(async () => {
-            if (d && firmo) {
-                const svg = trazosASvg(trazos.trazos, trazos.ancho, trazos.alto);
-                const png = new Uint8Array(await (await trazosAPng(trazos.trazos, trazos.ancho, trazos.alto)).arrayBuffer());
-                const { adjunto } = await motor.agregarAdjunto({
-                    ordenId: orden.id,
-                    tipo: "firma",
-                    datos: png,
-                    mime: "image/png",
-                    obligatorio: orden.requiereFirma,
-                    tomadoEn: new Date().toISOString(),
-                });
-                await motor.registrar("firma.capturar", orden.id, {
-                    nombre: d.nombre,
-                    svg,
-                    adjuntoId: adjunto.id,
-                    ...(d.documento ? { documento: d.documento } : {}),
-                });
-            }
-            await motor.registrar("orden.cerrar", orden.id, { resultado, ...(await conPosicion()) });
+            const firma =
+                d && firmo
+                    ? {
+                          nombre: d.nombre,
+                          documento: d.documento,
+                          svg: trazosASvg(trazos.trazos, trazos.ancho, trazos.alto),
+                          png: new Uint8Array(await (await trazosAPng(trazos.trazos, trazos.ancho, trazos.alto)).arrayBuffer()),
+                          tomadoEn: new Date().toISOString(),
+                      }
+                    : null;
+            await encolarFirmaYCierre(motor, { orden, firma, resultado, posicion: await conPosicion() });
         }, "Orden cerrada");
         if (!ok) {
             // Si no se guardó, se puede volver a intentar; si se guardó, la orden ya está cerrada.
@@ -303,7 +275,7 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
     const enviar = form.handleSubmit(async (d) => {
         const ok = await ejecutar(
             async () =>
-                motor.registrar("orden.fallar", orden.id, { motivoFalla: d.motivoFalla, ...(d.detalle ? { detalle: d.detalle } : {}), ...(await conPosicion()) }),
+                motor.registrar("orden.fallar", orden.id, { motivoFalla: d.motivoFalla, ...(d.detalle ? { detalle: d.detalle } : {}), ...((await conPosicion()) ?? {}) }),
             "Orden marcada como no realizada",
         );
         if (ok) {
