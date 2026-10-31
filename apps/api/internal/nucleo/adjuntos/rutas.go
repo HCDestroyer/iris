@@ -59,6 +59,10 @@ func (m *Modulo) RegistrarRutas(api huma.API) {
 		"422 `mime_no_permitido` (IRIS_ADJUNTOS_MIME), 413 `tamano_excedido` (IRIS_ADJUNTOS_TAMANO_MAX). " +
 		"Responde `urlSubida` (también en `Location`) para subir con tus 1.0 (HEAD/PATCH). Emite `adjunto.registrado`."
 	huma.Register(api, alta, func(ctx context.Context, in *entradaRegistrarHTTP) (*salidaRegistrar, error) {
+		// Antes de la transacción: la entidad que hay que confirmar con otro sistema (traslado).
+		if err := Preparar(ctx, in.Body.Entidad, in.Body.EntidadID); err != nil {
+			return nil, err
+		}
 		r, err := m.Registrar.Ejecutar(ctx, in.Body)
 		if err != nil {
 			return nil, err

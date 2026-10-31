@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -437,7 +438,7 @@ func TestRecepcionRechazos(t *testing.T) {
 	if p, _ := nucleo.AProblema(err); p == nil || p.Status != 404 {
 		t.Fatalf("la firma de un traslado ajeno no se registra: %v", err)
 	}
-	if res := e.recibir(tr2, uuid.Must(uuid.NewV7())); res.Error == nil || res.Error.Codigo() != "traslado_de_otro_tecnico" {
+	if res := e.recibir(tr2, uuid.Must(uuid.NewV7())); res.Error == nil || res.Error.Codigo() != inventario.CodigoTrasladoNoEncontrado {
 		t.Fatalf("traslado de otro técnico: %+v", res.Error)
 	}
 	// Sin vínculo.
@@ -576,6 +577,10 @@ func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
 	}
 	registrarFirma := func(ctx context.Context, traslado int64) (uuid.UUID, error) {
 		id := uuid.Must(uuid.NewV7())
+		// Como POST /adjuntos: primero la preparación (fuera de la transacción), luego el alta.
+		if err := adjuntos.Preparar(ctx, "traslado", strconv.FormatInt(traslado, 10)); err != nil {
+			return id, err
+		}
 		_, err := e.adj.Registrar.Ejecutar(ctx, adjuntos.EntradaRegistrar{ID: id, Entidad: "traslado", EntidadID: strconv.FormatInt(traslado, 10),
 			Tipo: "firma", Mime: "image/png", Tamano: int64(len(contenido)), SHA256: hex.EncodeToString(suma[:])})
 		return id, err
@@ -624,14 +629,10 @@ func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
 	}
 	// Argos lo tiene sin técnico: traslado_sin_tecnico (definitivo).
 	sinTecnico := futuro + 2
-	cuerpoArgos := func(id int64, tecnico string) string {
-		return `{"data":{"id":` + strconv.FormatInt(id, 10) + `,"empresa_id":1,"bodega_destino_id":70,"tecnico":` + tecnico +
-			`,"estado":"enviado","lineas":[{"linea_id":1,"producto_id":5,"cantidad":"10","series":[]}],"enviado_en":"2026-10-30T15:00:00Z"}}`
-	}
 	e.argos.mu.Lock()
-	e.argos.traslados[strconv.FormatInt(sinTecnico, 10)] = cuerpoArgos(sinTecnico, "null")
+	e.argos.traslados[strconv.FormatInt(sinTecnico, 10)] = detalleArgos(sinTecnico, "bodega", "null", "en_transito")
 	e.argos.mu.Unlock()
-	if r := reciboDe(ctxIntruso, intruso, sinTecnico, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoSinTecnico {
+	if r := reciboDe(ctxIntruso, intruso, sinTecnico, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoNoEncontrado {
 		t.Fatalf("sin técnico: %+v", r)
 	}
 	if _, err := registrarFirma(ctxIntruso, sinTecnico); !es404(err) {
@@ -640,14 +641,15 @@ func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
 	// Argos lo tiene y es de B (u-77): queda guardado; el intruso no puede, B sí (sin volver a leer).
 	futuro = futuro + 3
 	e.argos.mu.Lock()
-	e.argos.traslados[strconv.FormatInt(futuro, 10)] = cuerpoArgos(futuro, `{"id_externo":"u-77"}`)
+	e.argos.traslados[strconv.FormatInt(futuro, 10)] = detalleArgos(futuro, "tecnico", `"u-77"`, "en_transito")
 	antes := e.argos.lecturas
 	e.argos.mu.Unlock()
 	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
 		t.Fatalf("la firma de un traslado ajeno no se registra: %v", err)
 	}
-	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != "traslado_de_otro_tecnico" {
-		t.Fatalf("de otro técnico: %+v", r)
+	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoNoEncontrado ||
+		r.Error.Detail != "La orden de traslado no existe o no es para tu bodega" {
+		t.Fatalf("de otro técnico: la misma respuesta que «no existe»: %+v", r)
 	}
 	if r := e.recibir(futuro, e.firma(futuro, contenido, true)); r.Estado != "aplicada" || r.Recepcion == nil {
 		t.Fatalf("el destinatario recibe: %+v %+v", r, r.Error)
@@ -657,6 +659,27 @@ func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
 		t.Fatalf("confirmado una vez y guardado: %d lecturas", e.argos.lecturas-antes)
 	}
 	e.argos.mu.Unlock()
+	// Normalizado al modelo del webhook: en_transito → enviado, técnico = usuario_destino_id, líneas
+	// con linea_id = id, cantidad numérica y series de unidades[].serie.
+	var estado, tecnico, lineas string
+	if err := e.pool.QueryRow(context.Background(), `SELECT estado, tecnico_id_externo, lineas::text FROM integracion.argos_traslados WHERE id = $1`,
+		futuro).Scan(&estado, &tecnico, &lineas); err != nil {
+		t.Fatal(err)
+	}
+	var ls []map[string]any
+	_ = json.Unmarshal([]byte(lineas), &ls)
+	if estado != "enviado" || tecnico != "u-77" || len(ls) != 2 || ls[0]["linea_id"] != float64(501) || ls[0]["cantidad"] != 10.5 ||
+		ls[1]["linea_id"] != float64(502) || fmt.Sprint(ls[1]["series"]) != "[ZTE-1]" {
+		t.Fatalf("normalizado: %s %s %s", estado, tecnico, lineas)
+	}
+	// Una forma inesperada (estado desconocido) no se adivina: traslado_sin_confirmar.
+	raro := futuro + 1
+	e.argos.mu.Lock()
+	e.argos.traslados[strconv.FormatInt(raro, 10)] = detalleArgos(raro, "tecnico", `"u-77"`, "borrador")
+	e.argos.mu.Unlock()
+	if r := e.recibir(raro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoSinConfirmar {
+		t.Fatalf("forma inesperada: %+v", r)
+	}
 	// La firma de B no la ve el intruso.
 	if _, err := e.adj.Listar.Ejecutar(ctxIntruso, adjuntos.EntradaListar{Entidad: "traslado", EntidadID: strconv.FormatInt(futuro, 10)}); !es404(err) {
 		t.Fatalf("nadie ve la firma de un traslado ajeno: %v", err)
@@ -828,21 +851,17 @@ func TestRecepcionEnEnvioYClaveReutilizada(t *testing.T) {
 	}
 
 	// 422 idempotency_key_reutilizada y Argos lo muestra recibido: hecho, conciliado.
-	cuerpoArgos := func(id int64, estado string) string {
-		return `{"data":{"id":` + strconv.FormatInt(id, 10) + `,"empresa_id":1,"tecnico":{"id_externo":"u-77"},"estado":"` + estado +
-			`","lineas":[],"enviado_en":"2026-10-30T15:00:00Z"}}`
-	}
 	for _, c := range []struct {
 		estado, esperado string
-	}{{"recibido", "hecho"}, {"enviado", "fallido_negocio"}} {
+	}{{"recibida_con_diferencias", "hecho"}, {"en_transito", "fallido_negocio"}} {
 		id := trasladoNuevo() + 7
-		if c.estado == "enviado" {
+		if c.estado == "en_transito" {
 			id += 3
 		}
 		e.enviado(id, "u-77")
 		e.argos.mu.Lock()
 		e.argos.respuesta[strconv.FormatInt(id, 10)] = [2]string{"422", pendientes.CodigoIdempotenciaReutilizada}
-		e.argos.traslados[strconv.FormatInt(id, 10)] = cuerpoArgos(id, c.estado)
+		e.argos.traslados[strconv.FormatInt(id, 10)] = detalleArgos(id, "tecnico", `"u-77"`, c.estado)
 		e.argos.mu.Unlock()
 		e.recibir(id, e.firma(id, contenido, true))
 		if _, err := e.inv.BarrerFirmas(ctx); err != nil {
@@ -859,4 +878,25 @@ func TestRecepcionEnEnvioYClaveReutilizada(t *testing.T) {
 			t.Fatalf("conciliado: %+v", p)
 		}
 	}
+}
+
+// detalleArgos: GET /inventario/traslados/:id de Argos 1.6.0 (OrdenTrasladoDetalle, contrato 0.5.1),
+// objeto directo, sin sobre.
+func detalleArgos(id int64, tipoDestino, usuarioDestino, estado string) string {
+	n := strconv.FormatInt(id, 10)
+	return `{"id":` + n + `,"empresa_id":1,"numero":"TR-` + n + `","estado":"` + estado + `",
+		"bodega_origen_id":10,"bodega_origen_nombre":"Central","bodega_destino_id":70,"bodega_destino_nombre":"Bodega Ana",
+		"bodega_destino_tipo":"` + tipoDestino + `","usuario_destino_id":` + usuarioDestino + `,"usuario_destino_nombre":"Ana",
+		"motivo":"Reposición","enviado_por":"u-1","enviado_por_nombre":"Bodeguero","enviado_en":"2026-10-30T15:00:00Z",
+		"metodo_recepcion":null,"recibido_por":null,"recibido_por_nombre":null,"recibido_en":null,"firma_sha256":null,"firma_en":null,
+		"documento_id":null,"cancelado_por":null,"cancelado_en":null,"motivo_cancelacion":null,
+		"lineas_total":2,"costo_total":"350.00","version":3,"created_at":"2026-10-30T14:00:00Z","updated_at":"2026-10-30T15:00:00Z",
+		"lineas":[
+			{"id":501,"producto_id":5,"producto_sku":"UTP","producto_nombre":"Cable UTP","unidad":"m","seguimiento":"cantidad",
+				"modalidad":"consumible_gasto","cantidad":"10.500","costo_total":"50.00","cantidad_recibida":null,"costo_recibido":null,
+				"faltante":null,"unidades":[]},
+			{"id":502,"producto_id":6,"producto_sku":"ONT","producto_nombre":"ONT","unidad":"u","seguimiento":"serie",
+				"modalidad":"comodato","cantidad":"2","costo_total":"300.00","cantidad_recibida":null,"costo_recibido":null,"faltante":null,
+				"unidades":[{"unidad_id":900,"serie":"ZTE-1","mac":"AA:BB:CC:DD:EE:01","costo":"150.00","recibida":null},
+					{"unidad_id":901,"serie":null,"mac":null,"costo":"150.00","recibida":null}]}]}`
 }

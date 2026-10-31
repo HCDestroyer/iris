@@ -35,8 +35,13 @@ Consume `adjunto.completado` y `adjunto.rechazado`.
 - Solo se encola la recepción de un traslado que Iris conoce y que va al técnico que la manda. Si
   no lo conoce (o sin técnico), `ConfirmarTraslado` lo lee de Argos (`argos.Modulo.ConfirmarTraslado`:
   `GET /inventario/traslados/:id`, singleflight, cuota de verificación y caché negativa) y lo guarda,
-  antes de la transacción del lote y al registrar la firma (`nucleo.FueraDeTx`). 404 →
-  `traslado_no_encontrado`; sin técnico → `traslado_sin_tecnico` (definitivos); Argos sin responder →
+  antes de la transacción del lote y antes de la del alta de la firma (`adjuntos.Preparar`, que
+  `POST /adjuntos` corre antes de `Registrar`). La respuesta es `OrdenTrasladoDetalle` (contrato 0.5.1,
+  objeto directo): `estado` en_transito/recibida/recibida_con_diferencias/cancelada → enviado/recibido/
+  cancelado; técnico = `usuario_destino_id` con `bodega_destino_tipo = tecnico`; líneas con `linea_id =
+  id`, `cantidad` decimal y `series` de `unidades[].serie` (mismos topes que el webhook). 404, sin
+  técnico, de otro técnico o de otra empresa → `traslado_no_encontrado` (la misma respuesta para
+  todos; definitivo); forma o estado inesperados, o Argos sin responder →
   `traslado_sin_confirmar` (503, reintentable por operación). Nunca toma la clave sin destinatario.
 - La recepción de otro usuario que se está enviando responde `recepcion_en_envio` (reintentable).
 - `422 idempotency_key_reutilizada` de una recepción: se confirma con Argos; recibido → hecho.

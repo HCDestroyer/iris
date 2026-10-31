@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -53,10 +52,10 @@ const (
 	// CodigoTrasladoSinConfirmar: Argos no respondió al confirmar el traslado (caída, 5xx, 429 o cuota
 	// de lecturas): reintentable, el teléfono espera solo esa operación (no detiene la cola).
 	CodigoTrasladoSinConfirmar = "traslado_sin_confirmar"
-	// CodigoTrasladoNoEncontrado: Argos no lo tiene (404): definitivo («Descartar»).
+	// CodigoTrasladoNoEncontrado: definitivo («Descartar»). Una sola respuesta, igual para todos, para
+	// lo que no es del técnico: Argos no lo tiene (404), no va a la bodega de un técnico, va a otro
+	// técnico o es de otra empresa (así no se puede sondear qué ids existen).
 	CodigoTrasladoNoEncontrado = "traslado_no_encontrado"
-	// CodigoTrasladoSinTecnico: Argos lo tiene pero no va a la bodega de un técnico: definitivo.
-	CodigoTrasladoSinTecnico = "traslado_sin_tecnico"
 	// CodigoRecepcionEnEnvio: la recepción que registró otro usuario se está mandando a Argos ahora:
 	// reintentable (al terminar, el destinatario la toma o ve que ya quedó).
 	CodigoRecepcionEnEnvio = "recepcion_en_envio"
@@ -67,17 +66,17 @@ func TrasladoSinConfirmar(detalle string) *nucleo.Problema {
 	return problemaRecepcion(http.StatusServiceUnavailable, CodigoTrasladoSinConfirmar, detalle)
 }
 
-func trasladoSinTecnico() *nucleo.Problema {
-	return problemaRecepcion(http.StatusUnprocessableEntity, CodigoTrasladoSinTecnico,
-		"Argos no dice a qué técnico va esta orden de traslado: no se puede recibir desde la app")
+// trasladoNoDisponible: la respuesta única para un traslado que no es del técnico (o no existe).
+func trasladoNoDisponible() *nucleo.Problema {
+	return problemaRecepcion(http.StatusNotFound, CodigoTrasladoNoEncontrado, "La orden de traslado no existe o no es para tu bodega")
 }
 
 // ConfirmarTraslado corre antes de la transacción de la operación traslado.recibir: si Iris no
 // conoce el traslado (o lo conoce sin técnico), lo confirma con Argos (GET /inventario/traslados/:id,
 // con la protección de lecturas del conector) y lo guarda. Solo para quien puede recibir (permiso,
-// vínculo, Argos ≥ 1.6.0); si no, no hace nada y Encolar da el error que toca. 404 →
-// traslado_no_encontrado; Argos sin responder → traslado_sin_confirmar (reintentable); sin técnico
-// después de leerlo → traslado_sin_tecnico.
+// vínculo, Argos ≥ 1.6.0); si no, no hace nada y Encolar da el error que toca. 404, o sin técnico
+// después de leerlo → traslado_no_encontrado (la misma respuesta que «de otro técnico»); Argos sin
+// responder → traslado_sin_confirmar (reintentable).
 func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 	bd := nucleo.BDDe(ctx)
 	if m.cfg.Argos == nil || bd == nil || id <= 0 || !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermCampoRecibirTraslado)) {
@@ -104,7 +103,7 @@ func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 	err = m.cfg.Argos.ConfirmarTraslado(ctx, id, contexto.EmpresaDe(ctx))
 	switch {
 	case errors.Is(err, argos.ErrTrasladoNoEncontrado):
-		return problemaRecepcion(http.StatusNotFound, CodigoTrasladoNoEncontrado, "Argos no tiene esta orden de traslado")
+		return trasladoNoDisponible()
 	case errors.Is(err, argos.ErrTrasladoNoConfirmado):
 		return TrasladoSinConfirmar("No se pudo confirmar la orden de traslado con Argos: se reintenta sola")
 	case err != nil:
@@ -117,7 +116,7 @@ func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 	case err != nil:
 		return err
 	case !conTecnico(f):
-		return trasladoSinTecnico()
+		return trasladoNoDisponible()
 	}
 	return nil
 }
@@ -321,12 +320,11 @@ func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id int64, v
 		return f, err
 	}
 	switch {
+	case !conTecnico(f) || !esDestinatario(f, v) || (empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
+		// Primero quién es: a otro técnico no se le dice si existe ni en qué estado está.
+		return f, trasladoNoDisponible()
 	case f.Estado == "cancelado":
 		return f, problemaRecepcion(http.StatusConflict, "traslado_cancelado", "Argos canceló esta orden de traslado")
-	case !conTecnico(f):
-		return f, trasladoSinTecnico()
-	case !esDestinatario(f, v) || (empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
-		return f, problemaRecepcion(http.StatusUnprocessableEntity, "traslado_de_otro_tecnico", "La orden de traslado es para la bodega de otro técnico")
 	}
 	return f, nil
 }
@@ -592,21 +590,31 @@ func (m *Modulo) Suscribir(bus *integracion.Bus, bd nucleo.BD) {
 // Adjuntos: la firma es un adjunto de la entidad «traslado» -----------------------------------
 
 // RegistrarAdjuntos registra la entidad «traslado»: sube y ve la firma solo el técnico al que va la
-// orden de traslado (por su vínculo). Un traslado que Iris no conoce se confirma con Argos al subir
-// la firma (ConfirmarTraslado de este módulo: la firma se sube antes de mandar traslado.recibir);
-// desconocido, sin técnico o ajeno no admite ni muestra firmas (no encontrado; Argos sin responder:
-// 503 traslado_sin_confirmar, reintentable). La empresa es la del traslado (o la activa).
+// orden de traslado (por su vínculo). Un traslado que Iris no conoce se confirma con Argos ANTES de la
+// transacción del alta (adjuntos.Preparar → ConfirmarTraslado; la firma se sube antes de mandar
+// traslado.recibir); desconocido, sin técnico o ajeno no admite ni muestra firmas (no encontrado;
+// Argos sin responder: 503 traslado_sin_confirmar, reintentable). La empresa es la del traslado (o
+// la activa).
 func (m *Modulo) RegistrarAdjuntos() {
-	confirmador.Store(m)
+	adjuntos.RegistrarPreparacion(EntidadTraslado, m.prepararFirma)
 	registroAdjuntos.Do(registrarAdjuntos)
 }
 
-var (
-	registroAdjuntos sync.Once
-	// confirmador: el módulo que confirma con Argos un traslado desconocido al subir su firma (el
-	// registro de la entidad adjuntable es global).
-	confirmador atomic.Pointer[Modulo]
-)
+var registroAdjuntos sync.Once
+
+// prepararFirma: confirma el traslado con Argos (fuera de transacción) antes del alta de su firma.
+// Solo el 503 reintentable llega al cliente; lo demás lo decide el verificador (404 igual para todos).
+func (m *Modulo) prepararFirma(ctx context.Context, entidadID string) error {
+	id, err := strconv.ParseInt(entidadID, 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	err = m.ConfirmarTraslado(ctx, id)
+	if p, _ := nucleo.AProblema(err); p != nil && p.Codigo() == CodigoTrasladoSinConfirmar {
+		return err
+	}
+	return nil
+}
 
 func registrarAdjuntos() {
 	adjuntos.RegistrarEntidadAdjuntable(EntidadTraslado, func(ctx context.Context, q adjuntos.DBTX, entidadID string, uso adjuntos.Uso) (int64, error) {
@@ -628,19 +636,6 @@ func registrarAdjuntos() {
 		}
 		empresa := contexto.EmpresaDe(ctx)
 		f, err := argosbd.New(q).TrasladoPorID(ctx, id)
-		if (errors.Is(err, pgx.ErrNoRows) || (err == nil && !conTecnico(f))) && uso != adjuntos.UsoVer {
-			// Se confirma con Argos y se guarda aparte (ya confirmado al volver, aunque esta alta se
-			// rechace): esta transacción lo lee enseguida (READ COMMITTED).
-			if c := confirmador.Load(); c != nil {
-				if err := c.ConfirmarTraslado(nucleo.FueraDeTx(ctx), id); err != nil {
-					if p, _ := nucleo.AProblema(err); p != nil && p.Codigo() == CodigoTrasladoSinConfirmar {
-						return 0, err
-					}
-					return 0, nucleo.NoEncontrado("")
-				}
-				f, err = argosbd.New(q).TrasladoPorID(ctx, id)
-			}
-		}
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			return 0, nucleo.NoEncontrado("")

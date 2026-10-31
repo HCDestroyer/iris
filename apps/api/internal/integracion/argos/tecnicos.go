@@ -290,14 +290,15 @@ func (r RefTecnico) consulta() url.Values {
 	return url.Values{"correo": {r.Correo}}
 }
 
-// Traslado: GET /inventario/traslados/:id con X-Empresa-Id (≠ 0); destino recibe el objeto (sin el
-// sobre data). 404 traslado_no_encontrado.
+// Traslado: GET /inventario/traslados/:id con X-Empresa-Id (≠ 0). Argos 1.6.0 responde el objeto
+// OrdenTrasladoDetalle directo, sin sobre (contrato 0.5.1); destino lo recibe crudo. 404
+// traslado_no_encontrado.
 func (c *Cliente) Traslado(ctx context.Context, id, empresaID int64, destino *json.RawMessage) error {
 	cli := c.Cliente
 	if empresaID != 0 {
 		cli = cli.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(empresaID, 10))
 	}
-	return cli.Pedir(ctx, http.MethodGet, "/inventario/traslados/"+strconv.FormatInt(id, 10), nil, nil, true, &conector.Recurso{Destino: destino})
+	return cli.Pedir(ctx, http.MethodGet, "/inventario/traslados/"+strconv.FormatInt(id, 10), nil, nil, true, destino)
 }
 
 // MiBodega: GET /inventario/mi-bodega?id_externo=|correo= con X-Empresa-Id (≠ 0). Se lee crudo (lo
