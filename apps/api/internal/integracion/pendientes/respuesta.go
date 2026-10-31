@@ -13,7 +13,11 @@ import (
 // personales, listas y objetos anidados) se descarta. Si hace falta otro campo, se agrega aquí.
 
 // CamposRespuesta: los únicos campos que se guardan de una respuesta (y sus formas camelCase).
-var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id"}
+var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id", "factura_id"}
+
+// Listas que también se guardan (contrato 0.5.0 §3.3): los cargos que Argos emitió al consumir
+// productos consumible_cobro, cada uno solo con sus campos escalares permitidos.
+var listasRespuesta = map[string][]string{"cargos": {"id", "producto_id", "monto"}}
 
 var camposPermitidos = func() map[string]bool {
 	m := map[string]bool{}
@@ -77,6 +81,12 @@ func limpiarRespuesta(crudo []byte) []byte {
 func escalaresPermitidos(obj map[string]json.RawMessage) map[string]any {
 	salida := map[string]any{}
 	for k, v := range obj {
+		if campos, ok := listasRespuesta[k]; ok {
+			if l := listaPermitida(v, campos); l != nil {
+				salida[k] = l
+			}
+			continue
+		}
 		if !camposPermitidos[k] {
 			continue
 		}
@@ -154,4 +164,73 @@ func partir(campo string) []string {
 		}
 	}
 	return append(tramos, campo[inicio:])
+}
+
+// listaPermitida: una lista de objetos, cada uno con solo esos campos escalares (máx. 200).
+func listaPermitida(v json.RawMessage, campos []string) []map[string]json.RawMessage {
+	var lista []map[string]json.RawMessage
+	if json.Unmarshal(v, &lista) != nil {
+		return nil
+	}
+	salida := make([]map[string]json.RawMessage, 0, len(lista))
+	for i, o := range lista {
+		if i >= 200 {
+			break
+		}
+		limpio := map[string]json.RawMessage{}
+		for _, c := range campos {
+			for _, k := range []string{c, camel(c)} {
+				x := bytes.TrimSpace(o[k])
+				if len(x) > 0 && x[0] != '{' && x[0] != '[' {
+					limpio[c] = x
+				}
+			}
+		}
+		if len(limpio) > 0 {
+			salida = append(salida, limpio)
+		}
+	}
+	return salida
+}
+
+// CargoArgos es un cargo único que Argos emitió al consumir un producto consumible_cobro.
+type CargoArgos struct {
+	ID         int64  `json:"id"`
+	ProductoID int64  `json:"productoId"`
+	Monto      string `json:"monto" doc:"Monto en texto decimal (como lo manda Argos)"`
+}
+
+// cargosDeRespuesta lee cargos[] y factura_id de la respuesta guardada de un consumo.
+func cargosDeRespuesta(respuesta []byte) ([]CargoArgos, *int64) {
+	if len(respuesta) == 0 {
+		return nil, nil
+	}
+	var r struct {
+		Cargos    []map[string]json.RawMessage `json:"cargos"`
+		FacturaID json.RawMessage              `json:"factura_id"`
+	}
+	if json.Unmarshal(respuesta, &r) != nil {
+		return nil, nil
+	}
+	entero := func(v json.RawMessage) int64 {
+		s := string(bytes.TrimSpace(v))
+		if u, err := strconv.Unquote(s); err == nil {
+			s = u
+		}
+		n, _ := strconv.ParseInt(s, 10, 64)
+		return n
+	}
+	var cargos []CargoArgos
+	for _, c := range r.Cargos {
+		monto := string(bytes.TrimSpace(c["monto"]))
+		if u, err := strconv.Unquote(monto); err == nil {
+			monto = u
+		}
+		cargos = append(cargos, CargoArgos{ID: entero(c["id"]), ProductoID: entero(c["producto_id"]), Monto: monto})
+	}
+	var factura *int64
+	if n := entero(r.FacturaID); n > 0 {
+		factura = &n
+	}
+	return cargos, factura
 }

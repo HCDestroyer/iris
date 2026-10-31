@@ -39,8 +39,13 @@ type Pendiente struct {
 	ConflictoEn      *time.Time     `json:"conflictoEn" nullable:"true"`
 	Respuesta        any            `json:"respuesta,omitempty" doc:"Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó)"`
 	PorResolver      bool           `json:"porResolver,omitempty" doc:"El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)"`
-	CreadoEn         time.Time      `json:"creadoEn"`
-	Version          int32          `json:"version"`
+	// Contrato 0.5.0 §3.3.
+	CodigoError *string      `json:"codigoError" nullable:"true" required:"false" doc:"type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido"`
+	Corregible  bool         `json:"corregible" required:"false" doc:"El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual"`
+	Cargos      []CargoArgos `json:"cargos,omitempty" doc:"Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro"`
+	FacturaID   *int64       `json:"facturaId,omitempty" doc:"Consumo hecho: factura de Argos con esos cargos (si la hubo)"`
+	CreadoEn    time.Time    `json:"creadoEn"`
+	Version     int32        `json:"version"`
 
 	empresaID *int64
 }
@@ -68,6 +73,10 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 		_ = json.Unmarshal(f.Respuesta, &p.Respuesta)
 	}
 	p.PorResolver = f.PorResolver
+	p.CodigoError, p.Corregible = f.CodigoError, f.Estado == EstadoFallidoNegocio && EsCorregible(f.CodigoError)
+	if f.Operacion == OpConsumo {
+		p.Cargos, p.FacturaID = cargosDeRespuesta(f.Respuesta)
+	}
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}
@@ -182,6 +191,9 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable", "El pendiente está "+f.Estado)
 			}
+			if corregido, ok, err := m.corregirTecnico(ctx, t, f, in.Version); err != nil || ok {
+				return corregido, err
+			}
 			nueva, err := q.ReintentarPendiente(ctx, pendientesbd.ReintentarPendienteParams{Ahora: m.ahora(), ID: f.ID, Version: in.Version})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
@@ -235,4 +247,57 @@ func ConPendienteEnArgos(ps []Pendiente) bool {
 func errorf(formato string, args ...any) *string {
 	s := fmt.Sprintf(formato, args...)
 	return &s
+}
+
+// corregirTecnico: el reintento a mano de un pendiente rechazado por el técnico (CodigosCorregibles)
+// manda el vínculo actual de su ficha. Si cambió, el cuerpo se corrige (integracion.pendiente_corregido)
+// y vuelve a la cola; si es el mismo, sigue el reintento normal (p. ej. le dieron bodega en Argos).
+// Sin vínculo: 422 tecnico_sin_vincular. ok = ya se corrigió y encoló.
+func (m *Modulo) corregirTecnico(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, version int32) (Pendiente, bool, error) {
+	if f.Estado != EstadoFallidoNegocio || !EsCorregible(f.CodigoError) || f.TecnicoUsuarioID == nil {
+		return Pendiente{}, false, nil
+	}
+	var cuerpo map[string]any
+	if json.Unmarshal(f.Payload, &cuerpo) != nil {
+		return Pendiente{}, false, nil
+	}
+	campo := "tecnico"
+	if _, ok := cuerpo[campo]; !ok {
+		campo = "recibido_por" // recepción de un traslado
+		if _, ok := cuerpo[campo]; !ok {
+			return Pendiente{}, false, nil
+		}
+	}
+	q := pendientesbd.New(t)
+	actual, err := q.VinculoArgosDeTecnico(ctx, *f.TecnicoUsuarioID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actual == "") {
+		return Pendiente{}, false, nucleo.ReglaNegocio("tecnico_sin_vincular",
+			"Argos rechazó al técnico ("+deref(f.CodigoError)+") y su ficha no está vinculada a un usuario de Argos: vincúlala en Agenda y reintenta")
+	}
+	if err != nil {
+		return Pendiente{}, false, err
+	}
+	anterior, _ := cuerpo[campo].(map[string]any)
+	if anterior != nil && anterior["id_externo"] == actual {
+		return Pendiente{}, false, nil
+	}
+	cuerpo[campo] = map[string]any{"id_externo": actual}
+	nuevo, err := json.Marshal(cuerpo)
+	if err != nil {
+		return Pendiente{}, false, err
+	}
+	g, err := q.CorregirTecnico(ctx, pendientesbd.CorregirTecnicoParams{Payload: nuevo, Ahora: m.ahora(), ID: f.ID, Version: version})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Pendiente{}, false, nucleo.ConflictoVersion("pendiente", f.ID)
+	}
+	if err != nil {
+		return Pendiente{}, false, err
+	}
+	t.RegistrarCambios("pendiente", g.ID,
+		map[string]any{"estado": f.Estado, "payload": string(f.Payload), "codigo_error": f.CodigoError},
+		map[string]any{"estado": g.Estado, "payload": string(g.Payload), "codigo_error": g.CodigoError})
+	if err := t.Emitir(EventoCorregido, eventoDe(g)); err != nil {
+		return Pendiente{}, false, err
+	}
+	return aPendiente(g), true, m.avisarCola(ctx, t.Tx)
 }

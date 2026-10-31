@@ -79,6 +79,10 @@ type resultadoIntento struct {
 	Negocio bool   `json:"negocio"`
 	Status  *int32 `json:"status"`
 	Error   string `json:"error,omitempty"`
+	// Codigo: type del problem+json de Argos (tecnico_no_encontrado, existencia_insuficiente…).
+	Codigo string `json:"codigo,omitempty"`
+	// Conciliado: un 409 que significa «ya está hecho en Argos» (cargo_duplicado, traslado_ya_recibido).
+	Conciliado string `json:"conciliado,omitempty"`
 
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
@@ -123,10 +127,40 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		s := int32(er.Status) //nolint:gosec // código HTTP
 		r.Status = &s
 	}
+	r.Codigo = TipoDe(er)
+	if er.Status == http.StatusConflict && conciliable(f.Operacion, r.Codigo) {
+		// Argos ya lo tiene hecho (contrato 0.5.0 §3.3): cuenta como hecho, con la nota.
+		r.Exito, r.Conciliado = true, r.Codigo
+		return r
+	}
 	r.Negocio = EsNegocio(er)
 	r.Error = describir(er)
 	return r
 }
+
+// Códigos de Argos 0.5.0 (§3.3) que Iris trata aparte.
+const (
+	// CodigoCargoDuplicado: el cargo único de la orden es de un producto que Argos ya cobró por
+	// modalidad (consumible_cobro) en el consumo de esa orden: ya está cobrado.
+	CodigoCargoDuplicado = "cargo_duplicado"
+	// CodigoTrasladoYaRecibido: otra recepción de la misma orden de traslado ya quedó (2xx definitivo).
+	CodigoTrasladoYaRecibido = "traslado_ya_recibido"
+)
+
+// conciliable: un 409 que significa que la acción ya está hecha en Argos.
+func conciliable(operacion, codigo string) bool {
+	return (operacion == OpCargo && codigo == CodigoCargoDuplicado) || (operacion == OpRecepcion && codigo == CodigoTrasladoYaRecibido)
+}
+
+// CodigosCorregibles son los rechazos de Argos por el técnico (contrato 0.5.0 §3.3) que se arreglan
+// vinculando bien al técnico (o dándole bodega en Argos) y reintentando a mano: el reintento manda el
+// vínculo actual de su ficha.
+var CodigosCorregibles = map[string]bool{
+	"tecnico_no_encontrado": true, "tecnico_sin_bodega": true, "tecnico_ambiguo": true, "empresa_requerida": true,
+}
+
+// EsCorregible indica si el último error de Argos se corrige con el vínculo del técnico.
+func EsCorregible(codigo *string) bool { return codigo != nil && CodigosCorregibles[*codigo] }
 
 // MotivoInconsistente: la respuesta del 2xx trae un campo de identidad distinto del enviado.
 const MotivoInconsistente = "respuesta_inconsistente"
@@ -279,15 +313,22 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			case in.Exito:
 				p.Estado, p.HechoEn, p.Respuesta = EstadoHecho, &in.ahora, in.respuesta
 				evento, payload = EventoHecho, eventoDe(antes)
+				if in.Conciliado != "" {
+					// 409 que dice «ya hecho»: queda hecho y el motivo en ultimo_error, para revisarlo.
+					nota := "conciliado: " + in.Conciliado + " (Argos ya lo tenía hecho)"
+					p.UltimoError, p.CodigoError, p.UltimoStatus = &nota, &in.Conciliado, in.Status
+					t.Anotar(map[string]any{"conciliado": in.Conciliado})
+				}
 			case in.Negocio:
 				// Con respuesta (inconsistente) se guarda para revisarla; los dependientes no la usan.
 				p.Estado, p.UltimoError, p.Respuesta = EstadoFallidoNegocio, &in.Error, in.respuesta
+				p.CodigoError = texto(in.Codigo)
 				evento, payload = EventoFallido, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
 			case int(intentos) <= len(Esperas):
-				p.Estado, p.UltimoError = EstadoPendiente, &in.Error
+				p.Estado, p.UltimoError, p.CodigoError = EstadoPendiente, &in.Error, texto(in.Codigo)
 				p.ProximoIntento = in.ahora.Add(Esperas[intentos-1])
 			default:
-				p.Estado, p.UltimoError = EstadoAgotado, &in.Error
+				p.Estado, p.UltimoError, p.CodigoError = EstadoAgotado, &in.Error, texto(in.Codigo)
 				evento, payload = EventoAgotado, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
 			}
 			f, err := q.ResolverPendiente(ctx, p)

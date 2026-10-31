@@ -82,3 +82,24 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
 `_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado` y `_desbloqueado` (contratos/eventos.md, «Pendientes hacia Argos»).
+
+## Contrato 0.5.0: `tecnico`, modalidades y cargos
+
+- Con Argos ≥ 1.6.0 (`argos.Modulo.InventarioPorTecnico`) y `tecnico { id_externo }` en
+  `orden.cerrada`, consumo, comodato y devolución mandan `tecnico` en vez de `bodega_id` (una
+  bodega explícita distinta de la de la orden sigue con `bodega_id`). El pendiente guarda
+  `tecnico_usuario_id`. Sin vínculo o con Argos < 1.6.0, todo como antes. Un cierre repetido que
+  solo cambia `bodega_id` ↔ `tecnico` no pisa lo encolado (su huella) ni marca conflicto.
+- Consumo con `lineas[]` y solo consumibles: un material `comodato` se omite
+  (`integracion.pendiente_omitido`, `material_comodato`). El cargo de un producto
+  `consumible_cobro` de la orden no se encola (`cargo_cubierto_por_consumo`); el de un producto de
+  modalidad desconocida espera al consumo, y un `409 cargo_duplicado` cuenta como hecho (conciliado,
+  `codigo_error = cargo_duplicado`).
+- La respuesta del consumo guarda `cargos[] { id, producto_id, monto }` y `factura_id` (lista blanca);
+  `Pendiente.cargos` / `facturaId` en la API (la orden los ve en sus pendientes).
+- `codigo_error` (type de Argos) en cada fallo; `Pendiente.codigoError` y `corregible`
+  (`tecnico_no_encontrado`, `tecnico_sin_bodega`, `tecnico_ambiguo`, `empresa_requerida`). El
+  reintento a mano de un corregible manda el vínculo actual del técnico (si cambió, corrige el
+  cuerpo y emite `integracion.pendiente_corregido`; sin vínculo, 422 `tecnico_sin_vincular`).
+  `producto_es_comodato`, `cobro_sin_cliente` y `existencia_insuficiente` son de negocio (no se
+  reintentan solos; a mano, sí).
