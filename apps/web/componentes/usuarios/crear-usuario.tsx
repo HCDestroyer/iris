@@ -13,14 +13,17 @@ import {
     type ErrorDeCampo,
     ErrorFormulario,
     FormularioPagina,
+    estadoSinMarcas,
     GrupoSegmentado,
     liberarProteccion,
+    salirDeEntradaMarcada,
     SeccionFormulario,
     Tarjeta,
 } from "@iris/ui";
 import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, WandSparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useFieldArray, useForm, useWatch, type Path, type UseFormReturn } from "react-hook-form";
 import { BotonCopiar, useBorradorPortapapeles } from "@/componentes/cuenta/boton-copiar";
 import type { Rol } from "@/lib/accesos/presentacion";
@@ -55,21 +58,6 @@ type Props = {
 
 const MARCA_RESULTADO = "__irisUsuarioCreado";
 
-/** Vuelve de la entrada propia del resultado (si está) y espera a que el historial se asiente. */
-function quitarEntradaResultado(): Promise<void> {
-    if (!(window.history.state as Record<string, unknown> | null)?.[MARCA_RESULTADO]) return Promise.resolve();
-    return new Promise((resolver) => {
-        const listo = () => {
-            window.removeEventListener("popstate", listo);
-            window.clearTimeout(limite);
-            resolver();
-        };
-        const limite = window.setTimeout(listo, 500);
-        window.addEventListener("popstate", listo);
-        window.history.back();
-    });
-}
-
 const NOMBRES_INTEGRACION: Record<(typeof ROLES_INTEGRACION)[number], string> = { integracion_argos: "Integración Argos", integracion_horus: "Integración Horus" };
 
 const CAMPOS = ["nombre", "correo", "tipo", "contrasena", "empresas"] as const;
@@ -87,31 +75,46 @@ export function PantallaCrearUsuario({ rolFijo, volverA, textoContinuar, destino
     // De la pantalla entera: pasar al resultado no borra lo recién copiado; salir de ella sí.
     const portapapeles = useBorradorPortapapeles(true);
 
-    // Con la contraseña a la vista: «Atrás» sale a `volverA` (sin volver a mostrarla) y, si el
-    // navegador guarda la página al salir (bfcache), se va antes.
+    // Con la contraseña a la vista, «Atrás» sale a `volverA` sin volver a mostrarla.
     const hayResultado = creado !== null;
     useEffect(() => {
         if (!hayResultado) return undefined;
-        window.history.pushState({ ...(window.history.state as object | null), [MARCA_RESULTADO]: true }, "", window.location.href);
+        // La entrada propia del resultado no lleva la marca de «cambios sin guardar» del formulario.
+        window.history.pushState({ ...estadoSinMarcas(window.history.state), [MARCA_RESULTADO]: true }, "", window.location.href);
         const alVolver = () => {
             setCreado(null);
             router.replace(volverA);
         };
-        const alOcultar = () => setCreado(null);
         window.addEventListener("popstate", alVolver);
-        window.addEventListener("pagehide", alOcultar);
-        return () => {
-            window.removeEventListener("popstate", alVolver);
-            window.removeEventListener("pagehide", alOcultar);
-        };
+        return () => window.removeEventListener("popstate", alVolver);
     }, [hayResultado, router, volverA]);
+
+    // bfcache: al ocultar la página la contraseña se borra antes de que el navegador la congele
+    // (`flushSync` y, por si acaso, el nodo mismo); si la página vuelve de la caché, sale a `volverA`.
+    const mostrabaResultado = useRef(false);
+    useEffect(() => {
+        const alOcultar = () => {
+            mostrabaResultado.current = document.querySelector('[data-testid="contrasena-creada"]') !== null || mostrabaResultado.current;
+            flushSync(() => setCreado(null));
+            for (const nodo of document.querySelectorAll('[data-testid="contrasena-creada"]')) nodo.textContent = "";
+        };
+        const alMostrar = (evento: PageTransitionEvent) => {
+            if (evento.persisted && mostrabaResultado.current) router.replace(volverA);
+        };
+        window.addEventListener("pagehide", alOcultar);
+        window.addEventListener("pageshow", alMostrar);
+        return () => {
+            window.removeEventListener("pagehide", alOcultar);
+            window.removeEventListener("pageshow", alMostrar);
+        };
+    }, [router, volverA]);
 
     if (creado) {
         const continuar = async () => {
             const ruta = destino(creado.usuario);
             setCreado(null);
             // Quita la entrada propia del resultado: «Atrás» desde la ficha no vuelve aquí.
-            await quitarEntradaResultado();
+            await salirDeEntradaMarcada(MARCA_RESULTADO);
             router.replace(ruta);
         };
         return <Resultado {...creado} portapapeles={portapapeles} textoContinuar={textoContinuar} alContinuar={() => void continuar()} />;

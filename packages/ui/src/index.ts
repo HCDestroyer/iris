@@ -51,8 +51,10 @@ export {
 } from "./componentes/formulario-modal";
 export {
     BarraGuardar,
+    estadoSinMarcas,
     FormularioPagina,
     liberarProteccion,
+    salirDeEntradaMarcada,
     rutaInterna,
     rutaQueSale,
     SeccionFormulario,

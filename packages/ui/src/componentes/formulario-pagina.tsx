@@ -84,6 +84,39 @@ const MARCA_HISTORIAL = "__irisCambiosSinGuardar";
 /** Se guardó: la protección de la pantalla ya no pregunta (hasta que se monte otro formulario). */
 let liberada = false;
 
+/** Copia de `history.state` sin las marcas indicadas (por defecto, la de cambios sin guardar). */
+export function estadoSinMarcas(estado: unknown, marcas: readonly string[] = [MARCA_HISTORIAL]): Record<string, unknown> {
+    const copia: Record<string, unknown> = { ...((estado as Record<string, unknown> | null) ?? {}) };
+    for (const marca of marcas) delete copia[marca];
+    return copia;
+}
+
+const ESPERA_HISTORIAL_MS = 500;
+
+/**
+ * Sale de una entrada propia del historial (la de `marca`, en la misma URL) y espera a que el
+ * `popstate` llegue. Si no llega a tiempo y la entrada sigue marcada, no vuelve a moverse: le
+ * quita la marca con `replaceState`, para que nada la tome por una entrada propia.
+ */
+export function salirDeEntradaMarcada(marca: string): Promise<void> {
+    if (typeof window === "undefined" || !(window.history.state as Record<string, unknown> | null)?.[marca]) return Promise.resolve();
+    return new Promise((resolver) => {
+        let limite = 0;
+        const listo = (porTiempo: boolean) => {
+            window.removeEventListener("popstate", alVolver);
+            window.clearTimeout(limite);
+            if (porTiempo && (window.history.state as Record<string, unknown> | null)?.[marca]) {
+                window.history.replaceState(estadoSinMarcas(window.history.state, [marca]), "", window.location.href);
+            }
+            resolver();
+        };
+        const alVolver = () => listo(false);
+        limite = window.setTimeout(() => listo(true), ESPERA_HISTORIAL_MS);
+        window.addEventListener("popstate", alVolver);
+        window.history.back();
+    });
+}
+
 /**
  * Suelta la protección tras guardar, antes de navegar: deja de preguntar y quita la entrada propia
  * del historial («Atrás» desde lo que se abra después no vuelve a un formulario vacío). Resuelve
@@ -91,17 +124,7 @@ let liberada = false;
  */
 export function liberarProteccion(): Promise<void> {
     liberada = true;
-    if (typeof window === "undefined" || !(window.history.state as Record<string, unknown> | null)?.[MARCA_HISTORIAL]) return Promise.resolve();
-    return new Promise((resolver) => {
-        const listo = () => {
-            window.removeEventListener("popstate", listo);
-            window.clearTimeout(limite);
-            resolver();
-        };
-        const limite = window.setTimeout(listo, 500);
-        window.addEventListener("popstate", listo);
-        window.history.back();
-    });
+    return salirDeEntradaMarcada(MARCA_HISTORIAL);
 }
 
 export type ProteccionSalida = {

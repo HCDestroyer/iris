@@ -343,6 +343,32 @@ test.describe("formularios en pantalla propia", () => {
         await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
     });
 
+    test("bfcache: al ocultar la página la contraseña se borra y al volver de la caché sale a la lista", async ({ page, context, baseURL }) => {
+        await simularApi(page);
+        await simularAccesos(page, [ADMIN, CON_MFA, LECTOR, ELENA]);
+        await simularUsuarios(page);
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/usuarios/nuevo");
+        const f = page.getByRole("form", { name: "Nuevo usuario" });
+        await f.getByLabel("Nombre", { exact: true }).fill("Inés Ajú");
+        await f.getByLabel("Correo", { exact: true }).fill("ines@iris.test");
+        await f.getByLabel("Contraseña temporal").fill("una-clave-temporal");
+        await f.getByRole("button", { name: "Crear usuario" }).click();
+        await expect(page.getByTestId("contrasena-creada")).toHaveText("una-clave-temporal");
+        // La entrada propia del resultado no lleva la marca del formulario.
+        expect(await page.evaluate(() => (history.state as Record<string, unknown>).__irisCambiosSinGuardar)).toBeUndefined();
+
+        // Lo que hace el navegador al guardar la página en la caché: el borrado es inmediato (sin esperar a React).
+        const quedo = await page.evaluate(() => {
+            window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+            return document.querySelector('[data-testid="contrasena-creada"]')?.textContent ?? "";
+        });
+        expect(quedo).toBe("");
+        await expect(page.getByTestId("contrasena-creada")).toHaveCount(0);
+        await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+        await expect(page).toHaveURL(/\/usuarios$/);
+    });
+
     test("un error que aparece al salir del campo no se come el clic del botón siguiente", async ({ page, context, baseURL }) => {
         await simularApi(page);
         await simularAccesos(page, [ADMIN, CON_MFA, LECTOR, ELENA]);
