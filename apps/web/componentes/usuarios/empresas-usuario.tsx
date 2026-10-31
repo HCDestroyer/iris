@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { BotonEnviar, Boton, CampoSelector, DialogoConfirmar, ErrorFormulario, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Boton, BotonEnviar, CampoSelector, DialogoConfirmar, ErrorFormulario, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Building2, X } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -39,6 +39,7 @@ export function EmpresasUsuario({ usuario, alCambiar }: { usuario: Usuario; alCa
             );
             claveQuitar.renovar();
             setQuitar(null);
+            avisar({ titulo: `Empresa quitada a ${u.nombre}` });
             alCambiar(u);
         } catch (e) {
             claveQuitar.trasError(e);
@@ -112,6 +113,7 @@ function FormularioAsignar({ usuarioId, libres, alAsignar }: { usuarioId: number
             );
             clave.renovar();
             form.reset({ empresaId: "" });
+            avisar({ titulo: `Empresa asignada a ${u.nombre}` });
             alAsignar(u);
         } catch (e) {
             clave.trasError(e);

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
 import { Ban, CalendarClock, CalendarSync, CirclePause, CirclePlay, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
@@ -14,6 +14,7 @@ import type { Permiso } from "@/lib/menu";
 import { entradaPausar, entradaProgramarOrden, esquemaAsignarOrden, esquemaMotivoOrden, esquemaPausar, esquemaProgramarOrden, guatemalaDesdeIso, type DatosPausar } from "@/lib/ordenes/esquemas";
 import { MOTIVOS_PAUSA, type EstadoOrden, type MotivoPausa, type Orden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
+import { avisoOrden } from "@/lib/avisos";
 
 export type AccionOrden = "asignar" | "programar" | "reprogramar" | "pausar" | "reanudar" | "cancelar" | "reabrir";
 
@@ -115,6 +116,7 @@ function DialogoAccionOrden({
         try {
             const o = await peticion(clave.current);
             clave.current = nuevaClaveIdempotencia();
+            avisar({ titulo: avisoOrden(accion, o, usuarios) });
             alHecho(o);
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CODIGO_OK, CONSULTA, CONTRASENA, SOPORTE, SUPERVISOR_ZONA, conSesion, simularApi } from "./api-falsa";
 import { TICKETS } from "./api-sso";
-import { avisoError } from "./ayudas";
+import { abrirCuenta, avisoError, esTelefono } from "./ayudas";
 
 /*
  * Autologin desde Argos (`/sso/entrar#<ticket>`), re-autenticación de una sesión sso, cuentas
@@ -194,7 +194,11 @@ test.describe("re-autenticación y cuentas vinculadas", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
         await page.goto("/");
-        await page.getByRole("button", { name: `Tu cuenta: ${CONSULTA.nombre}` }).click();
+        if (esTelefono(page)) {
+            await abrirCuenta(page);
+        } else {
+            await page.getByRole("button", { name: `Tu cuenta: ${CONSULTA.nombre}` }).click();
+        }
         await page.getByRole("menuitem", { name: "Mi perfil" }).click();
         await expect(page).toHaveURL(/\/cuenta$/);
         await expect(page.getByTestId("vinculos-sso")).toContainText("Sin cuentas vinculadas.");

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, ASIGNADOR, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { abrirMenu, avisoError, menu } from "./ayudas";
+import { avisoError, enlaceMenu, irA } from "./ayudas";
 import { JORGE, LUCIA, ROSA } from "./datos-agenda";
 import { simularTeselas } from "./teselas";
 
@@ -56,9 +56,9 @@ test.describe("agenda", () => {
         const api = await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await expect(menu(page).getByRole("link", { name: /^Agenda$/ })).toBeVisible();
-        await menu(page).getByRole("link", { name: /^Agenda/ }).click();
+        const agenda = await enlaceMenu(page, /^Agenda$/);
+        await expect(agenda).toBeVisible();
+        await agenda.click();
         await expect(page).toHaveURL(/\/agenda$/);
         await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
 
@@ -348,8 +348,7 @@ test.describe("despacho", () => {
         const teselas = await simularTeselas(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /^Despacho/ }).click();
+        await irA(page, /^Despacho/);
         await expect(page).toHaveURL(/\/despacho$/);
 
         await expect(page.getByTestId("mapa")).toHaveAttribute("data-listo", "si", { timeout: 20_000 });

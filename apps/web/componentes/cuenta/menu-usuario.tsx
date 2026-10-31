@@ -10,10 +10,11 @@ import {
     MenuDesplegableElemento,
     MenuDesplegableEtiqueta,
     MenuDesplegableSeparador,
+    MenuEnLinea,
 } from "@iris/ui";
 import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
 import { rutaEntrar, useSesion } from "@/lib/sesion";
 import { BloqueoContrasena, FormularioContrasena } from "./formulario-contrasena";
@@ -23,55 +24,23 @@ type Props = {
     cerrarSesion: () => void;
 };
 
+type ContextoCuenta = { abrirCambioContrasena: () => void };
+
+const Cuenta = createContext<ContextoCuenta | null>(null);
+
 /**
- * Menú del usuario en la barra superior: su nombre y correo, «Mi perfil», «Cambiar contraseña»,
- * «Configurar verificación en dos pasos» (si no la tiene) y «Cerrar sesión».
+ * Dueño del diálogo «Cambiar contraseña»: vive fuera del menú para que siga abierto aunque el menú
+ * (o la hoja «Más» del teléfono) se cierre al elegir la opción.
  */
-export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
-    const { yo, refrescarSesion } = useSesion();
+export function ProveedorCuenta({ children }: { children: ReactNode }) {
+    const { refrescarSesion } = useSesion();
     const router = useRouter();
     const ruta = usePathname();
     const [dialogo, setDialogo] = useState(false);
-
+    const valor = useMemo(() => ({ abrirCambioContrasena: () => setDialogo(true) }), []);
     return (
-        <>
-            <MenuDesplegable>
-                <MenuDesplegableDisparador asChild>
-                    <Boton variante="fantasma" className="max-w-64 px-2 sm:px-2.5" aria-label={`Tu cuenta: ${yo.usuario.nombre}`} title="Tu cuenta">
-                        <UserRound />
-                        <span className="hidden min-w-0 truncate md:inline" data-testid="usuario-nombre">
-                            {yo.usuario.nombre}
-                        </span>
-                        <ChevronDown className="text-muted-foreground" />
-                    </Boton>
-                </MenuDesplegableDisparador>
-                <MenuDesplegableContenido>
-                    <MenuDesplegableEtiqueta>
-                        <span className="truncate font-medium">{yo.usuario.nombre}</span>
-                        <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
-                    </MenuDesplegableEtiqueta>
-                    <MenuDesplegableSeparador />
-                    <MenuDesplegableElemento icono={CircleUserRound} onSelect={() => router.push("/cuenta")}>
-                        Mi perfil
-                    </MenuDesplegableElemento>
-                    <MenuDesplegableElemento icono={KeyRound} onSelect={() => setDialogo(true)}>
-                        Cambiar contraseña
-                    </MenuDesplegableElemento>
-                    {yo.usuario.mfaActivo ? (
-                        <MenuDesplegableElemento icono={CircleCheck} disabled>
-                            Verificación en dos pasos activa
-                        </MenuDesplegableElemento>
-                    ) : (
-                        <MenuDesplegableElemento icono={ShieldCheck} onSelect={() => router.push(rutaConfigurarMfa(ruta))}>
-                            Configurar verificación en dos pasos
-                        </MenuDesplegableElemento>
-                    )}
-                    <MenuDesplegableSeparador />
-                    <MenuDesplegableElemento icono={LogOut} onSelect={cerrarSesion} disabled={cerrando}>
-                        {cerrando ? "Cerrando sesión…" : "Cerrar sesión"}
-                    </MenuDesplegableElemento>
-                </MenuDesplegableContenido>
-            </MenuDesplegable>
+        <Cuenta.Provider value={valor}>
+            {children}
             <Dialogo open={dialogo} onOpenChange={setDialogo}>
                 {dialogo ? (
                     <DialogoCambiarContrasena
@@ -85,8 +54,73 @@ export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
                     />
                 ) : null}
             </Dialogo>
-        </>
+        </Cuenta.Provider>
     );
+}
+
+/** Opciones de la cuenta: las mismas en el menú de la barra superior y en «Más» del teléfono. */
+function OpcionesCuenta({ cerrando, cerrarSesion, antes }: Props & { antes?: () => void }) {
+    const { yo } = useSesion();
+    const router = useRouter();
+    const ruta = usePathname();
+    const cuenta = useContext(Cuenta);
+    const con = (accion: () => void) => () => {
+        antes?.();
+        accion();
+    };
+    return [
+        <MenuDesplegableEtiqueta key="etiqueta">
+            <span className="truncate font-medium">{yo.usuario.nombre}</span>
+            <span className="truncate text-xs font-normal text-muted-foreground">{yo.usuario.correo}</span>
+        </MenuDesplegableEtiqueta>,
+        <MenuDesplegableSeparador key="sep-1" />,
+        <MenuDesplegableElemento key="perfil" icono={CircleUserRound} onSelect={con(() => router.push("/cuenta"))}>
+            Mi perfil
+        </MenuDesplegableElemento>,
+        <MenuDesplegableElemento key="contrasena" icono={KeyRound} onSelect={con(() => cuenta?.abrirCambioContrasena())}>
+            Cambiar contraseña
+        </MenuDesplegableElemento>,
+        yo.usuario.mfaActivo ? (
+            <MenuDesplegableElemento key="mfa" icono={CircleCheck} disabled>
+                Verificación en dos pasos activa
+            </MenuDesplegableElemento>
+        ) : (
+            <MenuDesplegableElemento key="mfa" icono={ShieldCheck} onSelect={con(() => router.push(rutaConfigurarMfa(ruta)))}>
+                Configurar verificación en dos pasos
+            </MenuDesplegableElemento>
+        ),
+        <MenuDesplegableSeparador key="sep-2" />,
+        <MenuDesplegableElemento key="salir" icono={LogOut} onSelect={con(cerrarSesion)} disabled={cerrando}>
+            {cerrando ? "Cerrando sesión…" : "Cerrar sesión"}
+        </MenuDesplegableElemento>,
+    ];
+}
+
+/**
+ * Menú del usuario en la barra superior: su nombre y correo, «Mi perfil», «Cambiar contraseña»,
+ * «Configurar verificación en dos pasos» (si no la tiene) y «Cerrar sesión».
+ */
+export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
+    const { yo } = useSesion();
+    return (
+        <MenuDesplegable>
+            <MenuDesplegableDisparador asChild>
+                <Boton variante="fantasma" className="max-w-64 px-2 sm:px-2.5" aria-label={`Tu cuenta: ${yo.usuario.nombre}`} title="Tu cuenta">
+                    <UserRound />
+                    <span className="hidden min-w-0 truncate md:inline" data-testid="usuario-nombre">
+                        {yo.usuario.nombre}
+                    </span>
+                    <ChevronDown className="text-muted-foreground" />
+                </Boton>
+            </MenuDesplegableDisparador>
+            <MenuDesplegableContenido>{OpcionesCuenta({ cerrando, cerrarSesion })}</MenuDesplegableContenido>
+        </MenuDesplegable>
+    );
+}
+
+/** La cuenta como menú a la vista, dentro de «Más» en el teléfono; `antes` cierra la hoja. */
+export function MenuCuentaLista({ cerrando, cerrarSesion, antes }: Props & { antes: () => void }) {
+    return <MenuEnLinea etiqueta="Tu cuenta">{OpcionesCuenta({ cerrando, cerrarSesion, antes })}</MenuEnLinea>;
 }
 
 type Etapa = { tipo: "formulario" } | { tipo: "listo" } | { tipo: "bloqueado"; segundos: number };
@@ -108,7 +142,7 @@ function DialogoCambiarContrasena({
             titulo="Cambiar contraseña"
             descripcion={etapa.tipo === "formulario" ? "Escribe tu contraseña actual y la nueva. Cerraremos tus otras sesiones abiertas." : undefined}
             // Tras el 429 la sesión ya no existe: cerrar el diálogo dejaría un panel muerto.
-            {...(etapa.tipo === "bloqueado" ? { onEscapeKeyDown: (e: KeyboardEvent) => e.preventDefault(), onPointerDownOutside: (e: Event) => e.preventDefault() } : {})}
+            cerrable={etapa.tipo !== "bloqueado"}
         >
             {etapa.tipo === "bloqueado" ? (
                 <BloqueoContrasena segundos={etapa.segundos} siguiente={volverA} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, Casilla, DialogoCerrar, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, Casilla, DialogoCerrar, DialogoPie } from "@iris/ui";
 import { RotateCw } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -67,6 +67,7 @@ export function FormularioCuadrilla({ cuadrilla, zonas, alCerrar, alGuardar }: {
                 ? await resolver(api().POST("/api/v1/cuadrillas/{id}/editar", { params: { ...params, path: { id: antes.id } }, body: { version: antes.version, nombre: v.nombre.trim(), zonaIds } }))
                 : await resolver(api().POST("/api/v1/cuadrillas", { params, body: { nombre: v.nombre.trim(), zonaIds } }));
             clave.renovar();
+            avisar({ titulo: antes ? `Cuadrilla «${c.nombre}» guardada` : `Cuadrilla «${c.nombre}» creada` });
             alGuardar(c);
         } catch (e) {
             clave.trasError(e);
@@ -154,6 +155,7 @@ export function FormularioZona({ zona, alCerrar, alGuardar }: { zona?: Zona | un
                 ? await resolver(api().POST("/api/v1/zonas/{id}/editar", { params: { ...params, path: { id: antes.id } }, body: { version: antes.version, nombre: v.nombre.trim() } }))
                 : await resolver(api().POST("/api/v1/zonas", { params, body: { nombre: v.nombre.trim() } }));
             clave.renovar();
+            avisar({ titulo: antes ? `Zona «${z.nombre}» guardada` : `Zona «${z.nombre}» creada` });
             alGuardar(z);
         } catch (e) {
             clave.trasError(e);

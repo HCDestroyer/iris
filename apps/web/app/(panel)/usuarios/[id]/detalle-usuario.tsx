@@ -1,8 +1,7 @@
 "use client";
 
-import { Boton, EstadoVacio, Esqueleto, Tarjeta, TarjetaContenido } from "@iris/ui";
-import { ArrowLeft, SearchX } from "lucide-react";
-import Link from "next/link";
+import { EstadoVacio, Esqueleto, Tarjeta, TarjetaContenido } from "@iris/ui";
+import { SearchX } from "lucide-react";
 import { useParams } from "next/navigation";
 import { AccesosUsuario } from "@/componentes/accesos/accesos-usuario";
 import { SesionesUsuario } from "@/componentes/accesos/sesiones-usuario";
@@ -13,6 +12,7 @@ import { AccionesUsuario } from "@/componentes/usuarios/editar-usuario";
 import { EmpresasUsuario } from "@/componentes/usuarios/empresas-usuario";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi } from "@/lib/api/errores";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
@@ -28,20 +28,12 @@ export function DetalleUsuario() {
     const { yo, puede } = useSesion();
     const valido = Number.isSafeInteger(id) && id > 0;
     const lectura = useLectura(async (signal) => (valido ? resolver(api().GET("/api/v1/usuarios/{id}", { params: { path: { id } }, signal })) : null));
+    useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.nombre : null);
 
-    const volver = (
-        <Boton variante="fantasma" tamano="sm" asChild className="mb-3 -ml-2">
-            <Link href="/usuarios">
-                <ArrowLeft />
-                Usuarios
-            </Link>
-        </Boton>
-    );
 
     if (lectura.estado === "cargando") {
         return (
             <>
-                {volver}
                 <Esqueleto className="mb-4 h-10 w-64" />
                 <Esqueleto className="h-40" />
             </>
@@ -50,7 +42,6 @@ export function DetalleUsuario() {
     if (!valido || (lectura.estado === "error" && lectura.error instanceof ErrorApi && lectura.error.estado === 404) || (lectura.estado === "listo" && lectura.datos === null)) {
         return (
             <>
-                {volver}
                 <Tarjeta>
                     <EstadoVacio icono={SearchX} titulo="Usuario no encontrado" descripcion="No existe o no está en tu alcance." />
                 </Tarjeta>
@@ -60,7 +51,6 @@ export function DetalleUsuario() {
     if (lectura.estado === "error") {
         return (
             <>
-                {volver}
                 <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="el usuario" />
             </>
         );
@@ -69,7 +59,6 @@ export function DetalleUsuario() {
     if (!u) return null;
     return (
         <>
-            {volver}
             <EncabezadoPagina titulo={u.nombre} descripcion={u.correo} acciones={<AccionesUsuario usuario={u} alCambiar={lectura.reemplazar} />} />
             <div className="grid gap-4">
                 <Tarjeta>

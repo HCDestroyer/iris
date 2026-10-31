@@ -1,10 +1,11 @@
 "use client";
 
-import { Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
 import { Power, PowerOff } from "lucide-react";
 import { useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
+import { avisoEstado } from "@/lib/avisos";
 
 /**
  * «Activar» / «Desactivar» de un técnico, una cuadrilla o una zona (acciones explícitas con
@@ -41,6 +42,7 @@ export function CambiarEstado({
             await ejecutar(accion, clave.actual());
             clave.renovar();
             setConfirmando(false);
+            avisar({ titulo: avisoEstado(nombre, accion === "activar") });
             await alHecho();
         } catch (e) {
             clave.trasError(e);

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoSelector, DialogoCerrar, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoSelector, DialogoCerrar, DialogoPie } from "@iris/ui";
 import { RotateCw, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -84,6 +84,7 @@ export function FormularioTecnico({ tecnico, cuadrillas, zonas, alCerrar, alGuar
                 ? await resolver(api().POST("/api/v1/tecnicos/{id}/editar", { params: { ...params, path: { id: antes.id } }, body: entradaEditarTecnico(v, antes) }))
                 : await resolver(api().POST("/api/v1/tecnicos", { params, body: entradaCrearTecnico(v) }));
             clave.renovar();
+            avisar({ titulo: antes ? `Técnico ${t.nombre} guardado` : `Técnico ${t.nombre} creado` });
             alGuardar(t);
         } catch (e) {
             clave.trasError(e);

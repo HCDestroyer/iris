@@ -3,7 +3,7 @@ import type { Schema } from "@iris/contratos";
 import { expect, test, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CONSULTA, CONTRASENA, conSesion, simularApi, SOPORTE } from "./api-falsa";
-import { abrirMenu, menu } from "./ayudas";
+import { irA } from "./ayudas";
 
 // Pedido 10 del PM: Administración → Accesos, Actividad de la app y Roles; y en el usuario, sus
 // roles con alcance, sesiones activas y accesos recientes. En escritorio y teléfono, claro y oscuro.
@@ -26,8 +26,7 @@ test.describe("accesos, actividad de la app y roles", () => {
     test("Administración ofrece las tres pantallas según el permiso", async ({ page, context, baseURL }, info) => {
         await preparar(page, context, baseURL);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /Administración/ }).click();
+        await irA(page, /Administración/);
         const secciones = page.getByRole("list", { name: "Secciones de administración" });
         await expect(secciones.getByRole("link", { name: /Accesos/ })).toBeVisible();
         await expect(secciones.getByRole("link", { name: /Actividad de la app/ })).toBeVisible();

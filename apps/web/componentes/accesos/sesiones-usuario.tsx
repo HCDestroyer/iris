@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, CampoArea, Casilla, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Aviso, Boton, CampoArea, Casilla, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LogOut, MonitorCheck } from "lucide-react";
 import { useRef, useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -118,6 +118,7 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
                     }),
                 );
             }
+            avisar({ titulo: cierre.tipo === "una" ? "Sesión cerrada" : propio ? "Tus demás sesiones se cerraron" : "Sesiones cerradas" });
             alCerrar();
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

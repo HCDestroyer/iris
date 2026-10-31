@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { Aviso, Boton, Esqueleto, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ArrowLeft, LifeBuoy, SearchX } from "lucide-react";
+import { LifeBuoy, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Contacto, FichaArgos } from "@/componentes/clientes/ficha-cliente";
@@ -15,6 +15,7 @@ import { PieLista } from "@/componentes/pie-lista";
 import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi } from "@/lib/api/errores";
 import { enlaceArgosCliente } from "@/lib/enlaces";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
@@ -29,14 +30,6 @@ import { Firma, Fotos, Gps, MaterialesYEquipos, Notas } from "./evidencias";
 import { Formularios, Pausas } from "./formularios";
 import { PendientesArgos } from "./pendientes-argos";
 
-function Volver() {
-    return (
-        <Link href="/ordenes" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft aria-hidden className="size-4" />
-            Órdenes
-        </Link>
-    );
-}
 
 export function DetalleOrden() {
     const params = useParams<{ id: string }>();
@@ -50,7 +43,6 @@ export function DetalleOrden() {
 function NoEncontrada() {
     return (
         <>
-            <Volver />
             <Tarjeta>
                 <EstadoVacio
                     icono={SearchX}
@@ -73,6 +65,7 @@ function Detalle({ id }: { id: number }) {
     const verAdjuntos = puede(["adjuntos.ver"]);
     const verPendientes = puede(["integraciones.ver_pendientes"]);
     const orden = useLectura<OrdenDetalle>((signal) => resolver(api().GET("/api/v1/ordenes/{id}", { params: { path: { id } }, signal })));
+    useNombreEnMigas(orden.estado === "listo" ? orden.datos?.numero : null);
     const eventos = usePaginado<EventoOrden>((cursor, signal) =>
         resolver(
             api().GET("/api/v1/ordenes/{id}/eventos", {
@@ -101,7 +94,6 @@ function Detalle({ id }: { id: number }) {
                 <span className="sr-only" role="status">
                     Cargando la orden…
                 </span>
-                <Volver />
                 <Esqueleto className="mb-3 h-8 w-2/3" />
                 <Esqueleto className="mb-4 h-32" />
                 <Esqueleto className="h-64" />
@@ -114,7 +106,6 @@ function Detalle({ id }: { id: number }) {
         }
         return (
             <>
-                <Volver />
                 <ErrorLectura error={orden.error} que="la orden" reintentar={orden.reintentar} />
             </>
         );
@@ -131,7 +122,6 @@ function Detalle({ id }: { id: number }) {
 
     return (
         <>
-            <Volver />
             <header className="mb-4 grid gap-3">
                 <div className="grid gap-1">
                     <span className="font-mono text-sm text-muted-foreground">{o.numero}</span>
