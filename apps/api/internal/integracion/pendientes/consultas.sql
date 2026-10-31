@@ -31,7 +31,7 @@ WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= @ahora)
     OR (p.estado = 'en_curso' AND p.tomado_en <= @reclamar_antes::timestamptz))
   AND NOT p.por_resolver
   AND NOT EXISTS (
-      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 ORDER BY p.proximo_intento, p.id
 LIMIT 1
 FOR UPDATE OF p SKIP LOCKED;
@@ -118,12 +118,13 @@ WHERE estado = 'pendiente' AND @id::bigint = ANY (depende_de)
 RETURNING *;
 
 -- name: DesbloquearDependientes :many
--- La dependencia @id quedó hecha: vuelven a la cola los bloqueados cuyas dependencias están todas hechas.
+-- La dependencia @id quedó hecha (o resuelta a mano): vuelven a la cola los bloqueados cuyas
+-- dependencias están todas hechas o resueltas a mano.
 UPDATE integracion.pendientes p
 SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, version = p.version + 1, updated_at = now()
 WHERE p.estado = 'bloqueado' AND @id::bigint = ANY (p.depende_de)
   AND NOT EXISTS (
-      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 RETURNING p.*;
 
 -- name: DependientesPorResolver :many
@@ -169,3 +170,16 @@ RETURNING *;
 -- name: BodegaDeOrden :one
 -- La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
 SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;
+
+-- name: ResolverManual :one
+-- Un rechazado por Argos (fallido_negocio, también incompleto) queda resuelto a mano: estado final,
+-- nunca vuelve a salir hacia Argos.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
+    tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: DependientesEsperanRespuesta :one
+-- Algún dependiente de @id necesita su respuesta (cuerpo con marcadores): resolverlo a mano no sirve.
+SELECT EXISTS (SELECT 1 FROM integracion.pendientes WHERE @id::bigint = ANY (depende_de) AND por_resolver)::boolean AS esperan;

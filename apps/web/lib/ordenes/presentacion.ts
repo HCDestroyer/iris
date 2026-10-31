@@ -109,13 +109,14 @@ export const ESTADOS_PENDIENTE: Record<EstadoPendiente, Presentacion> = {
     fallido_negocio: { tono: "error", icono: CircleX, texto: "Argos lo rechazó" },
     agotado: { tono: "error", icono: PlugZap, texto: "Sin respuesta de Argos" },
     bloqueado: { tono: "warning", icono: Lock, texto: "Bloqueado" },
+    resuelto_manual: { tono: "success", icono: CircleCheck, texto: "Resuelto a mano" },
 };
 
-/** Estados que cuentan como «pendiente en Argos» (todo menos `hecho`). */
+/** Estados que cuentan como «pendiente en Argos» (todo menos `hecho` y `resuelto_manual`). */
 export const ESTADOS_PENDIENTE_ABIERTOS: readonly EstadoPendiente[] = ["fallido_negocio", "agotado", "bloqueado", "en_curso", "pendiente"];
 
 /** De más a menos urgente: la marca del tablero muestra el peor. */
-const GRAVEDAD: Record<EstadoPendiente, number> = { fallido_negocio: 5, agotado: 4, bloqueado: 3, en_curso: 2, pendiente: 1, hecho: 0 };
+const GRAVEDAD: Record<EstadoPendiente, number> = { fallido_negocio: 5, agotado: 4, bloqueado: 3, en_curso: 2, pendiente: 1, hecho: 0, resuelto_manual: 0 };
 
 export const PRESENTACION_CONFLICTO: Presentacion = { tono: "warning", icono: TriangleAlert, texto: "Conflicto en Argos" };
 
@@ -133,11 +134,11 @@ export function textoOperacion(operacion: string): string {
     return OPERACIONES_PENDIENTE[operacion] ?? operacion.replaceAll("_", " ");
 }
 
-/** Resumen de los pendientes no `hecho` de una orden: el peor estado y cuántos son. */
+/** Resumen de los pendientes no `hecho` (ni resueltos a mano) de una orden: el peor estado y cuántos son. */
 export type ResumenPendientes = { peor: EstadoPendiente; cuantos: number; conflicto: boolean };
 
 export function resumirPendientes(pendientes: readonly Pendiente[]): ResumenPendientes | undefined {
-    const abiertos = pendientes.filter((p) => p.estado !== "hecho");
+    const abiertos = pendientes.filter((p) => p.estado !== "hecho" && p.estado !== "resuelto_manual");
     const conflicto = pendientes.some((p) => p.conflicto !== null);
     if (abiertos.length === 0) {
         return conflicto ? { peor: "hecho", cuantos: 0, conflicto } : undefined;
@@ -154,6 +155,7 @@ const ESTADO_EN_MARCA: Record<EstadoPendiente, string> = {
     fallido_negocio: "rechazado",
     agotado: "sin respuesta",
     bloqueado: "bloqueado",
+    resuelto_manual: "resuelto a mano",
 };
 
 /** Texto de la marca «Pendiente en Argos» con su estado. */

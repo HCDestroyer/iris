@@ -4,7 +4,9 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
@@ -313,8 +315,8 @@ func TestArgosVueltoA15ReplanificaConBodega(t *testing.T) {
 	if len(ps) != 1 || !ps[0].Corregible || *ps[0].CodigoError != pendientes.CodigoBodegaRequerida {
 		t.Fatalf("corregible: %+v", ps)
 	}
-	// Argos volvió a 1.5.x (la revisión borró la versión).
-	e.exec(`UPDATE integracion.conectores SET version_remota = NULL WHERE id = $1`, e.conID)
+	// La versión guardada sigue en 1.6.0 (la revisión del contrato aún no corre): basta con que Argos
+	// haya dicho «bodega_id required» para replanificar con la bodega.
 	f := e.pendientes(strconv.FormatInt(sinBodega, 10))[clave(sinBodega)]
 	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: f.ID, Version: f.Version})
 	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "bodega_requerida" {
@@ -330,5 +332,135 @@ func TestArgosVueltoA15ReplanificaConBodega(t *testing.T) {
 	}
 	if f := e.pendientes(strconv.FormatInt(orden, 10))[clave(orden)]; f.Estado != "hecho" {
 		t.Fatalf("hecho: %+v", f)
+	}
+}
+
+// Segunda revisión (M2): un consumo que Argos rechazó por negocio y se corrigió a mano en Argos se
+// da por resuelto a mano (auditado, con evento); el cargo que lo esperaba sale y el consumo nunca
+// vuelve a salir. El cargo no se puede reintentar solo mientras el consumo espera.
+func TestResolverManualLiberaElCargo(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-manual")
+	orden := nuevaOrden()
+	e.argos.mu.Lock()
+	e.argos.tipos["/inventario/consumos"] = "urn:argosisp:problema:existencia_insuficiente"
+	e.argos.mu.Unlock()
+	e.argos.responder("/inventario/consumos", 409)
+	e.cerrar(map[string]any{
+		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
+		"tecnico":    map[string]any{"id_externo": "u-manual"},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
+	})
+	e.procesar()
+	ps := e.pendientes(orden)
+	consumo, cargo := ps["iris:consumo:"+orden], ps["iris:cargo:"+orden]
+	if consumo.Estado != "fallido_negocio" || cargo.Estado != "bloqueado" {
+		t.Fatalf("consumo fallido y cargo esperándolo: %+v", ps)
+	}
+	u, err := identidad.Nuevo(identidad.Config{}).CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup-manual"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar, nucleo.PermIntegracionesResolverPendiente)
+
+	// El cargo no sale solo mientras el consumo se puede reintentar o resolver.
+	_, err = e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: cargo.ID, Version: cargo.Version})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_no_reintentable" {
+		t.Fatalf("cargo bloqueado no se reintenta: %v", err)
+	}
+	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: cargo.ID, Version: cargo.Version, Motivo: "Cobrado en Argos"})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_no_resoluble" {
+		t.Fatalf("cargo bloqueado no se resuelve a mano: %v", err)
+	}
+	// Sin el permiso, 403.
+	sinPermiso := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar)
+	if _, err := e.m.ResolverManual.Ejecutar(sinPermiso, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
+		Motivo: "Consumo hecho a mano en Argos"}); err == nil {
+		t.Fatal("sin integraciones.resolver_pendiente no se resuelve")
+	}
+
+	r, err := e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
+		Motivo: "  Consumo hecho a mano en Argos (bodega central)  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Estado != "resuelto_manual" || r.ResueltoMotivo == nil || *r.ResueltoMotivo != "Consumo hecho a mano en Argos (bodega central)" ||
+		r.ResueltoPor == nil || *r.ResueltoPor != u.ID || r.ResueltoEn == nil {
+		t.Fatalf("resuelto a mano: %+v", r)
+	}
+	if n := e.eventos("integracion.pendiente_resuelto_manual", orden); n != 1 {
+		t.Fatalf("evento: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.resolver_pendiente'
+		AND entidad_id = $1 AND resultado = 'ok'`, strconv.FormatInt(consumo.ID, 10)); n != 1 {
+		t.Fatalf("auditoría: %d", n)
+	}
+	if ps := e.pendientes(orden); ps["iris:cargo:"+orden].Estado != "pendiente" {
+		t.Fatalf("el cargo vuelve a la cola: %+v", ps)
+	}
+	llamadasConsumo := len(e.argos.copia())
+	e.procesar()
+	ps = e.pendientes(orden)
+	if ps["iris:cargo:"+orden].Estado != "hecho" || ps["iris:consumo:"+orden].Estado != "resuelto_manual" {
+		t.Fatalf("el cargo sale y el consumo queda resuelto: %+v", ps)
+	}
+	nuevas := e.argos.copia()[llamadasConsumo:]
+	if len(nuevas) != 1 || nuevas[0].Clave != "iris:cargo:"+orden {
+		t.Fatalf("solo sale el cargo (el consumo nunca vuelve a salir): %+v", nuevas)
+	}
+	lista, err := pendientes.DeEntidad(context.Background(), e.pool, "orden", orden)
+	if err != nil || pendientes.ConPendienteEnArgos(lista) {
+		t.Fatalf("la orden ya no queda con pendiente en Argos: %+v %v", lista, err)
+	}
+
+	// Resuelto a mano es final: ni se reintenta ni se resuelve de nuevo.
+	c := ps["iris:consumo:"+orden]
+	_, err = e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: c.ID, Version: c.Version})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_no_reintentable" {
+		t.Fatalf("resuelto a mano no se reintenta: %v", err)
+	}
+	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: c.ID, Version: c.Version, Motivo: "otra vez"})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "pendiente_no_resoluble" {
+		t.Fatalf("resuelto a mano no se resuelve de nuevo: %v", err)
+	}
+	e.reloj = e.reloj.Add(48 * time.Hour)
+	e.procesar()
+	if n := len(e.argos.copia()); n != len(nuevas)+llamadasConsumo {
+		t.Fatalf("nada vuelve a salir: %d llamadas", n)
+	}
+}
+
+// LOW 2 de la segunda revisión: el 422 de Argos 1.5.x con errors[].field = bodega_id (sin texto en
+// detail) también es bodega_id_requerida, y la versión de Argos se relee enseguida.
+func TestBodegaRequeridaPorCampoYReleeContrato(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-campo")
+	orden := nuevaOrden()
+	e.argos.mu.Lock()
+	e.argos.tipos["/inventario/consumos"] = "urn:argosisp:problema:validacion"
+	e.argos.detalle = "Datos inválidos"
+	e.argos.campos = []string{"body.bodega_id"}
+	e.argos.mu.Unlock()
+	e.argos.responder("/inventario/consumos", 422)
+	antes := len(*e.encolados)
+	e.cerrar(map[string]any{"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "servicio_id": 20, "tecnico_id": tec,
+		"tecnico": map[string]any{"id_externo": "u-campo"}, "materiales": []any{map[string]any{"producto_id": 7, "cantidad": 1}}})
+	e.procesar()
+	ps, _ := pendientes.DeEntidad(context.Background(), e.pool, "orden", orden)
+	if len(ps) != 1 || !ps[0].Corregible || ps[0].CodigoError == nil || *ps[0].CodigoError != pendientes.CodigoBodegaRequerida {
+		t.Fatalf("corregible por errors[].field: %+v", ps)
+	}
+	informar := 0
+	for _, k := range (*e.encolados)[antes:] {
+		if k == (argos.ArgsInformarContrato{}).Kind() {
+			informar++
+		}
+	}
+	if informar != 1 {
+		t.Fatalf("se relee el contrato de Argos enseguida: %v", (*e.encolados)[antes:])
 	}
 }

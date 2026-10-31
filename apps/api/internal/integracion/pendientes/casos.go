@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,7 +31,7 @@ type Pendiente struct {
 	Payload          map[string]any `json:"payload" doc:"Cuerpo de la llamada"`
 	DependeDe        []int64        `json:"dependeDe" doc:"Pendientes que deben estar hechos antes"`
 	DatosIncompletos bool           `json:"datosIncompletos" doc:"La orden no traía un dato obligatorio: no se puede reintentar"`
-	Estado           string         `json:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado" doc:"bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha"`
+	Estado           string         `json:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,resuelto_manual" doc:"bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha o resuelto_manual. resuelto_manual: final, un supervisor lo corrigió en Argos (resueltoMotivo); no vuelve a salir"`
 	Intentos         int32          `json:"intentos"`
 	ProximoIntento   *time.Time     `json:"proximoIntento" nullable:"true" doc:"Solo en pendiente"`
 	UltimoError      *string        `json:"ultimoError" nullable:"true" doc:"Resumen del último error (con el detail de Argos en un 4xx de negocio)"`
@@ -41,12 +43,15 @@ type Pendiente struct {
 	Respuesta        any            `json:"respuesta,omitempty" doc:"Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó)"`
 	PorResolver      bool           `json:"porResolver,omitempty" doc:"El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)"`
 	// Contrato 0.5.0 §3.3.
-	CodigoError *string      `json:"codigoError" nullable:"true" required:"false" doc:"type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido"`
-	Corregible  bool         `json:"corregible" required:"false" doc:"El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida) o Argos volvió a 1.5.x (bodega_id_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual o, sin la capacidad inventario_por_tecnico, la bodega de la orden"`
-	Cargos      []CargoArgos `json:"cargos,omitempty" doc:"Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro"`
-	FacturaID   *int64       `json:"facturaId,omitempty" doc:"Consumo hecho: factura de Argos con esos cargos (si la hubo)"`
-	CreadoEn    time.Time    `json:"creadoEn"`
-	Version     int32        `json:"version"`
+	CodigoError    *string      `json:"codigoError" nullable:"true" required:"false" doc:"type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido"`
+	Corregible     bool         `json:"corregible" required:"false" doc:"El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida) o Argos volvió a 1.5.x (bodega_id_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual o, sin la capacidad inventario_por_tecnico, la bodega de la orden"`
+	Cargos         []CargoArgos `json:"cargos,omitempty" doc:"Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro"`
+	FacturaID      *int64       `json:"facturaId,omitempty" doc:"Consumo hecho: factura de Argos con esos cargos (si la hubo)"`
+	ResueltoMotivo *string      `json:"resueltoMotivo,omitempty" doc:"resuelto_manual: qué se hizo en Argos"`
+	ResueltoPor    *int64       `json:"resueltoPor,omitempty" doc:"resuelto_manual: usuario que lo resolvió"`
+	ResueltoEn     *time.Time   `json:"resueltoEn,omitempty"`
+	CreadoEn       time.Time    `json:"creadoEn"`
+	Version        int32        `json:"version"`
 
 	empresaID *int64
 }
@@ -74,6 +79,7 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 		_ = json.Unmarshal(f.Respuesta, &p.Respuesta)
 	}
 	p.PorResolver = f.PorResolver
+	p.ResueltoMotivo, p.ResueltoPor, p.ResueltoEn = f.ResueltoMotivo, f.ResueltoPor, f.ResueltoEn
 	p.CodigoError, p.Corregible = f.CodigoError, f.Estado == EstadoFallidoNegocio && EsCorregible(f.CodigoError)
 	if f.Operacion == OpConsumo {
 		p.Cargos, p.FacturaID = cargosDeRespuesta(f.Respuesta)
@@ -112,10 +118,10 @@ type EntradaListar struct {
 	nucleo.ParamsPagina
 	Entidad   string `query:"entidad" pattern:"^[a-z][a-z_]{0,39}$" doc:"orden…"`
 	EntidadID string `query:"entidadId" maxLength:"64"`
-	Estado    string `query:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,"`
+	Estado    string `query:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,resuelto_manual,"`
 	// EstadoDistintoDe: estadoDistintoDe=hecho trae todo lo que aún no llegó a Argos en una sola
 	// lectura (el tablero de despacho hacía una por estado).
-	EstadoDistintoDe string `query:"estadoDistintoDe" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado," doc:"Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto"`
+	EstadoDistintoDe string `query:"estadoDistintoDe" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,resuelto_manual," doc:"Excluye ese estado (estadoDistintoDe=hecho: todo lo que aún no llegó a Argos). Se combina con estado y conflicto"`
 	Conflicto        bool   `query:"conflicto" doc:"Solo los que tienen un conflicto por cierre repetido"`
 }
 
@@ -189,7 +195,7 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			case f.Estado == EstadoBloqueado:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable",
 					"Está bloqueado ("+deref(f.UltimoError)+"): reintenta su dependencia; al quedar hecha, este vuelve a la cola")
-			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso:
+			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso || f.Estado == EstadoResueltoManual:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable", "El pendiente está "+f.Estado)
 			}
 			if corregido, ok, err := m.corregirTecnico(ctx, t, f, in.Version); err != nil || ok {
@@ -207,6 +213,96 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			if err := t.Emitir(EventoReintentado, eventoReintentado{
 				PendienteID: f.ID, Operacion: f.Operacion, Entidad: f.Entidad, EntidadID: f.EntidadID, De: f.Estado,
 			}); err != nil {
+				return Pendiente{}, err
+			}
+			return aPendiente(nueva), m.avisarCola(ctx, t.Tx)
+		},
+	})
+}
+
+// EntradaResolverManual: dar por resuelto a mano un pendiente que Argos rechazó por negocio o que
+// nació incompleto, después de corregirlo directo en Argos.
+type EntradaResolverManual struct {
+	ID      int64  `json:"-"`
+	Version int32  `json:"version" minimum:"1"`
+	Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (queda en la auditoría y en el pendiente)"`
+}
+
+type eventoResueltoManual struct {
+	PendienteID    int64  `json:"pendiente_id"`
+	Operacion      string `json:"operacion"`
+	Entidad        string `json:"entidad"`
+	EntidadID      string `json:"entidad_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	De             string `json:"de"`
+	Motivo         string `json:"motivo"`
+	UsuarioID      *int64 `json:"usuario_id"`
+}
+
+// nuevoResolverManual: solo desde fallido_negocio (incluido el incompleto). Lo agotado se
+// reintenta y lo bloqueado espera a su dependencia: ninguno se puede saltar. Queda
+// resuelto_manual (final, nunca vuelve a salir) y sus dependientes salen como si estuviera hecho,
+// salvo que alguno espere su respuesta (marcadores sin resolver): sin ella no hay cuerpo que mandar.
+func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendiente] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaResolverManual, Pendiente]{
+		Accion: "integraciones.resolver_pendiente",
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResolverManual) (Pendiente, error) {
+			q := pendientesbd.New(t)
+			f, err := q.PendientePorIDParaActualizar(ctx, in.ID)
+			if err != nil {
+				return Pendiente{}, err
+			}
+			if !visible(ctx, f.EmpresaID) {
+				return Pendiente{}, nucleo.NoEncontrado("")
+			}
+			t.FijarEntidad("pendiente", f.ID)
+			if f.EmpresaID != nil {
+				t.FijarEmpresa(*f.EmpresaID)
+			}
+			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
+				return Pendiente{}, err
+			}
+			motivo := strings.TrimSpace(in.Motivo)
+			if n := utf8.RuneCountInString(motivo); n < 5 || n > 1000 {
+				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "motivo", Message: "Escribe qué se hizo en Argos (5 a 1000 caracteres)", Rule: "longitud"})
+			}
+			if f.Estado != EstadoFallidoNegocio {
+				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
+					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
+						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
+			}
+			esperan, err := q.DependientesEsperanRespuesta(ctx, f.ID)
+			if err != nil {
+				return Pendiente{}, err
+			}
+			if esperan {
+				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
+					"Otra acción espera la respuesta de esta en Argos (p. ej. el id que devuelve): resuélvela también a mano en Argos")
+			}
+			var usuario *int64
+			if a := contexto.ActorDe(ctx); a.EsUsuario() {
+				id := a.ID
+				usuario = &id
+			}
+			ahora := m.ahora()
+			nueva, err := q.ResolverManual(ctx, pendientesbd.ResolverManualParams{
+				Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: f.ID, Version: in.Version,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+			}
+			if err != nil {
+				return Pendiente{}, err
+			}
+			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": f.Estado},
+				map[string]any{"estado": nueva.Estado, "resuelto_motivo": motivo})
+			if err := t.Emitir(EventoResueltoManual, eventoResueltoManual{
+				PendienteID: f.ID, Operacion: f.Operacion, Entidad: f.Entidad, EntidadID: f.EntidadID,
+				IdempotencyKey: f.IdempotencyKey, De: f.Estado, Motivo: motivo, UsuarioID: usuario,
+			}); err != nil {
+				return Pendiente{}, err
+			}
+			if err := m.desbloquearDependientes(ctx, t, f.ID, ahora); err != nil {
 				return Pendiente{}, err
 			}
 			return aPendiente(nueva), m.avisarCola(ctx, t.Tx)
@@ -235,10 +331,10 @@ func DeEntidad(ctx context.Context, q pendientesbd.DBTX, entidad, entidadID stri
 	return salida, nil
 }
 
-// ConPendienteEnArgos indica si alguno no está hecho («cerrada con pendiente en Argos»).
+// ConPendienteEnArgos indica si alguno no está hecho ni resuelto a mano («cerrada con pendiente en Argos»).
 func ConPendienteEnArgos(ps []Pendiente) bool {
 	for _, p := range ps {
-		if p.Estado != EstadoHecho {
+		if p.Estado != EstadoHecho && p.Estado != EstadoResueltoManual {
 			return true
 		}
 	}
@@ -278,7 +374,12 @@ func (m *Modulo) corregirTecnico(ctx context.Context, t *auditoria.Tx, f pendien
 	q := pendientesbd.New(t)
 	anterior, _ := cuerpo[campo].(map[string]any)
 	porTecnico := true
-	if campo == "tecnico" && m.cfg.Argos != nil {
+	switch {
+	case campo == "tecnico" && deref(f.CodigoError) == CodigoBodegaRequerida:
+		// Argos mismo dijo que no entiende tecnico (1.5.x): se replanifica con la bodega sin esperar
+		// a que la revisión del contrato borre la versión guardada.
+		porTecnico = false
+	case campo == "tecnico" && m.cfg.Argos != nil:
 		var err error
 		if porTecnico, err = m.cfg.Argos.InventarioPorTecnico(ctx, t); err != nil {
 			return Pendiente{}, false, err

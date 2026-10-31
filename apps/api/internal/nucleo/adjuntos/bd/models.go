@@ -938,6 +938,9 @@ type IntegracionPendiente struct {
 	Verificar        []string
 	TecnicoUsuarioID *int64
 	CodigoError      *string
+	ResueltoMotivo   *string
+	ResueltoPor      *int64
+	ResueltoEn       *time.Time
 }
 
 type NucleoAcceso struct {

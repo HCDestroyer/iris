@@ -75,13 +75,20 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
   `estadoDistintoDe=hecho` trae lo que aún no llegó a Argos en una lectura)
   y `POST /api/v1/integraciones/pendientes/{id}/reintentar { version }` (`integraciones.reintentar`,
   auditado).
+- `POST /api/v1/integraciones/pendientes/{id}/resolver-manual { version, motivo }`
+  (`integraciones.resolver_pendiente`, admin y supervisor; auditado): lo que Argos rechazó por negocio
+  (`fallido_negocio`, también incompleto) y ya se corrigió directo en Argos queda `resuelto_manual`
+  (final, con `resueltoMotivo`, `resueltoPor`, `resueltoEn`): nunca vuelve a salir y sus dependientes
+  (el cargo que esperaba al consumo) vuelven a la cola. 422 `pendiente_no_resoluble` desde otro estado
+  (lo agotado se reintenta; lo bloqueado espera a su dependencia) o si un dependiente espera su
+  respuesta. `ConPendienteEnArgos` lo cuenta como hecho. Un cargo bloqueado no se reintenta solo.
 - Para campo y el panel: `pendientes.DeEntidad(ctx, q, "orden", id)` y `ConPendienteEnArgos(ps)`
   («cerrada con pendiente en Argos»).
 
 ## Eventos
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
-`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado` y `_desbloqueado` (contratos/eventos.md, «Pendientes hacia Argos»).
+`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
 
 ## Contrato 0.5.0: `tecnico`, modalidades y cargos
 
@@ -94,11 +101,12 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   (`integracion.pendiente_omitido`, `material_comodato`). El cargo de la orden nunca se descarta: si
   su producto está en el consumo, espera al consumo, y un `409 cargo_duplicado` (Argos ya lo cobró por
   modalidad) cuenta como hecho (conciliado, `codigo_error = cargo_duplicado`). Si el consumo falla, el
-  cargo queda bloqueado hasta que el consumo se reintente.
-- Argos vuelto a 1.5.x: un `422` de validación sobre `bodega_id` («bodega_id required») de un cuerpo
-  con `tecnico` es corregible (`bodega_id_requerida`). Al reintentar sin la capacidad
-  `inventario_por_tecnico`, consumo y devolución se replanifican con la bodega de la orden (sin ella,
-  422 `bodega_requerida`) y el comodato sin `tecnico`.
+  cargo queda bloqueado hasta que el consumo se reintente y quede hecho, o se resuelva a mano.
+- Argos vuelto a 1.5.x: un `422` sobre `bodega_id` («bodega_id required» en `detail`/`title`, o
+  `errors[].field = bodega_id`) de un cuerpo con `tecnico` es corregible (`bodega_id_requerida`) y
+  encola enseguida la relectura del contrato (`ArgsInformarContrato`). El reintento a mano de ese
+  pendiente (o de cualquier corregible sin la capacidad `inventario_por_tecnico`) replanifica consumo
+  y devolución con la bodega de la orden (sin ella, 422 `bodega_requerida`) y el comodato sin `tecnico`.
 - La respuesta del consumo guarda `cargos[] { id, producto_id, monto }` y `factura_id` (lista blanca);
   `Pendiente.cargos` / `facturaId` en la API (la orden los ve en sus pendientes).
 - `codigo_error` (type de Argos) en cada fallo; `Pendiente.codigoError` y `corregible`

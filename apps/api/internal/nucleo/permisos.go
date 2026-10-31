@@ -189,10 +189,13 @@ const (
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
 const (
-	PermAdjuntosSubir              Permiso = "adjuntos.subir"
-	PermAdjuntosVer                Permiso = "adjuntos.ver"
-	PermIntegracionesReintentar    Permiso = "integraciones.reintentar"
-	PermIntegracionesVerPendientes Permiso = "integraciones.ver_pendientes"
+	PermAdjuntosSubir           Permiso = "adjuntos.subir"
+	PermAdjuntosVer             Permiso = "adjuntos.ver"
+	PermIntegracionesReintentar Permiso = "integraciones.reintentar"
+	// PermIntegracionesResolverPendiente: dar por resuelto a mano un pendiente rechazado por Argos
+	// (ya corregido en Argos); sus dependientes (el cargo que esperaba al consumo) salen.
+	PermIntegracionesResolverPendiente Permiso = "integraciones.resolver_pendiente"
+	PermIntegracionesVerPendientes     Permiso = "integraciones.ver_pendientes"
 )
 
 // Portal de soporte (/soporte).
@@ -217,7 +220,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
-	PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
 }
@@ -284,6 +287,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
+	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
@@ -413,7 +417,7 @@ var RolesBase = []DefRol{
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
-			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesVerPendientes,
+			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
 			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},

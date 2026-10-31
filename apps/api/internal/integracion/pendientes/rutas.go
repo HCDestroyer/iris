@@ -43,7 +43,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		nucleo.PermIntegracionesReintentar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
 	re.Description += " Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con " +
 		"los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 " +
-		"`pendiente_no_reintentable` (hecho, en curso o bloqueado: reintenta su dependencia) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite " +
+		"`pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite " +
 		"`integracion.pendiente_reintentado`."
 	huma.Register(api, re, func(ctx context.Context, in *entradaReintentarHTTP) (*cuerpo[Pendiente], error) {
 		p, err := m.Reintentar.Ejecutar(ctx, EntradaReintentar{ID: in.ID, Version: in.Body.Version})
@@ -52,4 +52,29 @@ func (m *Modulo) Registrar(api huma.API) {
 		}
 		return &cuerpo[Pendiente]{Body: p}, nil
 	})
+
+	rm := conector.Operacion(conector.EtiquetaIntegraciones, "resolverPendienteIntegracion", http.MethodPost,
+		"/api/v1/integraciones/pendientes/{id}/resolver-manual", "Dar por resuelta a mano una acción que Argos rechazó",
+		nucleo.PermIntegracionesResolverPendiente, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	rm.Description += " Para lo que Argos rechazó por negocio (`fallido_negocio`, también `datosIncompletos`) y ya se corrigió " +
+		"directo en Argos: queda `resuelto_manual` (final, nunca vuelve a salir) con `motivo` y quién lo resolvió, y lo que " +
+		"dependía de él (p. ej. el cargo que esperaba al consumo) vuelve a `pendiente` y sale. 409 por `version`; 422 " +
+		"`pendiente_no_resoluble` (otro estado: lo agotado se reintenta y lo bloqueado espera a su dependencia; o un " +
+		"dependiente necesita su respuesta). Auditado; emite `integracion.pendiente_resuelto_manual`."
+	huma.Register(api, rm, func(ctx context.Context, in *entradaResolverManualHTTP) (*cuerpo[Pendiente], error) {
+		p, err := m.ResolverManual.Ejecutar(ctx, EntradaResolverManual{ID: in.ID, Version: in.Body.Version, Motivo: in.Body.Motivo})
+		if err != nil {
+			return nil, err
+		}
+		return &cuerpo[Pendiente]{Body: p}, nil
+	})
+}
+
+type entradaResolverManualHTTP struct {
+	nucleo.ConIdempotencia
+	ID   int64 `path:"id" minimum:"1"`
+	Body struct {
+		Version int32  `json:"version" minimum:"1"`
+		Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos"`
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -128,7 +129,7 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Status = &s
 	}
 	r.Codigo = TipoDe(er)
-	if bodegaRequerida(er) {
+	if bodegaRequerida(er, f.Payload) {
 		// Argos 1.5.x no entiende tecnico (contrato 0.5.0 §3.3): «bodega_id required».
 		r.Codigo = CodigoBodegaRequerida
 	}
@@ -170,9 +171,19 @@ var CodigosCorregibles = map[string]bool{
 const CodigoBodegaRequerida = "bodega_id_requerida"
 
 // bodegaRequerida: 422 de validación que nombra bodega_id («bodega_id required»).
-func bodegaRequerida(er *conector.ErrorRemoto) bool {
+func bodegaRequerida(er *conector.ErrorRemoto, payload []byte) bool {
 	if er.Status != http.StatusUnprocessableEntity {
 		return false
+	}
+	var cuerpo map[string]json.RawMessage
+	if json.Unmarshal(payload, &cuerpo) != nil {
+		return false
+	}
+	if _, conTecnico := cuerpo["tecnico"]; !conTecnico {
+		return false // sin tecnico, un error en bodega_id es de la bodega enviada, no de la versión
+	}
+	if slices.Contains(er.Campos, "bodega_id") {
+		return true // errors[].field == "bodega_id"
 	}
 	texto := strings.ToLower(er.Detalle + " " + er.Titulo)
 	return strings.Contains(texto, "bodega_id") && (strings.Contains(texto, "required") || strings.Contains(texto, "requerid") || strings.Contains(texto, "obligatori"))
@@ -376,6 +387,13 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				}
 			case EstadoFallidoNegocio, EstadoAgotado:
 				if err := bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if deref(f.CodigoError) == CodigoBodegaRequerida && m.cfg.Argos != nil {
+				// Argos volvió a 1.5.x: se relee su versión ya (no al próximo periodo), para que lo
+				// que se encole desde ahora salga con bodega_id.
+				if err := m.cfg.Argos.RevisarContratoYa(ctx, t.Tx); err != nil {
 					return Pendiente{}, err
 				}
 			}
