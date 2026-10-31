@@ -19,6 +19,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	pendientesbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -144,6 +145,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Exito, r.Conciliado = true, r.Codigo
 		return r
 	}
+	if f.Operacion == OpRecepcion && r.Codigo == CodigoIdempotenciaReutilizada && m.trasladoYaRecibido(ctx, f) {
+		// La clave ya viajó con otro cuerpo (una recepción rehecha o tomada): si Argos muestra el
+		// traslado recibido, queda hecho, conciliado como traslado_ya_recibido.
+		r.Exito, r.Conciliado = true, CodigoTrasladoYaRecibido
+		return r
+	}
 	r.Negocio = EsNegocio(er)
 	r.Error = describir(er)
 	return r
@@ -157,6 +164,28 @@ const (
 	// CodigoTrasladoYaRecibido: otra recepción de la misma orden de traslado ya quedó (2xx definitivo).
 	CodigoTrasladoYaRecibido = "traslado_ya_recibido"
 )
+
+// CodigoIdempotenciaReutilizada: misma Idempotency-Key con otro cuerpo (422, contrato §3).
+const CodigoIdempotenciaReutilizada = "idempotency_key_reutilizada"
+
+// trasladoYaRecibido confirma con Argos (GET /inventario/traslados/:id, con la protección de
+// lecturas del conector) si el traslado de una recepción ya está recibido.
+func (m *Modulo) trasladoYaRecibido(ctx context.Context, f pendientesbd.IntegracionPendiente) bool {
+	id, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if err != nil || id <= 0 {
+		return false
+	}
+	var empresa int64
+	if f.EmpresaID != nil {
+		empresa = *f.EmpresaID
+	}
+	if err := m.cfg.Argos.ConfirmarTraslado(ctx, id, empresa); err != nil {
+		slog.WarnContext(ctx, "pendientes: no se pudo confirmar el traslado tras idempotency_key_reutilizada", "pendiente", f.ID, "err", err)
+		return false
+	}
+	t, err := argosbd.New(nucleo.BDDe(ctx)).TrasladoPorID(ctx, id)
+	return err == nil && t.Estado == "recibido"
+}
 
 // conciliable: un 409 que significa que la acción ya está hecha en Argos.
 func conciliable(operacion, codigo string) bool {

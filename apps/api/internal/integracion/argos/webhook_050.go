@@ -227,6 +227,14 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 // trasladoDe arma el traslado del webhook (nil si no trae traslado_id).
 func trasladoDe(e conector.Entrante, con conectorbd.IntegracionConectore) (*argosbd.GuardarTrasladoParams, string) {
 	d := leerPayload050(e.Payload)
+	estado := map[string]string{EventoTrasladoEnviado: "enviado", EventoTrasladoRecibido: "recibido", EventoTrasladoCancelado: "cancelado"}[e.Evento]
+	entrante := e.ID
+	return trasladoDeDatos(d, estado, &entrante, con)
+}
+
+// trasladoDeDatos valida y arma el traslado (del webhook o de GET /inventario/traslados/:id): con
+// id, empresa en el alcance del conector, líneas acotadas y valores conocidos.
+func trasladoDeDatos(d payload050, estado string, entrante *int64, con conectorbd.IntegracionConectore) (*argosbd.GuardarTrasladoParams, string) {
 	if d.TrasladoID == nil || *d.TrasladoID <= 0 {
 		return nil, "traslado_sin_id"
 	}
@@ -240,11 +248,9 @@ func trasladoDe(e conector.Entrante, con conectorbd.IntegracionConectore) (*argo
 	// Fuera de los valores conocidos no se guarda (el estado del traslado sí: lo necesita la app).
 	metodo, _ := enumOpcional(d.MetodoRecepcion, metodosRecepcion)
 	origen, _ := enumOpcional(d.Origen, origenesRecepcion)
-	estado := map[string]string{EventoTrasladoEnviado: "enviado", EventoTrasladoRecibido: "recibido", EventoTrasladoCancelado: "cancelado"}[e.Evento]
-	entrante := e.ID
 	p := &argosbd.GuardarTrasladoParams{
 		ID: *d.TrasladoID, EmpresaID: d.EmpresaID, BodegaDestinoID: d.BodegaDestinoID, Estado: estado, Lineas: lineas,
-		EnviadoEn: d.EnviadoEn, RecibidoEn: d.RecibidoEn, CanceladoEn: d.CanceladoEn, EntranteID: &entrante,
+		EnviadoEn: d.EnviadoEn, RecibidoEn: d.RecibidoEn, CanceladoEn: d.CanceladoEn, EntranteID: entrante,
 		MetodoRecepcion: metodo, OrigenRecepcion: origen, Motivo: recortarPtr(d.Motivo, 500),
 		RecibidoPor: recibidoPor(d.RecibidoPor),
 	}

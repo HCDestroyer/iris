@@ -32,9 +32,14 @@ Consume `adjunto.completado` y `adjunto.rechazado`.
 
 ## Seguridad de la recepción (revisión de la PR #83)
 
-- Solo se encola la recepción de un traslado que Iris conoce (webhook) y que va al técnico que la
-  manda. Desconocido o sin técnico: `traslado_desconocido` (409, reintentable; no toma la clave
-  `iris:recepcion:<id>`). La firma de esos traslados no se registra ni se ve (404).
+- Solo se encola la recepción de un traslado que Iris conoce y que va al técnico que la manda. Si
+  no lo conoce (o sin técnico), `ConfirmarTraslado` lo lee de Argos (`argos.Modulo.ConfirmarTraslado`:
+  `GET /inventario/traslados/:id`, singleflight, cuota de verificación y caché negativa) y lo guarda,
+  antes de la transacción del lote y al registrar la firma (`nucleo.FueraDeTx`). 404 →
+  `traslado_no_encontrado`; sin técnico → `traslado_sin_tecnico` (definitivos); Argos sin responder →
+  `traslado_sin_confirmar` (503, reintentable por operación). Nunca toma la clave sin destinatario.
+- La recepción de otro usuario que se está enviando responde `recepcion_en_envio` (reintentable).
+- `422 idempotency_key_reutilizada` de una recepción: se confirma con Argos; recibido → hecho.
 - El destinatario real toma la recepción que otro registró si el otro ya no es el destinatario o
   Argos la rechazó (`pendientes.RehacerEsperando` con el dueño nuevo, auditado); no si está en curso,
   hecha o resuelta a mano.

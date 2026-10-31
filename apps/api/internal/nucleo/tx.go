@@ -39,6 +39,12 @@ func BDDe(ctx context.Context) BD {
 	return bd
 }
 
+// FueraDeTx devuelve ctx sin la transacción en curso: lo que se haga con él (p. ej. guardar lo que
+// se leyó de otro sistema) se confirma aparte y no se pierde si la transacción de afuera se revierte.
+func FueraDeTx(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveTx, nil)
+}
+
 // TxDe devuelve la transacción en curso del contexto (nil si no hay).
 func TxDe(ctx context.Context) pgx.Tx {
 	tx, _ := ctx.Value(claveTx).(pgx.Tx)

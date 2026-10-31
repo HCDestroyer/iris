@@ -234,8 +234,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
 	// Inventario del técnico (contrato 0.5.0 §3.3): mi bodega, traslados y traslado.recibir del lote.
 	// La firma es un adjunto de la entidad «traslado».
-	inventario.RegistrarAdjuntos()
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	inv.RegistrarAdjuntos()
 	lpos, err := campo.LimitesPosicionesDesdeEntorno()
 	if err != nil {
 		return err

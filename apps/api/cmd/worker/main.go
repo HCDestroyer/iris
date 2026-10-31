@@ -128,11 +128,11 @@ func correr() error {
 		// sin que nadie lo note.
 		return fmt.Errorf("adjuntos: el almacenamiento no abre en el worker: %w", err)
 	}
-	inventario.RegistrarAdjuntos()
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Almacen: almacen,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
+	inv.RegistrarAdjuntos()
 	inv.Suscribir(bus, pool)
 	// Adjuntos: purga de subidas abandonadas (IRIS_ADJUNTOS_ABANDONO) cada hora. No necesita el
 	// almacenamiento: solo marca y borra las partes en la base.

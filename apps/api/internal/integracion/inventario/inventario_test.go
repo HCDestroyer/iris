@@ -54,11 +54,31 @@ type argosFalso struct {
 	recibidas []recibida
 	respuesta map[string][2]string // traslado → status, type del problema ("" = 201)
 	bodegas   int
+	// traslados: GET /inventario/traslados/:id → cuerpo (200) o "503"; ausente = 404.
+	traslados map[string]string
+	lecturas  int
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
-	a := &argosFalso{respuesta: map[string][2]string{}}
+	a := &argosFalso{respuesta: map[string][2]string{}, traslados: map[string]string{}}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/inventario/traslados/{id}", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.lecturas++
+		cuerpo, ok := a.traslados[r.PathValue("id")]
+		a.mu.Unlock()
+		switch {
+		case !ok:
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"type":"urn:argosisp:problema:traslado_no_encontrado","status":404}`))
+		case cuerpo == "503":
+			w.WriteHeader(503)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(cuerpo))
+		}
+	})
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"token":"` + tokenArgos + `","empresas":[1],"version_argos":"1.6.0","contrato":"0.5.0"}`))
@@ -157,8 +177,8 @@ func nuevoEntorno(t *testing.T) *entorno {
 	}
 	e := &entorno{t: t, pool: pool, argos: fa, disco: disco, reloj: time.Date(2026, 10, 30, 18, 0, 0, 0, time.UTC)}
 	reloj := func() time.Time { return e.reloj }
-	inventario.RegistrarAdjuntos()
 	e.inv = inventario.Nuevo(inventario.Config{Argos: am, Almacen: disco, Reloj: reloj})
+	e.inv.RegistrarAdjuntos()
 	e.cmp = campo.Nuevo(campo.Config{Recepciones: e.inv, Reloj: reloj, Adjuntos: campo.SinAdjuntosObligatorios{}})
 	e.pend = pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: reloj})
 	e.adj = adjuntos.Nuevo(adjuntos.Config{Almacen: disco})
@@ -565,35 +585,78 @@ func TestNadieBloqueaLaRecepcionDeOtro(t *testing.T) {
 		return p != nil && p.Status == 404
 	}
 
-	// 1. Un id futuro que Iris no conoce: ni firma ni recepción; nada queda encolado.
+	// 1. Un id futuro que Iris no conoce: se confirma con Argos (GET /inventario/traslados/:id).
+	// Argos no lo tiene (404): ni firma ni recepción (traslado_no_encontrado, definitivo); nada queda
+	// encolado y el 404 queda en la caché corta (no se vuelve a preguntar enseguida).
 	futuro := trasladoNuevo() + 50000
 	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
 		t.Fatalf("la firma de un traslado desconocido no se registra: %v", err)
 	}
 	r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7()))
-	if r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoDesconocido {
-		t.Fatalf("traslado desconocido: %+v", r)
+	if r.Estado != "rechazada" || r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoNoEncontrado {
+		t.Fatalf("traslado no encontrado: %+v", r)
 	}
 	if _, err := pendientes.PorClave(context.Background(), e.pool, inventario.ClaveRecepcion(futuro)); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("la clave no se toma: %v", err)
 	}
-	// Conocido pero sin técnico: igual.
-	e.enviado(futuro, "u-77")
-	e.exec(`UPDATE integracion.argos_traslados SET tecnico_id_externo = NULL WHERE id = $1`, futuro)
-	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
-		t.Fatalf("sin técnico no admite firmas: %v", err)
+	e.argos.mu.Lock()
+	lecturas := e.argos.lecturas
+	e.argos.mu.Unlock()
+	if lecturas != 1 {
+		t.Fatalf("una sola lectura (caché negativa): %d", lecturas)
 	}
-	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoDesconocido {
+	// Argos no responde (503): traslado_sin_confirmar, reintentable (no se guarda la operación).
+	caido := futuro + 1
+	e.argos.mu.Lock()
+	e.argos.traslados[strconv.FormatInt(caido, 10)] = "503"
+	e.argos.mu.Unlock()
+	op := uuid.Must(uuid.NewV7())
+	res, err := e.cmp.Lote(ctxIntruso, campo.EntradaLote{DispositivoID: "tel-c", Operaciones: []campo.OperacionLote{{
+		ID: op.String(), Tipo: "traslado.recibir", OcurridoEn: &e.reloj,
+		Datos: map[string]any{"trasladoId": caido, "firmaAdjuntoId": uuid.Must(uuid.NewV7()).String(), "recibidoEn": e.reloj.Format(time.RFC3339)}}}})
+	if err != nil || res.Resultados[0].Error == nil || res.Resultados[0].Error.Codigo() != inventario.CodigoTrasladoSinConfirmar {
+		t.Fatalf("Argos caído: %+v %v", res, err)
+	}
+	var guardadas int
+	_ = e.pool.QueryRow(context.Background(), `SELECT count(*) FROM campo.operaciones_sync WHERE id = $1`, op).Scan(&guardadas)
+	if guardadas != 0 {
+		t.Fatal("la operación en espera no se guarda (el mismo id se vuelve a mandar)")
+	}
+	// Argos lo tiene sin técnico: traslado_sin_tecnico (definitivo).
+	sinTecnico := futuro + 2
+	cuerpoArgos := func(id int64, tecnico string) string {
+		return `{"data":{"id":` + strconv.FormatInt(id, 10) + `,"empresa_id":1,"bodega_destino_id":70,"tecnico":` + tecnico +
+			`,"estado":"enviado","lineas":[{"linea_id":1,"producto_id":5,"cantidad":"10","series":[]}],"enviado_en":"2026-10-30T15:00:00Z"}}`
+	}
+	e.argos.mu.Lock()
+	e.argos.traslados[strconv.FormatInt(sinTecnico, 10)] = cuerpoArgos(sinTecnico, "null")
+	e.argos.mu.Unlock()
+	if r := reciboDe(ctxIntruso, intruso, sinTecnico, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != inventario.CodigoTrasladoSinTecnico {
 		t.Fatalf("sin técnico: %+v", r)
 	}
-	// Llega el webhook: es de B (u-77). El intruso no puede; B sí.
-	e.enviado(futuro, "u-77")
+	if _, err := registrarFirma(ctxIntruso, sinTecnico); !es404(err) {
+		t.Fatalf("sin técnico no admite firmas: %v", err)
+	}
+	// Argos lo tiene y es de B (u-77): queda guardado; el intruso no puede, B sí (sin volver a leer).
+	futuro = futuro + 3
+	e.argos.mu.Lock()
+	e.argos.traslados[strconv.FormatInt(futuro, 10)] = cuerpoArgos(futuro, `{"id_externo":"u-77"}`)
+	antes := e.argos.lecturas
+	e.argos.mu.Unlock()
+	if _, err := registrarFirma(ctxIntruso, futuro); !es404(err) {
+		t.Fatalf("la firma de un traslado ajeno no se registra: %v", err)
+	}
 	if r := reciboDe(ctxIntruso, intruso, futuro, uuid.Must(uuid.NewV7())); r.Error == nil || r.Error.Codigo() != "traslado_de_otro_tecnico" {
 		t.Fatalf("de otro técnico: %+v", r)
 	}
 	if r := e.recibir(futuro, e.firma(futuro, contenido, true)); r.Estado != "aplicada" || r.Recepcion == nil {
 		t.Fatalf("el destinatario recibe: %+v %+v", r, r.Error)
 	}
+	e.argos.mu.Lock()
+	if e.argos.lecturas != antes+1 {
+		t.Fatalf("confirmado una vez y guardado: %d lecturas", e.argos.lecturas-antes)
+	}
+	e.argos.mu.Unlock()
 	// La firma de B no la ve el intruso.
 	if _, err := e.adj.Listar.Ejecutar(ctxIntruso, adjuntos.EntradaListar{Entidad: "traslado", EntidadID: strconv.FormatInt(futuro, 10)}); !es404(err) {
 		t.Fatalf("nadie ve la firma de un traslado ajeno: %v", err)
@@ -727,5 +790,73 @@ func TestArmadoViejoPNGDanadoYValidaciones(t *testing.T) {
 	}
 	if p := lote(map[string]any{"trasladoId": tr3, "firmaAdjuntoId": firma.String(), "recibidoEn": "2026-10-30T14:56:00Z"}); p != nil {
 		t.Fatalf("dentro de la tolerancia: %+v", p)
+	}
+}
+
+// Segunda revisión de la PR #83 (LOW 1 y 2): la recepción de otro que se está enviando responde
+// recepcion_en_envio (reintentable, no se guarda); un 422 idempotency_key_reutilizada de una recepción
+// se confirma con Argos: recibido → hecho (conciliado); si no, sigue rechazada.
+func TestRecepcionEnEnvioYClaveReutilizada(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := pruebas.ContextoSistema(e.pool)
+	contenido := pngDe(t, 300, 100)
+	otro := e.usuario()
+	e.vincular(otro, "u-89")
+	ctxOtro := e.como(otro)
+
+	tr := trasladoNuevo()
+	e.enviado(tr, "u-89")
+	suma := sha256.Sum256(contenido)
+	fid := uuid.Must(uuid.NewV7())
+	if _, err := e.adj.Registrar.Ejecutar(ctxOtro, adjuntos.EntradaRegistrar{ID: fid, Entidad: "traslado", EntidadID: strconv.FormatInt(tr, 10),
+		Tipo: "firma", Mime: "image/png", Tamano: int64(len(contenido)), SHA256: hex.EncodeToString(suma[:])}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.cmp.Lote(ctxOtro, campo.EntradaLote{DispositivoID: "tel-o", Operaciones: []campo.OperacionLote{{
+		ID: uuid.Must(uuid.NewV7()).String(), Tipo: "traslado.recibir", OcurridoEn: &e.reloj,
+		Datos: map[string]any{"trasladoId": tr, "firmaAdjuntoId": fid.String(), "recibidoEn": e.reloj.Format(time.RFC3339)}}}}); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(`UPDATE integracion.pendientes SET estado = 'en_curso', tomado_en = now(), ultimo_error = NULL WHERE idempotency_key = $1`, inventario.ClaveRecepcion(tr))
+	e.enviado(tr, "u-77")
+	r := e.recibir(tr, e.firma(tr, contenido, true))
+	if r.Error == nil || r.Error.Codigo() != inventario.CodigoRecepcionEnEnvio {
+		t.Fatalf("en envío: reintentable: %+v", r)
+	}
+	if p := e.pendiente(tr); p.TecnicoUsuarioID == nil || *p.TecnicoUsuarioID != otro || p.Estado != "en_curso" {
+		t.Fatalf("no se toca la que se está enviando: %+v", p)
+	}
+
+	// 422 idempotency_key_reutilizada y Argos lo muestra recibido: hecho, conciliado.
+	cuerpoArgos := func(id int64, estado string) string {
+		return `{"data":{"id":` + strconv.FormatInt(id, 10) + `,"empresa_id":1,"tecnico":{"id_externo":"u-77"},"estado":"` + estado +
+			`","lineas":[],"enviado_en":"2026-10-30T15:00:00Z"}}`
+	}
+	for _, c := range []struct {
+		estado, esperado string
+	}{{"recibido", "hecho"}, {"enviado", "fallido_negocio"}} {
+		id := trasladoNuevo() + 7
+		if c.estado == "enviado" {
+			id += 3
+		}
+		e.enviado(id, "u-77")
+		e.argos.mu.Lock()
+		e.argos.respuesta[strconv.FormatInt(id, 10)] = [2]string{"422", pendientes.CodigoIdempotenciaReutilizada}
+		e.argos.traslados[strconv.FormatInt(id, 10)] = cuerpoArgos(id, c.estado)
+		e.argos.mu.Unlock()
+		e.recibir(id, e.firma(id, contenido, true))
+		if _, err := e.inv.BarrerFirmas(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.pend.Procesar(ctx); err != nil {
+			t.Fatal(err)
+		}
+		p := e.pendiente(id)
+		if p.Estado != c.esperado {
+			t.Fatalf("Argos lo muestra %s: %+v", c.estado, p)
+		}
+		if c.esperado == "hecho" && (p.CodigoError == nil || *p.CodigoError != "traslado_ya_recibido") {
+			t.Fatalf("conciliado: %+v", p)
+		}
 	}
 }

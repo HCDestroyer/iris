@@ -37,6 +37,14 @@ export type OperacionLocal = {
         /** Veces que salió en un lote sin respuesta definitiva. */
         intentos: number;
         /**
+         * Espera propia de la operación (`CODIGOS_ESPERA_OPERACION`): no sale antes de `esperaHasta`
+         * (ms del reloj del motor); `esperaDesde` es la primera respuesta de espera (tope
+         * `ESPERA_OPERACION_MAX_MS`) y `esperas` cuántas lleva. Ausentes si no espera.
+         */
+        esperaHasta?: number;
+        esperaDesde?: number;
+        esperas?: number;
+        /**
          * Solo `orden.agregar_formulario`: la plantilla del catálogo que vio el técnico (con sus
          * ítems), para aplicarla sin señal. Es local: no viaja en el lote.
          */

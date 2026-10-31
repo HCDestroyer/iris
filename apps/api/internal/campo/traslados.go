@@ -22,6 +22,8 @@ import (
 // Recepciones encola la recepción (en la transacción de la operación) y lee su estado para cambios.
 // Lo implementa inventario.Modulo (I1).
 type Recepciones interface {
+	// ConfirmarTraslado corre antes de la transacción (habla con Argos si Iris no conoce el traslado).
+	ConfirmarTraslado(ctx context.Context, id int64) error
 	Encolar(ctx context.Context, t *auditoria.Tx, in inventario.EntradaRecibirTraslado) (inventario.EstadoRecepcion, error)
 	Recepciones(ctx context.Context, q inventario.DBTX, usuarioID int64) ([]inventario.EstadoRecepcion, error)
 }
@@ -69,6 +71,10 @@ func (m *Modulo) aplicarTraslado(ctx context.Context, s *OpSync, op OperacionLot
 		return m.rechazar(ctx, s, 0, p)
 	}
 	e, err := datosDe[inventario.EntradaRecibirTraslado](op)
+	if err == nil && m.cfg.Recepciones != nil {
+		// Fuera de la transacción: si Iris no conoce el traslado, se confirma con Argos.
+		err = m.cfg.Recepciones.ConfirmarTraslado(ctx, e.TrasladoID)
+	}
 	if err == nil {
 		var r inventario.EstadoRecepcion
 		r, err = m.RecibirTraslado.Ejecutar(ctx, entradaRecibirTraslado{EntradaRecibirTraslado: e, sync: s})
