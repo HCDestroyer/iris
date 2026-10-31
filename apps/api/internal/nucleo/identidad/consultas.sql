@@ -105,8 +105,10 @@ WHERE rol_id = ANY(@roles::bigint[])
 ORDER BY rol_id, permiso;
 
 -- name: PermisosDeUsuario :many
+-- Un rol desactivado no da permisos (sigue asignado: al reactivarlo vuelve a darlos).
 SELECT rp.permiso, ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
 JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = @usuario_id
 ORDER BY rp.permiso;
@@ -145,8 +147,8 @@ ON CONFLICT DO NOTHING;
 -- Sesiones -------------------------------------------------------------------
 
 -- name: CrearSesion :one
-INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen)
-VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en, @origen)
+INSERT INTO nucleo.sesiones (usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, origen, canal, app)
+VALUES (@usuario_id, @token_hash, @csrf_hash, @mfa_pendiente, @ip, @user_agent, @expira_en, @origen, @canal, sqlc.narg(app))
 RETURNING *;
 
 -- name: SesionVigentePorHash :one
@@ -322,7 +324,7 @@ DELETE FROM nucleo.usuarios_empresas WHERE usuario_id = @usuario_id AND empresa_
 -- El usuario tiene empresas.todas por un rol sin límite de zona ni cuadrilla.
 SELECT EXISTS (
     SELECT 1 FROM nucleo.usuarios_roles ur
-    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
     WHERE ur.usuario_id = @usuario_id AND rp.permiso = 'empresas.todas'
       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
 );
@@ -334,7 +336,7 @@ SELECT COALESCE(
     EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = @usuario_id AND ue.empresa_id = @empresa_id)
     OR (EXISTS (SELECT 1 FROM nucleo.empresas e WHERE e.id = @empresa_id)
         AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
-                    JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                    JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
                     WHERE ur.usuario_id = @usuario_id AND rp.permiso = 'empresas.todas'
                       AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)),
     false)::boolean AS en_empresa;
@@ -510,3 +512,225 @@ DELETE FROM nucleo.sso_tickets WHERE id IN (
 UPDATE nucleo.sso_tickets SET vinculacion_hash = NULL, vinculacion_expira_en = now(), updated_at = now()
 WHERE vinculacion_hash = @vinculacion_hash AND vinculado_en IS NULL
 RETURNING id;
+
+-- Historial de accesos (accesos.go) ------------------------------------------------
+
+-- name: RegistrarAcceso :exec
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, sesion_id, token_id, request_id)
+VALUES (sqlc.narg(usuario_id), @canal, @resultado, @ip, @user_agent, @dispositivo, sqlc.narg(app), sqlc.narg(sesion_id),
+        sqlc.narg(token_id), @request_id);
+
+-- name: RegistrarAccesoFallido :exec
+-- Un fallo repetido (mismo usuario e IP o, sin usuario, misma IP; mismo canal y resultado) dentro de
+-- @ventana_seg suma a la fila existente. Sin usuario, además, como mucho @tope_ip filas por IP y
+-- hora: el resto solo suma a la última. Así nadie inunda el historial sin credenciales.
+WITH previo AS (
+    UPDATE nucleo.accesos SET intentos = intentos + 1, updated_at = now()
+    WHERE id = (
+        SELECT a.id FROM nucleo.accesos a
+        WHERE a.resultado = @resultado AND a.canal = @canal
+          AND (CASE WHEN sqlc.narg(usuario_id)::bigint IS NULL THEN a.usuario_id IS NULL AND a.ip = @ip
+                    ELSE a.usuario_id = sqlc.narg(usuario_id)::bigint AND a.ip = @ip END)
+          AND (a.created_at > now() - make_interval(secs => @ventana_seg::bigint)
+               OR (sqlc.narg(usuario_id)::bigint IS NULL
+                   AND (SELECT count(*) FROM nucleo.accesos b
+                        WHERE b.usuario_id IS NULL AND b.ip = @ip AND b.created_at > now() - interval '1 hour') >= @tope_ip::bigint
+                   AND a.created_at > now() - interval '1 hour'))
+        ORDER BY a.id DESC LIMIT 1)
+    RETURNING id
+)
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, request_id)
+SELECT sqlc.narg(usuario_id)::bigint, @canal, @resultado, @ip, @user_agent, @dispositivo, sqlc.narg(app)::text, @request_id
+WHERE NOT EXISTS (SELECT 1 FROM previo)
+  AND (sqlc.narg(usuario_id)::bigint IS NOT NULL
+       OR (SELECT count(*) FROM nucleo.accesos b
+           WHERE b.usuario_id IS NULL AND b.ip = @ip AND b.created_at > now() - interval '1 hour') < @tope_ip::bigint);
+
+-- name: RegistrarAccesoToken :execrows
+-- El uso de un token deja como mucho una fila por hora (no una por petición).
+INSERT INTO nucleo.accesos (usuario_id, canal, resultado, ip, user_agent, dispositivo, app, token_id, request_id)
+SELECT @usuario_id, 'token', 'exito', @ip, @user_agent, @dispositivo, sqlc.narg(app), @token_id::bigint, @request_id
+WHERE NOT EXISTS (SELECT 1 FROM nucleo.accesos
+                  WHERE token_id = @token_id::bigint AND created_at > now() - interval '1 hour');
+
+-- name: ListarAccesos :many
+-- Del más reciente al más antiguo (cursor: el id del último visto). Sin @todas, solo los accesos del
+-- propio usuario y de quienes comparten alguna empresa con él; los de correos que no existen
+-- (usuario_id null) solo con @todas.
+SELECT a.id, a.usuario_id, a.canal, a.resultado, a.ip, a.dispositivo, a.app, a.sesion_id, a.token_id, a.intentos, a.created_at,
+       u.nombre AS usuario_nombre, u.correo AS usuario_correo
+FROM nucleo.accesos a
+LEFT JOIN nucleo.usuarios u ON u.id = a.usuario_id
+WHERE (@antes_de::bigint = 0 OR a.id < @antes_de::bigint)
+  AND (sqlc.narg(usuario_id)::bigint IS NULL OR a.usuario_id = sqlc.narg(usuario_id)::bigint)
+  AND (sqlc.narg(desde)::timestamptz IS NULL OR a.created_at >= sqlc.narg(desde)::timestamptz)
+  AND (sqlc.narg(hasta)::timestamptz IS NULL OR a.created_at < sqlc.narg(hasta)::timestamptz)
+  AND (cardinality(@canales::text[]) = 0 OR a.canal = ANY(@canales::text[]))
+  AND (cardinality(@resultados::text[]) = 0 OR a.resultado = ANY(@resultados::text[]))
+  -- La regla de exigirEmpresasDe: usuarios con empresas, todas del actor, y sin empresas.todas.
+  AND (@todas::boolean OR a.usuario_id = @yo::bigint
+       OR (EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = a.usuario_id)
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                           WHERE ue.usuario_id = a.usuario_id AND NOT (ue.empresa_id = ANY(@empresas::bigint[])))
+           AND NOT EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                           WHERE ur.usuario_id = a.usuario_id AND rp.permiso = 'empresas.todas')))
+ORDER BY a.id DESC
+LIMIT @limite;
+
+-- name: PurgarAccesos :execrows
+DELETE FROM nucleo.accesos
+WHERE id IN (SELECT id FROM nucleo.accesos
+             WHERE created_at < now() - make_interval(secs => @antiguedad_seg::bigint)
+             ORDER BY id LIMIT @lote);
+
+-- Sesiones activas ------------------------------------------------------------------
+
+-- name: SesionesActivasDeUsuario :many
+SELECT * FROM nucleo.sesiones
+WHERE usuario_id = @usuario_id AND revocada_en IS NULL AND expira_en > now() AND NOT mfa_pendiente
+ORDER BY ultimo_uso DESC, id DESC;
+
+-- name: RevocarSesionDeUsuario :execrows
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE id = @id AND usuario_id = @usuario_id AND revocada_en IS NULL AND expira_en > now();
+
+-- name: RevocarSesionesDeUsuarioSalvo :many
+-- Cierra las sesiones abiertas del usuario salvo @salvo (la del propio actor; 0 = ninguna).
+UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
+WHERE usuario_id = @usuario_id AND revocada_en IS NULL AND expira_en > now() AND id <> @salvo
+RETURNING id;
+
+-- Actividad de la app de campo ------------------------------------------------------
+
+-- name: RegistrarConexionApp :exec
+-- Última conexión por (usuario, app, plataforma): como mucho una escritura cada 30 s (también si
+-- cambian la versión o los pendientes; se ven en la siguiente).
+INSERT INTO nucleo.conexiones_app AS c (usuario_id, app, plataforma, version, pendientes, pendientes_en, ip, user_agent, ultima_conexion)
+VALUES (@usuario_id, @app, @plataforma, @version, sqlc.narg(pendientes)::integer,
+        CASE WHEN sqlc.narg(pendientes)::integer IS NULL THEN NULL ELSE now() END, @ip, @user_agent, now())
+ON CONFLICT (usuario_id, app, plataforma) DO UPDATE SET
+    version = EXCLUDED.version,
+    pendientes = coalesce(EXCLUDED.pendientes, c.pendientes),
+    pendientes_en = coalesce(EXCLUDED.pendientes_en, c.pendientes_en),
+    ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, ultima_conexion = now(), updated_at = now()
+WHERE c.ultima_conexion < now() - interval '30 seconds';
+
+-- name: TecnicosVisibles :many
+-- Técnicos activos (ficha de agenda) visibles para el actor: empresa activa (el técnico la tiene
+-- asignada; sin conector, todos) y alcance de campo.ver_actividad (su cuadrilla o las zonas que
+-- atiende). Sin paginar: los técnicos de una empresa son pocos (≤ @limite).
+SELECT t.usuario_id, t.id AS ficha_id, t.cuadrilla_id, u.nombre, u.correo
+FROM agenda.tecnicos t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.activo AND u.activo
+  AND (@todas::boolean OR sqlc.narg(empresa_id)::bigint IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = sqlc.narg(empresa_id)::bigint))
+  AND (@alcance_global::boolean
+       OR t.cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                  WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = ANY(@zonas::bigint[])))
+ORDER BY u.nombre, t.usuario_id
+LIMIT @limite;
+
+-- name: ConexionesAppDe :many
+-- La conexión más reciente de la app de campo de cada usuario (cualquier plataforma).
+SELECT DISTINCT ON (c.usuario_id) c.*
+FROM nucleo.conexiones_app c
+WHERE c.usuario_id = ANY(@usuarios::bigint[]) AND c.app = 'campo'
+ORDER BY c.usuario_id, c.ultima_conexion DESC;
+
+-- name: UltimosLotesDe :many
+-- El último POST /sync/lote de cada usuario (campo.dispositivos se actualiza en cada lote).
+SELECT DISTINCT ON (d.usuario_id) d.usuario_id, d.id, d.plataforma, d.ultimo_contacto
+FROM campo.dispositivos d
+WHERE d.usuario_id = ANY(@usuarios::bigint[])
+ORDER BY d.usuario_id, d.ultimo_contacto DESC;
+
+-- name: RechazosSyncDe :many
+-- Operaciones del lote que siguen rechazadas (una rechazada se vuelve a evaluar al reenviarse).
+SELECT o.usuario_id, count(*)::integer AS rechazadas, max(o.created_at)::timestamptz AS ultimo
+FROM campo.operaciones_sync o
+WHERE o.usuario_id = ANY(@usuarios::bigint[]) AND o.estado = 'rechazada'
+  AND o.created_at > now() - make_interval(secs => @ventana_seg::bigint)
+GROUP BY o.usuario_id;
+
+-- name: UltimasPosicionesDe :many
+-- Como GET /campo/posiciones/ultimas: solo de las últimas 24 h (@desde) y de técnicos que cubre el
+-- alcance de campo.ver_posiciones del actor (su cuadrilla o las zonas que atiende).
+SELECT DISTINCT ON (p.tecnico_id) p.tecnico_id, p.lat, p.lon, p.precision_m, p.registrada_en, p.recibida_en
+FROM campo.posiciones_ultimas p
+JOIN agenda.tecnicos t ON t.usuario_id = p.tecnico_id
+WHERE p.tecnico_id = ANY(@usuarios::bigint[])
+  AND p.registrada_en >= @desde
+  AND (@todas::boolean OR sqlc.narg(empresa_id)::bigint IS NULL OR p.empresa_id = sqlc.narg(empresa_id)::bigint)
+  AND (@alcance_global::boolean
+       OR t.cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR EXISTS (SELECT 1 FROM agenda.cuadrilla_zonas cz
+                  WHERE cz.cuadrilla_id = t.cuadrilla_id AND cz.zona_id = ANY(@zonas::bigint[])))
+ORDER BY p.tecnico_id, p.registrada_en DESC;
+
+-- Roles propios (roles.go) ----------------------------------------------------------
+
+-- name: RolPorID :one
+SELECT * FROM nucleo.roles WHERE id = @id;
+
+-- name: RolPorIDParaActualizar :one
+SELECT * FROM nucleo.roles WHERE id = @id FOR UPDATE;
+
+-- name: CrearRol :one
+INSERT INTO nucleo.roles (codigo, nombre, descripcion)
+VALUES (@codigo, @nombre, @descripcion)
+ON CONFLICT (codigo) DO NOTHING
+RETURNING *;
+
+-- name: ActualizarRol :one
+UPDATE nucleo.roles
+SET nombre = @nombre, descripcion = @descripcion, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND NOT sistema
+RETURNING *;
+
+-- name: CambiarActivoRol :one
+UPDATE nucleo.roles
+SET activo = @activo, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND NOT sistema
+RETURNING *;
+
+-- name: UsuariosPorRol :many
+SELECT rol_id, count(DISTINCT usuario_id)::integer AS usuarios
+FROM nucleo.usuarios_roles
+WHERE rol_id = ANY(@roles::bigint[])
+GROUP BY rol_id;
+
+-- name: ExisteAsignacionRol :one
+SELECT EXISTS (SELECT 1 FROM nucleo.usuarios_roles
+               WHERE usuario_id = @usuario_id AND rol_id = @rol_id
+                 AND zona_id IS NOT DISTINCT FROM sqlc.narg(zona_id)::bigint
+                 AND cuadrilla_id IS NOT DISTINCT FROM sqlc.narg(cuadrilla_id)::bigint);
+
+-- name: QuitarAsignacionRol :execrows
+DELETE FROM nucleo.usuarios_roles
+WHERE usuario_id = @usuario_id AND rol_id = @rol_id
+  AND zona_id IS NOT DISTINCT FROM sqlc.narg(zona_id)::bigint
+  AND cuadrilla_id IS NOT DISTINCT FROM sqlc.narg(cuadrilla_id)::bigint;
+
+-- name: SubirVersionUsuario :one
+UPDATE nucleo.usuarios SET version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: HayAdministradorDeRoles :one
+-- Alguna persona activa tiene, sin límite de alcance y por roles activos, todos @permisos (los de
+-- administrar roles): sin ella nadie podría volver a dar ni arreglar roles.
+SELECT EXISTS (
+    SELECT 1 FROM nucleo.usuarios u
+    WHERE u.activo AND u.tipo = 'persona'
+      AND (SELECT count(DISTINCT rp.permiso)
+           FROM nucleo.usuarios_roles ur
+           JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+           JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+           WHERE ur.usuario_id = u.id AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL
+             AND rp.permiso = ANY(@permisos::text[])) = cardinality(@permisos::text[])
+)::boolean;

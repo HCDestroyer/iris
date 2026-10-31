@@ -15,6 +15,26 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   (enlace de Iris, 15 min, un solo uso) y `conexion/canjear` (lo llama el otro sistema; 401
   `codigo_invalido`; `sistema` debe ser el de la ruta). Token y secreto del webhook cifrados con
   `IRIS_CLAVE_CIFRADO`, atados a la fila; nunca salen por la API ni en la auditoría. Nace apagado.
+- **Conectar con un botón** (`autorizacion.go`, contrato Iris ↔ ArgosISP 0.4.0 §1.4; solo sistemas con
+  `Sistema.RutaAutorizar`, hoy Argos): `POST …/autorizaciones` (`integraciones.autorizar`, permiso
+  `integraciones.conectar`, solo con sesión del panel: 422 `sesion_requerida`) normaliza el panel a
+  `https://host[:puerto]`, guarda en `integracion.autorizaciones` el SHA-256 del `state` (32 bytes, 10 min, un
+  uso, ligado a sesión y usuario) y el `code_verifier` cifrado y atado a la fila (rotado por `iris clave rotar`;
+  se borra al usarse), y devuelve la URL de autorizar con el `code_challenge` S256 (respuesta no repetible por
+  `Idempotency-Key`). `POST …/autorizaciones/completar` (`integraciones.completar_autorizacion`) verifica y gasta
+  el `state` (422 `state_invalido` si no existe, ya se usó o es de otra sesión —esta última sin gastarlo—;
+  422 `state_vencido`), con `error` responde 422 `rechazado`, exige `api` en `Sistema.Origenes` (sin la
+  excepción del conector activo; 422 `origen_no_permitido` / `origenes_no_configurados`) y canjea con
+  `code_verifier` por el mismo camino que el enlace (`canjearYGuardar`: token con vencimiento, revocado si
+  falla). Un 401 o `codigo_invalido` de Argos es 422 `codigo_invalido`. El conector nace apagado con origen
+  `autorizacion`. `api` debe ser un origen sin ruta (422 `validacion`) y el canje va al origen exacto que
+  coincidió con la lista. Iniciar otra en la misma sesión anula las anteriores sin usar; el job periódico
+  `integracion.autorizaciones_purga` (único por periodo, cada 10 min) borra el `code_verifier` de las vencidas
+  y las filas vencidas hace más de un día. `panel_url` siempre se guarda como origen.
+- **Panel y API por separado** (0.4.0): `panel_url` del canje (en los dos flujos; si falta en §1.4, el panel
+  que escribió el administrador) va en `integracion.conectores.panel_url`; la API sigue en `base_url`. La API
+  expone `panelUrl`, `apiUrl` y `urlPublica` (la configurada a mano, si no `panelUrl`, si no la API), que es la
+  que usan los enlaces «Ver en Argos».
 - **Token entregado en el canje** (revisión de seguridad de la PR #50): solo para orígenes de
   `Sistema.Origenes` (`IRIS_ARGOS_ORIGENES`, `IRIS_HORUS_ORIGENES`, obligatoria también con
   `PermitirHTTP`, que solo permite http) o el del conector **activo** del sistema (uno apagado o un

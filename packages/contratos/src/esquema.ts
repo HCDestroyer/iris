@@ -4,6 +4,46 @@
  */
 
 export interface paths {
+    "/api/v1/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historial de accesos
+         * @description Permiso: `accesos.ver`. Del más reciente al más antiguo: inicios de sesión (panel, app de campo PWA o nativa, autologin desde Argos) y uso de tokens (una fila por token y hora), con IP, dispositivo y resultado (`exito`, `contrasena_erronea`, `mfa_fallido`, `bloqueado`, `inactivo`). Un intento con un correo que no existe aparece sin usuario (el correo no se guarda). Sin `empresas.todas` global, solo tú y los usuarios que comparten alguna empresa contigo. Los intentos sin usuario solo los ve quien opera en todas las empresas. Retención: `IRIS_ACCESOS_RETENCION_DIAS` (180 por defecto).
+         */
+        get: operations["listarAccesos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actividad-campo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Actividad de la app de campo por técnico
+         * @description Permiso: `campo.ver_actividad`. Técnicos activos de la empresa activa (según el alcance por zona o cuadrilla) con su última conexión, último `POST /sync/lote`, operaciones rechazadas, pendientes que informa la app (`X-Iris-Pendientes`), versión y plataforma (`X-Iris-App: campo/<versión> (<plataforma>)`) y última posición. `estado`: `sin_conexion` sin conexión en `sinConexionMin`; `atrasado` con pendientes y sin sincronizar en `atrasoMin`; si no, `al_dia`. La lista viene completa (`nextCursor` null).
+         */
+        get: operations["actividadCampo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/adjuntos": {
         parameters: {
             query?: never;
@@ -365,7 +405,7 @@ export interface paths {
         };
         /**
          * Ficha del cliente: datos, servicios y estado de cuenta resumido
-         * @description Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         * @description Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h, si es de una versión anterior de los datos o con `?refrescar=true` (si se leyó hace más de 30 s); si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
          */
         get: operations["obtenerFichaCliente"];
         put?: never;
@@ -802,6 +842,46 @@ export interface paths {
          * @description Permiso: `encuestas.compartir`. Acción auditada (quién lo pidió; el token queda como `***`). Solo una encuesta pendiente de canal `enlace`: si salió por correo, 409 `encuesta_por_correo`; respondida, 409 `encuesta_respondida`; vencida o anulada, 410 `encuesta_vencida` / `encuesta_anulada`; sin clave para derivarlo, 422 `enlace_no_disponible`. Respuesta con `Cache-Control: no-store`.
          */
         post: operations["compartirEncuesta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/autorizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Iniciar «Conectar con Argos» (autorización con state y PKCE)
+         * @description Permiso: `integraciones.conectar`. Solo con la sesión del panel (422 `sesion_requerida` con un token). Normaliza `panelUrl` a `https://host[:puerto]`, genera un `state` (32 bytes, un uso, 10 min, ligado a la sesión y al usuario) y un `code_verifier` (32 bytes, cifrado en el servidor; nunca sale) y devuelve la URL de autorizar del panel de Argos con el `code_challenge` S256. Exige `empresas.todas` sin límite (403) y `IRIS_ARGOS_ORIGENES` (422 `origenes_no_configurados`). La URL lleva el `state`, que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible` sin iniciar otra autorización.
+         */
+        post: operations["autorizarConexionArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/autorizaciones/completar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Completar «Conectar con Argos» con lo que trae la vuelta
+         * @description Permiso: `integraciones.conectar`. Recibe `{ codigo, api, state }` o `{ error, state }` del fragmento de `/administracion/integraciones/argos/vuelta`. Verifica el `state` (422 `state_invalido` si no existe, ya se usó o es de otra sesión; 422 `state_vencido`) y lo gasta; con `error`, 422 `rechazado`. `api` debe estar en `IRIS_ARGOS_ORIGENES` (422 `origen_no_permitido`). Canjea servidor a servidor con el `code_verifier` (422 `codigo_invalido` si Argos no lo acepta), guarda `panelUrl` y `apiUrl` por separado y deja el conector **apagado** hasta «Activar». Con la misma `Idempotency-Key`, un doble envío devuelve la misma respuesta.
+         */
+        post: operations["completarAutorizacionArgos"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2370,7 +2450,91 @@ export interface paths {
          */
         get: operations["listarRoles"];
         put?: never;
+        /**
+         * Crear un rol propio
+         * @description Permiso: `roles.crear`. Con al menos un permiso; solo los que tienes sin límite de alcance (403). 409 `rol_existe` si el código ya está en uso. Emite `rol.creado`. Si el rol incluye un permiso sensible (`sensible` en `GET /api/v1/permisos`), exige haber confirmado la contraseña en los últimos 15 min (`POST /api/v1/sesion/reautenticar`): si no, 403 `reautenticacion_requerida`; desde un token, 403 `requiere_sesion`.
+         */
+        post: operations["crearRol"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ver un rol con sus permisos
+         * @description Permiso: `roles.ver`.
+         */
+        get: operations["verRol"];
+        put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Volver a activar un rol propio
+         * @description Permiso: `roles.activar`. Devuelve sus permisos a quienes lo tienen asignado. Emite `rol.activado`. Si el rol incluye un permiso sensible (`sensible` en `GET /api/v1/permisos`), exige haber confirmado la contraseña en los últimos 15 min (`POST /api/v1/sesion/reautenticar`): si no, 403 `reautenticacion_requerida`; desde un token, 403 `requiere_sesion`.
+         */
+        post: operations["activarRol"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar un rol propio
+         * @description Permiso: `roles.desactivar`. Deja de dar permisos a quienes lo tienen (las asignaciones se conservan) y no se puede asignar. Los roles no se borran; un rol base responde 422 `rol_base`. Emite `rol.desactivado`.
+         */
+        post: operations["desactivarRol"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar un rol propio
+         * @description Permiso: `roles.editar`. Nombre, descripción y permisos (reemplaza la lista). Un rol base responde 422 `rol_base`. Exige tener sin límite de alcance sus permisos de antes y de después; con usuarios asignados, operar en todas las empresas. Emite `rol.actualizado`. La re-autenticación se pide si agrega un permiso sensible. Si el rol incluye un permiso sensible (`sensible` en `GET /api/v1/permisos`), exige haber confirmado la contraseña en los últimos 15 min (`POST /api/v1/sesion/reautenticar`): si no, 403 `reautenticacion_requerida`; desde un token, 403 `requiere_sesion`.
+         */
+        post: operations["editarRol"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2671,6 +2835,26 @@ export interface paths {
          * @description Permiso: `agenda.ver`. Técnicos activos que atienden la zona (su cuadrilla) y pueden ver sus órdenes, con turnos, ausencias, citas, huecos libres y capacidad usada del día (hora de Guatemala). Los disponibles primero.
          */
         get: operations["tecnicosAsignables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tecnicos/candidatos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usuarios que pueden recibir ficha de técnico
+         * @description Permiso: `agenda.crear_tecnico`. Personas activas sin ficha, con `ordenes.ver_propias`, que operan en la empresa activa; con alcance limitado, solo las de tus zonas o cuadrillas (por el alcance de su rol). Es el selector de usuario al dar de alta un técnico (no exige `usuarios.ver`). Paginado con `q`.
+         */
+        get: operations["candidatosTecnico"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3231,6 +3415,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usuarios/{id}/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Historial de accesos de un usuario
+         * @description Permiso: `accesos.ver`. Los mismos filtros que `GET /api/v1/accesos`. Un usuario fuera de tu alcance de empresas responde 404.
+         */
+        get: operations["listarAccesosUsuario"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/usuarios/{id}/asignar-empresa": {
         parameters: {
             query?: never;
@@ -3245,6 +3449,46 @@ export interface paths {
          * @description Permiso: `usuarios.asignar_empresa`. Solo empresas en que operas tú y, sin `empresas.todas` global, solo a usuarios cuyas empresas son todas tuyas (403; un usuario sin empresas solo lo administra un admin global). 422 `empresa_ya_asignada`. Los tokens del usuario operan en las mismas empresas.
          */
         post: operations["asignarEmpresaUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/asignar-rol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar un rol a un usuario
+         * @description Permiso: `usuarios.asignar_rol`. Con alcance opcional por zona (`zonaId`) o por cuadrilla (`cuadrillaId`), no ambos. Solo roles activos (422 `rol_inactivo`) cuyos permisos tienes sin límite de alcance (403). 422 `rol_ya_asignado`. Responde el usuario con sus roles. Emite `usuario.rol_asignado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403). Si el rol incluye un permiso sensible (`sensible` en `GET /api/v1/permisos`), exige haber confirmado la contraseña en los últimos 15 min (`POST /api/v1/sesion/reautenticar`): si no, 403 `reautenticacion_requerida`; desde un token, 403 `requiere_sesion`.
+         */
+        post: operations["asignarRolUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/cerrar-sesiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar todas las sesiones de un usuario
+         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno).
+         */
+        post: operations["cerrarSesionesUsuario"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3311,6 +3555,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usuarios/{id}/quitar-rol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar un rol a un usuario
+         * @description Permiso: `usuarios.quitar_rol`. La asignación exacta (rol y alcance). Exige tener sin límite de alcance los permisos del usuario (salvo el propio). 422 `rol_no_asignado`. Emite `usuario.rol_quitado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         */
+        post: operations["quitarRolUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/usuarios/{id}/reiniciar-mfa": {
         parameters: {
             query?: never;
@@ -3325,6 +3589,46 @@ export interface paths {
          * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/sesiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sesiones activas de un usuario
+         * @description Permiso: `accesos.ver`. Las abiertas y vigentes (no las pendientes de MFA), de la más usada a la menos. La lista viene completa (`nextCursor` null).
+         */
+        get: operations["listarSesionesUsuario"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usuarios/{id}/sesiones/{sesionId}/cerrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar una sesión de un usuario
+         * @description Permiso: `usuarios.cerrar_sesiones`. Quien la usaba debe volver a entrar. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). 404 si la sesión no es suya, ya se cerró o venció. Emite `usuario.sesiones_cerradas`.
+         */
+        post: operations["cerrarSesionUsuario"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3540,6 +3844,37 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Acceso: {
+            /** @description X-Iris-App tal cual */
+            app: string | null;
+            /** @enum {string} */
+            canal: "panel" | "campo_pwa" | "campo_nativa" | "sso" | "token";
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description Navegador y sistema, o la app y su versión */
+            dispositivo: string;
+            /** Format: int64 */
+            id: number;
+            /**
+             * Format: int32
+             * @description Fallos iguales agrupados en esta fila (mismo usuario o IP y resultado en 1 min; un bloqueo, por ventana de bloqueo)
+             */
+            intentos: number;
+            ip: string;
+            /** @enum {string} */
+            resultado: "exito" | "contrasena_erronea" | "mfa_fallido" | "bloqueado" | "inactivo";
+            /** Format: int64 */
+            sesionId: number | null;
+            /** Format: int64 */
+            tokenId: number | null;
+            usuarioCorreo: string | null;
+            /**
+             * Format: int64
+             * @description null: un correo que no existe (no se guarda cuál)
+             */
+            usuarioId: number | null;
+            usuarioNombre: string | null;
+        };
         AccesoPortalEmitido: {
             /** Format: date-time */
             expiraEn: string;
@@ -3577,6 +3912,70 @@ export interface components {
             resultado: string | null;
             /** @enum {string} */
             tipo: "llamada" | "visita" | "nota" | "mensaje";
+        };
+        ActividadCampo: {
+            /**
+             * Format: int64
+             * @description Minutos sin sincronizar con pendientes para «atrasado»
+             */
+            atrasoMin: number;
+            data: components["schemas"]["ActividadTecnico"][] | null;
+            /** Format: date-time */
+            generadoEn: string;
+            /** @description Siempre null: la lista viene completa */
+            nextCursor: string | null;
+            /**
+             * Format: int64
+             * @description Minutos sin conexión para «sin conexión»
+             */
+            sinConexionMin: number;
+            /** Format: int64 */
+            ventanaRechazosDias: number;
+        };
+        ActividadTecnico: {
+            /** @description Ausente si la app no manda X-Iris-App (versión anterior) */
+            app?: components["schemas"]["AppCampo"];
+            correo: string;
+            /** Format: int64 */
+            cuadrillaId: number | null;
+            /** @enum {string} */
+            estado: "al_dia" | "atrasado" | "sin_conexion";
+            /**
+             * Format: int64
+             * @description Id de la ficha de agenda (agenda.tecnicos)
+             */
+            fichaId: number;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description Operaciones sin enviar que informó la app (X-Iris-Pendientes); null si la app no lo informa
+             */
+            pendientes: number | null;
+            /** Format: date-time */
+            pendientesEn: string | null;
+            /** @description La de X-Iris-App o, si no, la del último lote */
+            plataforma: string | null;
+            /**
+             * Format: int32
+             * @description Operaciones del lote rechazadas en los últimos 7 días que siguen así
+             */
+            rechazadas: number;
+            /**
+             * Format: date-time
+             * @description La más reciente entre la app, el último lote y la última posición; null si nunca se conectó
+             */
+            ultimaConexion: string | null;
+            /** @description Ausente sin campo.ver_posiciones (con alcance sobre el técnico) o si no mandó su ubicación en las últimas 24 h */
+            ultimaPosicion?: components["schemas"]["PosicionCampo"];
+            /**
+             * Format: date-time
+             * @description Último POST /sync/lote
+             */
+            ultimaSincronizacion: string | null;
+            /** Format: date-time */
+            ultimoRechazo: string | null;
+            /** Format: int64 */
+            usuarioId: number;
         };
         Adjunto: {
             /** @description Ítem del checklist que respalda (o null) */
@@ -3665,6 +4064,11 @@ export interface components {
             /** Format: int64 */
             servicioArgosId: number | null;
         };
+        AppCampo: {
+            /** @description pwa, android, ios… */
+            plataforma: string;
+            version: string;
+        };
         Asignable: {
             ausencias: components["schemas"]["Franja"][] | null;
             capacidad: components["schemas"]["UsoCapacidad"][] | null;
@@ -3749,6 +4153,23 @@ export interface components {
              */
             tecnicoId: number;
         };
+        AutorizacionCompletada: {
+            /** @description El conector nuevo, apagado */
+            conector: components["schemas"]["Conector"];
+            /** @description Empresas del alcance del usuario técnico, según el canje */
+            empresas: components["schemas"]["EmpresaAutorizada"][] | null;
+        };
+        AutorizacionIniciada: {
+            /**
+             * Format: date-time
+             * @description Vence el state (10 min)
+             */
+            expiraEn: string;
+            /** @description Origen normalizado del panel */
+            panelUrl: string;
+            /** @description https://<panel>/integraciones/iris/autorizar?iris=…&state=…&code_challenge=…&code_challenge_method=S256: el panel de Iris la abre en la misma pestaña */
+            url: string;
+        };
         Buzon: {
             activo: boolean;
             /** Format: date-time */
@@ -3794,6 +4215,8 @@ export interface components {
             desde: string;
             /** Format: date-time */
             hasta: string;
+            /** @description Hay más citas (o técnicos) de los que caben en la respuesta: no calcules totales; acota con cuadrilla, zona o técnico */
+            truncado: boolean;
         };
         CambioOrden: {
             /** @description Ausente si ya no es del técnico (reasignada): quitarla del teléfono */
@@ -3814,6 +4237,12 @@ export interface components {
             plantillas?: components["schemas"]["PlantillaFormulario"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
+        };
+        CandidatoTecnico: {
+            correo: string;
+            nombre: string;
+            /** Format: int64 */
+            usuarioId: number;
         };
         CanjeSSO: {
             destino: components["schemas"]["DestinoSSOResuelto"];
@@ -3871,6 +4300,8 @@ export interface components {
         CitaAgenda: {
             /** Format: int64 */
             clienteId: number | null;
+            /** @description Cita viva que cae en una ausencia del técnico o se cruza con otra cita viva suya (de cualquier empresa y fuera del filtro); vacío = sin conflicto */
+            conflictos: ("ausencia" | "solape")[] | null;
             /**
              * Format: int64
              * @description Cuadrilla de la orden
@@ -3949,6 +4380,7 @@ export interface components {
         };
         ClienteCampo: {
             codigo: string;
+            /** @description Dirección del cliente (la de instalación es la del servicio) */
             direccion: string;
             estado: string;
             /** Format: int64 */
@@ -3960,7 +4392,10 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             sincronizadoEn: string;
+            /** @description Tal como en Argos; para mostrar y llamar, telefonos */
             telefono: string;
+            /** @description Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original */
+            telefonos?: components["schemas"]["Telefono"][] | null;
         };
         ClientePortal: {
             /**
@@ -3977,7 +4412,11 @@ export interface components {
             nombre: string;
         };
         ClienteResumen: {
+            /** @description Código del cliente en Argos (C-000455) */
             codigo: string;
+            /** @description Correo del cliente en Argos (email) */
+            correo: string;
+            /** @description Dirección del cliente (su domicilio en Argos). No es la de instalación: esa es la de cada servicio */
             direccion: string;
             /**
              * Format: int64
@@ -3986,23 +4425,46 @@ export interface components {
             empresaId: number;
             /** @description Empresas de Argos del cliente: las de sus servicios. Vacía = sin servicios (lo ven todas las empresas, como en Argos). En la búsqueda, solo las que se conocen (la instantánea o lo que mande Argos) */
             empresas?: number[] | null;
-            /** @description Estado del cliente en Argos */
+            /** @description Resumen del estado de sus servicios (el más grave: suspendido, limitado, activo, pendiente_instalacion, retirado), porque Argos no tiene estado de cliente; vacío sin servicios conocidos. En la búsqueda, lo que mande Argos (hoy vacío) */
             estado: string;
             /**
              * Format: int64
              * @description Id del cliente en Argos
              */
             id: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Coordenadas del cliente, en grados decimales con 6 decimales; null si Argos no las tiene (o son 0,0)
+             */
             lat: number | null;
             /** Format: double */
             lon: number | null;
+            /** @description Móvil tal como está en Argos (texto libre) */
+            movil: string;
+            /** @description Documento fiscal tal como en Argos: sin guiones ni espacios */
+            nitCui: string;
+            /** @description El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF */
+            nitCuiMostrar: string;
             nombre: string;
-            /** @description Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al elegir. null: no se pidieron o no se pudieron leer (la ficha GET /clientes/{id} los trae) */
+            /** @description Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id} */
             servicios?: components["schemas"]["Servicio"][] | null;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo
+             */
+            sincronizadoEn: string | null;
+            /** @description Teléfono tal como está en Argos (texto libre). Para mostrar y llamar usa telefonos */
             telefono: string;
+            /** @description Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios */
+            telefonos: components["schemas"]["Telefono"][] | null;
+            /** @description persona o empresa (Argos); vacío si Argos no lo informó */
+            tipo: string;
+            /** @description nit, cui, pasaporte o cf (Argos); vacío si no lo informó */
+            tipoDocumentoFiscal: string;
             /** Format: int64 */
             zonaId: number | null;
+            /** @description Nombre de la zona del cliente en Argos */
+            zonaNombre: string;
         };
         Cobertura: {
             /** @description false = no hay datos para dibujar cobertura (motivo); nunca suponer «sin cobertura» */
@@ -4027,7 +4489,9 @@ export interface components {
             actualizadoEn: string;
             /** @description Lo que informó el canje de Argos (0.3.1): true = Iris ve también las empresas que se creen después en Argos; false = solo las de empresas (vacía = ninguna). Ausente si no lo informó (Argos anterior a 0.3.1, Horus o un enlace generado en Iris) */
             alcanceGlobal?: boolean;
-            /** @description Origen del otro sistema */
+            /** @description Origen de la API del otro sistema, a la que Iris llama: el api de la vuelta (§1.4) o el origen del enlace (§1.3) */
+            apiUrl: string;
+            /** @description Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad) */
             baseUrl: string;
             /** Format: date-time */
             creadoEn: string;
@@ -4038,17 +4502,19 @@ export interface components {
             /** Format: int64 */
             id: number;
             /**
-             * @description enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro
+             * @description enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro; autorizacion: «Conectar con un botón» (Argos 0.4.0 §1.4)
              * @enum {string}
              */
-            origen: "enlace_remoto" | "enlace_local";
+            origen: "enlace_remoto" | "enlace_local" | "autorizacion";
+            /** @description Origen del panel del otro sistema que informó el canje (panel_url, Argos 0.4.0); null si no lo informó */
+            panelUrl: string | null;
             /** @description Id de la conexión en el otro sistema, si lo informó */
             remotoId: string | null;
             /** @enum {string} */
             sistema: "argosisp" | "horus";
             /** Format: date-time */
             ultimoWebhookEn: string | null;
-            /** @description Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus»: la configurada o, si no hay, baseUrl */
+            /** @description Origen del panel para los enlaces «Ver en Argos/Horus»: la configurada a mano, si no panelUrl y, si tampoco, la API (Argos anterior a 0.4.0) */
             urlPublica: string;
             /** Format: int32 */
             version: number;
@@ -4111,6 +4577,59 @@ export interface components {
             prospectoId: number;
             /** Format: int32 */
             version: number;
+        };
+        CopiaArgos: {
+            /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
+            anonimizada: boolean;
+            cliente: components["schemas"]["CopiaCliente"];
+            /** @description false: se copió de una instantánea anterior a los datos coherentes (puede faltar la IP o el teléfono móvil) */
+            completa: boolean;
+            /**
+             * Format: date-time
+             * @description Cuándo se copió (al crear el ticket o la orden)
+             */
+            copiadoEn: string;
+            /** @description La que aplica: la de instalación del servicio o, si no tiene, la del cliente */
+            direccion: string;
+            /** @description El servicio del ticket o la orden; ausente si no tenía, Iris no lo conocía o la copia está anonimizada */
+            servicio?: components["schemas"]["CopiaServicio"];
+            /**
+             * Format: date-time
+             * @description Cuándo se había leído de Argos lo copiado
+             */
+            sincronizadoEn: string;
+            /** @description El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos */
+            telefono?: components["schemas"]["Telefono"];
+        };
+        CopiaCliente: {
+            codigo: string;
+            /** @description Dirección del cliente (no la de instalación) */
+            direccion: string;
+            /** @description Resumen del estado de sus servicios al copiar */
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            nombre: string;
+            zonaNombre: string;
+        };
+        CopiaServicio: {
+            /** @description Dirección de instalación; vacía si Argos no tenía una propia */
+            direccion: string;
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            ip: string;
+            /** Format: double */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            planNombre: string;
+            routerNombre: string;
+            zonaNombre: string;
         };
         Cotizacion: {
             /** Format: date-time */
@@ -4246,6 +4765,12 @@ export interface components {
             sincronizadoEn: string | null;
             /** Format: int32 */
             version: number;
+        };
+        EmpresaAutorizada: {
+            /** Format: int64 */
+            id: number;
+            nit: string | null;
+            nombre: string | null;
         };
         EmpresaResumen: {
             /** Format: int64 */
@@ -4454,8 +4979,17 @@ export interface components {
              */
             version: number;
         };
+        EntradaAutorizar: {
+            /** @description Dirección del panel del otro sistema (https://host[:puerto]); se normaliza al origen */
+            panelUrl: string;
+        };
         EntradaBorrarVinculoSSO: {
             motivo?: string;
+        };
+        EntradaCambiarActivoRol: {
+            motivo?: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaCambiarBuzon: {
             /** Format: int32 */
@@ -4528,6 +5062,16 @@ export interface components {
              */
             version: number;
         };
+        EntradaCerrarSesionUsuario: {
+            /** @description Por qué se cierra (queda en la auditoría y en el evento) */
+            motivo?: string;
+        };
+        EntradaCerrarSesionesUsuario: {
+            /** @description Por qué se cierran (queda en la auditoría y en el evento) */
+            motivo?: string;
+            /** @description Revoca también sus tokens iris_pat_ (exige tokens.revocar; emite token.revocado por cada uno). Si no, los tokens siguen valiendo */
+            revocarTokens?: boolean;
+        };
         EntradaCerrarTicket: {
             /** @description Obligatorio si el ticket no está resuelto */
             motivo?: string;
@@ -4536,6 +5080,16 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaCompletarAutorizacion: {
+            /** @description Origen de la API del otro sistema (si aprobó); debe estar en la lista de orígenes */
+            api?: string;
+            /** @description Código de conexión (si el administrador aprobó) */
+            codigo?: string;
+            /** @description Error de la vuelta (rechazado) en vez de codigo y api */
+            error?: string;
+            /** @description state de la vuelta */
+            state: string;
         };
         EntradaConectar: {
             /** @description Enlace de conexión generado en el otro sistema: https://<sistema>/conectar#<código> (15 min, un solo uso) */
@@ -4727,6 +5281,13 @@ export interface components {
              */
             zonaId?: number;
         };
+        EntradaCrearRol: {
+            /** @description Identificador en minúsculas (p. ej. despacho_norte); no cambia */
+            codigo: string;
+            descripcion?: string;
+            nombre: string;
+            permisos: components["schemas"]["Permiso"][] | null;
+        };
         EntradaCrearTecnico: {
             /** Format: double */
             baseLat?: number;
@@ -4741,6 +5302,8 @@ export interface components {
             cuadrillaId?: number;
             /** @description Códigos libres (fibra, inalambrico, altura…) */
             habilidades?: string[] | null;
+            /** @description Teléfono de contacto: dígitos, espacios, +, -, paréntesis y puntos */
+            telefono?: string;
             /**
              * Format: int64
              * @description Usuario persona con ordenes.ver_propias u ordenes.ver
@@ -4937,6 +5500,16 @@ export interface components {
             /** Format: int64 */
             zonaId?: number;
         };
+        EntradaEditarRol: {
+            descripcion?: string;
+            nombre?: string;
+            permisos?: components["schemas"]["Permiso"][];
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EntradaEditarTecnico: {
             /** Format: double */
             baseLat?: number;
@@ -4947,6 +5520,8 @@ export interface components {
             /** Format: int64 */
             cuadrillaId?: number;
             habilidades?: string[] | null;
+            /** @description Teléfono de contacto (vacío = sin teléfono) */
+            telefono?: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -5817,6 +6392,11 @@ export interface components {
              * @enum {string|null}
              */
             estadoCuentaError: "sin_permiso" | "argos_no_disponible" | "argos_rechazo" | null;
+            /**
+             * @description Solo con ?refrescar=true cuando no se llamó a Argos: cuota (se agotó la cuota de lecturas a pedido del usuario o del conector; intenta en un minuto), reciente (se leyó hace menos de 30 s) o en_espera (Argos falló hace menos de un minuto). La ficha es la instantánea
+             * @enum {string}
+             */
+            refrescoOmitido?: "cuota" | "reciente" | "en_espera";
             servicios: components["schemas"]["Servicio"][] | null;
             /** @description Servicios del cliente que Argos eliminó (servicio.eliminado, contrato 0.3.1): ya no están en servicios. Un ticket u orden cuyo servicioId está aquí lo muestra «eliminado en Argos». Filtrados por la empresa activa, como servicios */
             serviciosEliminados?: components["schemas"]["ServicioEliminado"][] | null;
@@ -6474,6 +7054,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             descripcion: string;
             direccion: string;
             /**
@@ -6610,6 +7192,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             descripcion: string;
             direccion: string;
             /**
@@ -6714,6 +7298,11 @@ export interface components {
              */
             zonaId: number | null;
         };
+        PaginaAcceso: {
+            data: components["schemas"]["Acceso"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaActividad: {
             data: components["schemas"]["Actividad"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -6726,6 +7315,11 @@ export interface components {
         };
         PaginaBuzon: {
             data: components["schemas"]["Buzon"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaCandidatoTecnico: {
+            data: components["schemas"]["CandidatoTecnico"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -6821,6 +7415,11 @@ export interface components {
         };
         PaginaSLA: {
             data: components["schemas"]["SLA"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaSesionActiva: {
+            data: components["schemas"]["SesionActiva"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -7133,10 +7732,16 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.fallar" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
+            /** @description Módulo al que pertenece (para agrupar en pantalla) */
+            modulo: string;
+            /** @description Nombre legible del módulo */
+            moduloNombre: string;
+            /** @description Permiso de administración: darlo exige confirmar la contraseña */
+            sensible: boolean;
         };
         PlanComercial: {
             activo: boolean;
@@ -7262,6 +7867,19 @@ export interface components {
             versionId: number;
             /** @description De la más nueva a la más vieja */
             versiones: components["schemas"]["VersionPlantilla"][] | null;
+        };
+        PosicionCampo: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** Format: double */
+            precisionM: number | null;
+            /**
+             * Format: date-time
+             * @description Hora del punto (corregida con el desfase del teléfono)
+             */
+            registradaEn: string;
         };
         PosicionTecnico: {
             /**
@@ -7732,14 +8350,21 @@ export interface components {
             smtp?: components["schemas"]["PruebaServidor"];
         };
         Rol: {
+            /** @description Un rol desactivado no da permisos ni se puede asignar */
+            activo: boolean;
             codigo: string;
             descripcion: string;
             /** Format: int64 */
             id: number;
             nombre: string;
             permisos: components["schemas"]["Permiso"][] | null;
-            /** @description Rol base: lo mantiene el seed */
+            /** @description Rol base: lo mantiene el seed (no se edita ni se desactiva) */
             sistema: boolean;
+            /**
+             * Format: int32
+             * @description Usuarios que lo tienen asignado (con cualquier alcance)
+             */
+            usuarios: number;
             /** Format: int32 */
             version: number;
         };
@@ -7999,18 +8624,23 @@ export interface components {
             /** Format: int64 */
             clienteId: number;
             codigo: string;
+            /** @description Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente */
             direccion: string;
             /** Format: int64 */
             empresaId: number;
-            /** @description Estado del servicio en Argos (activo, suspendido, retirado…) */
+            /** @description Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado) */
             estado: string;
             /**
              * Format: int64
              * @description Id del servicio en Argos
              */
             id: number;
+            /** @description IPv4 vigente del servicio en Argos */
             ip: string;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Coordenadas de instalación (6 decimales); null si Argos no las tiene
+             */
             lat: number | null;
             /** Format: double */
             lon: number | null;
@@ -8020,6 +8650,15 @@ export interface components {
             /** Format: int64 */
             routerId: number | null;
             routerNombre: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos
+             */
+            sincronizadoEn: string;
+            /** @description pppoe, ip_estatica o dhcp_fija */
+            tipoConexion: string;
+            /** @description Usuario PPPoE; vacío fuera de pppoe */
+            userPpp: string;
             /** Format: int64 */
             zonaId: number | null;
             zonaNombre: string;
@@ -8086,6 +8725,25 @@ export interface components {
             /** @description null = sin autenticación */
             usuario: string | null;
         };
+        SesionActiva: {
+            /** @description Es la sesión de quien consulta */
+            actual: boolean;
+            app: string | null;
+            /** @enum {string} */
+            canal: "panel" | "campo_pwa" | "campo_nativa" | "sso";
+            /** Format: date-time */
+            creadaEn: string;
+            dispositivo: string;
+            /** Format: date-time */
+            expiraEn: string;
+            /** Format: int64 */
+            id: number;
+            ip: string;
+            /** @enum {string} */
+            origen: "password" | "sso";
+            /** Format: date-time */
+            ultimoUso: string;
+        };
         SesionIniciada: {
             /** @description Valor para la cabecera X-CSRF-Token (también va en la cookie iris_csrf) */
             csrfToken: string;
@@ -8107,6 +8765,19 @@ export interface components {
             cliente: components["schemas"]["ClientePortal"];
             /** Format: date-time */
             expiraEn: string;
+        };
+        SesionesCerradas: {
+            /** Format: int64 */
+            cerradas: number;
+            /** @description Ids de las sesiones cerradas */
+            sesiones: number[] | null;
+            /**
+             * Format: int64
+             * @description Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)
+             */
+            tokensRevocados: number;
+            /** Format: int64 */
+            usuarioId: number;
         };
         Tecnico: {
             /** @description Ficha activa y usuario activo */
@@ -8134,6 +8805,8 @@ export interface components {
              */
             id: number;
             nombre: string;
+            /** @description Teléfono de contacto de la ficha; vacío = sin teléfono */
+            telefono: string;
             /**
              * Format: int64
              * @description Usuario (es el tecnicoId de las órdenes)
@@ -8171,6 +8844,8 @@ export interface components {
              */
             id: number;
             nombre: string;
+            /** @description Teléfono de contacto de la ficha; vacío = sin teléfono */
+            telefono: string;
             turnos: components["schemas"]["Turno"][] | null;
             /**
              * Format: int64
@@ -8179,6 +8854,19 @@ export interface components {
             usuarioId: number;
             /** Format: int32 */
             version: number;
+        };
+        Telefono: {
+            /** @description El número en E.164 (+50255123344) para llamar o escribir; null si no se pudo interpretar */
+            e164: string | null;
+            /** @description Cómo se muestra: +502 5512 3344 para Guatemala; el original (sin espacios de más) si es de otro país o no se pudo interpretar */
+            mostrar: string;
+            /** @description El texto tal como está en Argos (de un campo con varios números, solo esta parte) */
+            original: string;
+            /**
+             * @description De qué campo de Argos viene: telefono o movil
+             * @enum {string}
+             */
+            tipo: "telefono" | "movil";
         };
         Ticket: {
             /** Format: date-time */
@@ -8203,6 +8891,8 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             cuadrillaId: number | null;
+            /** @description Solo en el detalle (GET /tickets/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear el ticket (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea */
+            datosArgos?: components["schemas"]["CopiaArgos"];
             /**
              * Format: int64
              * @description Empresa en Argos; null sin conector
@@ -8570,6 +9260,144 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listarAccesos: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Solo los accesos de este usuario */
+                usuarioId?: number;
+                /** @description Desde esta hora (incluida, RFC 3339) */
+                desde?: string;
+                /** @description Hasta esta hora (excluida, RFC 3339) */
+                hasta?: string;
+                /** @description Canal: panel, app de campo PWA o nativa, autologin desde Argos o token */
+                canal?: "panel" | "campo_pwa" | "campo_nativa" | "sso" | "token";
+                resultado?: "exito" | "contrasena_erronea" | "mfa_fallido" | "bloqueado" | "inactivo";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaAcceso"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actividadCampo: {
+        parameters: {
+            query?: {
+                /** @description Solo los técnicos en este estado */
+                estado?: "al_dia" | "atrasado" | "sin_conexion";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActividadCampo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarAdjuntos: {
         parameters: {
             query: {
@@ -10089,7 +10917,10 @@ export interface operations {
     };
     obtenerFichaCliente: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay) */
+                refrescar?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Id del cliente en Argos */
@@ -11913,6 +12744,150 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    autorizarConexionArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAutorizar"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutorizacionIniciada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    completarAutorizacionArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCompletarAutorizacion"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutorizacionCompletada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18351,6 +19326,394 @@ export interface operations {
             };
         };
     };
+    crearRol: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearRol"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rol"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verRol: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rol"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarRol: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarActivoRol"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rol"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarRol: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarActivoRol"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rol"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarRol: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarRol"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rol"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarRutas: {
         parameters: {
             query?: {
@@ -19394,6 +20757,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaAsignables"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    candidatosTecnico: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Nombre o correo */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaCandidatoTecnico"];
                 };
             };
             /** @description Unauthorized */
@@ -21739,6 +23165,87 @@ export interface operations {
             };
         };
     };
+    listarAccesosUsuario: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Solo los accesos de este usuario */
+                usuarioId?: number;
+                /** @description Desde esta hora (incluida, RFC 3339) */
+                desde?: string;
+                /** @description Hasta esta hora (excluida, RFC 3339) */
+                hasta?: string;
+                /** @description Canal: panel, app de campo PWA o nativa, autologin desde Argos o token */
+                canal?: "panel" | "campo_pwa" | "campo_nativa" | "sso" | "token";
+                resultado?: "exito" | "contrasena_erronea" | "mfa_fallido" | "bloqueado" | "inactivo";
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaAcceso"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     asignarEmpresaUsuario: {
         parameters: {
             query?: never;
@@ -21764,6 +23271,163 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asignarRolUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AsignacionRol"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cerrarSesionesUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCerrarSesionesUsuario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionesCerradas"];
                 };
             };
             /** @description Unauthorized */
@@ -22053,6 +23717,89 @@ export interface operations {
             };
         };
     };
+    quitarRolUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AsignacionRol"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Usuario"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     reiniciarMFAUsuario: {
         parameters: {
             query?: never;
@@ -22109,6 +23856,148 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarSesionesUsuario: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaSesionActiva"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cerrarSesionUsuario: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                sesionId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCerrarSesionUsuario"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionesCerradas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

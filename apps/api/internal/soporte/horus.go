@@ -13,6 +13,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
@@ -496,6 +497,19 @@ func (m *Modulo) nuevoHallazgoAbierto() *auditoria.Caso[horus.HallazgoAbierto, R
 			}
 			if in.URLHorus != nil {
 				detalles = append(detalles, "Ver en Horus: "+*in.URLHorus)
+			}
+			// El cliente que manda Horus debe ser de la empresa del hallazgo según la instantánea
+			// de Argos; si no, el ticket se abre sin cliente (nunca con datos de otra empresa).
+			if in.ClienteID != nil {
+				if err := argos.ValidarClienteEnEmpresa(ctx, t, *in.ClienteID, in.ServicioID, empresa); err != nil {
+					var p *nucleo.Problema
+					if !errors.As(err, &p) || (p.Codigo() != "empresa_no_coincide" && p.Codigo() != "validacion") {
+						return ResultadoHorus{}, err
+					}
+					t.Anotar(map[string]any{"cliente_descartado": *in.ClienteID})
+					motivo := "otra_empresa"
+					in.ClienteID, in.ServicioID, in.MotivoSinCliente = nil, nil, &motivo
+				}
 			}
 			if in.ClienteID != nil {
 				entrada.ClienteID = in.ClienteID

@@ -154,6 +154,10 @@ func (c *Conexion) Registrar(api huma.API) {
 		return Responder(v, err)
 	})
 
+	if c.Autorizar != nil {
+		c.registrarAutorizacion(api, prefijo)
+	}
+
 	canje := Operacion(EtiquetaIntegraciones, "canjearConexion"+s.Etiqueta, http.MethodPost, prefijo+"/conexion/canjear",
 		"Canje del enlace de conexión (lo llama "+nombre+", servidor a servidor)", "", http.StatusOK)
 	canje.Security = nil
@@ -179,5 +183,37 @@ func (c *Conexion) Registrar(api huma.API) {
 		return Responder(c.RecibirWebhook.Ejecutar(ctx, EntradaWebhook{
 			ConectorID: in.ConectorID, WebhookID: in.WebhookID, Marca: in.Timestamp, Firma: in.Firma, Cuerpo: in.RawBody,
 		}))
+	})
+}
+
+// registrarAutorizacion publica «Conectar con un botón» (contrato Iris ↔ ArgosISP 0.4.0 §1.4).
+func (c *Conexion) registrarAutorizacion(api huma.API, prefijo string) {
+	s := c.s
+	nombre := s.Remoto.Nombre
+
+	iniciar := Operacion(EtiquetaIntegraciones, "autorizarConexion"+s.Etiqueta, http.MethodPost, prefijo+"/autorizaciones",
+		"Iniciar «Conectar con "+nombre+"» (autorización con state y PKCE)", nucleo.PermIntegracionesConectar, http.StatusCreated)
+	iniciar.Description += " Solo con la sesión del panel (422 `sesion_requerida` con un token). Normaliza `panelUrl` a `https://host[:puerto]`, genera un `state` " +
+		"(32 bytes, un uso, 10 min, ligado a la sesión y al usuario) y un `code_verifier` (32 bytes, cifrado en el servidor; nunca sale) y devuelve la URL de autorizar del panel de " +
+		nombre + " con el `code_challenge` S256. Exige `empresas.todas` sin límite (403) y `" + s.Remoto.VariableOrigenes + "` (422 `origenes_no_configurados`)."
+	iniciar.Description += " La URL lleva el `state`, que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible` sin iniciar otra autorización."
+	huma.Register(api, iniciar, func(ctx context.Context, in *conClave[EntradaAutorizar]) (*Cuerpo[AutorizacionIniciada], error) {
+		v, err := c.Autorizar.Ejecutar(ctx, in.Body)
+		if err == nil {
+			nucleo.NoRepetible(ctx)
+		}
+		return Responder(v, err)
+	})
+
+	completar := Operacion(EtiquetaIntegraciones, "completarAutorizacion"+s.Etiqueta, http.MethodPost, prefijo+"/autorizaciones/completar",
+		"Completar «Conectar con "+nombre+"» con lo que trae la vuelta", nucleo.PermIntegracionesConectar, http.StatusCreated,
+		http.StatusBadGateway, http.StatusServiceUnavailable)
+	completar.Description += " Recibe `{ codigo, api, state }` o `{ error, state }` del fragmento de `/administracion/integraciones/argos/vuelta`. " +
+		"Verifica el `state` (422 `state_invalido` si no existe, ya se usó o es de otra sesión; 422 `state_vencido`) y lo gasta; con `error`, 422 `rechazado`. " +
+		"`api` debe estar en `" + s.Remoto.VariableOrigenes + "` (422 `origen_no_permitido`). Canjea servidor a servidor con el `code_verifier` (422 `codigo_invalido` si " +
+		nombre + " no lo acepta), guarda `panelUrl` y `apiUrl` por separado y deja el conector **apagado** hasta «Activar». " +
+		"Con la misma `Idempotency-Key`, un doble envío devuelve la misma respuesta."
+	huma.Register(api, completar, func(ctx context.Context, in *conClave[EntradaCompletarAutorizacion]) (*Cuerpo[AutorizacionCompletada], error) {
+		return Responder(c.CompletarAutorizacion.Ejecutar(ctx, in.Body))
 	})
 }

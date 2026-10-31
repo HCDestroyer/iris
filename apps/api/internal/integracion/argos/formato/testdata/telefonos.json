@@ -1,0 +1,317 @@
+{
+    "_comentario": "Casos compartidos por formato_test.go (Go) y apps/web/lib/datos/telefono.test.ts (panel): los dos lados deben dar lo mismo.",
+    "telefonos": [
+        {
+            "tipo": "telefono",
+            "texto": "5512-3344",
+            "esperado": [
+                {
+                    "original": "5512-3344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "movil",
+            "texto": "  +502 7777 6655 ",
+            "esperado": [
+                {
+                    "original": "+502 7777 6655",
+                    "e164": "+50277776655",
+                    "mostrar": "+502 7777 6655"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "(502) 2233.4455",
+            "esperado": [
+                {
+                    "original": "(502) 2233.4455",
+                    "e164": "+50222334455",
+                    "mostrar": "+502 2233 4455"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "00502 55123344",
+            "esperado": [
+                {
+                    "original": "00502 55123344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "50255123344",
+            "esperado": [
+                {
+                    "original": "50255123344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "movil",
+            "texto": "55123344",
+            "esperado": [
+                {
+                    "original": "55123344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "+1 305 555 0101",
+            "esperado": [
+                {
+                    "original": "+1 305 555 0101",
+                    "e164": "+13055550101",
+                    "mostrar": "+1 305 555 0101"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512-3344 / 2233-4455",
+            "esperado": [
+                {
+                    "original": "5512-3344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                },
+                {
+                    "original": "2233-4455",
+                    "e164": "+50222334455",
+                    "mostrar": "+502 2233 4455"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512-3344 y 4455 6677",
+            "esperado": [
+                {
+                    "original": "5512-3344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                },
+                {
+                    "original": "4455 6677",
+                    "e164": "+50244556677",
+                    "mostrar": "+502 4455 6677"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "1801",
+            "esperado": [
+                {
+                    "original": "1801",
+                    "e164": null,
+                    "mostrar": "1801"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "8123-4567",
+            "esperado": [
+                {
+                    "original": "8123-4567",
+                    "e164": null,
+                    "mostrar": "8123-4567"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512-3344 ext 12",
+            "esperado": [
+                {
+                    "original": "5512-3344 ext 12",
+                    "e164": null,
+                    "mostrar": "5512-3344 ext 12"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "+502 5512",
+            "esperado": [
+                {
+                    "original": "+502 5512",
+                    "e164": null,
+                    "mostrar": "+502 5512"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "",
+            "esperado": []
+        },
+        {
+            "tipo": "movil",
+            "texto": "   ",
+            "esperado": []
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512 3344",
+            "esperado": [
+                {
+                    "original": "5512 3344",
+                    "e164": null,
+                    "mostrar": "5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "５５１２３３４４",
+            "esperado": [
+                {
+                    "original": "５５１２３３４４",
+                    "e164": null,
+                    "mostrar": "５５１２３３４４"
+                }
+            ]
+        },
+        {
+            "tipo": "movil",
+            "texto": "﻿55123344",
+            "esperado": [
+                {
+                    "original": "﻿55123344",
+                    "e164": null,
+                    "mostrar": "﻿55123344"
+                }
+            ]
+        },
+        {
+            "tipo": "movil",
+            "texto": "٥٥١٢٣٣٤٤",
+            "esperado": [
+                {
+                    "original": "٥٥١٢٣٣٤٤",
+                    "e164": null,
+                    "mostrar": "٥٥١٢٣٣٤٤"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "\t5512\t3344\t",
+            "esperado": [
+                {
+                    "original": "5512 3344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512-3344\n2233-4455",
+            "esperado": [
+                {
+                    "original": "5512-3344",
+                    "e164": "+50255123344",
+                    "mostrar": "+502 5512 3344"
+                },
+                {
+                    "original": "2233-4455",
+                    "e164": "+50222334455",
+                    "mostrar": "+502 2233 4455"
+                }
+            ]
+        },
+        {
+            "tipo": "telefono",
+            "texto": "5512 3344 y 2233 4455",
+            "esperado": [
+                {
+                    "original": "5512 3344",
+                    "e164": null,
+                    "mostrar": "5512 3344"
+                },
+                {
+                    "original": "2233 4455",
+                    "e164": null,
+                    "mostrar": "2233 4455"
+                }
+            ]
+        }
+    ],
+    "documentos": [
+        {
+            "tipo": "nit",
+            "numero": "12345678",
+            "mostrar": "1234567-8"
+        },
+        {
+            "tipo": "nit",
+            "numero": "123456k",
+            "mostrar": "123456-K"
+        },
+        {
+            "tipo": "nit",
+            "numero": "1234-5",
+            "mostrar": "1234-5"
+        },
+        {
+            "tipo": "cui",
+            "numero": "1234567890101",
+            "mostrar": "1234 56789 0101"
+        },
+        {
+            "tipo": "cui",
+            "numero": "12345",
+            "mostrar": "12345"
+        },
+        {
+            "tipo": "cf",
+            "numero": "CF",
+            "mostrar": "CF"
+        },
+        {
+            "tipo": "cf",
+            "numero": "",
+            "mostrar": ""
+        },
+        {
+            "tipo": "pasaporte",
+            "numero": "a1234567",
+            "mostrar": "A1234567"
+        },
+        {
+            "tipo": "",
+            "numero": "12345678",
+            "mostrar": "12345678"
+        },
+        {
+            "tipo": "nit",
+            "numero": "12345678 ",
+            "mostrar": "12345678 "
+        },
+        {
+            "tipo": "pasaporte",
+            "numero": "ab-ß12",
+            "mostrar": "AB-ß12"
+        },
+        {
+            "tipo": "cui",
+            "numero": "١٢٣",
+            "mostrar": "١٢٣"
+        }
+    ]
+}

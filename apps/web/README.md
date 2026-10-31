@@ -109,6 +109,23 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   motivo y nota y reanudar (`ordenes.pausar`/`reanudar`), tiempo pausado e historial de pausas. La
   pausada se reprograma o cancela (no se reasigna); está en el tablero, el filtro de activas, la
   agenda y el despacho, y moverla en el calendario es reprogramarla.
+- **Agenda** (`/agenda`, `agenda.ver`): calendario de **mes** (por defecto; cuadrícula en escritorio,
+  lista por día en el teléfono) con cuántas órdenes tiene cada día y en qué estado (icono + texto +
+  color), técnicos ausentes y **conflictos** (cita viva dentro de una ausencia o cruzada con otra
+  del mismo técnico; `lib/agenda/mes.ts`). `GET /agenda` en trozos de ≤ 31 días; si uno falla, falla
+  el mes. Tocar un día abre la vista **Día** (por técnico y franja, con «Sin programar»: «Programar…»
+  trae el día puesto). Vistas mes/semana/día, día y filtros (técnico, cuadrilla, zona) en la URL
+  (`?vista=&dia=&tecnico=&cuadrilla=&zona=`).
+- **Técnicos** (`/tecnicos`, `/tecnicos/[id]`; menú con los permisos de fichas `agenda.crear_tecnico`,
+  `editar_tecnico`, `activar/desactivar_tecnico`, `fijar_turnos`, `registrar/anular_ausencia`):
+  lista con búsqueda, cuadrilla y estado; alta (usuario de `GET /tecnicos/candidatos`, cuadrilla
+  obligatoria —define sus zonas—, teléfono, habilidades, bodega), edición, activar/desactivar con
+  confirmación; ficha con turnos semanales (sin cruces, hasta 24:00, atajo L–V 08–17) y ausencias
+  (registrar «todo el día» o con hora; lista las citas que quedan dentro; anular).
+  **Cuadrillas** y **Zonas** en `/administracion/cuadrillas` y `/administracion/zonas`.
+- **Formularios en diálogo** (`componentes/cierre-seguro.tsx`): las selecciones obligatorias dejan
+  el botón deshabilitado con el mensaje junto al campo, y cerrar con cambios sin guardar (Escape,
+  clic fuera, «Volver») pide confirmar «¿Descartar los cambios?».
 - **Administración** (`/administracion`): índice por permisos y **buzones de correo**
   (`/administracion/buzones`): lista, alta/edición (contraseña de solo escritura que se exige al
   cambiar host/puerto/TLS/usuario, `authservId`), activar/desactivar y «Probar conexión»; 403 por

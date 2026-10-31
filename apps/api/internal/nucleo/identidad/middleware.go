@@ -69,10 +69,10 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
+			ctx := conClienteHTTP(r.Context(), clienteDePeticion(r))
 			bd := nucleo.BDDe(ctx)
 			if bd == nil {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			q := identidadbd.New(bd)
@@ -91,7 +91,7 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 			// Encuesta pública (soporte, I2): sin sesión. La cookie del panel no cuenta aquí (sin
 			// CSRF ni actor usuario), como la del panel en el portal.
 			if strings.HasPrefix(r.URL.Path, PrefijoRutasEncuestaPublica) {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
@@ -149,6 +149,7 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 						if err := q.TocarSesion(ctx, s.ID); err != nil {
 							log.WarnContext(ctx, "identidad: actualizar último uso de sesión", "err", err)
 						}
+						registrarConexionApp(ctx, q, u.ID)
 					}
 				}
 			}
@@ -185,6 +186,8 @@ func autenticarBearer(ctx context.Context, q *identidadbd.Queries, auth string) 
 	if err := q.TocarToken(ctx, t.ID); err != nil {
 		slog.WarnContext(ctx, "identidad: actualizar último uso de token", "err", err)
 	}
+	registrarUsoToken(ctx, q, u.ID, t.ID)
+	registrarConexionApp(ctx, q, u.ID)
 	return ctx, nil
 }
 

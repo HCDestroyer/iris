@@ -6,11 +6,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { InsigniaProspecto, nombreZona, useZonas, type Zona } from "@/componentes/comercial/comun";
+import { DatosClienteServicio, ListaTelefonos } from "@/componentes/clientes/datos-cliente-servicio";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi } from "@/lib/api/errores";
 import { ESTADOS_PROSPECTO, ORIGENES, PASOS_EMBUDO, textoEstadoCualquiera, textoEvento, type EventoProspecto, type ProspectoDetalle } from "@/lib/comercial/presentacion";
+import { telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { enlaceMapa, textoCoordenadas } from "@/lib/ordenes/adjuntos";
@@ -64,6 +66,7 @@ function Detalle({ id }: { id: number }) {
     const zonas = useZonas();
     const usuarios = useUsuarios();
     const listaUsuarios = usuarios.estado === "listo" ? usuarios.datos : null;
+    const { puede } = useSesion();
 
     if (detalle.estado === "cargando") {
         return (
@@ -121,6 +124,9 @@ function Detalle({ id }: { id: number }) {
                     <Actividades prospectoId={d.id} usuarios={listaUsuarios} recargar={recargar} />
                 </div>
                 <div className="grid min-w-0 gap-4">
+                    {d.alta?.clienteArgosId != null && puede(["clientes.ver"]) ? (
+                        <DatosClienteServicio clienteId={d.alta.clienteArgosId} servicioId={d.alta.servicioArgosId} origen="prospecto" conEstadoCuenta={false} />
+                    ) : null}
                     <Datos d={d} zonas={zonas.estado === "listo" ? zonas.datos : null} usuarios={listaUsuarios} />
                     <Historial lectura={eventos} usuarios={listaUsuarios} />
                 </div>
@@ -190,15 +196,7 @@ function Datos({ d, zonas, usuarios }: { d: ProspectoDetalle; zonas: readonly Zo
                             <span className="text-muted-foreground">Sin coordenadas</span>
                         )}
                     </Fila>
-                    <Fila etiqueta="Teléfono">
-                        {d.telefono ? (
-                            <a href={`tel:${d.telefono.replace(/[^\d+]/g, "")}`} className="text-primary hover:underline">
-                                {d.telefono}
-                            </a>
-                        ) : (
-                            "—"
-                        )}
-                    </Fila>
+                    <Fila etiqueta="Teléfono">{d.telefono ? <ListaTelefonos telefonos={telefonos("telefono", d.telefono)} /> : "—"}</Fila>
                     <Fila etiqueta="Correo">{d.correo ?? "—"}</Fila>
                     <Fila etiqueta="Documento">{d.documento ?? "—"}</Fila>
                     <Fila etiqueta="Zona">{nombreZona(zonas, d.zonaId) ?? "Sin zona"}</Fila>

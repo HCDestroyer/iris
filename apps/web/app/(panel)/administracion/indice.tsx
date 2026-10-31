@@ -1,9 +1,10 @@
 "use client";
 
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ChevronRight, ClipboardList, DatabaseZap, Hourglass, KeyRound, Mail, Plug, ShieldCheck, type LucideIcon } from "lucide-react";
+import { ChevronRight, ClipboardList, DatabaseZap, History, Hourglass, KeyRound, Mail, Map as IconoMapa, Plug, ShieldCheck, Smartphone, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import type { Permiso } from "@/lib/menu";
 import { useSesion } from "@/lib/sesion";
 
@@ -25,6 +26,20 @@ const SECCIONES: readonly Seccion[] = [
         permisos: ["plantillas.ver"],
     },
     {
+        href: "/administracion/cuadrillas",
+        titulo: "Cuadrillas",
+        descripcion: "Equipos de técnicos y las zonas que atienden.",
+        icono: Users,
+        permisos: PERMISOS_CUADRILLAS,
+    },
+    {
+        href: "/administracion/zonas",
+        titulo: "Zonas",
+        descripcion: "Zonas de Argos y locales: crear, renombrar, activar y desactivar.",
+        icono: IconoMapa,
+        permisos: PERMISOS_ZONAS,
+    },
+    {
         href: "/administracion/integraciones",
         titulo: "Integraciones",
         descripcion: "Conectores con Argos y Horus Flow: conectar, activar y desactivar.",
@@ -38,8 +53,28 @@ const SECCIONES: readonly Seccion[] = [
         icono: DatabaseZap,
         permisos: ["empresas.adoptar"],
     },
+    {
+        href: "/administracion/accesos",
+        titulo: "Accesos",
+        descripcion: "Quién entró, cuándo, por qué canal y con qué resultado; sesiones abiertas de cada usuario.",
+        icono: History,
+        permisos: ["accesos.ver"],
+    },
+    {
+        href: "/administracion/actividad-app",
+        titulo: "Actividad de la app",
+        descripcion: "Última conexión y sincronización de cada técnico, versión de la app y lo que tiene sin enviar.",
+        icono: Smartphone,
+        permisos: ["campo.ver_actividad"],
+    },
+    {
+        href: "/administracion/roles",
+        titulo: "Roles y permisos",
+        descripcion: "Qué puede hacer cada rol; crea, edita y desactiva roles propios.",
+        icono: ShieldCheck,
+        permisos: ["roles.ver"],
+    },
     { titulo: "Tokens de API", descripcion: "Accesos para integraciones y scripts.", icono: KeyRound, permisos: ["tokens.ver"] },
-    { titulo: "Roles y permisos", descripcion: "Qué puede hacer cada rol y con qué alcance.", icono: ShieldCheck, permisos: ["roles.ver", "permisos.ver"] },
 ];
 
 /** Índice de Administración: solo las secciones que el usuario puede ver. */

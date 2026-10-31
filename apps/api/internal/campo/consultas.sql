@@ -138,7 +138,7 @@ SELECT id, nombre, tipo, activo FROM nucleo.usuarios WHERE id = @id;
 -- Alcances con que el usuario tiene el permiso por sus roles (zona y cuadrilla null = global).
 SELECT ur.zona_id, ur.cuadrilla_id
 FROM nucleo.usuarios_roles ur
-JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
 WHERE ur.usuario_id = @usuario_id AND rp.permiso = @permiso;
 
 -- name: HayEmpresas :one

@@ -88,7 +88,29 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 
 			roles := rolesPrevios[in.ID]
 			if in.Roles != nil {
-				resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", *in.Roles)
+				resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", *in.Roles, rolesPrevios[in.ID]...)
+				if err != nil {
+					return Usuario{}, err
+				}
+				// Dar un permiso sensible (en una asignación nueva) exige re-autenticarse.
+				tenia := map[string]bool{}
+				for _, r := range rolesPrevios[in.ID] {
+					tenia[r.clave()] = true
+				}
+				var nuevas []rolResuelto
+				for _, r := range resueltos {
+					if !tenia[r.clave()] {
+						nuevas = append(nuevas, r)
+					}
+				}
+				permisos, err := permisosDeAsignaciones(ctx, q, nuevas)
+				if err != nil {
+					return Usuario{}, err
+				}
+				if err := exigirReautenticacionSensibles(ctx, permisos, "Asignar estos roles"); err != nil {
+					return Usuario{}, err
+				}
+				guardia, err := nuevaGuardiaUltimoAdmin(ctx, q)
 				if err != nil {
 					return Usuario{}, err
 				}
@@ -96,6 +118,9 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 					return Usuario{}, err
 				}
 				if err := asignarRoles(ctx, q, in.ID, resueltos); err != nil {
+					return Usuario{}, err
+				}
+				if err := guardia.despues(ctx); err != nil {
 					return Usuario{}, err
 				}
 				roles = asignaciones(resueltos)

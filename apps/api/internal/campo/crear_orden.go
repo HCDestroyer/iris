@@ -12,6 +12,8 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
@@ -182,6 +184,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 
 			datos := in
 			pedida := in.EmpresaID
+			contactoDeTicket := false
 			var ticket *soporte.TicketDeOrden
 			if in.TicketID != nil {
 				tk, err := soporte.TicketParaOrden(ctx, t, *in.TicketID)
@@ -208,8 +211,12 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				if pedida == nil && !contexto.ActorDe(ctx).EsUsuario() {
 					pedida = tk.EmpresaID
 				}
-				if datos.Contacto == nil {
+				// El contacto del ticket, si tiene; lo que le falte lo completa la instantánea de
+				// Argos (completarDesdeArgos). Antes un ticket sin contacto dejaba la orden sin el
+				// teléfono del cliente.
+				if datos.Contacto == nil && (tk.ContactoNombre != nil || tk.ContactoTelefono != nil) {
 					datos.Contacto = &EntradaContactoOrden{Nombre: tk.ContactoNombre, Telefono: tk.ContactoTelefono}
+					contactoDeTicket = true
 				}
 			}
 			if datos.ServicioID != nil && datos.ClienteID == nil {
@@ -238,7 +245,14 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 					return Orden{}, err
 				}
 			}
-			if err := completarDesdeArgos(ctx, q, &datos, empresa); err != nil {
+			// Cliente y servicio de la empresa de la orden (y el servicio del cliente) según la
+			// instantánea de Argos, que CrearOrden aseguró antes de la transacción.
+			if datos.ClienteID != nil {
+				if err := argos.ValidarClienteEnEmpresa(ctx, t, *datos.ClienteID, datos.ServicioID, empresa); err != nil {
+					return Orden{}, err
+				}
+			}
+			if err := completarDesdeArgos(ctx, q, &datos, empresa, in.Contacto == nil || contactoDeTicket); err != nil {
 				return Orden{}, err
 			}
 			// Zona y cuadrilla del catálogo de agenda (llaves foráneas): la indicada debe existir,
@@ -300,6 +314,12 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 			}
 			t.FijarEntidad("orden", f.ID)
 			t.RegistrarCambios("orden", f.ID, nil, f)
+			// Copia de los datos de Argos con los que se crea (se conserva; la muestra el detalle).
+			if f.ClienteID != nil {
+				if _, err := argos.CopiarDatos(ctx, t, argos.CopiaOrden, f.ID, *f.ClienteID, f.ServicioID, f.EmpresaID, m.ahora()); err != nil {
+					return Orden{}, err
+				}
+			}
 			// Primer formulario: la plantilla de la orden (la del tipo o la elegida), versión actual.
 			if err := formularioDeTipo(ctx, t, q, f, m.ahora()); err != nil {
 				return Orden{}, err
@@ -326,9 +346,13 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 }
 
 // completarDesdeArgos valida el cliente y el servicio contra la instantánea de Argos (si Iris
-// la tiene: misma empresa, servicio del cliente) y completa lo que falte (dirección,
-// coordenadas, zona y contacto). Sin instantánea no se puede validar: se aceptan los ids.
-func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCrearOrden, empresa *int64) error {
+// la tiene: misma empresa, servicio del cliente) y completa lo que falte. La dirección y las
+// coordenadas son las de instalación del servicio y, si no tiene, las del cliente; la zona, la del
+// servicio (que en Argos es la de su cliente). Con completarContacto (nadie indicó el contacto, o
+// vino del ticket), el nombre y el teléfono que falten salen del cliente: el teléfono es el
+// principal (móvil, si no teléfono) en formato para mostrar (+502 5512 3344). Sin instantánea no
+// se puede validar: se aceptan los ids.
+func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCrearOrden, empresa *int64, completarContacto bool) error {
 	otraEmpresa := func(e int64) bool { return empresa != nil && e != *empresa }
 	if in.ServicioID != nil {
 		s, err := q.ServicioArgos(ctx, *in.ServicioID)
@@ -361,9 +385,6 @@ func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCre
 		case err != nil:
 			return err
 		default:
-			if otraEmpresa(c.EmpresaID) {
-				return nucleo.ReglaNegocio("empresa_no_coincide", "El cliente es de otra empresa en Argos")
-			}
 			if in.Direccion == nil && c.Direccion != "" {
 				in.Direccion = &c.Direccion
 			}
@@ -373,10 +394,16 @@ func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCre
 			if in.ZonaID == nil {
 				in.ZonaID = c.ZonaID
 			}
-			if in.Contacto == nil {
-				in.Contacto = &EntradaContactoOrden{Nombre: &c.Nombre}
-				if c.Telefono != "" {
-					in.Contacto.Telefono = &c.Telefono
+			if completarContacto {
+				if in.Contacto == nil {
+					in.Contacto = &EntradaContactoOrden{}
+				}
+				if in.Contacto.Nombre == nil && c.Nombre != "" {
+					in.Contacto.Nombre = &c.Nombre
+				}
+				tels := append(formato.Telefonos("telefono", c.Telefono), formato.Telefonos("movil", c.Movil)...)
+				if p := formato.Principal(tels); in.Contacto.Telefono == nil && p != nil {
+					in.Contacto.Telefono = &p.Mostrar
 				}
 			}
 		}

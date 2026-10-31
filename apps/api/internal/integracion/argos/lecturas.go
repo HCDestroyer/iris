@@ -2,6 +2,7 @@ package argos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"slices"
@@ -76,6 +77,40 @@ type EntradaBuscarClientes struct {
 	Servicios bool `json:"servicios,omitempty" query:"servicios" doc:"true: los primeros 8 clientes traen sus servicios (de la empresa activa) para mostrarlos al buscar; exige q de 3 caracteres o más. Se leen en Argos con caché de 5 min por cliente o, si Argos no responde, de la instantánea. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}"`
 }
 
+// MarshalJSON es lo que queda en auditoria.acciones.entrada: una búsqueda por teléfono, NIT o CUI
+// (4 dígitos o más) se guarda con los dígitos ocultos salvo los dos últimos (5512-3344 →
+// ****-**44); por nombre, tal cual.
+func (e EntradaBuscarClientes) MarshalJSON() ([]byte, error) {
+	type plano EntradaBuscarClientes
+	p := plano(e)
+	p.Q = enmascararDigitos(p.Q)
+	return json.Marshal(p)
+}
+
+func enmascararDigitos(q string) string {
+	total := 0
+	for _, r := range q {
+		if r >= '0' && r <= '9' {
+			total++
+		}
+	}
+	if total < 4 {
+		return q
+	}
+	var b strings.Builder
+	visto := 0
+	for _, r := range q {
+		if r >= '0' && r <= '9' {
+			visto++
+			if visto <= total-2 {
+				r = '*'
+			}
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 type entradaBusquedaFinal struct {
 	EntradaBuscarClientes
 	pagina   Pagina[ClienteArgos]
@@ -85,7 +120,7 @@ type entradaBusquedaFinal struct {
 	verificados map[int64]infoEmpresas
 	// servicios: los servicios leídos en Argos (con ?servicios=true); un cliente ausente no se
 	// pudo leer y queda con servicios null.
-	servicios  map[int64][]ServicioArgos
+	servicios  map[int64]leidoEnArgos
 	conectorID int64
 }
 
@@ -127,7 +162,7 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 					resumen := clienteArgosAResumen(c)
 					if in.Servicios {
 						if leidos, ok := in.servicios[c.ID]; ok {
-							resumen.Servicios = serviciosDeEmpresa(c, leidos, empresa)
+							resumen.Servicios = serviciosDeEmpresa(c, leidos.servicios, leidos.leidoEn, empresa)
 						}
 					}
 					r.Data = append(r.Data, resumen)
@@ -200,9 +235,9 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 			// búsqueda repetida no vuelve a pedirlos); de paso verifican sus empresas.
 			n := min(len(resto), TopeServiciosBusqueda)
 			leidos := b.m.leerServiciosEnArgos(ctx, c.ID, cli, resto[:n])
-			f.servicios = make(map[int64][]ServicioArgos, len(leidos))
+			f.servicios = make(map[int64]leidoEnArgos, len(leidos))
 			for id, l := range leidos {
-				f.servicios[id] = l.servicios
+				f.servicios[id] = l
 				f.verificados[id] = l.info
 			}
 			resto = resto[n:]
@@ -222,9 +257,10 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 }
 
 // serviciosDeEmpresa: los servicios leídos del cliente, solo los de la empresa activa (todos si
-// no hay); nunca null (lista vacía = sin servicios en esa empresa). Un servicio sin zona hereda
-// la del cliente, como en la instantánea.
-func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, empresa int64) []Servicio {
+// no hay); nunca null (lista vacía = sin servicios en esa empresa). Con el convertidor único
+// (AServicio: IP vigente, user PPP, tipo de conexión y la zona del cliente si no tiene) y la hora
+// en que se leyeron.
+func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, leidoEn time.Time, empresa int64) []Servicio {
 	salida := make([]Servicio, 0, len(leidos))
 	for _, s := range leidos {
 		if s.ClienteID == 0 {
@@ -233,10 +269,8 @@ func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, empresa int64) [
 		if s.ClienteID != c.ID || (empresa != 0 && s.EmpresaID != empresa) {
 			continue
 		}
-		srv := servicioArgosAServicio(s)
-		if srv.ZonaID == nil {
-			srv.ZonaID = c.IDZona()
-		}
+		srv := AServicio(s, c.IDZona())
+		srv.SincronizadoEn = leidoEn
 		salida = append(salida, srv)
 	}
 	return salida
@@ -313,7 +347,20 @@ func escaparLike(s string) string {
 // EntradaFicha: id del cliente en Argos.
 type EntradaFicha struct {
 	ID int64 `json:"id" path:"id" minimum:"1" doc:"Id del cliente en Argos"`
+	// Refrescar: «Refrescar» del panel. Relee de Argos aunque la instantánea sea reciente, salvo
+	// que se haya leído hace menos de RefrescoMinimo (no se martilla a Argos con clics).
+	Refrescar bool `json:"refrescar,omitempty" query:"refrescar" doc:"true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay)"`
 }
+
+// RefrescoMinimo: con ?refrescar=true, una instantánea más nueva que esto no se vuelve a pedir.
+const RefrescoMinimo = 30 * time.Second
+
+// Por qué «Refrescar» no llamó a Argos (Ficha.RefrescoOmitido).
+const (
+	RefrescoCuota    = "cuota"
+	RefrescoReciente = "reciente"
+	RefrescoEnEspera = "en_espera"
+)
 
 type fichaPrevia struct {
 	conector  conector.Leido
@@ -327,6 +374,10 @@ type entradaFichaFinal struct {
 	leida     *fichaArgos
 	noExiste  bool
 	errArgos  error
+	// enEspera: no se llamó a Argos por un fallo reciente (no se vuelve a marcar el fallo).
+	enEspera bool
+	// omitido: por qué «Refrescar» no llamó a Argos (RefrescoCuota, RefrescoReciente…).
+	omitido   *string
 	estado    *EstadoCuenta
 	errEstado *string
 }
@@ -372,7 +423,11 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			if in.noExiste {
 				// Argos ya no lo tiene: se borra la instantánea aunque la acción termine en 404.
 				t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-					return argosbd.New(tx).BorrarCliente(ctx, in.ClienteID)
+					q := argosbd.New(tx)
+					if err := q.AnonimizarCopiasDeCliente(ctx, in.ClienteID); err != nil {
+						return err
+					}
+					return q.BorrarCliente(ctx, in.ClienteID)
 				})
 				return Ficha{}, nucleo.NoEncontrado("El cliente no existe en Argos")
 			}
@@ -384,6 +439,12 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				}
 			case in.errArgos != nil && EsCaido(in.errArgos) && in.previa.cliente != nil:
 				stale = true
+				if !in.enEspera {
+					ahora := time.Now()
+					if err := q.MarcarFalloCliente(ctx, argosbd.MarcarFalloClienteParams{ID: in.ClienteID, FalloEn: &ahora}); err != nil {
+						return Ficha{}, err
+					}
+				}
 			case in.errArgos != nil:
 				return Ficha{}, Problema(in.errArgos)
 			}
@@ -416,9 +477,17 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 			}
 			t.FijarEmpresa(e)
 			t.Anotar(map[string]any{"stale": stale, "estado_cuenta": in.estado != nil})
+			resumen := aClienteResumen(cliente)
+			if resumen.Estado == "" {
+				estados := make([]string, 0, len(servicios))
+				for _, s := range servicios {
+					estados = append(estados, s.Estado)
+				}
+				resumen.Estado = ResumenEstado(estados)
+			}
 			return Ficha{
-				Cliente: aClienteResumen(cliente), Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
-				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn,
+				Cliente: resumen, Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
+				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn, RefrescoOmitido: in.omitido,
 			}, nil
 		},
 	})
@@ -433,11 +502,56 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 	}
 	f := entradaFichaFinal{ClienteID: in.ID, previa: p}
 	cli := o.m.clienteDe(p.conector)
-	if p.cliente == nil || time.Since(p.cliente.SincronizadoEn) > o.m.cfg.VigenciaInstantanea {
-		leida, err := leerFichaArgos(ctx, nucleo.BDDe(ctx), cli, in.ID)
+	ahora := time.Now()
+	e := contexto.EmpresaDe(ctx)
+	// Un cliente que la instantánea pone en otra empresa dará 404: «Refrescar» no llama a Argos.
+	deEmpresa := p.cliente == nil || e == 0 || enEmpresa(empresasDeFila(*p.cliente), p.cliente.SinServicios, e)
+	vencida := debeRefrescar(p.cliente, false, o.m.cfg.VigenciaInstantanea)
+	// «Refrescar» de una instantánea vigente: lectura a pedido, con cuota (solo si se llama).
+	aPedido := in.Refrescar && !vencida && deEmpresa && ahora.Sub(p.cliente.SincronizadoEn) > RefrescoMinimo
+	omitir := func(motivo string) {
+		if in.Refrescar && deEmpresa {
+			f.omitido = &motivo
+		}
+	}
+	neg, hayNeg, err := o.m.refrescos.vigenteNegativo(ctx, argosbd.New(nucleo.BDDe(ctx)), p.conector.ID, in.ID, ahora)
+	if err != nil {
+		return Ficha{}, err
+	}
+	switch {
+	case p.cliente == nil && hayNeg && neg.noExiste:
+		// Argos dijo 404 hace menos de NegativoNoExisteTTL (y sin noticia del cliente desde entonces): el mismo 404 sin volver a preguntar.
+		f.noExiste = true
+	case p.cliente == nil && hayNeg:
+		// Argos no respondió hace menos de NegativoCaidaTTL y no hay instantánea: 503 sin esperar otra vez.
+		f.errArgos, f.enEspera = errEnEspera(), true
+	case !vencida && !aPedido:
+		omitir(RefrescoReciente)
+	case enEspera(p.cliente, ahora):
+		// Argos se cayó hace poco al leer este cliente: no se insiste; la instantánea, stale.
+		f.errArgos, f.enEspera = errEnEspera(), true
+		omitir(RefrescoEnEspera)
+	default:
+		// Toda lectura cobra la cuota del usuario; «Refrescar», además, la suya del conector y de la
+		// empresa.
+		c := cobro{usuario: contexto.ActorDe(ctx).ID, empresa: e}
+		if aPedido {
+			c.uso = usoRefrescar
+		}
+		leida, err := o.m.refrescos.leerUnaVez(ctx, p.conector.ID, in.ID, c, p.cliente == nil, func(cx context.Context) (fichaArgos, error) {
+			return leerFichaArgos(cx, nucleo.BDDe(ctx), cli, in.ID)
+		})
 		switch {
 		case err == nil:
 			f.leida = &leida
+		case errors.Is(err, errCuota) && aPedido:
+			// Sin llamar a Argos: la instantánea vigente, y el panel avisa que no se refrescó.
+			omitir(RefrescoCuota)
+		case errors.Is(err, errCuota) && p.cliente != nil:
+			// Vencida y sin cuota: la última instantánea, marcada stale (sin marcar un fallo).
+			f.errArgos, f.enEspera = errEnEspera(), true
+		case errors.Is(err, errCuota):
+			f.errArgos = errCuotaArgos()
 		case EsNoEncontrado(err):
 			f.noExiste = true
 		default:
@@ -462,6 +576,32 @@ func (o *ObtenerFicha) Ejecutar(ctx context.Context, in EntradaFicha) (Ficha, er
 		f.estado, f.errEstado = o.estadoCuenta(ctx, cli, p, in.ID)
 	}
 	return o.final.Ejecutar(ctx, f)
+}
+
+// debeRefrescar: sin instantánea, vencida (VigenciaInstantanea), de una versión anterior de los
+// datos (VersionDatos) o pedida con ?refrescar=true y de hace más de RefrescoMinimo.
+func debeRefrescar(f *argosbd.IntegracionArgosCliente, refrescar bool, vigencia time.Duration) bool {
+	if f == nil || f.VersionDatos < VersionDatos {
+		return true
+	}
+	edad := time.Since(f.SincronizadoEn)
+	return edad > vigencia || (refrescar && edad > RefrescoMinimo)
+}
+
+// enEspera: la última lectura de este cliente falló por caída hace menos de EsperaTrasFallo.
+// Solo con instantánea (sin ella no hay qué servir y se intenta).
+func enEspera(f *argosbd.IntegracionArgosCliente, ahora time.Time) bool {
+	return f != nil && f.FalloEn != nil && ahora.Sub(*f.FalloEn) < EsperaTrasFallo
+}
+
+// errCuotaArgos: 429 por la cuota de lecturas de Argos (sin instantánea que servir).
+func errCuotaArgos() error {
+	return nucleo.DemasiadosIntentos("cuota_argos", "Demasiadas consultas a Argos en el último minuto; intenta en un momento", time.Minute)
+}
+
+// errEnEspera: Argos no se consultó por un fallo reciente; cuenta como caído (stale).
+func errEnEspera() error {
+	return conector.NuevoErrorRemoto(Remoto, 0, "Argos falló hace poco; se reintenta en un momento", nil)
 }
 
 // estadoCuentaPermitido: el estado de cuenta se pide si el cliente tiene un servicio en la empresa

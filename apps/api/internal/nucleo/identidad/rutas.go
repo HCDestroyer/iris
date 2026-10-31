@@ -291,6 +291,9 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.RevocarToken.Ejecutar(ctx, e))
 		})
 
+	// Accesos, actividad de la app de campo y roles propios ------------------------------
+	m.registrarAccesosYRoles(api)
+
 	// Portal de soporte (actor cliente) -------------------------------------------------
 	m.registrarPortal(api)
 

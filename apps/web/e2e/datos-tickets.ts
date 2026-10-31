@@ -20,10 +20,73 @@ export const CATEGORIAS: Schema<"Categoria">[] = [
     { id: 4, codigo: "cambio_plan", nombre: "Cambio de plan", slaId: null, requiereOrden: false, activa: true, version: 1 },
 ];
 
+const tel = (tipo: "telefono" | "movil", original: string, e164: string, mostrar: string): Schema<"Telefono"> => ({ tipo, original, e164, mostrar });
+
 export const CLIENTES: Schema<"ClienteResumen">[] = [
-    { id: 501, empresaId: 10, codigo: "CL-0501", nombre: "María Castillo", telefono: "5555 0101", direccion: "4a calle 3-21, zona 1", lat: 14.64, lon: -90.51, zonaId: 1, estado: "activo" },
-    { id: 502, empresaId: 10, codigo: "CL-0502", nombre: "Ferretería El Tornillo", telefono: "5555 0202", direccion: "Km 18 carretera a El Salvador", lat: null, lon: null, zonaId: 2, estado: "activo" },
-    { id: 503, empresaId: 10, empresas: [10], codigo: "CL-0503", nombre: "Ana Morales", telefono: "5555 0303", direccion: "6a avenida 12-40, zona 10", lat: 14.6, lon: -90.51, zonaId: 1, estado: "activo" },
+    {
+        id: 501,
+        empresaId: 10,
+        codigo: "CL-0501",
+        nombre: "María Castillo",
+        telefono: "5555 0101",
+        direccion: "4a calle 3-21, zona 1",
+        lat: 14.64,
+        lon: -90.51,
+        zonaId: 1,
+        estado: "activo",
+        tipo: "persona",
+        tipoDocumentoFiscal: "nit",
+        nitCui: "12345678",
+        nitCuiMostrar: "1234567-8",
+        movil: "4455-6677",
+        correo: "maria@ejemplo.gt",
+        telefonos: [tel("telefono", "5555 0101", "+50255550101", "+502 5555 0101"), tel("movil", "4455-6677", "+50244556677", "+502 4455 6677")],
+        zonaNombre: "Zona norte",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
+    },
+    {
+        id: 502,
+        empresaId: 10,
+        codigo: "CL-0502",
+        nombre: "Ferretería El Tornillo",
+        telefono: "5555 0202",
+        direccion: "Km 18 carretera a El Salvador",
+        lat: null,
+        lon: null,
+        zonaId: 2,
+        estado: "activo",
+        tipo: "empresa",
+        tipoDocumentoFiscal: "nit",
+        nitCui: "7654321K",
+        nitCuiMostrar: "7654321-K",
+        movil: "",
+        correo: "",
+        telefonos: [tel("telefono", "5555 0202", "+50255550202", "+502 5555 0202")],
+        zonaNombre: "Zona sur",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
+    },
+    {
+        id: 503,
+        empresaId: 10,
+        empresas: [10],
+        codigo: "CL-0503",
+        nombre: "Ana Morales",
+        telefono: "5555 0303",
+        direccion: "6a avenida 12-40, zona 10",
+        lat: 14.6,
+        lon: -90.51,
+        zonaId: 1,
+        estado: "activo",
+        tipo: "persona",
+        tipoDocumentoFiscal: "cf",
+        nitCui: "",
+        nitCuiMostrar: "CF",
+        movil: "",
+        correo: "",
+        telefonos: [tel("telefono", "5555 0303", "+50255550303", "+502 5555 0303")],
+        zonaNombre: "Zona norte",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
+    },
 ];
 
 /** Servicios de un cliente de la API falsa: uno por cliente; Ana Morales (503) tiene dos. */
@@ -42,28 +105,52 @@ export function serviciosDe(clienteId: number): Schema<"Servicio">[] {
         zonaId: cliente.zonaId,
         zonaNombre: "Zona norte",
         ip: clienteId === 503 ? "10.20.30.53" : "10.20.30.40",
-        direccion: cliente.direccion,
+        direccion: `Instalación: ${cliente.direccion}`,
         lat: cliente.lat,
         lon: cliente.lon,
         estado: "activo",
+        userPpp: `cliente${clienteId}`,
+        tipoConexion: "pppoe",
+        sincronizadoEn: "2026-10-27T20:15:00Z",
     };
     if (clienteId !== 503) return [base];
     return [
         base,
-        { ...base, id: 5031, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", estado: "suspendido" },
+        { ...base, id: 5031, codigo: "SV-503-B", planNombre: "Radio 10 Mb/s", ip: "10.20.31.9", direccion: "Bodega, 2a avenida 8-10, zona 4", userPpp: "cliente503b", estado: "suspendido" },
     ];
 }
 
-export function ficha(clienteId: number, stale: boolean): Schema<"Ficha"> | undefined {
+export function ficha(clienteId: number, stale: boolean, sincronizadoEn = "2026-10-27T20:15:00Z"): Schema<"Ficha"> | undefined {
     const cliente = CLIENTES.find((c) => c.id === clienteId);
     if (!cliente) return undefined;
     return {
-        cliente,
+        cliente: { ...cliente, sincronizadoEn },
         servicios: serviciosDe(clienteId),
         estadoCuenta: stale ? undefined : { saldo: "150.00", moneda: "GTQ", facturasVencidas: 1, montoVencido: "150.00" },
         estadoCuentaError: stale ? "argos_no_disponible" : null,
         stale,
+        sincronizadoEn,
+    };
+}
+
+/** Copia de Argos guardada al crear un ticket o una orden (`datosArgos` del detalle). */
+export function copiaArgos(clienteId: number, servicioId: number | null): Schema<"CopiaArgos"> | undefined {
+    const f = ficha(clienteId, false);
+    if (!f) return undefined;
+    const s = f.servicios?.find((x) => x.id === servicioId);
+    const c = f.cliente;
+    return {
+        // Solo lo operativo: ni documento fiscal, ni correo, ni empresas.
+        cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre, direccion: c.direccion, lat: c.lat, lon: c.lon, zonaNombre: c.zonaNombre, estado: c.estado },
+        servicio: s
+            ? { id: s.id, planNombre: s.planNombre, estado: s.estado, direccion: s.direccion, lat: s.lat, lon: s.lon, ip: s.ip, routerNombre: s.routerNombre, zonaNombre: s.zonaNombre }
+            : undefined,
+        direccion: s?.direccion || c.direccion,
+        telefono: c.telefonos?.find((t) => t.tipo === "movil") ?? c.telefonos?.[0],
+        completa: true,
+        anonimizada: false,
         sincronizadoEn: "2026-10-27T20:15:00Z",
+        copiadoEn: "2026-10-27T20:20:00Z",
     };
 }
 
@@ -125,6 +212,7 @@ export function escenarioTickets(ahora: number, empresas: readonly number[]): Es
             categoriaId: 1,
             clienteId: 501,
             servicioId: 5010,
+            datosArgos: copiaArgos(501, 5010),
             slaRespuesta: reloj("en_riesgo", ahora, 20, 60),
             slaResolucion: reloj("en_tiempo", ahora, 300),
         }),

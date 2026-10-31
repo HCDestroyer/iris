@@ -70,7 +70,7 @@ export function DialogoReautenticar() {
         <Dialogo open={abierto} onOpenChange={(a) => (a ? setAbierto(true) : terminar(false))}>
             <DialogoContenido
                 titulo="Confirma tu contraseña"
-                descripcion="Entraste desde Argos. Para esta acción confirma la contraseña de tu cuenta de Iris; vale 15 minutos."
+                descripcion="Esta acción es sensible (entraste desde Argos o vas a dar permisos de administración): confirma la contraseña de tu cuenta de Iris; vale 15 minutos."
             >
                 <form className="grid gap-4" noValidate onSubmit={(e) => void formulario.handleSubmit(enviar)(e)}>
                     <Campo

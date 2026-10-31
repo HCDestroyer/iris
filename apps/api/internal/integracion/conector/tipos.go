@@ -18,9 +18,11 @@ import (
 type Conector struct {
 	ID              int64      `json:"id"`
 	Sistema         string     `json:"sistema" enum:"argosisp,horus"`
-	BaseURL         string     `json:"baseUrl" doc:"Origen del otro sistema"`
-	URLPublica      string     `json:"urlPublica" doc:"Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus»: la configurada o, si no hay, baseUrl"`
-	Origen          string     `json:"origen" enum:"enlace_remoto,enlace_local" doc:"enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro"`
+	BaseURL         string     `json:"baseUrl" doc:"Origen de la API del otro sistema (igual a apiUrl; se mantiene por compatibilidad)"`
+	APIURL          string     `json:"apiUrl" doc:"Origen de la API del otro sistema, a la que Iris llama: el api de la vuelta (§1.4) o el origen del enlace (§1.3)"`
+	PanelURL        *string    `json:"panelUrl" nullable:"true" doc:"Origen del panel del otro sistema que informó el canje (panel_url, Argos 0.4.0); null si no lo informó"`
+	URLPublica      string     `json:"urlPublica" doc:"Origen del panel para los enlaces «Ver en Argos/Horus»: la configurada a mano, si no panelUrl y, si tampoco, la API (Argos anterior a 0.4.0)"`
+	Origen          string     `json:"origen" enum:"enlace_remoto,enlace_local,autorizacion" doc:"enlace_remoto: el enlace lo generó el otro sistema y lo canjeó Iris; enlace_local: lo generó Iris y lo canjeó el otro; autorizacion: «Conectar con un botón» (Argos 0.4.0 §1.4)"`
 	Estado          string     `json:"estado" enum:"apagado,activo"`
 	RemotoID        *string    `json:"remotoId" nullable:"true" doc:"Id de la conexión en el otro sistema, si lo informó"`
 	Empresas        []int64    `json:"empresas" doc:"Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó)"`
@@ -40,15 +42,20 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 		empresas = []int64{}
 	}
 	return Conector{
-		ID: f.ID, Sistema: f.Sistema, BaseURL: f.BaseUrl, URLPublica: urlPublica(f), Origen: f.Origen, Estado: f.Estado,
+		ID: f.ID, Sistema: f.Sistema, BaseURL: f.BaseUrl, APIURL: f.BaseUrl, PanelURL: f.PanelUrl, URLPublica: urlPublica(f), Origen: f.Origen, Estado: f.Estado,
 		RemotoID: f.RemotoID, Empresas: empresas, AlcanceGlobal: f.AlcanceGlobal, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
 		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 	}
 }
 
+// urlPublica es el origen del panel del otro sistema para «Ver en …»: la configurada a mano, la
+// que informó el canje (panel_url, 0.4.0) o, para conectores anteriores, la de la API.
 func urlPublica(f conectorbd.IntegracionConectore) string {
 	if f.UrlPublica != nil && *f.UrlPublica != "" {
 		return *f.UrlPublica
+	}
+	if f.PanelUrl != nil && *f.PanelUrl != "" {
+		return *f.PanelUrl
 	}
 	return f.BaseUrl
 }
@@ -126,6 +133,8 @@ type PeticionCanje struct {
 	BaseURL string       `json:"base_url"`
 	Token   string       `json:"token"`
 	Webhook WebhookCanje `json:"webhook"`
+	// CodeVerifier: solo en el canje de un código nacido en «Conectar con un botón» (§1.4).
+	CodeVerifier string `json:"code_verifier,omitempty"`
 }
 
 // WebhookCanje es un receptor de webhooks y su secreto HMAC, en el canje.
@@ -145,6 +154,8 @@ type RespuestaCanje struct {
 	ConexionID    json.RawMessage   `json:"conexion_id"`
 	Empresas      []json.RawMessage `json:"empresas"`
 	AlcanceGlobal *bool             `json:"alcance_global"`
+	// PanelURL: PANEL_URL_PUBLICA de Argos (0.4.0, §1.4 paso 6); vacío en versiones anteriores.
+	PanelURL string `json:"panel_url"`
 }
 
 // EmpresaCanje es una empresa del alcance que informa el canje: nombre comercial y NIT sin

@@ -112,6 +112,10 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 
 	admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "suplantar", "usuarioId": idPersona}).problema(t, 422, "token_para_persona")
 
+	// Dar el rol admin (permisos sensibles) exige haber confirmado la contraseña.
+	if r := admin.pedir(http.MethodPost, "/api/v1/sesion/reautenticar", map[string]any{"contrasena": contrasena}); r.status != 200 {
+		t.Fatalf("reautenticar: %d %s", r.status, r.crudo)
+	}
 	r := admin.pedir(http.MethodPost, "/api/v1/usuarios", map[string]any{"nombre": "Horus", "correo": pruebas.Correo("horus"), "tipo": "integracion", "roles": []map[string]any{{"rol": "admin"}}})
 	if r.status != 201 {
 		t.Fatalf("crear integración: %d %s", r.status, r.crudo)

@@ -34,6 +34,9 @@ type Config struct {
 	// Enrutador da tiempos, distancias y trazos por calles (OSRM, OSRMDesdeEntorno). nil = sin
 	// OSRM: las rutas se proponen en línea recta (haversine) y lo dicen (degradada).
 	Enrutador Enrutador
+	// LimiteCalendario: citas por respuesta de GET /agenda (2000 por defecto). Si hay más, la
+	// respuesta sale `truncado` y el panel no calcula totales sobre ella.
+	LimiteCalendario int
 }
 
 // Modulo reúne los casos de uso de agenda.
@@ -56,6 +59,7 @@ type Modulo struct {
 
 	ListarTecnicos    *auditoria.Caso[EntradaListarTecnicos, nucleo.Pagina[Tecnico]]
 	VerTecnico        *auditoria.Caso[EntradaVerTecnico, TecnicoDetalle]
+	CandidatosTecnico *auditoria.Caso[EntradaCandidatosTecnico, nucleo.Pagina[CandidatoTecnico]]
 	CrearTecnico      *auditoria.Caso[EntradaCrearTecnico, TecnicoDetalle]
 	EditarTecnico     *auditoria.Caso[EntradaEditarTecnico, TecnicoDetalle]
 	ActivarTecnico    *auditoria.Caso[EntradaVersion, TecnicoDetalle]
@@ -81,6 +85,9 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.Reloj == nil {
 		cfg.Reloj = time.Now
 	}
+	if cfg.LimiteCalendario <= 0 {
+		cfg.LimiteCalendario = 2000
+	}
 	if cfg.ZonaHoraria == nil {
 		loc, err := time.LoadLocation("America/Guatemala")
 		if err != nil {
@@ -103,6 +110,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.CapacidadCuadrilla = m.nuevoCapacidadCuadrilla()
 	m.ListarTecnicos = m.nuevoListarTecnicos()
 	m.VerTecnico = m.nuevoVerTecnico()
+	m.CandidatosTecnico = m.nuevoCandidatosTecnico()
 	m.CrearTecnico = m.nuevoCrearTecnico()
 	m.EditarTecnico = m.nuevoEditarTecnico()
 	m.ActivarTecnico = m.nuevoActivarTecnico(true)

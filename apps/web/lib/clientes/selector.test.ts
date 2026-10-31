@@ -28,6 +28,15 @@ const cliente = (id: number, extra: Partial<ClienteResumen> = {}): ClienteResume
     lon: null,
     zonaId: null,
     estado: "activo",
+    tipo: "persona",
+    tipoDocumentoFiscal: "",
+    nitCui: "",
+    nitCuiMostrar: "",
+    movil: "",
+    correo: "",
+    telefonos: [],
+    zonaNombre: "",
+    sincronizadoEn: null,
     ...extra,
 });
 
@@ -47,6 +56,9 @@ const servicio = (id: number, estado: string): ServicioCliente => ({
     lat: null,
     lon: null,
     estado,
+    userPpp: "",
+    tipoConexion: "",
+    sincronizadoEn: "2026-10-27T20:15:00Z",
 });
 
 describe("selector de cliente", () => {
