@@ -13,15 +13,14 @@ import {
     DialogoDisparador,
     DialogoPie,
     DialogoProtegido,
-    ErrorFormulario,
 } from "@iris/ui";
 import { ClipboardPlus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { ErrorAlta, errorEnCliente } from "@/componentes/clientes/error-alta";
 import { SelectorCliente, type SeleccionCliente } from "@/componentes/clientes/selector-cliente";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
-import { mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
 import { entradaCrearOrden, esquemaCrearOrden, type DatosCrearOrden, type EntradaFormCrearOrden } from "@/lib/ordenes/esquemas";
 import { ORDEN_TIPOS, TIPOS_ORDEN } from "@/lib/ordenes/presentacion";
@@ -165,8 +164,12 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
                         <SelectorCliente
                             etiqueta="Cliente en Argos"
                             valor={seleccion}
-                            alCambiar={setSeleccion}
+                            alCambiar={(v) => {
+                                setSeleccion(v);
+                                setErrorGeneral(null);
+                            }}
                             alConectorApagado={setApagado}
+                            error={errorEnCliente(errorGeneral)}
                             ayuda={cliente ? "La dirección y la zona salen del cliente si las dejas vacías." : "Elige el cliente o escribe la dirección de la visita."}
                         />
                     ) : null}
@@ -203,7 +206,7 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
                             </fieldset>
                         </>
                     )}
-                    {errorGeneral ? <ErrorFormulario titulo="No se pudo crear la orden" detalle={[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")} /> : null}
+                    {errorGeneral ? <ErrorAlta error={errorGeneral} que="la orden" /> : null}
                     <DialogoPie>
                         <DialogoCerrar asChild>
                             <Boton variante="contorno">Cancelar</Boton>

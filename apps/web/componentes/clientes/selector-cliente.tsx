@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, ty
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { escribirLocal, leerLocalJson } from "@/lib/almacen";
+import { errorDeCliente } from "@/lib/clientes/errores";
 import {
     agregarReciente,
     claveRecientes,
@@ -520,7 +521,8 @@ function ErrorBusqueda({ error, reintentar, que = "los clientes" }: { error: unk
             </Aviso>
         );
     }
-    const m = mensajeDeError(error);
+    const deCliente = errorDeCliente(error);
+    const m = deCliente ? { titulo: deCliente.titulo, detalle: deCliente.detalle } : mensajeDeError(error);
     return (
         <Aviso
             tono="error"

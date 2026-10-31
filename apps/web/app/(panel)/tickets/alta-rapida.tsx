@@ -12,16 +12,15 @@ import {
     DialogoDisparador,
     DialogoPie,
     DialogoProtegido,
-    ErrorFormulario,
 } from "@iris/ui";
 import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
+import { ErrorAlta, errorEnCliente } from "@/componentes/clientes/error-alta";
 import { SelectorCliente, type SeleccionCliente } from "@/componentes/clientes/selector-cliente";
 import type { Categoria } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
-import { mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
 import { useSesion } from "@/lib/sesion";
 import { entradaCrearTicket, esquemaCrearTicket, type DatosCrearTicket, type EntradaFormCrear } from "@/lib/tickets/esquemas";
@@ -124,8 +123,12 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
                         <SelectorCliente
                             etiqueta="Cliente en Argos"
                             valor={seleccion}
-                            alCambiar={setSeleccion}
+                            alCambiar={(v) => {
+                                setSeleccion(v);
+                                setErrorGeneral(null);
+                            }}
                             alConectorApagado={setApagado}
+                            error={errorEnCliente(errorGeneral)}
                             ayuda={cliente ? undefined : "Opcional: si no es cliente, captura el contacto abajo."}
                         />
                     ) : null}
@@ -141,7 +144,7 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
                             </div>
                         </fieldset>
                     )}
-                    {errorGeneral ? <ErrorFormulario titulo="No se pudo crear el ticket" detalle={[mensajeDeError(errorGeneral).titulo, mensajeDeError(errorGeneral).detalle].filter(Boolean).join(". ")} /> : null}
+                    {errorGeneral ? <ErrorAlta error={errorGeneral} que="el ticket" /> : null}
                     <DialogoPie>
                         <DialogoCerrar asChild>
                             <Boton variante="contorno">Cancelar</Boton>

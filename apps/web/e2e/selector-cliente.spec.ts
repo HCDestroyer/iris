@@ -174,3 +174,28 @@ test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async
     const post = api.peticiones.find((p) => p.metodo === "POST" && p.ruta === "/api/v1/ordenes");
     expect(post?.cuerpo).toEqual({ tipo: "instalacion", clienteId: 501, servicioId: 5010 });
 });
+
+test("los errores de la verificación del cliente en el servidor se explican en el modal", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", ADMIN.correo);
+    const dialogo = await abrirNuevoTicket(page);
+    await dialogo.getByLabel("Asunto").fill("Sin servicio");
+    await dialogo.getByLabel("Cliente en Argos").click();
+    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
+    await page.getByRole("option", { name: /María Castillo/ }).click();
+    await expect(dialogo.getByTestId("servicio-elegido")).toBeVisible();
+
+    // 422 empresa_no_coincide: aviso claro y mensaje junto al selector.
+    api.responderProblema("/api/v1/tickets", { type: "urn:iris:problema:empresa_no_coincide", title: "Regla de negocio", status: 422, detail: "El cliente o el servicio no existe en Argos o no es de tu empresa" }, 1);
+    await dialogo.getByRole("button", { name: "Crear ticket" }).click();
+    await expect(dialogo.getByRole("alert").filter({ hasText: "El cliente o el servicio no es de esta empresa" })).toBeVisible();
+    await expect(dialogo.getByText("Este cliente o servicio no es de la empresa activa: elige otro.")).toBeVisible();
+
+    // 429 cuota_argos: cuándo reintentar, con «Reintentar» que vuelve a enviar.
+    api.responderProblema("/api/v1/tickets", { type: "urn:iris:problema:cuota_argos", title: "Demasiados intentos", status: 429, detail: "Demasiadas consultas a Argos" }, 1);
+    await dialogo.getByRole("button", { name: "Crear ticket" }).click();
+    const cuota = dialogo.getByRole("alert").filter({ hasText: "Demasiadas consultas a Argos" });
+    await expect(cuota).toContainText("Vuelve a intentarlo");
+    await cuota.getByRole("button", { name: "Reintentar" }).click();
+    await expect(page).toHaveURL(/\/tickets\/1000$/);
+});
