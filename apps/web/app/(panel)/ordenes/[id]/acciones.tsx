@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, useCambiosSinGuardar } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonEnviar, Campo, CampoArea, CampoSelector, DialogoCerrar, DialogoPie, PanelProtegido, useCambiosSinGuardar } from "@iris/ui";
 import { Ban, CalendarClock, CalendarSync, CirclePause, CirclePlay, RotateCcw, RotateCw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormRegisterReturn, type UseFormSetError } from "react-hook-form";
@@ -173,17 +173,15 @@ function DialogoAccionOrden({
 
     const props: PropsFormulario = { orden, enviar, pie };
     return (
-        <DialogoProtegido open onOpenChange={(a) => !a && alCerrar()}>
-            <DialogoContenido titulo={def.titulo} descripcion={`${orden.numero} · ${orden.direccion || "Sin dirección"}`}>
-                {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
-                {accion === "programar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar={false} /> : null}
-                {accion === "reprogramar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar /> : null}
-                {accion === "cancelar" ? <FormMotivo {...props} accion="cancelar" /> : null}
-                {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
-                {accion === "pausar" ? <FormPausar {...props} /> : null}
-                {accion === "reanudar" ? <FormReanudar {...props} /> : null}
-            </DialogoContenido>
-        </DialogoProtegido>
+        <PanelProtegido open onOpenChange={(a) => !a && alCerrar()} titulo={def.titulo} descripcion={`${orden.numero} · ${orden.direccion || "Sin dirección"}`}>
+            {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
+            {accion === "programar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar={false} /> : null}
+            {accion === "reprogramar" ? <FormProgramar {...props} usuarios={usuarios} reprogramar /> : null}
+            {accion === "cancelar" ? <FormMotivo {...props} accion="cancelar" /> : null}
+            {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
+            {accion === "pausar" ? <FormPausar {...props} /> : null}
+            {accion === "reanudar" ? <FormReanudar {...props} /> : null}
+        </PanelProtegido>
     );
 }
 

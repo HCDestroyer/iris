@@ -36,11 +36,13 @@ export type PropsPestanas<I extends string = string> = {
  */
 export function Pestanas<I extends string = string>({ etiqueta, pestanas, seleccionada, inicial, alCambiar, className }: PropsPestanas<I>) {
     const deshabilitadas = pestanas.filter((p) => p.deshabilitada).map((p) => p.id);
+    // Una pestaña elegida que no está (p. ej. sin permiso para verla) cae en la primera.
+    const elegida = seleccionada !== undefined && !pestanas.some((p) => p.id === seleccionada && !p.deshabilitada) ? pestanas.find((p) => !p.deshabilitada)?.id : seleccionada;
     return (
         <Tabs
             data-slot="pestanas"
             className={cn("w-full", className)}
-            {...(seleccionada !== undefined ? { selectedKey: seleccionada } : {})}
+            {...(elegida !== undefined ? { selectedKey: elegida } : {})}
             {...(inicial !== undefined ? { defaultSelectedKey: inicial } : {})}
             disabledKeys={deshabilitadas}
             {...(alCambiar ? { onSelectionChange: (clave: Key) => alCambiar(String(clave) as I) } : {})}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, Esqueleto, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LifeBuoy, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -10,6 +10,7 @@ import { useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { IgualarAsignacion } from "@/componentes/ordenes/asignacion-ticket-orden";
+import { AvisoDatosArgos, MarcaDatosArgos } from "@/componentes/ordenes/datos-argos";
 import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { PieLista } from "@/componentes/pie-lista";
 import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
@@ -20,10 +21,12 @@ import { ErrorApi } from "@/lib/api/errores";
 import { enlaceArgosCliente } from "@/lib/enlaces";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
+import { cambiosDeArgos } from "@/lib/ordenes/datos-argos";
 import type { Adjunto } from "@/lib/ordenes/adjuntos";
 import { describirEventoOrden, type EventoOrden } from "@/lib/ordenes/historial";
 import { RESULTADOS, resumirPendientes, textoMotivoFalla, type OrdenDetalle, type Pendiente } from "@/lib/ordenes/presentacion";
 import { usePaginado, type Paginado } from "@/lib/paginado";
+import { usePestanaUrl } from "@/lib/pestanas";
 import { useSesion } from "@/lib/sesion";
 import { BarraAccionesOrden } from "./acciones";
 import { Firma, Fotos, Gps, MaterialesYEquipos, Notas } from "./evidencias";
@@ -59,6 +62,10 @@ function NoEncontrada() {
     );
 }
 
+/** Pestañas de la ficha de la orden (`?pestana=`). */
+const PESTANAS_ORDEN = ["resumen", "evidencias", "formularios", "argos"] as const;
+type PestanaOrden = (typeof PESTANAS_ORDEN)[number];
+
 function Detalle({ id }: { id: number }) {
     const { yo, puede } = useSesion();
     const ahora = useAhora();
@@ -87,6 +94,7 @@ function Detalle({ id }: { id: number }) {
     });
     const usuarios = useUsuarios();
     const enlaces = useEnlacesExternos();
+    const [pestana, setPestana] = usePestanaUrl(PESTANAS_ORDEN, "resumen");
 
     if (orden.estado === "cargando") {
         return (
@@ -116,6 +124,7 @@ function Detalle({ id }: { id: number }) {
     const yoCorto = { id: yo.usuario.id, nombre: yo.usuario.nombre };
     const tecnico = nombreUsuario(listaUsuarios, o.tecnicoId, yoCorto);
     const resumen = pendientes.estado === "listo" && pendientes.datos ? resumirPendientes(pendientes.datos) : undefined;
+    const datosArgos = cambiosDeArgos(o);
     const recargar = async () => {
         await Promise.all([orden.refrescar(), eventos.refrescar(), adjuntos.refrescar(), pendientes.refrescar()]);
     };
@@ -131,6 +140,7 @@ function Detalle({ id }: { id: number }) {
                     <InsigniaEstadoOrden estado={o.estado} />
                     <InsigniaTipoOrden tipo={o.tipo} />
                     {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
+                    {datosArgos ? <MarcaDatosArgos cambios={datosArgos} /> : null}
                 </div>
                 {o.estado === "fallida" ? (
                     <Aviso tono="error" titulo={`Fallida: ${textoMotivoFalla(o.motivoFalla) ?? "sin motivo"}`}>
@@ -153,68 +163,104 @@ function Detalle({ id }: { id: number }) {
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="grid min-w-0 content-start gap-4">
-                    <Tarjeta>
-                        <TarjetaContenido className="grid gap-4 pt-5">
-                            {o.descripcion ? <p className="text-sm break-words whitespace-pre-wrap">{o.descripcion}</p> : null}
-                            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm" data-testid="datos-orden">
-                                <dt className="text-muted-foreground">Técnico</dt>
-                                <dd data-testid="tecnico">{tecnico ?? "Sin técnico"}</dd>
-                                <dt className="text-muted-foreground">Cita</dt>
-                                <dd className="tabular-nums" data-testid="cita">
-                                    {o.programadaInicio ? `${formatearFecha(o.programadaInicio)}${o.programadaFin ? ` – ${formatearFecha(o.programadaFin)?.slice(-5) ?? ""}` : ""}` : "Sin programar"}
-                                </dd>
-                                {o.cuadrillaId !== null ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Cuadrilla</dt>
-                                        <dd>Cuadrilla {o.cuadrillaId}</dd>
-                                    </>
-                                ) : null}
-                                {o.zonaId !== null ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Zona</dt>
-                                        <dd>Zona {o.zonaId}</dd>
-                                    </>
-                                ) : null}
-                                {o.resultado ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Resultado</dt>
-                                        <dd>{RESULTADOS[o.resultado]}</dd>
-                                    </>
-                                ) : null}
-                                {o.enCaminoEn ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Salió</dt>
-                                        <dd className="tabular-nums">{formatearFecha(o.enCaminoEn)}</dd>
-                                    </>
-                                ) : null}
-                                {o.enSitioEn ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Llegó</dt>
-                                        <dd className="tabular-nums">{formatearFecha(o.enSitioEn)}</dd>
-                                    </>
-                                ) : null}
-                                {o.finalizadaEn ? (
-                                    <>
-                                        <dt className="text-muted-foreground">Finalizada</dt>
-                                        <dd className="tabular-nums">{formatearFecha(o.finalizadaEn)}</dd>
-                                    </>
-                                ) : null}
-                                <dt className="text-muted-foreground">Creada</dt>
-                                <dd className="tabular-nums">{formatearFecha(o.creadoEn)}</dd>
-                            </dl>
-                        </TarjetaContenido>
-                    </Tarjeta>
-
-                    <Pausas orden={o} ahora={ahora} />
-                    <Formularios orden={o} usuarios={listaUsuarios} yo={yoCorto} recargar={recargar} />
-                    <Fotos orden={o} adjuntos={adjuntos} />
-                    <Firma orden={o} verAdjuntos={verAdjuntos} />
-                    <MaterialesYEquipos orden={o} />
-                    <Notas orden={o} />
-                    <Historial paginado={eventos} ahora={ahora} />
+                    <Pestanas<PestanaOrden>
+                        etiqueta="Secciones de la orden"
+                        seleccionada={pestana}
+                        alCambiar={setPestana}
+                        pestanas={[
+                            {
+                                id: "resumen",
+                                etiqueta: "Resumen",
+                                contenido: (
+                                    <div className="grid gap-4">
+                                        <Tarjeta>
+                                            <TarjetaContenido className="grid gap-4 pt-5">
+                                                {o.descripcion ? <p className="text-sm break-words whitespace-pre-wrap">{o.descripcion}</p> : null}
+                                                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm" data-testid="datos-orden">
+                                                    <dt className="text-muted-foreground">Técnico</dt>
+                                                    <dd data-testid="tecnico">{tecnico ?? "Sin técnico"}</dd>
+                                                    <dt className="text-muted-foreground">Cita</dt>
+                                                    <dd className="tabular-nums" data-testid="cita">
+                                                        {o.programadaInicio ? `${formatearFecha(o.programadaInicio)}${o.programadaFin ? ` – ${formatearFecha(o.programadaFin)?.slice(-5) ?? ""}` : ""}` : "Sin programar"}
+                                                    </dd>
+                                                    {o.cuadrillaId !== null ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Cuadrilla</dt>
+                                                            <dd>Cuadrilla {o.cuadrillaId}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    {o.zonaId !== null ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Zona</dt>
+                                                            <dd>Zona {o.zonaId}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    {o.resultado ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Resultado</dt>
+                                                            <dd>{RESULTADOS[o.resultado]}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    {o.enCaminoEn ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Salió</dt>
+                                                            <dd className="tabular-nums">{formatearFecha(o.enCaminoEn)}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    {o.enSitioEn ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Llegó</dt>
+                                                            <dd className="tabular-nums">{formatearFecha(o.enSitioEn)}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    {o.finalizadaEn ? (
+                                                        <>
+                                                            <dt className="text-muted-foreground">Finalizada</dt>
+                                                            <dd className="tabular-nums">{formatearFecha(o.finalizadaEn)}</dd>
+                                                        </>
+                                                    ) : null}
+                                                    <dt className="text-muted-foreground">Creada</dt>
+                                                    <dd className="tabular-nums">{formatearFecha(o.creadoEn)}</dd>
+                                                </dl>
+                                            </TarjetaContenido>
+                                        </Tarjeta>
+                                        <Pausas orden={o} ahora={ahora} />
+                                        <MaterialesYEquipos orden={o} />
+                                        <Notas orden={o} />
+                                        <Historial paginado={eventos} ahora={ahora} />
+                                    </div>
+                                ),
+                            },
+                            {
+                                id: "evidencias",
+                                etiqueta: "Evidencias",
+                                contenido: (
+                                    <div className="grid gap-4">
+                                        <Fotos orden={o} adjuntos={adjuntos} />
+                                        <Firma orden={o} verAdjuntos={verAdjuntos} />
+                                    </div>
+                                ),
+                            },
+                            { id: "formularios", etiqueta: "Formularios", contenido: <Formularios orden={o} usuarios={listaUsuarios} yo={yoCorto} recargar={recargar} /> },
+                            {
+                                id: "argos",
+                                etiqueta: "Argos",
+                                ...(resumen && resumen.cuantos > 0 ? { contador: resumen.cuantos } : {}),
+                                contenido: (
+                                    <div className="grid gap-4">
+                                        <AvisoDatosArgos orden={o} />
+                                        {verPendientes ? (
+                                            <PendientesArgos ordenId={o.id} alCambiar={() => void pendientes.refrescar()} />
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground">No tienes permiso para ver lo pendiente con Argos de esta orden.</p>
+                                        )}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                 </div>
                 <aside className="grid content-start gap-4" aria-label="Cliente y Argos">
-                    {verPendientes ? <PendientesArgos ordenId={o.id} /> : null}
                     {o.ticketId !== null ? <TicketVinculado ticketId={o.ticketId} orden={o} usuarios={listaUsuarios} recargarOrden={recargar} /> : null}
                     {o.clienteId !== null && puede(["clientes.ver"]) ? (
                         <FichaArgos

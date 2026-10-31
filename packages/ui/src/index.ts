@@ -38,6 +38,8 @@ export {
     campoDelFormulario,
     DialogoConfirmar,
     DialogoProtegido,
+    PanelProtegido,
+    type PropsPanelProtegido,
     ErrorFormulario,
     ProveedorCambios,
     textoFaltan,

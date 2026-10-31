@@ -7,6 +7,7 @@ import { cn } from "../utilidades";
 import { Aviso } from "./aviso";
 import { Boton, type PropsBoton } from "./boton";
 import { animacionPanel, clasesFondo, Dialogo, type PropsDialogo } from "./dialogo";
+import { Hoja, HojaContenido } from "./hoja";
 
 /*
  * Patrón de formularios en modales (pedido del PM: «los modales deben alertar si no hay selección
@@ -131,6 +132,69 @@ export function DialogoProtegido({
                 onOpenChange={setConfirmando}
                 titulo={tituloDescartar}
                 descripcion={descripcionDescartar}
+                textoCancelar="Seguir editando"
+                textoConfirmar="Descartar cambios"
+                peligro
+                alConfirmar={() => {
+                    setConfirmando(false);
+                    registro.olvidar();
+                    onOpenChange(false);
+                }}
+            />
+        </ProveedorCambios>
+    );
+}
+
+// --- Panel lateral protegido ------------------------------------------------------------------
+
+export type PropsPanelProtegido = {
+    open: boolean;
+    onOpenChange: (abierto: boolean) => void;
+    titulo: ReactNode;
+    descripcion?: ReactNode;
+    /** Mientras se guarda no se puede cerrar. */
+    ocupado?: boolean;
+    children: ReactNode;
+};
+
+/**
+ * Acción en un panel lateral a la derecha, con la ficha visible detrás (sin velo): para las
+ * acciones de 4 o más campos sobre un registro (responder un ticket, programar una orden…).
+ * Igual que `DialogoProtegido`: con cambios sin guardar, cerrar (Escape, tocar fuera, la X o
+ * «Cancelar» con `DialogoCerrar`) pregunta antes. Por dentro se usan `DialogoPie` y `DialogoCerrar`.
+ */
+export function PanelProtegido({ open, onOpenChange, titulo, descripcion, ocupado = false, children }: PropsPanelProtegido) {
+    const registro = useRegistroCambios();
+    const [confirmando, setConfirmando] = useState(false);
+    const hayCambios = registro.sucio;
+    const enviando = ocupado || registro.ocupado;
+    const pedirCierre = (abierto: boolean) => {
+        if (abierto) {
+            onOpenChange(true);
+            return;
+        }
+        if (enviando) return;
+        if (hayCambios) {
+            setConfirmando(true);
+            return;
+        }
+        onOpenChange(false);
+    };
+    return (
+        <ProveedorCambios valor={registro.contexto}>
+            {/* Contexto de diálogo para `DialogoCerrar` («Cancelar») dentro del panel. */}
+            <Dialogo open={open} onOpenChange={pedirCierre}>
+                <Hoja open={open} onOpenChange={pedirCierre}>
+                    <HojaContenido titulo={titulo} descripcion={descripcion} lado="derecha" fondo="transparente" className="w-full sm:w-[min(30rem,100vw)]" data-slot="panel-accion">
+                        {children}
+                    </HojaContenido>
+                </Hoja>
+            </Dialogo>
+            <DialogoConfirmar
+                open={open && confirmando && !enviando}
+                onOpenChange={setConfirmando}
+                titulo="¿Descartar los cambios?"
+                descripcion="Lo que escribiste en este formulario se perderá."
                 textoCancelar="Seguir editando"
                 textoConfirmar="Descartar cambios"
                 peligro
