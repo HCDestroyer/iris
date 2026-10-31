@@ -1,8 +1,7 @@
 "use client";
 
-import { Aviso, Boton, CampoArea, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ArrowLeft, CircleCheck, CirclePause, Lock, Power, PowerOff, RotateCw, SearchX, ShieldAlert } from "lucide-react";
-import Link from "next/link";
+import { avisar, Aviso, Boton, CampoArea, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { CircleCheck, CirclePause, Lock, Power, PowerOff, RotateCw, SearchX, ShieldAlert } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -11,9 +10,11 @@ import { FormularioRol, useCatalogoPermisos } from "@/componentes/roles/formular
 import { cuerpoEditarRol } from "@/lib/accesos/esquemas";
 import { agruparPermisos, type Rol } from "@/lib/accesos/presentacion";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
+import { avisoEstado } from "@/lib/avisos";
 
 /** `/administracion/roles/[id]`: un rol base se ve; uno propio se edita, activa o desactiva. */
 export function DetalleRol() {
@@ -22,21 +23,13 @@ export function DetalleRol() {
     const valido = Number.isSafeInteger(id) && id > 0;
     const { puede } = useSesion();
     const lectura = useLectura<Rol | null>(async (signal) => (valido ? resolver(api().GET("/api/v1/roles/{id}", { params: { path: { id } }, signal })) : null));
+    useNombreEnMigas(lectura.estado === "listo" ? lectura.datos?.nombre : null);
     const clave = useRef(nuevaClaveIdempotencia());
     const [guardado, setGuardado] = useState(false);
 
-    const volver = (
-        <Boton variante="fantasma" tamano="sm" asChild className="mb-3 -ml-2">
-            <Link href="/administracion/roles">
-                <ArrowLeft />
-                Roles y permisos
-            </Link>
-        </Boton>
-    );
     if (lectura.estado === "cargando") {
         return (
             <>
-                {volver}
                 <Esqueleto className="mb-4 h-10 w-64" />
                 <Esqueleto className="h-64" />
             </>
@@ -45,7 +38,6 @@ export function DetalleRol() {
     if (!valido || (lectura.estado === "error" && lectura.error instanceof ErrorApi && lectura.error.estado === 404) || (lectura.estado === "listo" && !lectura.datos)) {
         return (
             <>
-                {volver}
                 <Tarjeta>
                     <EstadoVacio icono={SearchX} titulo="Rol no encontrado" descripcion="No existe o ya no está disponible." />
                 </Tarjeta>
@@ -55,7 +47,6 @@ export function DetalleRol() {
     if (lectura.estado === "error") {
         return (
             <>
-                {volver}
                 <ErrorLectura error={lectura.error} que="el rol" reintentar={lectura.reintentar} />
             </>
         );
@@ -65,7 +56,6 @@ export function DetalleRol() {
     const editable = !rol.sistema && puede(["roles.editar"]);
     return (
         <>
-            {volver}
             <EncabezadoPagina
                 titulo={rol.nombre}
                 descripcion={
@@ -185,6 +175,7 @@ function CambiarActivo({ rol, alCambiar, recargar }: { rol: Rol; alCambiar: (r: 
             clave.current = nuevaClaveIdempotencia();
             setAbierto(false);
             setMotivo("");
+            avisar({ titulo: avisoEstado(r.nombre, !desactivar) });
             alCambiar(r);
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

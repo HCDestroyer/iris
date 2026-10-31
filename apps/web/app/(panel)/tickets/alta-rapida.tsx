@@ -2,8 +2,9 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-    BotonEnviar,
+    avisar,
     Boton,
+    BotonEnviar,
     Campo,
     CampoArea,
     CampoSelector,
@@ -70,6 +71,7 @@ export function AltaRapida({ categorias }: { categorias: readonly Categoria[] })
             const ticket = await resolver(api().POST("/api/v1/tickets", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             reiniciar();
             setAbierto(false);
+            avisar({ titulo: `Ticket ${ticket.numero} creado` });
             router.push(`/tickets/${ticket.id}`);
         } catch (error) {
             clave.current = claveTrasError(error, clave.current);

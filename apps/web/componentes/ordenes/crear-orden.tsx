@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Aviso,
     Boton,
     BotonEnviar,
@@ -86,6 +87,7 @@ export function DialogoCrearOrden({ ticket }: { ticket?: TicketOrigen }) {
             const orden = await resolver(api().POST("/api/v1/ordenes", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             reiniciar();
             setAbierto(false);
+            avisar({ titulo: `Orden ${orden.numero} creada` });
             router.push(`/ordenes/${orden.id}`);
         } catch (error) {
             clave.current = claveTrasError(error, clave.current);

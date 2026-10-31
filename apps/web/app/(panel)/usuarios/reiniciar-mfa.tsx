@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, Campo, CampoArea, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, useCambiosSinGuardar } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, Casilla, DialogoCerrar, DialogoContenido, DialogoPie, useCambiosSinGuardar } from "@iris/ui";
 import { CircleCheck, RefreshCw, RotateCcw, RotateCw, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -68,6 +68,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
             // La contraseña temporal no se vuelve a mostrar: se borra del formulario.
             formulario.reset({ motivo: "", contrasenaTemporal: "", revocarTokens: true });
             setResultado({ usuario: nuevo, revocoTokens: datos.revocarTokens });
+            avisar({ titulo: `Verificación en dos pasos de ${nuevo.nombre} reiniciada` });
             alReiniciar(nuevo);
         } catch (e) {
             clave.trasError(e);

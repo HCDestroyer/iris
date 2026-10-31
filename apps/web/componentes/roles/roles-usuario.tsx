@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, CampoSelector, GrupoSegmentado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Aviso, Boton, CampoSelector, GrupoSegmentado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Plus, ShieldCheck, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -59,6 +59,7 @@ export function RolesUsuario({ usuario, alCambiar }: { usuario: Usuario; alCambi
                 }),
             );
             claveQuitar.current = nuevaClaveIdempotencia();
+            avisar({ titulo: `Rol quitado a ${u.nombre}` });
             alCambiar(u);
         } catch (e) {
             claveQuitar.current = claveTrasError(e, claveQuitar.current);
@@ -155,6 +156,7 @@ function FormularioAsignar({
             );
             clave.current = nuevaClaveIdempotencia();
             formulario.reset(VACIO);
+            avisar({ titulo: `Rol asignado a ${u.nombre}` });
             alAsignar(u);
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

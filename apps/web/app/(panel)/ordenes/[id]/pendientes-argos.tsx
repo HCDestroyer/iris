@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Aviso, Boton, Esqueleto, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { CircleCheck, RotateCw, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -83,6 +83,7 @@ function FilaPendiente({ pendiente: p, paginado }: { pendiente: Pendiente; pagin
                 }),
             );
             clave.current = nuevaClaveIdempotencia();
+            avisar({ tono: "info", titulo: "Reintento enviado a Argos" });
             await paginado.refrescar();
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

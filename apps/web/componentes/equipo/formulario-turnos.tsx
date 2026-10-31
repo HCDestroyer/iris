@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoSelector, DialogoCerrar, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoSelector, DialogoCerrar, DialogoPie } from "@iris/ui";
 import { CalendarCheck, Plus, RotateCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -36,6 +36,7 @@ export function FormularioTurnos({ tecnico, alCerrar, alGuardar }: { tecnico: Te
                 api().POST("/api/v1/tecnicos/{id}/turnos", { params: { path: { id: antes.id }, header: { "Idempotency-Key": clave.actual() } }, body: entradaTurnos(v, antes.version) }),
             );
             clave.renovar();
+            avisar({ titulo: `Turnos de ${t.nombre} guardados` });
             alGuardar(t);
         } catch (e) {
             clave.trasError(e);

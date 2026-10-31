@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoDisparador, DialogoPie } from "@iris/ui";
 import { ClipboardPlus, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -109,6 +109,7 @@ function Formulario({
                 }),
             );
             clave.current = nuevaClaveIdempotencia();
+            avisar({ titulo: `Orden ${orden.numero} creada para el ticket ${ticket.numero}` });
             alCrear(orden);
         } catch (error) {
             clave.current = claveTrasError(error, clave.current);

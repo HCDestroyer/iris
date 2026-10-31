@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta } from "@iris/ui";
-import { ArrowLeft, CircleCheck, CirclePower, Power, RotateCcw, Unplug } from "lucide-react";
+import { CircleCheck, CirclePower, Power, RotateCcw, Unplug } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -101,12 +101,6 @@ export function VueltaArgos() {
 
     return (
         <>
-            <Boton variante="fantasma" tamano="sm" asChild className="mb-3 -ml-2">
-                <Link href={RUTA_INTEGRACIONES}>
-                    <ArrowLeft />
-                    Integraciones
-                </Link>
-            </Boton>
             <EncabezadoPagina titulo="Conectar con Argos" descripcion="Vuelta desde el panel de Argos." />
             {paso.paso === "completando" ? (
                 <Tarjeta className="grid place-items-center py-10">

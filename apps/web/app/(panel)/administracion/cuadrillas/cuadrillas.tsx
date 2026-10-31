@@ -1,8 +1,7 @@
 "use client";
 
 import { Boton, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
-import { ArrowLeft, Pencil, Plus, Users } from "lucide-react";
-import Link from "next/link";
+import { Pencil, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
@@ -87,12 +86,6 @@ export function PantallaCuadrillas() {
 
     return (
         <>
-            <Boton asChild variante="enlace" tamano="sm" className="mb-3">
-                <Link href="/tecnicos">
-                    <ArrowLeft />
-                    Técnicos
-                </Link>
-            </Boton>
             <EncabezadoPagina
                 titulo="Cuadrillas"
                 descripcion="Equipos de técnicos. Las zonas de la cuadrilla son las que atienden sus técnicos en la agenda y el despacho."

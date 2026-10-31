@@ -1,7 +1,7 @@
 "use client";
 
 import { Boton, Casilla, Esqueleto, EstadoVacio, Etiqueta, Selector, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { ArrowLeft, ClipboardList, Plus } from "lucide-react";
+import { ClipboardList, Plus } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -24,10 +24,6 @@ export function ListaPlantillas() {
     const [todas, setTodas] = useState(false);
     return (
         <>
-            <Link href="/administracion" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-                <ArrowLeft aria-hidden className="size-4" />
-                Administración
-            </Link>
             <EncabezadoPagina
                 titulo="Plantillas de formulario"
                 descripcion="Checklists que el técnico llena en cada orden. Editar una plantilla que ya se usó crea una versión nueva."

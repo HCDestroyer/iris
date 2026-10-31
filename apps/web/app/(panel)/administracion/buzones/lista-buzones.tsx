@@ -2,6 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import {
+    avisar,
     Aviso,
     Boton,
     DialogoConfirmar,
@@ -44,6 +45,7 @@ import { useSesion } from "@/lib/sesion";
 import { PRIORIDADES } from "@/lib/tickets/presentacion";
 import { esConflicto, textoErrorBuzon } from "./acciones-buzon";
 import { FormularioBuzon } from "./formulario-buzon";
+import { avisoEstado } from "@/lib/avisos";
 
 type Pagina = Schema<"PaginaBuzon">;
 type ResultadoPrueba = Schema<"ResultadoPrueba">;
@@ -227,6 +229,7 @@ function TarjetaBuzon({
                 }),
             );
             clave.current = nuevaClaveIdempotencia();
+            avisar({ titulo: avisoEstado(b.nombre, !b.activo) });
             await alCambiar();
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

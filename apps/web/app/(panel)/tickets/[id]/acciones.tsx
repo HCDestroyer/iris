@@ -2,12 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Aviso,
     Boton,
+    BotonEnviar,
     Campo,
     CampoArea,
     CampoSelector,
-    BotonEnviar,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/tickets/esquemas";
 import { ORDEN_PRIORIDADES, PRIORIDADES, prioridadMayor } from "@/lib/tickets/presentacion";
 import type { Ticket } from "@/lib/tickets/sla";
+import { avisoTicket } from "@/lib/avisos";
 
 export type Accion =
     | "responder"
@@ -176,6 +178,7 @@ function DialogoAccion({
         try {
             const t = await peticion(clave.current);
             clave.current = nuevaClaveIdempotencia();
+            avisar({ titulo: avisoTicket(accion, t, usuarios) });
             alHecho(t);
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

@@ -3,8 +3,10 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import {
+    avisar,
     Aviso,
     Boton,
+    BotonEnviar,
     Campo,
     CampoArea,
     CampoSelector,
@@ -13,7 +15,6 @@ import {
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
-    BotonEnviar,
     Esqueleto,
     Tabla,
     TablaCelda,
@@ -58,7 +59,10 @@ export function TarjetaCotizacion({ detalle, recargar }: Props) {
         const r = await envio.enviar((clave) =>
             resolver(api().POST("/api/v1/cotizaciones/{id}/aceptar", { params: { path: { id: cot.id }, header: { "Idempotency-Key": clave } }, body: { version: cot.version } })),
         );
-        if (r) await recargar();
+        if (r) {
+            avisar({ titulo: `Cotización ${cot.numero} aceptada` });
+            await recargar();
+        }
     }
 
     const envioPdf = useEnvio();
@@ -286,7 +290,10 @@ function FormCotizacion({ detalle, planes, recargar, alHecho }: Props & { planes
                 ),
             { nombres: [...nombres, "notas"], setError: formulario.setError },
         );
-        if (r) await alHecho();
+        if (r) {
+            avisar({ titulo: `Cotización ${r.numero} creada` });
+            await alHecho();
+        }
     }
 
     return (

@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Boton,
     Campo,
     DialogoCerrar,
@@ -14,9 +15,9 @@ import {
     TarjetaContenido,
     TarjetaEncabezado,
     TarjetaTitulo,
+    type Trazo,
     trazosASvg,
     useCambiosSinGuardar,
-    type Trazo,
 } from "@iris/ui";
 import { FilePen, PenLine } from "lucide-react";
 import { useState } from "react";
@@ -52,7 +53,10 @@ export function TarjetaContrato({ detalle, recargar }: Props) {
                 }),
             ),
         );
-        if (r) await recargar();
+        if (r) {
+            avisar({ titulo: `Contrato del prospecto ${detalle.numero} generado` });
+            await recargar();
+        }
     }
 
     const envioPdf = useEnvio();
@@ -189,7 +193,10 @@ function Firmar({
                 ),
             { nombres: ["firmanteNombre", "firmanteDocumento"], setError: formulario.setError },
         );
-        if (r) await alHecho();
+        if (r) {
+            avisar({ titulo: "Contrato firmado" });
+            await alHecho();
+        }
     }
 
     const errorSvg = envio.error instanceof ErrorApi ? envio.error.errorDeCampo("svg") : undefined;
