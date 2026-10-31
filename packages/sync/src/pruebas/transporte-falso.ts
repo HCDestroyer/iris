@@ -32,16 +32,21 @@ export class TransporteFalso implements Transporte {
 
     /** Resultado por defecto: aplica la operación (versión + 1 y estado según el tipo). */
     aplicar(op: OperacionLote): ResultadoOperacion {
-        const previa = this.ordenes.get(op.ordenId) ?? { version: op.versionBase ?? 1, estado: "programada" as EstadoOrden };
+        if (op.ordenId === undefined) {
+            // traslado.recibir: no es de una orden.
+            return { id: op.id, estado: "aplicada" };
+        }
+        const ordenId = op.ordenId;
+        const previa = this.ordenes.get(ordenId) ?? { version: op.versionBase ?? 1, estado: "programada" as EstadoOrden };
         let estado = ESTADO_TRAS[op.tipo] ?? previa.estado;
         if (op.tipo === "orden.pausar") {
-            this.pausadaDesde.set(op.ordenId, previa.estado);
+            this.pausadaDesde.set(ordenId, previa.estado);
             estado = "pausada";
         } else if (op.tipo === "orden.reanudar") {
-            estado = this.pausadaDesde.get(op.ordenId) ?? "en_sitio";
+            estado = this.pausadaDesde.get(ordenId) ?? "en_sitio";
         }
         const orden = { version: previa.version + 1, estado };
-        this.ordenes.set(op.ordenId, orden);
+        this.ordenes.set(ordenId, orden);
         return { id: op.id, estado: "aplicada", orden };
     }
 

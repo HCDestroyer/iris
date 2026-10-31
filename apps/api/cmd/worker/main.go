@@ -31,6 +31,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
@@ -117,6 +118,22 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	pend.Suscribir(bus)
+	// Recepción de traslados (contrato 0.5.0 §3.3): arma el cuerpo con la firma PNG cuando termina de
+	// subir (adjunto.completado, el job de la operación y un barrido cada 5 min). Lee la firma del
+	// almacenamiento de adjuntos.
+	almacen, err := almacenAdjuntos(cfg)
+	if err != nil {
+		// El almacenamiento (IRIS_ADJUNTOS_ALMACEN / IRIS_ADJUNTOS_DIR, con valor por defecto) no abre:
+		// el worker no arranca, como la API. Si no, las recepciones esperarían la firma para siempre
+		// sin que nadie lo note.
+		return fmt.Errorf("adjuntos: el almacenamiento no abre en el worker: %w", err)
+	}
+	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Almacen: almacen,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	inv.RegistrarAdjuntos()
+	inv.Suscribir(bus, pool)
 	// Adjuntos: purga de subidas abandonadas (IRIS_ADJUNTOS_ABANDONO) cada hora. No necesita el
 	// almacenamiento: solo marca y borra las partes en la base.
 	adj := adjuntos.Nuevo(adjuntos.Config{Abandono: cfg.AdjuntosAbandono})
@@ -150,6 +167,7 @@ func correr() error {
 			conectorHorus.RegistrarWorkers(w, pool)
 			registrarSoporte(w)
 			pend.RegistrarWorkers(w, pool)
+			inv.RegistrarWorkers(w, pool)
 			adj.RegistrarWorkers(w, pool)
 			nucleo.RegistrarPurgaIdempotencia(w, pool)
 			// Ventana y bloqueo por defecto (cmd/iris tampoco los cambia); la purga nunca baja de
@@ -166,7 +184,7 @@ func correr() error {
 			com.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
-			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),
 			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).
@@ -194,4 +212,16 @@ func correr() error {
 	defer cancelarParada()
 	log.Info("apagando worker")
 	return cliente.Stop(parar)
+}
+
+// almacenAdjuntos: el mismo almacenamiento que la API (disco o S3 compatible), para leer la firma de
+// una recepción de traslado.
+func almacenAdjuntos(cfg config.Config) (adjuntos.Almacen, error) {
+	if cfg.AdjuntosAlmacen == "s3" {
+		return adjuntos.NuevoS3(adjuntos.ConfigS3{
+			Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, Bucket: cfg.S3Bucket, AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey, EstiloRuta: cfg.S3EstiloRuta,
+		})
+	}
+	return adjuntos.NuevoDisco(cfg.AdjuntosDir)
 }

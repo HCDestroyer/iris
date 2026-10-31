@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -149,4 +150,37 @@ func DeEntidad(ctx context.Context, q DBTX, id uuid.UUID, entidad, entidadID str
 		return Adjunto{}, err
 	}
 	return aAdjunto(f), nil
+}
+
+// Contenido lee los bytes de un adjunto completo de esa entidad (hasta maximo bytes; más es
+// nucleo.ReglaNegocio tamano_excedido), con su vista. Para quien arma un cuerpo con el archivo
+// (p. ej. la firma PNG de una recepción de traslado hacia Argos). nucleo.NoEncontrado si no es de la
+// entidad; 409 adjunto_incompleto si aún no está completo.
+func Contenido(ctx context.Context, almacen Almacen, q DBTX, id uuid.UUID, entidad, entidadID string, maximo int64) ([]byte, Adjunto, error) {
+	a, err := DeEntidad(ctx, q, id, entidad, entidadID)
+	if err != nil {
+		return nil, a, err
+	}
+	if a.Estado != EstadoCompleto {
+		return nil, a, nucleo.Conflicto("adjunto_incompleto", "El adjunto aún no termina de subir")
+	}
+	if a.Tamano > maximo {
+		return nil, a, nucleo.ReglaNegocio(MotivoTamanoExcedido, fmt.Sprintf("El adjunto pesa %d bytes (máximo %d)", a.Tamano, maximo))
+	}
+	if almacen == nil {
+		return nil, a, errors.New("adjuntos: sin almacenamiento configurado")
+	}
+	rc, err := almacen.Abrir(ctx, a.clave)
+	if err != nil {
+		return nil, a, err
+	}
+	defer func() { _ = rc.Close() }()
+	b, err := io.ReadAll(io.LimitReader(rc, maximo+1))
+	if err != nil {
+		return nil, a, err
+	}
+	if int64(len(b)) > maximo {
+		return nil, a, nucleo.ReglaNegocio(MotivoTamanoExcedido, fmt.Sprintf("El adjunto pasa de %d bytes", maximo))
+	}
+	return b, a, nil
 }

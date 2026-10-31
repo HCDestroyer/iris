@@ -158,35 +158,37 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         );
 
     function aplicar(op: OperacionLote, rechazadas: Set<number>, usuario: Schema<"Usuario">): ResultadoOperacion {
-        const o = api.ordenes.get(op.ordenId);
+        // ordenId es opcional en el contrato (traslado.recibir no es de una orden): aquí solo hay órdenes.
+        const ordenId = op.ordenId ?? 0;
+        const o = api.ordenes.get(ordenId);
         if (!o || o.tecnicoId !== usuario.id) {
             return { id: op.id, estado: "rechazada", error: problema("no_encontrado", 404, "No encontrada") };
         }
         const conOrden = (r: ResultadoOperacion): ResultadoOperacion => ({ ...r, orden: { version: o.version, estado: o.estado } });
-        if (rechazadas.has(op.ordenId)) {
+        if (rechazadas.has(ordenId)) {
             return conOrden({ id: op.id, estado: "rechazada", error: problema("bloqueada_por_rechazo", 409, "Bloqueada por un rechazo anterior") });
         }
         const i = pendientesRechazo.findIndex((r) => r.cuando(op));
         if (i >= 0) {
             const [r] = pendientesRechazo.splice(i, 1);
-            rechazadas.add(op.ordenId);
+            rechazadas.add(ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: r?.problema ?? problema("validacion", 422, "Inválido") });
         }
         if (o.estado === "pausada" && ["orden.cerrar", "orden.fallar", "orden.llegar", "orden.iniciar_camino"].includes(op.tipo)) {
-            rechazadas.add(op.ordenId);
+            rechazadas.add(ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_pausada", 422, "La orden está pausada") });
         }
         if (op.tipo === "orden.pausar" && o.estado === "pausada") {
-            rechazadas.add(op.ordenId);
+            rechazadas.add(ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_ya_pausada", 409, "Ya pausada") });
         }
         if (op.tipo === "orden.reanudar" && o.estado !== "pausada") {
-            rechazadas.add(op.ordenId);
+            rechazadas.add(ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: problema("orden_no_pausada", 409, "No pausada") });
         }
         const desde = DESDE[op.tipo];
         if (desde && !desde.includes(o.estado)) {
-            rechazadas.add(op.ordenId);
+            rechazadas.add(ordenId);
             return conOrden({ id: op.id, estado: "rechazada", error: problema("transicion_invalida", 422, "Transición inválida") });
         }
         const d = (op.datos ?? {}) as Record<string, unknown>;
@@ -210,7 +212,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 faltan.push({ field: "equipos.instalar", message: "Falta el equipo" });
             }
             if (faltan.length > 0) {
-                rechazadas.add(op.ordenId);
+                rechazadas.add(ordenId);
                 return conOrden({ id: op.id, estado: "rechazada", error: problema("cierre_incompleto", 422, "Cierre incompleto", faltan) });
             }
             const fotos = new Set([
@@ -222,7 +224,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 ...(o.requiereFirma && !completo(o.id, "firma") ? [{ field: "adjuntos.firma", message: "Falta la firma" }] : []),
             ];
             if (faltanAdj.length > 0) {
-                rechazadas.add(op.ordenId);
+                rechazadas.add(ordenId);
                 return conOrden({ id: op.id, estado: "rechazada", error: problema("faltan_adjuntos", 422, "Faltan adjuntos", faltanAdj) });
             }
         }
@@ -292,12 +294,12 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             case "orden.agregar_formulario": {
                 const p = api.plantillas.find((x) => x.id === d.plantillaId && x.activa);
                 if (!p) {
-                    rechazadas.add(op.ordenId);
+                    rechazadas.add(ordenId);
                     return conOrden({ id: op.id, estado: "rechazada", error: problema("plantilla_inactiva", 422, "Plantilla inactiva") });
                 }
                 const existente = (o.formularios ?? []).find((f) => f.plantillaId === p.id);
                 if (existente) {
-                    rechazadas.add(op.ordenId);
+                    rechazadas.add(ordenId);
                     return conOrden({ id: op.id, estado: "rechazada", error: { ...problema("formulario_duplicado", 409, "Duplicado"), detail: existente.id } });
                 }
                 o.formularios = [
@@ -339,11 +341,11 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             case "orden.quitar_formulario": {
                 const f = (o.formularios ?? []).find((x) => x.id === d.formularioId);
                 if (!f) {
-                    rechazadas.add(op.ordenId);
+                    rechazadas.add(ordenId);
                     return conOrden({ id: op.id, estado: "rechazada", error: problema("formulario_ya_quitado", 409, "Ya quitado") });
                 }
                 if (f.origen === "tipo") {
-                    rechazadas.add(op.ordenId);
+                    rechazadas.add(ordenId);
                     return conOrden({ id: op.id, estado: "rechazada", error: problema("formulario_del_tipo", 422, "Del tipo") });
                 }
                 o.formularios = (o.formularios ?? []).filter((x) => x.id !== f.id);
@@ -355,7 +357,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 break;
             case "adjunto.registrar":
                 if (!api.subidas.has(String(d.adjuntoId))) {
-                    rechazadas.add(op.ordenId);
+                    rechazadas.add(ordenId);
                     return conOrden({ id: op.id, estado: "rechazada", error: problema("no_encontrado", 404, "Adjunto no encontrado") });
                 }
                 o.adjuntos = [

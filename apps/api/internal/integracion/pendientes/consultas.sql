@@ -167,6 +167,48 @@ SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = @motivo
 WHERE id = @id AND por_resolver
 RETURNING *;
 
+-- name: CompletarEsperando :one
+-- El pendiente que esperaba algo de Iris (ultimo_error = @motivo, p. ej. esperando_firma) recibe su
+-- cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo. Solo
+-- si nadie lo tocó desde que se leyó (@version): un armado viejo no pisa una recepción rehecha.
+UPDATE integracion.pendientes
+SET payload = @payload, estado = 'pendiente', ultimo_error = NULL, proximo_intento = @ahora, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text AND version = @version
+RETURNING *;
+
+-- name: FallarEsperando :one
+-- Lo que esperaba no sirve (firma inválida…): queda fallido_negocio con el código, sin llamar a Argos.
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', ultimo_error = @detalle::text, codigo_error = @codigo::text, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'bloqueado' AND ultimo_error = @motivo::text AND version = @version
+RETURNING *;
+
+-- name: PendientesEsperando :many
+-- Los bloqueados esperando algo de Iris (barrido del job).
+SELECT * FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = @motivo::text AND operacion = @operacion::text
+ORDER BY id
+LIMIT @limite;
+
+-- name: PendientesDeTecnico :many
+-- Los de una operación de un técnico (recepciones: la app de campo ve su estado), recientes primero.
+SELECT * FROM integracion.pendientes
+WHERE tecnico_usuario_id = @usuario_id AND operacion = @operacion::text AND updated_at >= @desde
+ORDER BY id DESC
+LIMIT @limite;
+
+-- name: RehacerEsperando :one
+-- Un pendiente rechazado (fallido_negocio: Argos no guardó la clave, o nunca salió) vuelve a esperar
+-- con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma). @estados: desde cuáles
+-- (fallido_negocio; o, si la toma el destinatario real, también pendiente, bloqueado o agotado).
+-- @tecnico_usuario_id (o null = el mismo) pasa a ser el dueño.
+UPDATE integracion.pendientes
+SET payload = @payload, estado = 'bloqueado', ultimo_error = @motivo::text, codigo_error = NULL, ultimo_status = NULL,
+    intentos = 0, tomado_en = NULL, tecnico_usuario_id = coalesce(sqlc.narg(tecnico_usuario_id), tecnico_usuario_id),
+    version = version + 1, updated_at = now()
+WHERE id = @id AND estado = ANY (@estados::text[])
+RETURNING *;
+
 -- name: BodegaDeOrden :one
 -- La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
 SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;

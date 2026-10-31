@@ -168,3 +168,18 @@ func mayusculasASCII(s string) string {
 		return r
 	}, s)
 }
+
+// TelefonoArgos valida y normaliza un teléfono como Argos 1.6.0 (contrato 0.5.0 §3.2): Guatemala,
+// 8 dígitos que empiezan en 2–7 con +502 opcional (también 00502 o 502 delante, con cualquier
+// separador), queda «+502 5512-3344»; internacional, + (o 00) y de 8 a 15 dígitos, queda «+<dígitos>».
+// ok = false si no es ninguno de los dos (Argos respondería 422 validacion con rule telefono).
+func TelefonoArgos(texto string) (string, bool) {
+	e164, _, ok := NormalizarTelefono(texto)
+	if !ok {
+		return "", false
+	}
+	if local, gt := strings.CutPrefix(e164, "+502"); gt && len(local) == 8 {
+		return "+502 " + local[:4] + "-" + local[4:], true
+	}
+	return e164, true
+}

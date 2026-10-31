@@ -31,6 +31,9 @@ const (
 	OpReanudar         = "orden.reanudar"
 	OpAgregarForm      = "orden.agregar_formulario"
 	OpQuitarForm       = "orden.quitar_formulario"
+	// OpTrasladoRecibir: el técnico recibe una orden de traslado de Argos (contrato 0.5.0 §3.3; I1).
+	// No es de una orden: sin ordenId ni versionBase; se agrupa por traslado.
+	OpTrasladoRecibir = "traslado.recibir"
 )
 
 // Avisos de una acción aplicada.

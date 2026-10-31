@@ -1416,6 +1416,24 @@ func (q *Queries) UsuarioDeVinculoArgos(ctx context.Context, arg UsuarioDeVincul
 	return usuario_id, err
 }
 
+const vinculoDeUsuario = `-- name: VinculoDeUsuario :one
+SELECT coalesce(argos_id_externo, '')::text AS id_externo, coalesce(argos_correo, '')::text AS correo
+FROM agenda.tecnicos WHERE usuario_id = $1 AND activo
+`
+
+type VinculoDeUsuarioRow struct {
+	IDExterno string
+	Correo    string
+}
+
+// El vínculo con Argos de la ficha de agenda (activa) del usuario: id_externo y correo de Argos.
+func (q *Queries) VinculoDeUsuario(ctx context.Context, usuarioID int64) (VinculoDeUsuarioRow, error) {
+	row := q.db.QueryRow(ctx, vinculoDeUsuario, usuarioID)
+	var i VinculoDeUsuarioRow
+	err := row.Scan(&i.IDExterno, &i.Correo)
+	return i, err
+}
+
 const zonaAgendaArgos = `-- name: ZonaAgendaArgos :one
 SELECT id, empresa_id, nombre, activa FROM agenda.zonas WHERE id = $1 AND origen = 'argos' FOR UPDATE
 `

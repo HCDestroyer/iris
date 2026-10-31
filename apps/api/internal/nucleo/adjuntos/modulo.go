@@ -60,9 +60,16 @@ const (
 // exige que esa empresa sea la activa.
 type Verificador func(ctx context.Context, q DBTX, entidadID string, uso Uso) (empresaID int64, err error)
 
+// Preparador lo registra (opcional) un módulo cuya entidad hay que confirmar con otro sistema antes
+// del alta (p. ej. un traslado que Iris aún no conoce): corre ANTES de abrir la transacción del alta,
+// sin conexión tomada. Devuelve solo los errores que el cliente debe ver tal cual (p. ej. 503
+// reintentable); lo demás lo decide el Verificador dentro de la transacción.
+type Preparador func(ctx context.Context, entidadID string) error
+
 var (
 	muEntidades  sync.RWMutex
 	entidades    = map[string]Verificador{}
+	preparadores = map[string]Preparador{}
 	nombreValido = regexp.MustCompile(`^[a-z][a-z_]{0,39}$`)
 )
 
@@ -79,6 +86,25 @@ func RegistrarEntidadAdjuntable(nombre string, v Verificador) {
 		panic("adjuntos.RegistrarEntidadAdjuntable: entidad repetida " + nombre)
 	}
 	entidades[nombre] = v
+}
+
+// RegistrarPreparacion fija (o reemplaza) el Preparador de una entidad adjuntable.
+func RegistrarPreparacion(nombre string, p Preparador) {
+	muEntidades.Lock()
+	defer muEntidades.Unlock()
+	preparadores[nombre] = p
+}
+
+// Preparar corre el Preparador de la entidad (si tiene), fuera de transacción: POST /adjuntos lo
+// llama antes de Registrar.
+func Preparar(ctx context.Context, entidad, entidadID string) error {
+	muEntidades.RLock()
+	p := preparadores[entidad]
+	muEntidades.RUnlock()
+	if p == nil {
+		return nil
+	}
+	return p(ctx, entidadID)
 }
 
 // QuitarEntidadAdjuntable deshace el registro (solo pruebas).

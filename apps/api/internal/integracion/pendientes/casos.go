@@ -29,7 +29,7 @@ type Pendiente struct {
 	EntidadID        string         `json:"entidadId"`
 	Metodo           string         `json:"metodo"`
 	Ruta             string         `json:"ruta" doc:"Ruta en la API de Argos (bajo /api/v1)"`
-	Payload          map[string]any `json:"payload" doc:"Cuerpo de la llamada"`
+	Payload          map[string]any `json:"payload" doc:"Cuerpo de la llamada (la imagen de la firma, png_base64, como ***)"`
 	DependeDe        []int64        `json:"dependeDe" doc:"Pendientes que deben estar hechos antes"`
 	DatosIncompletos bool           `json:"datosIncompletos" doc:"La orden no traía un dato obligatorio: no se puede reintentar"`
 	Estado           string         `json:"estado" enum:"pendiente,en_curso,hecho,fallido_negocio,agotado,bloqueado,resuelto_manual" doc:"bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha o resuelto_manual. resuelto_manual: final, un supervisor lo corrigió en Argos (resueltoMotivo); no vuelve a salir"`
@@ -88,7 +88,31 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}
+	ocultarSensible(p.Payload)
+	ocultarSensible(p.PayloadConflicto)
 	return p
+}
+
+// camposOcultos: lo que la API de pendientes nunca muestra (la imagen de la firma de una
+// recepción; su sha256 sí, para cotejarla). Se manda a Argos tal cual: solo se oculta al leer.
+var camposOcultos = map[string]bool{"png_base64": true}
+
+// ocultarSensible reemplaza por *** los camposOcultos en cualquier nivel del cuerpo.
+func ocultarSensible(v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, hijo := range x {
+			if camposOcultos[k] {
+				x[k] = "***"
+				continue
+			}
+			ocultarSensible(hijo)
+		}
+	case []any:
+		for _, hijo := range x {
+			ocultarSensible(hijo)
+		}
+	}
 }
 
 // filtroEmpresa: sin conector → empresa_id null; con empresa activa → esa; actor sistema → todas.
@@ -193,6 +217,9 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_incompleto",
 					"La orden no traía los datos para esta acción ("+deref(f.UltimoError)+"); vuelve a cerrar la orden con los datos "+
 						"(el pendiente se corrige y vuelve a la cola) o hazlo a mano en Argos")
+			case f.Estado == EstadoBloqueado && len(f.DependeDe) == 0:
+				return Pendiente{}, nucleo.ReglaNegocio("pendiente_esperando",
+					"Espera algo de Iris ("+deref(f.UltimoError)+", p. ej. que termine de subir la firma); sale solo hacia Argos cuando llegue")
 			case f.Estado == EstadoBloqueado:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable",
 					"Está bloqueado ("+deref(f.UltimoError)+"): reintenta su dependencia; al quedar hecha, este vuelve a la cola")

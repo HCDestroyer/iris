@@ -37,6 +37,11 @@ type Accion struct {
 	// queda fallido_negocio (respuesta_inconsistente) y no resuelve a sus dependientes. Deben
 	// estar en CamposRespuesta (si no, nunca se guardarían para comparar).
 	Verificar []string
+	// TecnicoUsuarioID: el técnico cuyo vínculo con Argos va en el cuerpo (contrato 0.5.0 §3.3).
+	TecnicoUsuarioID *int64
+	// Esperando: el cuerpo aún no está completo (p. ej. esperando_firma: falta que suba la firma).
+	// El pendiente nace bloqueado con ese motivo y no sale hacia Argos hasta CompletarEsperando.
+	Esperando string
 }
 
 // Registro es lo que quien encola necesita leer de un pendiente (sin usar pendientesbd).
@@ -57,6 +62,14 @@ type Registro struct {
 	DependeDe []int64
 	// UltimoError: resumen del último fallo (p. ej. respuesta_inconsistente: …).
 	UltimoError *string
+	// CodigoError: type del último error de Argos (o el código local, p. ej. firma_invalida).
+	CodigoError      *string
+	EmpresaID        *int64
+	EntidadID        string
+	TecnicoUsuarioID *int64
+	ActualizadoEn    time.Time
+	// Version: control optimista (CompletarEsperando / FallarEsperando la exigen).
+	Version int32
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
@@ -64,6 +77,8 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		ID: f.ID, Estado: f.Estado, Operacion: f.Operacion, IdempotencyKey: f.IdempotencyKey, Metodo: f.Metodo, Ruta: f.Ruta,
 		Payload: json.RawMessage(f.Payload), PorResolver: f.PorResolver, Respuesta: json.RawMessage(f.Respuesta),
 		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
+		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
+		ActualizadoEn: f.UpdatedAt, Version: f.Version,
 	}
 }
 
@@ -128,11 +143,19 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 	if err := exigirDependencias(ctx, q, n); err != nil {
 		return Registro{}, false, err
 	}
+	estado := EstadoPendiente
+	var ultimo *string
+	if n.Esperando != "" {
+		if porResolver {
+			return Registro{}, false, errors.New("pendientes.Encolar: Esperando no admite marcadores")
+		}
+		estado, ultimo = EstadoBloqueado, &n.Esperando
+	}
 	f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
 		EmpresaID: n.EmpresaID, Sistema: n.Sistema, Operacion: n.Operacion, IdempotencyKey: n.IdempotencyKey,
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
-		DependeDe: n.DependeDe, Estado: EstadoPendiente, ProximoIntento: proximo,
-		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar,
+		DependeDe: n.DependeDe, Estado: estado, UltimoError: ultimo, ProximoIntento: proximo,
+		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar, TecnicoUsuarioID: n.TecnicoUsuarioID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)
@@ -267,4 +290,113 @@ func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (i
 		}
 	}
 	return len(filas), nil
+}
+
+// CompletarEsperando fija el cuerpo final de un pendiente que esperaba algo de Iris (Accion.Esperando
+// = motivo) y lo devuelve a la cola, una sola vez (auditado en la transacción de quien llama). ok =
+// false si ya no esperaba eso (otro lo completó o falló).
+func CompletarEsperando(ctx context.Context, t *auditoria.Tx, id int64, version int32, motivo string, cuerpo []byte, ahora time.Time, aviso Encolador) (Registro, bool, error) {
+	if !json.Valid(cuerpo) {
+		return Registro{}, false, errors.New("pendientes.CompletarEsperando: el cuerpo no es JSON")
+	}
+	f, err := pendientesbd.New(t).CompletarEsperando(ctx, pendientesbd.CompletarEsperandoParams{Payload: cuerpo, Ahora: ahora.UTC(), ID: id, Motivo: motivo, Version: version})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Registro{}, false, nil
+	}
+	if err != nil {
+		return Registro{}, false, err
+	}
+	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": EstadoBloqueado, "esperando": motivo}, map[string]any{"estado": f.Estado})
+	if aviso != nil {
+		if err := aviso(ctx, t.Tx, ArgsProcesar{}); err != nil {
+			return Registro{}, false, err
+		}
+	}
+	return aRegistro(f), true, nil
+}
+
+// FallarEsperando deja fallido_negocio (sin llamar a Argos) un pendiente cuya espera terminó mal
+// (p. ej. firma_invalida), con el código y el detalle, y avisa (integracion.pendiente_fallido).
+func FallarEsperando(ctx context.Context, t *auditoria.Tx, id int64, version int32, motivo, codigo, detalle string) (Registro, bool, error) {
+	f, err := pendientesbd.New(t).FallarEsperando(ctx, pendientesbd.FallarEsperandoParams{Detalle: detalle, Codigo: codigo, ID: id, Motivo: motivo, Version: version})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Registro{}, false, nil
+	}
+	if err != nil {
+		return Registro{}, false, err
+	}
+	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": EstadoBloqueado}, map[string]any{"estado": f.Estado, "codigo_error": codigo})
+	return aRegistro(f), true, t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(f), Intentos: f.Intentos, Detalle: detalle})
+}
+
+// Esperando lista los pendientes de una operación bloqueados con ese motivo (barrido de un job).
+func Esperando(ctx context.Context, q pendientesbd.DBTX, operacion, motivo string, limite int32) ([]Registro, error) {
+	filas, err := pendientesbd.New(q).PendientesEsperando(ctx, pendientesbd.PendientesEsperandoParams{Motivo: motivo, Operacion: operacion, Limite: limite})
+	if err != nil {
+		return nil, err
+	}
+	salida := make([]Registro, 0, len(filas))
+	for _, f := range filas {
+		salida = append(salida, aRegistro(f))
+	}
+	return salida, nil
+}
+
+// DeTecnico lista los pendientes de una operación de un técnico actualizados desde una hora.
+func DeTecnico(ctx context.Context, q pendientesbd.DBTX, usuarioID int64, operacion string, desde time.Time, limite int32) ([]Registro, error) {
+	filas, err := pendientesbd.New(q).PendientesDeTecnico(ctx, pendientesbd.PendientesDeTecnicoParams{
+		UsuarioID: &usuarioID, Operacion: operacion, Desde: desde, Limite: limite})
+	if err != nil {
+		return nil, err
+	}
+	salida := make([]Registro, 0, len(filas))
+	for _, f := range filas {
+		salida = append(salida, aRegistro(f))
+	}
+	return salida, nil
+}
+
+// PorID lee un pendiente por su id (pgx.ErrNoRows si no existe). q puede ser una transacción o el pool.
+func PorID(ctx context.Context, q pendientesbd.DBTX, id int64) (Registro, error) {
+	f, err := pendientesbd.New(q).PendientePorID(ctx, id)
+	if err != nil {
+		return Registro{}, err
+	}
+	return aRegistro(f), nil
+}
+
+// DBTX es una transacción o el pool.
+type DBTX = pendientesbd.DBTX
+
+// RehacerEsperando vuelve a poner a esperar (motivo) un pendiente con un cuerpo nuevo. Sin dueño
+// nuevo (nuevoDueno nil), solo desde fallido_negocio (Argos no guardó la clave de un 4xx, o nunca
+// salió). Con dueño nuevo (el destinatario real toma la recepción que otro registró sin serlo),
+// también desde pendiente, bloqueado o agotado: nunca desde en_curso, hecho ni resuelto_manual.
+// Audita el cambio de dueño y emite integracion.pendiente_corregido.
+func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo string, cuerpo []byte, nuevoDueno *int64) (Registro, bool, error) {
+	if !json.Valid(cuerpo) {
+		return Registro{}, false, errors.New("pendientes.RehacerEsperando: el cuerpo no es JSON")
+	}
+	q := pendientesbd.New(t)
+	antes, err := q.PendientePorIDParaActualizar(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Registro{}, false, nil
+	}
+	if err != nil {
+		return Registro{}, false, err
+	}
+	estados := []string{EstadoFallidoNegocio}
+	if nuevoDueno != nil {
+		estados = append(estados, EstadoPendiente, EstadoBloqueado, EstadoAgotado)
+	}
+	f, err := q.RehacerEsperando(ctx, pendientesbd.RehacerEsperandoParams{Payload: cuerpo, Motivo: motivo, TecnicoUsuarioID: nuevoDueno, ID: id, Estados: estados})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Registro{}, false, nil
+	}
+	if err != nil {
+		return Registro{}, false, err
+	}
+	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "tecnico_usuario_id": antes.TecnicoUsuarioID},
+		map[string]any{"estado": f.Estado, "esperando": motivo, "tecnico_usuario_id": f.TecnicoUsuarioID})
+	return aRegistro(f), true, t.Emitir(EventoCorregido, eventoDe(f))
 }

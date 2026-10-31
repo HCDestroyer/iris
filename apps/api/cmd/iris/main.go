@@ -36,6 +36,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
@@ -231,6 +232,10 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
 	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	// Inventario del técnico (contrato 0.5.0 §3.3): mi bodega, traslados y traslado.recibir del lote.
+	// La firma es un adjunto de la entidad «traslado».
+	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	inv.RegistrarAdjuntos()
 	lpos, err := campo.LimitesPosicionesDesdeEntorno()
 	if err != nil {
 		return err
@@ -242,7 +247,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
-		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop,
+		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Recepciones: inv,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
@@ -267,6 +272,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			sop.Registrar,
 			adj.RegistrarRutas,
 			pend.Registrar,
+			inv.Registrar,
 			cmp.Registrar,
 			cmp.Agenda().Registrar,
 			com.Registrar,
