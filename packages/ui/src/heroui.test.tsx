@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { Aviso } from "./componentes/aviso";
 import { Boton, variantesBoton } from "./componentes/boton";
 import { Campo } from "./componentes/campo";
+import { Entrada } from "./componentes/entrada";
+import { BotonEnviar } from "./componentes/formulario-modal";
 import { Cargando } from "./componentes/cargando";
 import { Esqueleto } from "./componentes/esqueleto";
 import { EstadoVacio } from "./componentes/estado-vacio";
@@ -93,6 +95,18 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         expect(html).toContain('data-slot="boton"');
     });
 
+    it("Boton sin `type` dentro de un formulario es type=\"button\": no envía; BotonEnviar sí", () => {
+        const html = renderToStaticMarkup(
+            <form>
+                <Boton>Filtros</Boton>
+                <BotonEnviar>Guardar</BotonEnviar>
+            </form>,
+        );
+        expect(html).toMatch(/<button[^>]*type="button"[^>]*>Filtros<\/button>/);
+        expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Guardar<\/button>/);
+        expect(html.match(/type="submit"/g)).toHaveLength(1);
+    });
+
     it("variantes de Iris → variantes de HeroUI", () => {
         expect(variantesBoton({ variante: "contorno" })).toContain("button--outline");
         expect(variantesBoton({ variante: "fantasma", tamano: "icono" })).toContain("button--icon-only");
@@ -130,6 +144,18 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         expect(html).toMatch(/<input[^>]*aria-invalid="true"/);
         expect(html).toMatch(/<input[^>]*aria-describedby="c-ayuda c-error"/);
         expect(html).toMatch(/<input[^>]*data-slot="entrada"/);
+    });
+
+    it("contraseña: type y autoComplete llegan al <input> (gestores de contraseñas, como en DialogoReautenticar)", () => {
+        const entrada = renderToStaticMarkup(<Entrada type="password" autoComplete="current-password" name="contrasena" />);
+        expect(entrada).toMatch(/<input[^>]*type="password"/);
+        expect(entrada).toMatch(/<input[^>]*autoComplete="current-password"|<input[^>]*autocomplete="current-password"/);
+        expect(entrada).toMatch(/<input[^>]*name="contrasena"/);
+        const campo = renderToStaticMarkup(<Campo etiqueta="Contraseña" type="password" autoComplete="current-password" />);
+        expect(campo).toMatch(/<input[^>]*type="password"/);
+        expect(campo).toMatch(/<input[^>]*autoComplete="current-password"|<input[^>]*autocomplete="current-password"/);
+        const nueva = renderToStaticMarkup(<Campo etiqueta="Nueva contraseña" type="password" autoComplete="new-password" />);
+        expect(nueva).toMatch(/autoComplete="new-password"|autocomplete="new-password"/);
     });
 
     it("Selector sigue nativo, con el estilo de campo de HeroUI", () => {

@@ -48,7 +48,9 @@ test("migas, pestañas, globo, panel emergente, fecha y autocompletar", async ({
     await page.mouse.move(0, 0);
     await expect(page.getByRole("tooltip")).toHaveCount(0);
 
+    // «Filtros» es un Boton sin `type` dentro del <form>: es type="button" y no envía el formulario.
     const filtros = page.getByRole("button", { name: "Filtros" });
+    await expect(filtros).toHaveAttribute("type", "button");
     await filtros.click();
     const panel = page.getByRole("dialog", { name: "Filtros rápidos" });
     await expect(panel).toContainText("Solo órdenes de hoy.");
@@ -57,6 +59,7 @@ test("migas, pestañas, globo, panel emergente, fecha y autocompletar", async ({
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
     await expect(filtros).toBeFocused();
+    await expect(page.getByRole("region", { name: /notificaci/ }).getByText("Orden de demostración creada")).toHaveCount(0);
 
     // Fecha en formato de Guatemala (día/mes/año) y calendario.
     const fecha = page.getByRole("group", { name: "Fecha de la visita" });

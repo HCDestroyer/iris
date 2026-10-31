@@ -170,6 +170,9 @@ test.describe("re-autenticación y cuentas vinculadas", () => {
         await page.getByRole("dialog", { name: "Quitar el vínculo" }).getByRole("button", { name: "Quitar vínculo" }).click();
         const reaut = page.getByRole("dialog", { name: "Confirma tu contraseña" });
         await expect(reaut).toBeVisible();
+        // El gestor de contraseñas reconoce el campo: tipo y autocompletado llegan al <input> (HeroUI Input).
+        await expect(reaut.getByLabel("Contraseña")).toHaveAttribute("type", "password");
+        await expect(reaut.getByLabel("Contraseña")).toHaveAttribute("autocomplete", "current-password");
         await reaut.getByRole("button", { name: "Cancelar" }).click();
         await expect(page.getByRole("dialog", { name: "Quitar el vínculo" }).getByText("No se pudo quitar el vínculo")).toBeVisible();
 
