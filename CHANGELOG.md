@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/HCDestroyer/iris/compare/v0.4.0...v0.5.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **panel:** navegación con HeroUI, fase 1 (menú agrupado, migas, Ctrl+K, avisos y barra inferior) ([#80](https://github.com/HCDestroyer/iris/issues/80)) ([dcd3dd6](https://github.com/HCDestroyer/iris/commit/dcd3dd6a463a2c00c311b311737a313077bbcfc9))
+* **ui:** HeroUI v3 con la identidad Horus, fase 0 (base) ([#77](https://github.com/HCDestroyer/iris/issues/77)) ([4526716](https://github.com/HCDestroyer/iris/commit/45267169eeacbd26bfbc76d5603befc6f7bab943))
+
 ## [0.4.0](https://github.com/HCDestroyer/iris/compare/v0.3.0...v0.4.0) (2026-10-31)
 
 
