@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/HCDestroyer/iris/compare/v0.6.0...v0.7.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **campo:** datosArgosCambiados en el detalle de la orden y aplicar/descartar datos de Argos ([#87](https://github.com/HCDestroyer/iris/issues/87)) ([b2b31c2](https://github.com/HCDestroyer/iris/commit/b2b31c292ae3ecf77acf6f93dbb3d695552aef8e))
+* **panel:** fichas con pestañas, acciones en panel lateral y Argos 0.5.0 en el panel, fase 3 ([#86](https://github.com/HCDestroyer/iris/issues/86)) ([99b7aec](https://github.com/HCDestroyer/iris/commit/99b7aec0179f4c0df8cfcd9b7e71a8714fd205e4))
+
 ## [0.6.0](https://github.com/HCDestroyer/iris/compare/v0.5.0...v0.6.0) (2026-10-31)
 
 
