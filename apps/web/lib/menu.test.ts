@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { entradaActiva, MENU, menuVisible } from "./menu";
+import { entradaActiva, GRUPOS, MENU, menuAgrupado, menuVisible, repartoTelefono } from "./menu";
 
 const enumPermiso: string[] = JSON.parse(
     readFileSync(fileURLToPath(new URL("../../../packages/contratos/openapi.json", import.meta.url)), "utf8"),
@@ -75,5 +75,30 @@ describe("menú por permisos", () => {
         expect(entradaActiva("/")?.href).toBe("/");
         expect(entradaActiva("/usuarios/7")?.href).toBe("/usuarios");
         expect(entradaActiva("/usuariosx")).toBeUndefined();
+    });
+
+    it("agrupa como la propuesta: Operación, Equipo, Ventas, Análisis y Administración", () => {
+        expect(GRUPOS.map((g) => g.etiqueta)).toEqual(["Operación", "Equipo", "Ventas", "Análisis", "Administración"]);
+        const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
+        const grupos = menuAgrupado(todos).map((g) => [g.etiqueta, g.entradas.map((e) => e.etiqueta)]);
+        expect(grupos).toEqual([
+            ["Operación", ["Inicio", "Tickets", "Órdenes", "Agenda", "Despacho"]],
+            ["Equipo", ["Técnicos", "Usuarios"]],
+            ["Ventas", ["Comercial", "Encuestas"]],
+            ["Análisis", ["Reportes"]],
+            ["Administración", ["Administración"]],
+        ]);
+        // Sin permisos de un grupo, el grupo no aparece.
+        expect(menuAgrupado(["tickets.ver"]).map((g) => g.etiqueta)).toEqual(["Operación"]);
+    });
+
+    it("teléfono: barra inferior con lo principal que se puede ver; el resto va en «Más»", () => {
+        const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
+        const { barra, resto } = repartoTelefono(todos);
+        expect(barra.map((e) => e.etiqueta)).toEqual(["Inicio", "Tickets", "Órdenes", "Agenda"]);
+        expect(resto.flatMap((g) => g.entradas.map((e) => e.etiqueta))).toEqual(["Despacho", "Técnicos", "Usuarios", "Comercial", "Encuestas", "Reportes", "Administración"]);
+        const soloTickets = repartoTelefono(["tickets.ver"]);
+        expect(soloTickets.barra.map((e) => e.etiqueta)).toEqual(["Inicio", "Tickets"]);
+        expect(soloTickets.resto).toEqual([]);
     });
 });

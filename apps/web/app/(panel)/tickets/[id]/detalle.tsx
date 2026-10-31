@@ -13,7 +13,7 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { ArrowLeft, GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
+import { GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FichaCliente } from "@/componentes/clientes/ficha-cliente";
@@ -27,6 +27,7 @@ import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/co
 import { PropuestaResolucion } from "@/componentes/tickets/propuesta-resolucion";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi } from "@/lib/api/errores";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { enlaceHorusTicket } from "@/lib/enlaces";
@@ -44,14 +45,6 @@ type Evento = Schema<"EventoTicket">;
 
 const PAGINA = 100;
 
-function Volver() {
-    return (
-        <Link href="/tickets" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft aria-hidden className="size-4" />
-            Tickets
-        </Link>
-    );
-}
 
 export function DetalleTicket() {
     const params = useParams<{ id: string }>();
@@ -65,7 +58,6 @@ export function DetalleTicket() {
 function NoEncontrado() {
     return (
         <>
-            <Volver />
             <Tarjeta>
                 <EstadoVacio
                     icono={SearchX}
@@ -87,6 +79,7 @@ function Detalle({ id }: { id: number }) {
     const ahora = useAhora();
     const veNotas = puede(["tickets.ver_notas"]);
     const ticket: Lectura<Ticket> = useLectura((signal) => resolver(api().GET("/api/v1/tickets/{id}", { params: { path: { id } }, signal })));
+    useNombreEnMigas(ticket.estado === "listo" ? ticket.datos?.numero : null);
     const mensajes = usePaginado<Mensaje>((cursor, signal) =>
         resolver(
             api().GET("/api/v1/tickets/{id}/mensajes", {
@@ -113,7 +106,6 @@ function Detalle({ id }: { id: number }) {
                 <span className="sr-only" role="status">
                     Cargando el ticket…
                 </span>
-                <Volver />
                 <Esqueleto className="mb-3 h-8 w-2/3" />
                 <Esqueleto className="mb-4 h-32" />
                 <Esqueleto className="h-64" />
@@ -126,7 +118,6 @@ function Detalle({ id }: { id: number }) {
         }
         return (
             <>
-                <Volver />
                 <ErrorLectura error={ticket.error} que="el ticket" reintentar={ticket.reintentar} />
             </>
         );
@@ -143,7 +134,6 @@ function Detalle({ id }: { id: number }) {
 
     return (
         <>
-            <Volver />
             <header className="mb-4 grid gap-3">
                 <div className="grid gap-1">
                     <span className="font-mono text-sm text-muted-foreground">{t.numero}</span>

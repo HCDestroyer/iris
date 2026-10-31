@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import {
+    avisar,
     Aviso,
     Boton,
     Campo,
@@ -137,6 +138,7 @@ function DialogoQuitar({ usuarioId, vinculo, propio, alCerrar, alQuitar }: { usu
                     body: d.motivo ? { motivo: d.motivo } : {},
                 }),
             );
+            avisar({ titulo: "Vínculo con la cuenta externa quitado" });
             alQuitar();
         } catch (e) {
             setClave(claveTrasError(e, clave));
@@ -205,6 +207,7 @@ function DialogoVincular({ usuarioId, alVincular }: { usuarioId: number; alVincu
             setClave(nuevaClaveIdempotencia());
             form.reset({ conectorId: "", idExterno: "" });
             setAbierto(false);
+            avisar({ titulo: "Cuenta externa vinculada" });
             alVincular();
         } catch (e) {
             setClave(claveTrasError(e, clave));

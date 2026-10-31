@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Aviso,
     Boton,
     Campo,
@@ -15,8 +16,7 @@ import {
     InsigniaEstado,
     Tarjeta,
 } from "@iris/ui";
-import { ArrowLeft, CircleCheck, CirclePower, LinkIcon, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
-import Link from "next/link";
+import { CircleCheck, CirclePower, LinkIcon, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -46,12 +46,6 @@ export function Integraciones() {
 
     return (
         <>
-            <Boton variante="fantasma" tamano="sm" asChild className="mb-3 -ml-2">
-                <Link href="/administracion">
-                    <ArrowLeft />
-                    Administración
-                </Link>
-            </Boton>
             <EncabezadoPagina
                 titulo="Integraciones"
                 descripcion="Conectores con Argos y Horus Flow. A lo más uno activo por sistema."
@@ -201,6 +195,7 @@ function DialogoCambio({
         try {
             if (accion === "activar") await resolver(api().POST("/api/v1/integraciones/conectores/{id}/activar", opciones));
             else await resolver(api().POST("/api/v1/integraciones/conectores/{id}/desactivar", opciones));
+            avisar({ titulo: `Conector de ${sistema} ${accion === "activar" ? "activado" : "desactivado"}` });
             alHecho();
         } catch (e) {
             setClave(claveTrasError(e, clave));

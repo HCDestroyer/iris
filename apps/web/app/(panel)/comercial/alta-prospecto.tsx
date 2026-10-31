@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    avisar,
     Boton,
     Campo,
     CampoArea,
@@ -52,7 +53,10 @@ function FormularioAlta({ zonas }: { zonas: readonly Zona[] | null }) {
             (clave) => resolver(api().POST("/api/v1/prospectos", { params: { header: { "Idempotency-Key": clave } }, body: cuerpoCrearProspecto(datos) })),
             { nombres: CAMPOS, setError: formulario.setError },
         );
-        if (creado) router.push(`/comercial/${creado.id}`);
+        if (creado) {
+            avisar({ titulo: `Prospecto ${creado.numero} creado` });
+            router.push(`/comercial/${creado.id}`);
+        }
     }
 
     return (

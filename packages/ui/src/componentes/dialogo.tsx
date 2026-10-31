@@ -118,13 +118,18 @@ export type PropsDialogoContenido = Omit<ComponentProps<"div">, "title" | "role"
     role?: "dialog" | "alertdialog";
     /** Al abrir: `preventDefault` deja el foco donde lo ponga el manejador (p. ej. en la búsqueda). */
     onOpenAutoFocus?: (evento: Event) => void;
+    /**
+     * `false`: ni Escape ni tocar fuera lo cierran y no hay «X» (p. ej. tras un 429 que cerró la
+     * sesión). Solo se sale por las acciones del propio diálogo.
+     */
+    cerrable?: boolean;
 };
 
-export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", className, children, role, onOpenAutoFocus, ...props }: PropsDialogoContenido) {
+export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", className, children, role, onOpenAutoFocus, cerrable = true, ...props }: PropsDialogoContenido) {
     const { abierto, cambiar } = useDialogo();
     const idDescripcion = useId();
     return (
-        <ModalOverlay isOpen={abierto} onOpenChange={cambiar} isDismissable className={clasesFondo}>
+        <ModalOverlay isOpen={abierto} onOpenChange={cambiar} isDismissable={cerrable} isKeyboardDismissDisabled={!cerrable} className={clasesFondo}>
             <Modal
                 className={cn(
                     "glass-strong fixed z-(--z-index-overlay) flex max-h-[92dvh] w-full flex-col overflow-y-auto shadow-xl",
@@ -152,9 +157,11 @@ export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar
                                 </p>
                             ) : null}
                         </div>
-                        <Boton variante="fantasma" tamano="icono-sm" aria-label={etiquetaCerrar} title={etiquetaCerrar} onClick={() => cambiar(false)}>
-                            <X />
-                        </Boton>
+                        {cerrable ? (
+                            <Boton variante="fantasma" tamano="icono-sm" aria-label={etiquetaCerrar} title={etiquetaCerrar} onClick={() => cambiar(false)}>
+                                <X />
+                            </Boton>
+                        ) : null}
                     </div>
                     {children}
                 </Dialog>

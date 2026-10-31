@@ -1,18 +1,21 @@
 "use client";
 
-import { Aviso, Boton, Esqueleto, Hoja, HojaContenido, HojaDisparador, MarcaIris } from "@iris/ui";
-import { Menu, RotateCw } from "lucide-react";
+import { Aviso, Boton, cn, Esqueleto, Globo, LogoIris, MarcaIris, ProveedorAvisosEmergentes, ProveedorRutas } from "@iris/ui";
+import { PanelLeftClose, PanelLeftOpen, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { limpiarClientesRecientes } from "@/lib/clientes/selector";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
-import { menuVisible } from "@/lib/menu";
+import { menuAgrupado, repartoTelefono } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
-import { MenuUsuario } from "./cuenta/menu-usuario";
+import { BarraInferior } from "./barra-inferior";
+import { BuscadorGlobal } from "./buscador-global";
+import { MenuCuentaLista, MenuUsuario, ProveedorCuenta } from "./cuenta/menu-usuario";
+import { MigasPanel, ProveedorMigas } from "./migas-panel";
 import { ErrorLectura, SinEmpresa } from "./error-lectura";
 import { Navegacion } from "./navegacion";
 import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
@@ -137,15 +140,84 @@ function EsqueletoPanel() {
     );
 }
 
+/** Preferencia de cada persona: barra lateral contraída a solo íconos (en este navegador). */
+const CLAVE_CONTRAIDA = "iris-menu-contraido";
+
+function leerContraida(): boolean {
+    try {
+        return window.localStorage.getItem(CLAVE_CONTRAIDA) === "1";
+    } catch {
+        return false;
+    }
+}
+
+function guardarContraida(valor: boolean) {
+    try {
+        window.localStorage.setItem(CLAVE_CONTRAIDA, valor ? "1" : "0");
+    } catch {
+        // Sin almacenamiento (privado, bloqueado): la preferencia dura lo que la pestaña.
+    }
+}
+
 function Estructura({ children }: { children: ReactNode }) {
-    const { yo, permisos, puede } = useSesion();
+    const router = useRouter();
+    return (
+        <ProveedorRutas navegar={router.push}>
+            <ProveedorMigas>
+                <ProveedorCuenta>
+                    <EstructuraPanel>{children}</EstructuraPanel>
+                </ProveedorCuenta>
+            </ProveedorMigas>
+            <AvisosDelPanel />
+        </ProveedorRutas>
+    );
+}
+
+const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
+
+function suscribirAncho(avisar: () => void) {
+    const consulta = window.matchMedia(CONSULTA_ESCRITORIO);
+    consulta.addEventListener("change", avisar);
+    return () => consulta.removeEventListener("change", avisar);
+}
+
+/**
+ * Avisos emergentes: abajo a la derecha en escritorio; en el teléfono arriba, bajo la barra
+ * superior, para no tapar la barra inferior ni los botones de las hojas que suben desde abajo.
+ */
+function AvisosDelPanel() {
+    const escritorio = useSyncExternalStore(
+        suscribirAncho,
+        () => window.matchMedia(CONSULTA_ESCRITORIO).matches,
+        () => true,
+    );
+    return escritorio ? (
+        <ProveedorAvisosEmergentes ubicacion="bottom end" />
+    ) : (
+        <ProveedorAvisosEmergentes ubicacion="top" className="top-[calc(4rem+env(safe-area-inset-top))]" />
+    );
+}
+
+function EstructuraPanel({ children }: { children: ReactNode }) {
+    const { yo, permisos, puede, empresas } = useSesion();
     const ruta = usePathname();
+    const conEmpresa = yo.modoEmpresa !== "sin_conector" && empresas.length > 0;
     const avisoAdopcion = yo.hayDatosSinEmpresa && puede(["empresas.adoptar"]) && !ruta.startsWith("/administracion/datos-sin-empresa");
     const router = useRouter();
-    const entradas = menuVisible(permisos);
-    const [menuAbierto, setMenuAbierto] = useState(false);
+    const grupos = menuAgrupado(permisos);
+    const telefono = repartoTelefono(permisos);
+    const [contraida, setContraida] = useState(leerContraida);
+    const [masAbierto, setMasAbierto] = useState(false);
     const [cerrando, setCerrando] = useState(false);
     const [errorCerrar, setErrorCerrar] = useState<unknown>(null);
+    const idBarra = useId();
+
+    function alternarContraida() {
+        setContraida((c) => {
+            guardarContraida(!c);
+            return !c;
+        });
+    }
 
     async function cerrarSesion() {
         setCerrando(true);
@@ -167,48 +239,59 @@ function Estructura({ children }: { children: ReactNode }) {
     }
 
     return (
-        <div className="min-h-dvh lg:pl-60">
+        <div className={cn("min-h-dvh", contraida ? "lg:pl-16" : "lg:pl-60")}>
             <aside
+                id={idBarra}
                 aria-label="Barra lateral"
-                className="glass-material fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-6 border-r p-4 lg:flex"
+                data-contraida={contraida || undefined}
+                className={cn(
+                    "glass-material fixed inset-y-0 left-0 z-30 hidden flex-col gap-6 overflow-y-auto border-r py-4 lg:flex",
+                    contraida ? "w-16 px-2" : "w-60 px-4",
+                )}
             >
                 <Link href="/" className="rounded-md px-1" aria-label="Iris, inicio">
-                    <MarcaIris />
+                    {contraida ? <LogoIris className="mx-auto" /> : <MarcaIris />}
                 </Link>
-                <Navegacion entradas={entradas} />
-                <div className="mt-auto grid gap-2 px-1">
-                    <span className="text-xs text-muted-foreground">Tema</span>
-                    <SelectorTema className="justify-self-start" />
+                <Navegacion grupos={grupos} contraida={contraida} />
+                <div className={cn("mt-auto grid gap-2", contraida ? "justify-items-center" : "px-1")}>
+                    {contraida ? null : (
+                        <>
+                            <span className="text-xs text-muted-foreground">Tema</span>
+                            <SelectorTema className="justify-self-start" />
+                        </>
+                    )}
+                    <Globo texto={contraida ? "Expandir menú" : "Contraer menú"} lado="end">
+                        <Boton
+                            variante="fantasma"
+                            tamano={contraida ? "icono" : "sm"}
+                            className={contraida ? undefined : "justify-self-start px-2 text-muted-foreground"}
+                            aria-label={contraida ? "Expandir menú" : "Contraer menú"}
+                            aria-expanded={!contraida}
+                            aria-controls={idBarra}
+                            onClick={alternarContraida}
+                        >
+                            {contraida ? <PanelLeftOpen /> : <PanelLeftClose />}
+                            {contraida ? null : "Contraer menú"}
+                        </Boton>
+                    </Globo>
                 </div>
             </aside>
 
-            <header className="glass-material sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-2 sm:px-4 lg:px-6">
-                <Hoja open={menuAbierto} onOpenChange={setMenuAbierto}>
-                    <HojaDisparador asChild>
-                        <Boton variante="fantasma" tamano="icono" className="lg:hidden" aria-label="Abrir menú" title="Menú">
-                            <Menu />
-                        </Boton>
-                    </HojaDisparador>
-                    <HojaContenido titulo={<MarcaIris />} etiquetaCerrar="Cerrar menú">
-                        <div className="mt-4 flex flex-1 flex-col gap-6">
-                            <Navegacion entradas={entradas} alNavegar={() => setMenuAbierto(false)} />
-                            <div className="mt-auto grid gap-2">
-                                <span className="text-xs text-muted-foreground">Tema</span>
-                                <SelectorTema className="justify-self-start" />
-                            </div>
-                        </div>
-                    </HojaContenido>
-                </Hoja>
+            <header className="glass-material sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-3 sm:px-4 lg:px-6">
                 <Link href="/" className="rounded-md lg:hidden" aria-label="Iris, inicio">
                     <MarcaIris />
                 </Link>
                 <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-                    <SelectorEmpresa />
-                    <MenuUsuario cerrando={cerrando} cerrarSesion={cerrarSesion} />
+                    <BuscadorGlobal />
+                    <div className="hidden min-w-0 items-center gap-3 lg:flex">
+                        <SelectorEmpresa />
+                        <MenuUsuario cerrando={cerrando} cerrarSesion={cerrarSesion} />
+                    </div>
                 </div>
             </header>
 
-            <main id="contenido" className="mx-auto max-w-6xl p-4 sm:p-6">
+            <main id="contenido" className="mx-auto max-w-6xl p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-6">
+                <MigasPanel />
                 {errorCerrar ? (
                     <Aviso
                         tono="error"
@@ -227,6 +310,23 @@ function Estructura({ children }: { children: ReactNode }) {
                 {avisoAdopcion ? <AvisoDatosSinEmpresa /> : null}
                 {children}
             </main>
+
+            <BarraInferior entradas={telefono.barra} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
+                <div className="mt-2 flex flex-1 flex-col gap-6">
+                    {telefono.resto.length > 0 ? <Navegacion grupos={telefono.resto} alNavegar={() => setMasAbierto(false)} /> : null}
+                    {conEmpresa ? (
+                        <div className="grid gap-2">
+                            <span className="text-xs font-medium text-dimmed">Empresa</span>
+                            <SelectorEmpresa />
+                        </div>
+                    ) : null}
+                    <MenuCuentaLista cerrando={cerrando} cerrarSesion={cerrarSesion} antes={() => setMasAbierto(false)} />
+                    <div className="mt-auto grid gap-2">
+                        <span className="text-xs text-muted-foreground">Tema</span>
+                        <SelectorTema className="justify-self-start" />
+                    </div>
+                </div>
+            </BarraInferior>
         </div>
     );
 }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ACTUAL_BLOQUEA, CODIGO_ACTIVAR } from "./api-cuenta";
 import { ADMIN, CON_MFA, CONTRASENA, CSRF, ELENA, LECTOR, SOPORTE, TEMPORAL, conSesion, simularApi } from "./api-falsa";
-import { avisoError, entrar } from "./ayudas";
+import { abrirCuenta, avisoError, entrar } from "./ayudas";
 
 /*
  * Cuenta propia y reinicio de MFA (PR #21 de I1): cambio de contraseña obligatorio con una
@@ -120,7 +120,7 @@ test.describe("cambiar contraseña desde el menú del usuario", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await abrirCuenta(page);
         await expect(page.getByRole("menu").getByText(ADMIN.correo)).toBeVisible();
         await page.getByRole("menuitem", { name: "Cambiar contraseña" }).click();
         const dialogo = page.getByRole("dialog", { name: "Cambiar contraseña" });
@@ -142,7 +142,7 @@ test.describe("cambiar contraseña desde el menú del usuario", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await abrirCuenta(page);
         await page.getByRole("menuitem", { name: "Cambiar contraseña" }).click();
         await llenarCambio(page, ACTUAL_BLOQUEA, NUEVA);
         const dialogo = page.getByRole("dialog", { name: "Cambiar contraseña" });
@@ -155,7 +155,7 @@ test.describe("cambiar contraseña desde el menú del usuario", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ELENA.correo);
         await page.goto("/");
-        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await abrirCuenta(page);
         await expect(page.getByRole("menuitem", { name: "Verificación en dos pasos activa" })).toBeDisabled();
         await expect(page.getByRole("menuitem", { name: "Configurar verificación en dos pasos" })).toHaveCount(0);
     });
@@ -303,7 +303,7 @@ test("capturas de la cuenta y del reinicio de MFA", async ({ page, context, base
     await context.clearCookies();
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     await page.goto("/usuarios");
-    await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+    await abrirCuenta(page);
     await expect(page.getByRole("menu")).toBeVisible();
     await page.screenshot({ path: nombre("05-menu-usuario") });
     await page.keyboard.press("Escape");

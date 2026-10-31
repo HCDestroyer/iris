@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, CSRF, DESPACHO, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { abrirMenu, menu } from "./ayudas";
+import { irA } from "./ayudas";
 
 /*
  * Plantillas de formulario, varios formularios por orden y pausa (PR #29): editor con versiones,
@@ -25,8 +25,7 @@ test.describe("plantillas de formulario", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/");
-        await abrirMenu(page);
-        await menu(page).getByRole("link", { name: /Administración/ }).click();
+        await irA(page, /Administración/);
         await page.getByRole("link", { name: /Plantillas de formulario/ }).click();
         await expect(page).toHaveURL(/\/administracion\/plantillas$/);
         await expect(plantilla(page, "instalacion_basica")).toBeVisible();

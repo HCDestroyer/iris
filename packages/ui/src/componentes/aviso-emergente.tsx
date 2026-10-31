@@ -81,9 +81,11 @@ export function useAvisoEmergente(): typeof API {
 export type PropsProveedorAvisosEmergentes = {
     /** Abajo a la derecha en escritorio; en el teléfono HeroUI lo centra sobre la barra inferior. */
     ubicacion?: "bottom end" | "bottom" | "top end" | "top";
+    /** Clases de la región, p. ej. para subirla sobre la barra inferior del teléfono. */
+    className?: string;
 };
 
 /** Región de los avisos emergentes. Va una sola vez, en el layout de la app. */
-export function ProveedorAvisosEmergentes({ ubicacion = "bottom end" }: PropsProveedorAvisosEmergentes) {
-    return <Toast.Provider data-slot="avisos-emergentes" queue={colaAvisos} placement={ubicacion} />;
+export function ProveedorAvisosEmergentes({ ubicacion = "bottom end", className }: PropsProveedorAvisosEmergentes) {
+    return <Toast.Provider data-slot="avisos-emergentes" queue={colaAvisos} placement={ubicacion} {...(className ? { className } : {})} />;
 }

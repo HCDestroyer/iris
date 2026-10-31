@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ArrowLeft, Check, CircleX, ExternalLink, SearchX } from "lucide-react";
+import { Check, CircleX, ExternalLink, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
@@ -10,6 +10,7 @@ import { DatosClienteServicio, ListaTelefonos } from "@/componentes/clientes/dat
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { nombreUsuario, useUsuarios, type Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
+import { useNombreEnMigas } from "@/componentes/migas-panel";
 import { ErrorApi } from "@/lib/api/errores";
 import { ESTADOS_PROSPECTO, ORIGENES, PASOS_EMBUDO, textoEstadoCualquiera, textoEvento, type EventoProspecto, type ProspectoDetalle } from "@/lib/comercial/presentacion";
 import { telefonos } from "@/lib/datos/telefono";
@@ -24,14 +25,6 @@ import { TarjetaContrato } from "./contrato";
 import { TarjetaCotizacion } from "./cotizacion";
 import { TarjetaFactibilidad } from "./factibilidad";
 
-function Volver() {
-    return (
-        <Link href="/comercial" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft aria-hidden className="size-4" />
-            Comercial
-        </Link>
-    );
-}
 
 export function DetalleProspecto() {
     const params = useParams<{ id: string }>();
@@ -43,7 +36,6 @@ export function DetalleProspecto() {
 function NoEncontrado() {
     return (
         <>
-            <Volver />
             <Tarjeta>
                 <EstadoVacio
                     icono={SearchX}
@@ -62,6 +54,7 @@ function NoEncontrado() {
 
 function Detalle({ id }: { id: number }) {
     const detalle = useLectura<ProspectoDetalle>((signal) => resolver(api().GET("/api/v1/prospectos/{id}", { params: { path: { id } }, signal })));
+    useNombreEnMigas(detalle.estado === "listo" ? detalle.datos?.nombre : null);
     const eventos = useLectura<EventoProspecto[]>(async (signal) => (await resolver(api().GET("/api/v1/prospectos/{id}/eventos", { params: { path: { id } }, signal }))) ?? []);
     const zonas = useZonas();
     const usuarios = useUsuarios();
@@ -71,7 +64,6 @@ function Detalle({ id }: { id: number }) {
     if (detalle.estado === "cargando") {
         return (
             <>
-                <Volver />
                 <div className="grid gap-4" aria-busy="true">
                     <span className="sr-only" role="status">
                         Cargando prospecto…
@@ -86,7 +78,6 @@ function Detalle({ id }: { id: number }) {
         if (detalle.error instanceof ErrorApi && detalle.error.estado === 404) return <NoEncontrado />;
         return (
             <>
-                <Volver />
                 <ErrorLectura error={detalle.error} que="el prospecto" reintentar={detalle.reintentar} />
             </>
         );
@@ -98,7 +89,6 @@ function Detalle({ id }: { id: number }) {
 
     return (
         <>
-            <Volver />
             <header className="mb-4 grid gap-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="grid min-w-0 gap-1">

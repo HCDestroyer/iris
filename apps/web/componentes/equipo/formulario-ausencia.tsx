@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, DialogoCerrar, DialogoPie } from "@iris/ui";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -38,6 +38,7 @@ export function FormularioAusencia({ tecnico, alCerrar, alGuardar }: { tecnico: 
             );
             clave.renovar();
             form.reset(v);
+            avisar({ titulo: `Ausencia de ${tecnico.nombre} registrada` });
             if ((r.citasEnConflicto ?? []).length > 0) {
                 setHecho(r);
             } else {

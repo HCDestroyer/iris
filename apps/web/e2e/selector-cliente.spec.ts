@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { abrirCuenta } from "./ayudas";
 
 /*
  * Pedido del PM (4) y (9): selector de cliente único (búsqueda mientras se escribe, servicios con
@@ -96,7 +97,7 @@ test("los clientes recientes se borran al cerrar sesión y ante un 401", async (
 
     await page.goto("/");
     await sembrar();
-    await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+    await abrirCuenta(page);
     await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
     await expect(page).toHaveURL(/\/entrar$/);
     expect(await recientes()).toBe(0);

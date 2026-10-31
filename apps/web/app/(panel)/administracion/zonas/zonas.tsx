@@ -1,8 +1,7 @@
 "use client";
 
 import { Boton, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta } from "@iris/ui";
-import { ArrowLeft, CloudDownload, Map as IconoMapa, MapPinned, Pencil, Plus } from "lucide-react";
-import Link from "next/link";
+import { CloudDownload, Map as IconoMapa, MapPinned, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
@@ -86,12 +85,6 @@ export function PantallaZonas() {
 
     return (
         <>
-            <Boton asChild variante="enlace" tamano="sm" className="mb-3">
-                <Link href="/tecnicos">
-                    <ArrowLeft />
-                    Técnicos
-                </Link>
-            </Boton>
             <EncabezadoPagina
                 titulo="Zonas"
                 descripcion="Las zonas de Argos llegan solas de su catálogo y no se renombran en Iris. Las locales se crean aquí."

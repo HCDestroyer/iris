@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, BotonEnviar, CampoSelector, Dialogo, DialogoCerrar, DialogoProtegido, useCambiosSinGuardar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonEnviar, CampoSelector, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, useCambiosSinGuardar } from "@iris/ui";
 import { CirclePause, ClipboardList, FilePlus, PenLine, RotateCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -196,8 +196,10 @@ function AgregarFormulario({ orden, recargar, alHecho }: { orden: OrdenDetalle; 
         const error = await envio.enviar((clave) =>
             resolver(api().POST("/api/v1/ordenes/{id}/formularios", { params: { path: { id: orden.id }, header: { "Idempotency-Key": clave } }, body: { version: orden.version, plantillaId: Number(d.plantillaId) } })),
         );
-        if (error === null) await alHecho();
-        else if (erroresACampos(error, ["plantillaId"], formulario.setError)) envio.setError(null);
+        if (error === null) {
+            avisar({ titulo: `Formulario agregado a la orden ${orden.numero}` });
+            await alHecho();
+        } else if (erroresACampos(error, ["plantillaId"], formulario.setError)) envio.setError(null);
     }
     return (
         <DialogoContenido titulo="Agregar formulario" descripcion={`${orden.numero} · el técnico lo verá en su teléfono con la versión actual.`}>
@@ -254,7 +256,10 @@ function QuitarFormulario({ orden, formulario, recargar, alHecho }: { orden: Ord
             ),
         );
         setEnviando(false);
-        if (error === null) await alHecho();
+        if (error === null) {
+            avisar({ titulo: `Formulario quitado de la orden ${orden.numero}` });
+            await alHecho();
+        }
     }
     return (
         <DialogoContenido titulo={`Quitar «${formulario.nombre}»`} descripcion="Queda en el historial de la orden. Solo se puede mientras no tenga respuestas.">

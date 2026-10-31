@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton } from "@iris/ui";
+import { avisar, Aviso, Boton } from "@iris/ui";
 import { ArrowLeftRight, RotateCw } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Usuario } from "@/componentes/tickets/catalogos";
@@ -66,6 +66,7 @@ export function IgualarAsignacion({
                 }),
             );
             clave.current = nuevaClaveIdempotencia();
+            avisar({ titulo: `Asignación igualada entre el ticket ${ticket.numero} y la orden ${orden.numero}` });
             alHecho(r);
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);

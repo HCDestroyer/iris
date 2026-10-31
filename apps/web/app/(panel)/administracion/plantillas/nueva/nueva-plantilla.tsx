@@ -1,8 +1,6 @@
 "use client";
 
-import { Aviso } from "@iris/ui";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
+import { avisar, Aviso } from "@iris/ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -25,10 +23,6 @@ export function NuevaPlantilla() {
     const comun = puedeTocarComun(yo);
     return (
         <>
-            <Link href="/administracion/plantillas" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-                <ArrowLeft aria-hidden className="size-4" />
-                Plantillas
-            </Link>
             <EncabezadoPagina titulo="Nueva plantilla" descripcion={comun ? undefined : "Será de la empresa activa."} />
             <EditorPlantilla
                 modo="crear"
@@ -48,6 +42,7 @@ export function NuevaPlantilla() {
                     try {
                         const p = await resolver(api().POST("/api/v1/plantillas", { params: { header: { "Idempotency-Key": clave.actual() } }, body: cuerpoCrearPlantilla(d) }));
                         clave.renovar();
+                        avisar({ titulo: `Plantilla «${p.nombre}» creada` });
                         router.push(`/administracion/plantillas/${p.id}`);
                     } catch (e) {
                         clave.trasError(e);

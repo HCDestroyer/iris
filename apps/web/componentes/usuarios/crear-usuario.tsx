@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
 import {
     asignarErrores,
+    avisar,
     Aviso,
     Boton,
     BotonEnviar,
@@ -14,10 +15,10 @@ import {
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
+    type ErrorDeCampo,
     ErrorFormulario,
     GrupoSegmentado,
     useCambiosSinGuardar,
-    type ErrorDeCampo,
 } from "@iris/ui";
 import { Bot, CircleCheck, Eye, EyeOff, Plus, RotateCw, User, UserPlus, WandSparkles, X } from "lucide-react";
 import { useState } from "react";
@@ -142,6 +143,7 @@ function Formulario({
             clave.renovar();
             // La contraseña no se queda en el formulario: solo en el resultado, una vez.
             form.reset(valoresCrearUsuario(rolFijo));
+            avisar({ titulo: `Usuario ${u.nombre} creado` });
             alCrear(u, d.tipo === "persona" ? d.contrasena : "");
         } catch (e) {
             clave.trasError(e);

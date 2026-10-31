@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { RequierePermiso } from "@/componentes/requiere-permiso";
-import { Bandeja } from "./bandeja";
+import { PantallaTickets } from "./bandeja";
 
 export const metadata: Metadata = { title: "Tickets" };
 
 export default function Pagina() {
     return (
         <RequierePermiso permisos={["tickets.ver"]}>
-            <Bandeja />
+            <Suspense>
+                <PantallaTickets />
+            </Suspense>
         </RequierePermiso>
     );
 }

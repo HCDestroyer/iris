@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+    Aviso,
     Boton,
     Campo,
     CampoSelector,
@@ -15,12 +16,15 @@ import {
     Tarjeta,
 } from "@iris/ui";
 import { BookmarkPlus, Search, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
+import { api, resolver } from "@/lib/api/cliente";
 import { useDiferido } from "@/lib/diferido";
+import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import {
     consultaDeFiltros,
@@ -36,18 +40,58 @@ import { ESTADOS, ORDEN_ESTADOS, ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/ti
 import { AltaRapida } from "./alta-rapida";
 import { ListaTickets } from "./lista-tickets";
 
-export function Bandeja() {
+/**
+ * `?clienteId=` (desde el buscador global): los tickets de un cliente de Argos. Solo el id viene
+ * de la URL; el nombre se lee de la API (que filtra por empresa), nunca de un parámetro que
+ * cualquiera puede armar.
+ */
+function clienteDeParametros(params: URLSearchParams): number | null {
+    const id = Number(params.get("clienteId"));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** Bandeja de tickets; con un cliente en la URL, la historia de ese cliente (todos los estados). */
+export function PantallaTickets() {
+    const params = useSearchParams();
+    const clienteId = clienteDeParametros(params);
+    return <Bandeja key={clienteId ?? "todos"} clienteId={clienteId} />;
+}
+
+/** Aviso del filtro por cliente: «Cliente #id» hasta leer el nombre, o si no se pudo leer. */
+function AvisoCliente({ clienteId, alQuitar }: { clienteId: number; alQuitar: () => void }) {
+    const ficha = useLectura((signal) => resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId } }, signal })));
+    const nombre = ficha.estado === "listo" ? ficha.datos.cliente.nombre : `Cliente #${clienteId}`;
+    return (
+        <Aviso
+            tono="info"
+            titulo={`Tickets de ${nombre}`}
+            className="mb-3"
+            data-testid="filtro-cliente"
+            accion={
+                <Boton variante="secundario" tamano="sm" onClick={alQuitar}>
+                    <X />
+                    Ver todos los tickets
+                </Boton>
+            }
+        >
+            Solo los de este cliente, en cualquier estado.
+        </Aviso>
+    );
+}
+
+function Bandeja({ clienteId }: { clienteId: number | null }) {
     const { yo, puede } = useSesion();
+    const router = useRouter();
     const categorias = useCategorias();
     const usuarios = useUsuarios();
-    const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIALES);
+    const [filtros, setFiltros] = useState<Filtros>(() => (clienteId ? { ...FILTROS_INICIALES, estado: "todos" } : FILTROS_INICIALES));
     const [propias, setPropias] = useState<Vista[]>(() => leerVistas(yo.usuario.id));
     const [guardando, setGuardando] = useState(false);
     const idBuscar = useId();
     const q = useDiferido(filtros.q, 350);
 
     const efectivos: Filtros = { ...filtros, q };
-    const consulta = consultaDeFiltros(efectivos, yo.usuario.id);
+    const consulta = { ...consultaDeFiltros(efectivos, yo.usuario.id), ...(clienteId ? { clienteId } : {}) };
     const vistas = [...VISTAS_PREDEFINIDAS, ...propias];
     const vistaActiva = vistas.find((v) => mismosFiltros(v.filtros, filtros));
     const cambiar = (parcial: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parcial }));
@@ -66,6 +110,8 @@ export function Bandeja() {
                 descripcion="Soporte con SLA: lo urgente primero."
                 acciones={puede(["tickets.crear"]) ? <AltaRapida categorias={listaCategorias} /> : null}
             />
+
+            {clienteId ? <AvisoCliente clienteId={clienteId} alQuitar={() => router.replace("/tickets")} /> : null}
 
             <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Vistas">
                 {vistas.map((v) => {
@@ -170,7 +216,7 @@ export function Bandeja() {
                 categorias={categorias.estado === "listo" ? categorias.datos : undefined}
                 usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
                 yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
-                hayFiltros={!mismosFiltros(efectivos, FILTROS_INICIALES)}
+                hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
             />
 
             <DialogoGuardarVista
