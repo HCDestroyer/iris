@@ -87,7 +87,7 @@ Alternativa al enlace de §1.3, que sigue vigente: el admin conecta Iris con Arg
 | Planes para cotizar | `GET /api/v1/planes?activo=true&router_id=<router sugerido>` (planes globales de la instalación más los implementados en ese router; `precio` como string decimal; sin `empresa_id`) |
 | Routers, zonas y coordenadas para factibilidad | `GET /api/v1/routers` (cada router trae `coordenadas`: `"lat,lng"` en grados decimales, sin espacios, o `null` si no está ubicado; el mismo formato que `coordenadas` de clientes y servicios) y `GET /api/v1/zonas` |
 | Equipos en comodato de un servicio | `GET /api/v1/servicios/:id/equipos` |
-| Bodega y kardex del técnico (0.5.0) | `GET /api/v1/inventario/mi-bodega?id_externo=<usuario de Argos>` (o `?correo=`): `{ bodega, existencias[], unidades[], traslados_pendientes[], kardex }` (últimos 50; más con `GET /api/v1/inventario/movimientos?bodega_id=` y cursor). Sin bodega activa: `404 sin_bodega`. `GET /api/v1/inventario/existencias?bodega_id=` sigue igual |
+| Bodega y kardex del técnico (0.5.0) | `GET /api/v1/inventario/mi-bodega?id_externo=<usuario de Argos>` (o `?correo=`): `{ bodega, existencias[], unidades[], traslados_pendientes[], kardex }` (últimos 50; más con `GET /api/v1/inventario/movimientos?bodega_id=` y cursor). Sin bodega activa: `404 tecnico_sin_bodega`. `GET /api/v1/inventario/existencias?bodega_id=` sigue igual |
 | Ubicación y contacto en sitio (0.5.0) | `Cliente.referencia`; `Servicio.referencia`, `Servicio.contacto_nombre` y `Servicio.contacto_telefono` (null si no hay) |
 
 ### 2.2 Instantánea en Iris
@@ -166,17 +166,18 @@ Detalle de Argos en su contrato de inventario (Fase D). Aquí va lo que Iris nec
     - Sin empresa y con bodegas en varias: `{ bodegas: [ … una por empresa … ] }`.
     - `existencias[]` y `unidades[]` (disponibles y en reparación) vienen completas, y `traslados_pendientes[]` también.
     - `kardex[]` trae los últimos 50 movimientos. El resto, con `GET /inventario/movimientos?bodega_id=&cursor=&limit=` (≤ 100) → `{ data, nextCursor }`.
-- Cada línea de `existencias[]`, `mi-bodega` y `GET /inventario/productos` lleva `modalidad` (`comodato` | `consumible_gasto` | `consumible_cobro`).
+- Cada línea de `existencias[]`, `mi-bodega` y `GET /productos` lleva `modalidad` (`comodato` | `consumible_gasto` | `consumible_cobro`).
 - `GET /inventario/traslados/:id` devuelve la orden con estado, líneas y recepción.
 
 **Consumos** (`POST /inventario/consumos`):
+- **Forma:** `lineas[]` (o, como hasta hoy, un solo producto arriba). Responde `MovimientoInventario` (el de la primera línea) más `movimientos[]`, `cargos[]` y `factura_id` (o null).
 - **Atómico:** si una línea falla (por ejemplo `409 existencia_insuficiente`), no se aplica ninguna.
 - **Solo consumibles:** una línea `comodato` responde `422 producto_es_comodato`.
 - **`consumible_cobro`:**
     - Argos emite el cargo único al cliente del servicio con el precio del producto, con `origen_tipo`/`origen_id` de la orden y la misma `Idempotency-Key`: un reintento no cobra dos veces.
     - Sin servicio o sin cliente: `422 cobro_sin_cliente`.
     - La respuesta trae `cargos[] { id, producto_id, monto }` (montos como string decimal).
-    - Un `POST /facturas/cargo-unico` con el mismo `origen_id` que ya se cobró por modalidad responde `409 cargo_duplicado`.
+    - Un `POST /facturas/cargo-unico` de la misma orden (`origen_id`) con una línea cuyo `producto_id` ya se cobró por modalidad en esa orden responde `409 cargo_duplicado`. El cobro de la visita u otros conceptos de la misma orden sigue permitido.
 - **`consumible_gasto`:** va a gasto del ISP y no genera cargo.
 
 **Comodato y devolución:**
@@ -185,7 +186,7 @@ Detalle de Argos en su contrato de inventario (Fase D). Aquí va lo que Iris nec
 
 **Recibir una orden de traslado** (`POST /inventario/traslados/:id/recibir`, permiso `inventario.recibir_traslado`). El técnico confirma sin señal y se sincroniza después.
 - **Cuerpo:** `{ recibido_por: tecnico, metodo_recepcion: 'firma_digital', firma: { png_base64, sha256 }, recibido_en (RFC 3339, hora del teléfono), lineas? }`.
-    - El PNG pesa como máximo 200 KB decodificado y mide hasta 1000×400 px. `sha256` es el hash del PNG decodificado.
+    - El PNG pesa como máximo 200 KB decodificado y mide entre 50×20 y 1000×400 px. `sha256` es el hash del PNG decodificado.
     - `recibido_en` no puede ser anterior al envío ni futuro, con 5 min de tolerancia de reloj.
     - `lineas[]` solo si faltó algo: por línea `{ linea_id, cantidad_recibida, series_faltantes[] }`. Lo faltante vuelve al origen.
 - **Idempotencia:** un 2xx es definitivo. Otra recepción de la misma orden, con cualquier clave, responde `409 traslado_ya_recibido` con la recepción guardada en el cuerpo. Las diferencias posteriores se corrigen con un ajuste en Argos, no repitiendo la llamada.
