@@ -156,6 +156,8 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "integraciones.desactivar",
     "integraciones.reintentar",
     "integraciones.resolver_pendiente",
+    "ordenes.aplicar_datos_argos",
+    "ordenes.descartar_datos_argos",
     "integraciones.ver",
     // Vínculo del técnico con Argos (contrato 0.5.0, #81).
     "agenda.vincular_argos",

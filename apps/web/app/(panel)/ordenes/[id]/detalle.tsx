@@ -248,7 +248,7 @@ function Detalle({ id }: { id: number }) {
                                 ...(resumen && resumen.cuantos > 0 ? { contador: resumen.cuantos } : {}),
                                 contenido: (
                                     <div className="grid gap-4">
-                                        <AvisoDatosArgos orden={o} />
+                                        <AvisoDatosArgos orden={o} recargar={recargar} />
                                         {verPendientes ? (
                                             <PendientesArgos ordenId={o.id} alCambiar={() => void pendientes.refrescar()} />
                                         ) : (

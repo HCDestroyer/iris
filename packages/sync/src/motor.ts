@@ -845,6 +845,8 @@ export class MotorSync {
             let espera = this.intervaloMs;
             try {
                 await this.sincronizar();
+                // Una operación o una firma con espera propia que vence antes del intervalo: se despierta entonces.
+                espera = Math.min(this.intervaloMs, Math.max(1_000, this.proximaEsperaPropia() - this.reloj.ahora()));
                 intento = 0;
                 this.enEspera = false;
                 this.proximoIntento = null;
@@ -886,6 +888,23 @@ export class MotorSync {
             await this.reloj.esperar(espera, sueno.signal);
             this.sueno = null;
         }
+    }
+
+    /** Hora en que vence la próxima espera propia futura (operaciones y firmas de traslado); infinito si no hay. */
+    private proximaEsperaPropia(): number {
+        const ahora = this.reloj.ahora();
+        let proxima = Number.POSITIVE_INFINITY;
+        for (const op of this.ops.values()) {
+            if (op.estado === "pendiente" && op.esperaHasta !== undefined && op.esperaHasta > ahora) {
+                proxima = Math.min(proxima, op.esperaHasta);
+            }
+        }
+        for (const a of this.adjuntos.values()) {
+            if (a.estado === "por_crear" && a.esperaHasta !== undefined && a.esperaHasta > ahora) {
+                proxima = Math.min(proxima, a.esperaHasta);
+            }
+        }
+        return proxima;
     }
 
     private serializar<T>(tarea: () => Promise<T>): Promise<T> {

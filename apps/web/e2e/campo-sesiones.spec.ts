@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
+import { alResumen, empezarTrabajo, pestanaCampo } from "./ayudas-campo";
 import { TECNICO, TECNICO_B } from "./datos-campo";
 
 /*
@@ -61,8 +62,10 @@ test("la cola de A nunca se envía con la sesión de B, no se pierde y A no ve �
     await abrirComo(page, TECNICO.nombre);
     await sinSenal(page, api);
     await page.getByRole("link", { name: /OT-000101/ }).click();
+    await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
+    await alResumen(page);
     await page.getByLabel("Nueva nota").fill("Nota de Tomás");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("2 pendientes por enviar");
@@ -81,14 +84,14 @@ test("la cola de A nunca se envía con la sesión de B, no se pierde y A no ve �
     await abrirComo(page, TECNICO_B.nombre);
     await expect(page.getByRole("link", { name: /OT-000201/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /OT-000101/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible();
+    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
     expect(await filas(page, BASE_A, "operaciones")).toBe(2);
     expect(api.lotes).toHaveLength(0);
 
     // Vuelve Tomás: su cola sale con su sesión.
     await conSesionTecnico(context, baseURL ?? "", TECNICO);
     await abrirComo(page, TECNICO.nombre);
-    await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
     expect(api.lotesDe.every((c) => c === TECNICO.correo)).toBe(true);
     expect(api.ordenes.get(101)?.estado).toBe("en_camino");
     expect(api.ordenes.get(101)?.notas?.map((n) => n.texto)).toEqual(["Nota de Tomás"]);
@@ -99,7 +102,7 @@ test("cerrar sesión sin pendientes borra la base del teléfono y la sesión gua
     const api = await simularApiCampo(page);
     await abrirComo(page, TECNICO.nombre);
     expect(await bases(page)).toContain(BASE_A);
-    await page.getByRole("button", { name: "Menú" }).click();
+    await pestanaCampo(page, "Yo");
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await expect(page).toHaveURL(/\/entrar\?siguiente=%2Fcampo/);
     expect(await bases(page)).not.toContain(BASE_A);
@@ -114,11 +117,12 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await abrirComo(page, TECNICO.nombre);
     await sinSenal(page, api);
     await page.getByRole("link", { name: /OT-000101/ }).click();
+    await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
-    await page.getByRole("button", { name: "Menú" }).click();
+    await pestanaCampo(page, "Yo");
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
-    const aviso = page.getByRole("dialog").getByText("Tienes 1 cambio sin enviar");
+    const aviso = page.getByText("Tienes 1 cambio sin enviar");
     await expect(aviso).toBeVisible();
     await expect(page.getByRole("button", { name: "Enviar y salir" })).toHaveCount(0);
     await page.getByRole("button", { name: "Salir y conservarlos" }).click();
@@ -145,7 +149,7 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
 
     // Al volver a entrar, la cola conservada se envía.
     await abrirComo(page, TECNICO.nombre);
-    await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
     expect(api.ordenes.get(101)?.estado).toBe("en_camino");
 });
 

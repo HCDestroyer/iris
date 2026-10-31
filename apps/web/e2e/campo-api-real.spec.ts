@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { entrar } from "./ayudas";
+import { empezarTrabajo, irAPaso } from "./ayudas-campo";
 
 /*
  * Recorrido completo contra la API Go real (opcional, fuera de CI): IRIS_E2E_API_REAL=1 con la
@@ -49,10 +50,11 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
     await page.reload();
     await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
     await tarjeta.click();
+    await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await page.getByRole("dialog", { name: "¿Compartir tu ubicación?" }).getByRole("button", { name: "Permitir ubicación" }).click();
     await page.getByRole("button", { name: "Llegué" }).click();
-    await expect(page.getByRole("heading", { name: "Checklist" })).toBeVisible();
+    await irAPaso(page, "Checklist");
     // Ítems obligatorios de la plantilla «instalación de fibra» de la semilla.
     for (const si of ["Acometida de fibra tendida y fijada", "ONU registrada y en línea", "Wi-Fi configurado con el cliente"]) {
         await page.getByRole("radiogroup", { name: si }).getByRole("radio", { name: "Sí" }).click();
@@ -66,15 +68,14 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
     }
     await page.getByLabel("Tomar foto: Foto de la ONU instalada").setInputFiles(FOTO);
     await expect(page.getByRole("button", { name: "Cambiar foto: Foto de la ONU instalada" })).toBeVisible();
+    await irAPaso(page, "Materiales y equipos");
     await page.getByLabel("Número de serie").fill("ZTEGC8F1A2B3");
     await page.getByLabel("MAC").fill("a0b1c2d3e4f6");
     await page.getByRole("button", { name: "Registrar equipo instalado" }).click();
+    await irAPaso(page, "Firma del cliente y cierre");
     await page.getByLabel("Nombre de quien firma").fill("Cliente de prueba");
     await firmar(page);
-    await page.getByRole("button", { name: "Guardar firma" }).click();
-    await expect(page.getByText("Firmada")).toBeVisible();
-    await page.getByRole("button", { name: "Cerrar orden" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
+    await page.getByRole("button", { name: "Firmar y cerrar orden" }).click();
     await expect(page.getByTestId("pendientes-por-enviar")).toContainText("pendientes por enviar");
 
     await context.setOffline(false);
@@ -122,7 +123,7 @@ test("dos técnicos en el mismo navegador contra la API real: la cola de A no sa
     // A vuelve a entrar: su nota sale con su sesión.
     await a.goto("/entrar?siguiente=%2Fcampo");
     await entrar(a, correo, contrasena);
-    await expect(a.getByRole("button", { name: /Todo enviado/ })).toBeVisible({ timeout: 30_000 });
+    await expect(a.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 30_000 });
     const orden2 = await a.evaluate(async () => (await fetch("/api/v1/ordenes/2")).json());
     expect(orden2.notas.map((n: { texto: string; autorNombre: string }) => n.texto)).toEqual(["Nota de A sin señal"]);
     await context.close();

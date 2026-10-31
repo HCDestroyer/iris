@@ -2,7 +2,7 @@
 
 import type { OrdenVista } from "@iris/sync";
 import { estadoPasos, faltantesAntesDeFirmar, llego, progresoPasos, siguientePaso, TITULOS_PASO } from "@iris/sync/campo";
-import { Aviso, Boton, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
+import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
 import {
     ArrowLeft,
     ArrowRight,
@@ -42,8 +42,12 @@ import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
 import { PASOS_ORDEN, urlDeVista, type PasoOrden } from "@/lib/campo/vista";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
-    const { navegar } = useCampo();
+    const { navegar, estado } = useCampo();
     const orden = useOrden(id);
+    if (!orden && estado.fecha === null && estado.ultimaSincronizacion === null) {
+        // Enlace directo con el teléfono vacío: espera el paquete del día.
+        return <Cargando visible texto="Cargando la orden…" />;
+    }
     if (!orden) {
         return (
             <div className="grid gap-4">
@@ -138,8 +142,11 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
                 Resumen de {orden.numero}
             </Boton>
             <header className="grid gap-1">
-                <p className="text-sm text-muted-foreground">
-                    <span className="font-mono">{orden.numero}</span> · {paso === "cierre" ? "Paso final" : `Paso ${indice + 1} de ${PASOS_ORDEN.length}`}
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                    <span>
+                        <span className="font-mono">{orden.numero}</span> · {paso === "cierre" ? "Paso final" : `Paso ${indice + 1} de ${PASOS_ORDEN.length}`}
+                    </span>
+                    <InsigniaOrden estado={orden.estado} />
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                     <h1 id="titulo-paso" className="text-2xl font-semibold tracking-[-0.015em]">

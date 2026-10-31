@@ -48,7 +48,7 @@ import {
     WifiOff,
     type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { haceTiempo } from "@/lib/datos/presentacion";
@@ -110,6 +110,22 @@ function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: () => Promise<void>) {
     return lectura;
 }
 
+/** Cuando una recepción del teléfono sale (o cambia), se relee la lista para ver cómo va en Argos. */
+function useReleerAlEnviar(cargar: () => Promise<void>) {
+    const { estado } = useCampo();
+    const ids = estado.recepciones.map((r) => `${r.id}:${r.estado}`).join(",");
+    const previos = useRef(ids);
+    const sinSenal = estado.conexion === "sin_conexion";
+    useEffect(() => {
+        if (previos.current !== ids && !sinSenal) {
+            void cargar();
+        }
+        previos.current = ids;
+        // Solo cuando cambia la cola de recepciones.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ids]);
+}
+
 function ErrorLectura({ error, que, reintentar, conDatos }: { error: unknown; que: string; reintentar: () => void; conDatos: boolean }) {
     const e = textoErrorLectura(error, que);
     return (
@@ -132,6 +148,7 @@ export function PorRecibir() {
     const { estado } = useCampo();
     const { traslados, cargarTraslados } = useInventario();
     useCargarAlAbrir(traslados, cargarTraslados);
+    useReleerAlEnviar(cargarTraslados);
     const lista = traslados.datos ?? [];
     const conocidos = new Set(lista.map((t) => t.id));
     // Recibidos en este teléfono que la lista no trae (sin señal o ya no figuran como enviados).
@@ -208,6 +225,7 @@ export function DetalleTraslado({ id }: { id: number }) {
     const { estado, navegar } = useCampo();
     const { traslados, cargarTraslados } = useInventario();
     useCargarAlAbrir(traslados, cargarTraslados);
+    useReleerAlEnviar(cargarTraslados);
     const traslado = traslados.datos?.find((t) => t.id === id) ?? null;
     const local = estado.recepciones.find((op) => op.datos.trasladoId === id) ?? null;
     const volver = (
@@ -472,6 +490,8 @@ export function MiBodega() {
     );
 }
 
+const mayuscula = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
+
 const MODALIDADES: Record<string, string> = {
     comodato: "Comodato",
     consumible_cobro: "Se cobra al cliente",
@@ -532,7 +552,7 @@ function ContenidoBodega({ bodega }: { bodega: DatosBodega }) {
                             {unidades.map((u) => (
                                 <li key={u.id} className="grid gap-0.5">
                                     <span className="font-medium">{u.descripcion}</span>
-                                    <span className="break-all font-mono text-xs text-muted-foreground">
+                                    <span className="font-mono text-xs break-words text-muted-foreground">
                                         {u.serie}
                                         {u.mac ? ` · ${u.mac}` : ""}
                                         {u.estado ? ` · ${u.estado.replaceAll("_", " ")}` : ""}
@@ -558,8 +578,8 @@ function ContenidoBodega({ bodega }: { bodega: DatosBodega }) {
                                         <span className="min-w-0 break-words font-medium">{m.descripcion}</span>
                                         <span className="font-semibold tabular-nums">{m.cantidad.toLocaleString("es-GT")}</span>
                                     </div>
-                                    <span className="text-xs text-muted-foreground first-letter:uppercase">
-                                        {m.tipo.replaceAll("_", " ")}
+                                    <span className="text-xs text-muted-foreground">
+                                        {mayuscula(m.tipo.replaceAll("_", " "))}
                                         {m.referencia ? ` · ${m.referencia}` : ""}
                                         {m.ocurridoEn ? ` · ${formatearFecha(m.ocurridoEn)}` : ""}
                                     </span>

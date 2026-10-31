@@ -29,11 +29,11 @@ export interface EstadoPaso {
 const INSTALAN: ReadonlySet<TipoOrden> = new Set<TipoOrden>(["instalacion", "cambio_equipo"]);
 const RETIRAN: ReadonlySet<TipoOrden> = new Set<TipoOrden>(["retiro", "cambio_equipo"]);
 
-type OrdenPasos = Pick<OrdenVista, "estado" | "tipo" | "enSitioEn" | "checklist" | "formularios" | "equipos" | "materiales" | "adjuntos" | "firma" | "requiereFirma">;
+type OrdenPasos = Pick<OrdenVista, "estado" | "tipo" | "enSitioEn" | "pausadaDesde" | "checklist" | "formularios" | "equipos" | "materiales" | "adjuntos" | "firma" | "requiereFirma">;
 
 /** ¿Ya llegó al sitio? (en sitio, pausada en sitio o terminada después de llegar). */
-export function llego(orden: Pick<OrdenVista, "estado" | "enSitioEn">): boolean {
-    return orden.estado === "en_sitio" || orden.estado === "cerrada" || orden.enSitioEn !== null;
+export function llego(orden: Pick<OrdenVista, "estado" | "enSitioEn" | "pausadaDesde">): boolean {
+    return orden.estado === "en_sitio" || orden.estado === "cerrada" || (orden.estado === "pausada" && orden.pausadaDesde === "en_sitio") || Boolean(orden.enSitioEn);
 }
 
 function faltanChecklist(orden: OrdenPasos): string[] {

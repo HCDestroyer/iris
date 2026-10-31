@@ -25,6 +25,7 @@ import {
     type Traslado,
 } from "./index";
 import { montar } from "./pruebas/montaje";
+import { vaciarPromesas } from "./pruebas/reloj-manual";
 
 // traslado.recibir (contratos/sync.md §2 y §3): no es de una orden y no entra en las operaciones del motor.
 describe("traslado.recibir", () => {
@@ -159,6 +160,20 @@ describe("motor: traslado.recibir", () => {
         await motor.sincronizar();
         expect(motor.obtenerEstado().adjuntos.find((x) => x.id === r.adjunto.id)?.estado).toBe("subido");
         expect(transporte.lotes.flatMap((l) => l.operaciones ?? []).some((o) => o.id === r.operacion.id)).toBe(true);
+    });
+
+    it("con el bucle andando, la firma en espera se reintenta al vencer su espera (no al minuto)", async () => {
+        const { motor, transporte, subidor, reloj } = await montar({ espera: { baseMs: 2000, maximoMs: 60_000, azar: () => 0 }, intervaloMs: 60_000 });
+        const r = await motor.recibirTraslado({ trasladoId: 52, firma: FIRMA });
+        subidor.rechazarAlta = new ErrorTransporte("http", "No existe", 404, problema("traslado_no_encontrado", 404));
+        motor.iniciar();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().adjuntos.find((x) => x.id === r.adjunto.id)?.estado).toBe("por_crear");
+        await reloj.avanzar(1000);
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().adjuntos.find((x) => x.id === r.adjunto.id)?.estado).toBe("subido");
+        expect(transporte.lotes.flatMap((l) => l.operaciones ?? []).some((o) => o.id === r.operacion.id)).toBe(true);
+        motor.detener();
     });
 
     it("la firma con 404 pasadas 24 h queda rechazada", async () => {

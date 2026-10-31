@@ -26,6 +26,14 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     pendientes, sin datos del servidor, y la app no los muestra sin entrar. Sin señal no navega a
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
+- **Navegación (fase 4):** barra inferior Hoy · Por recibir · Pendientes · Yo; cada vista y cada
+  paso con su URL (`lib/campo/vista.ts`). La barra de estado es un punto con todo enviado y crece
+  solo cuando hace falta (por enviar, rechazos, sesión vencida, empresa no válida).
+- **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
+  equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
+- **Por recibir y Mi bodega:** traslados de Argos (`GET /campo/inventario/traslados?estado=enviado`)
+  con recepción firmada por el técnico (`traslado.recibir` en la cola) y la bodega del técnico
+  (`GET /campo/inventario/mi-bodega`), solo con señal y en memoria mientras la app está abierta.
 - **Mis órdenes del día** en orden de ruta publicada (`ruta.ordenIds` del paquete, cuando I2 la
   publique), con la «Llegada estimada» de cada parada (y si queda fuera de la ventana) y el aviso
   «Tu ruta cambió» si está `desactualizada`; sin ruta, por la hora de la cita de la agenda

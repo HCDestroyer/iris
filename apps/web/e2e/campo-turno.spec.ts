@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, problema, simularApiCampo, type ApiCampo } from "./api-campo";
+import { empezarTrabajo, irAPaso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -106,6 +107,7 @@ test.describe("en el teléfono", () => {
         await expect(indicador(page)).toHaveText("Fuera de turno · empieza 08:00");
 
         await page.getByRole("link", { name: /OT-000101/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "En camino" }).click();
         await expect(notificacion(page)).toContainText("En camino, con ubicación. Turno iniciado: se envía tu ubicación cada minuto");
         await expect(indicador(page)).toHaveText("Ubicación activa · En turno fuera de horario");
@@ -136,10 +138,12 @@ test.describe("en el teléfono", () => {
 
         // Llega a OT-000102 y la cierra; OT-000101, 103 y 104 quedan programadas sin tocar.
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "Llegué" }).click();
+        await irAPaso(page, "Checklist");
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
-        await page.getByRole("button", { name: "Cerrar orden" }).click();
-        await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
+        await irAPaso(page, "Firma del cliente y cierre");
+        await page.getByRole("button", { name: /^(Firmar y cerrar orden|Cerrar orden)$/ }).click();
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
         await expect(indicador(page)).toHaveText("Ubicación activa · En turno hasta 17:00");
 
@@ -160,6 +164,7 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page, { turno: (f) => (f === DIA ? turnoDe([tramo(GT("08:00"), GT("17:00"))]) : undefined) });
         await abrirCampo(page);
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "Llegué" }).click();
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("en_sitio");
 

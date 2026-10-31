@@ -75,6 +75,8 @@ export interface ApiCampo {
     firmaTrasladoNoLlega: number;
     /** Si no es null, GET /campo/inventario/mi-bodega responde con este problema. */
     fallarBodega: Problema | null;
+    /** Mientras sea true, `traslado.recibir` responde 503 `traslado_sin_confirmar` (Argos no contesta). */
+    trasladoSinConfirmar: boolean;
 }
 
 /** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
@@ -156,6 +158,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         recepciones: [],
         firmaTrasladoNoLlega: 0,
         fallarBodega: null,
+        trasladoSinConfirmar: false,
         limitarPosiciones: (veces, retryAfter = 20) => {
             limite429.veces = veces;
             limite429.retryAfter = retryAfter;
@@ -178,6 +181,9 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         if (i >= 0) {
             const [r] = pendientesRechazo.splice(i, 1);
             return { id: op.id, estado: "rechazada", error: r?.problema ?? problema("validacion", 422, "Inválido") };
+        }
+        if (api.trasladoSinConfirmar) {
+            return { id: op.id, estado: "rechazada", error: problema("traslado_sin_confirmar", 503, "Argos no respondió") };
         }
         const t = api.traslados.get(d.trasladoId);
         if (!t || t.estado !== "enviado") {
