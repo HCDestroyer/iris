@@ -3,3 +3,19 @@
 
 /* Clases de Tailwind usadas en los componentes de @iris/ui (fuente TS, fuera de esta app). */
 @source "../../../packages/ui/src";
+
+/*
+ * Formularios en pantalla propia (`FormularioPagina`, fase 2): la barra de guardar queda fija al
+ * pie. En el teléfono la barra inferior de navegación se oculta mientras tanto (para salir están
+ * las migas, «Cancelar» y «Atrás», que preguntan si hay cambios) y el contenido no reserva su
+ * espacio. Lo que se enfoca o se desplaza a la vista no queda debajo de la barra de guardar.
+ */
+html:has([data-slot="formulario-pagina"]) {
+    scroll-padding-bottom: 7rem;
+}
+body:has([data-slot="formulario-pagina"]) [data-slot="barra-inferior"] {
+    display: none;
+}
+body:has([data-slot="formulario-pagina"]) #contenido {
+    padding-bottom: 0;
+}

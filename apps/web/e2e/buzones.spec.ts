@@ -41,8 +41,9 @@ test.describe("buzones de correo", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/buzones");
-        await page.getByRole("button", { name: "Nuevo buzón" }).click();
-        const d = page.getByRole("dialog");
+        await page.getByRole("link", { name: "Nuevo buzón" }).click();
+        await expect(page).toHaveURL(/\/administracion\/buzones\/nuevo$/);
+        const d = page.getByRole("form", { name: "Nuevo buzón" });
         await d.getByRole("button", { name: "Crear buzón" }).click();
         await expect(d.getByText("Escribe un nombre")).toBeVisible();
         await expect(d.getByText("Escribe la contraseña IMAP")).toBeVisible();
@@ -59,14 +60,17 @@ test.describe("buzones de correo", () => {
         // STARTTLS cambia el puerto habitual (993 → 143).
         await d.getByLabel("Cifrado", { exact: true }).selectOption("starttls");
         await expect(d.getByLabel("Puerto", { exact: true })).toHaveValue("143");
-        await d.getByLabel("Servidor SMTP").fill("smtp.isp.gt");
-        await d.getByLabel("Usuario SMTP").fill("ventas@isp.gt");
-        await d.getByLabel("Contraseña SMTP").fill("clave-smtp");
         await d.getByLabel("authserv-id del servidor de correo").fill("mx.isp.gt");
         await expect(d.getByText("Sin authserv-id no se verifica a nadie")).toHaveCount(0);
         await d.getByLabel("Prioridad por defecto").selectOption("alta");
+        // Paso 2: la salida por SMTP.
+        await d.getByRole("tab", { name: "2. Enviar" }).click();
+        await d.getByLabel("Servidor SMTP").fill("smtp.isp.gt");
+        await d.getByLabel("Usuario SMTP").fill("ventas@isp.gt");
+        await d.getByLabel("Contraseña SMTP").fill("clave-smtp");
         await d.getByRole("button", { name: "Crear buzón" }).click();
         await expect(d).toHaveCount(0);
+        await expect(page).toHaveURL(/\/administracion\/buzones$/);
 
         const nuevo = tarjeta(page, "ventas@isp.gt");
         await expect(nuevo).toContainText("Inactivo");
@@ -88,8 +92,9 @@ test.describe("buzones de correo", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/buzones");
-        await tarjeta(page, "soporte@isp.gt").getByRole("button", { name: "Editar" }).click();
-        const d = page.getByRole("dialog");
+        await tarjeta(page, "soporte@isp.gt").getByRole("link", { name: "Editar" }).click();
+        await expect(page).toHaveURL(/\/administracion\/buzones\/1\/editar$/);
+        const d = page.getByRole("form", { name: /^Editar / });
         await expect(d.getByLabel("Contraseña IMAP")).toHaveValue("");
         await expect(d.getByText("Déjala vacía para conservar la guardada. Nunca se muestra.").first()).toBeVisible();
 
@@ -114,8 +119,9 @@ test.describe("buzones de correo", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/administracion/buzones");
-        await tarjeta(page, "soporte@isp.gt").getByRole("button", { name: "Editar" }).click();
-        const d = page.getByRole("dialog");
+        await tarjeta(page, "soporte@isp.gt").getByRole("link", { name: "Editar" }).click();
+        await expect(page).toHaveURL(/\/administracion\/buzones\/1\/editar$/);
+        const d = page.getByRole("form", { name: /^Editar / });
         api.cambiarVersionBuzon(1);
         await d.getByLabel("Nombre").fill("Soporte técnico");
         await d.getByRole("button", { name: "Guardar cambios" }).click();
@@ -182,13 +188,14 @@ test.describe("buzones de correo", () => {
         await expect(soporte.getByText(/alcance global/)).toBeVisible();
         await page.screenshot({ path: path.join(carpeta, `22-buzon-403-${info.project.name}.png`), fullPage: true });
 
-        await page.getByRole("button", { name: "Nuevo buzón" }).click();
-        const d = page.getByRole("dialog");
+        await page.getByRole("link", { name: "Nuevo buzón" }).click();
+        const d = page.getByRole("form", { name: "Nuevo buzón" });
         await d.getByLabel("Nombre").fill("Ventas");
         await d.getByLabel("Dirección").fill("ventas@isp.gt");
         await d.getByLabel("Servidor IMAP").fill("imap.isp.gt");
         await d.getByLabel("Usuario IMAP").fill("ventas");
         await d.getByLabel("Contraseña IMAP").fill("x");
+        await d.getByRole("tab", { name: "2. Enviar" }).click();
         await d.getByLabel("Enviar las respuestas por correo").uncheck();
         await d.getByRole("button", { name: "Crear buzón" }).click();
         await expect(d.getByText("Tu permiso no alcanza para administrar buzones")).toBeVisible();
@@ -210,15 +217,16 @@ test("capturas de buzones", async ({ page, context, baseURL }, info) => {
     await expect(tarjeta(page, "soporte@isp.gt").getByTestId("resultado-prueba")).toBeVisible();
     await page.screenshot({ path: nombre("18-buzones"), fullPage: true });
 
-    await page.getByRole("button", { name: "Nuevo buzón" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Crear buzón" }).click();
+    await page.getByRole("link", { name: "Nuevo buzón" }).click();
+    await page.getByRole("form", { name: "Nuevo buzón" }).getByRole("button", { name: "Crear buzón" }).click();
     await page.screenshot({ path: nombre("19-buzon-alta") });
-    await page.keyboard.press("Escape");
 
-    await tarjeta(page, "soporte@isp.gt").getByRole("button", { name: "Editar" }).click();
-    await page.getByRole("dialog").getByLabel("Usuario IMAP").fill("otro@isp.gt");
-    await page.getByRole("dialog").getByRole("button", { name: "Guardar cambios" }).click();
-    await expect(page.getByRole("dialog").getByText("escribe la contraseña de nuevo", { exact: false }).first()).toBeVisible();
-    await page.getByRole("dialog").getByLabel("Contraseña IMAP").scrollIntoViewIfNeeded();
+    await page.goto("/administracion/buzones");
+    await tarjeta(page, "soporte@isp.gt").getByRole("link", { name: "Editar" }).click();
+    const edicion = page.getByRole("form", { name: /^Editar / });
+    await edicion.getByLabel("Usuario IMAP").fill("otro@isp.gt");
+    await edicion.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(edicion.getByText("escribe la contraseña de nuevo", { exact: false }).first()).toBeVisible();
+    await edicion.getByLabel("Contraseña IMAP").scrollIntoViewIfNeeded();
     await page.screenshot({ path: nombre("20-buzon-edicion") });
 });

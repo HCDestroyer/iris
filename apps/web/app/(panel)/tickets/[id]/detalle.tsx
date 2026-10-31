@@ -13,15 +13,13 @@ import {
     TarjetaEncabezado,
     TarjetaTitulo,
 } from "@iris/ui";
-import { GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
+import { ClipboardPlus, GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FichaCliente } from "@/componentes/clientes/ficha-cliente";
 import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { DialogoCrearOrden } from "@/componentes/ordenes/crear-orden";
-import { DialogoCrearOrdenTicket } from "@/componentes/ordenes/crear-orden-ticket";
 import { OrdenesDelTicket } from "@/componentes/ordenes/ordenes-ticket";
 import { nombreCategoria, nombreUsuario, useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
 import { PropuestaResolucion } from "@/componentes/tickets/propuesta-resolucion";
@@ -185,10 +183,13 @@ function Detalle({ id }: { id: number }) {
                         }}
                         recargar={refrescarTodo}
                     />
-                    {t.estado === "cerrado" ? null : puede(["tickets.crear_orden"]) ? (
-                        <DialogoCrearOrdenTicket ticket={t} usuarios={listaUsuarios} />
-                    ) : puede(["ordenes.crear"]) ? (
-                        <DialogoCrearOrden ticket={{ id: t.id, numero: t.numero, asunto: t.asunto }} />
+                    {t.estado === "cerrado" ? null : puede(["ordenes.crear"]) ? (
+                        <Boton asChild variante="secundario" tamano="sm">
+                            <Link href={`/ordenes/nueva?ticket=${t.id}`}>
+                                <ClipboardPlus />
+                                {puede(["tickets.crear_orden"]) ? "Crear orden y asignar" : "Crear orden"}
+                            </Link>
+                        </Boton>
                     ) : null}
                 </div>
             </header>

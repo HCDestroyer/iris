@@ -32,7 +32,23 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/plantillas/nueva": "Nueva plantilla",
     "/administracion/roles": "Roles y permisos",
     "/administracion/roles/nuevo": "Nuevo rol",
+    "/administracion/buzones/nuevo": "Nuevo buzón",
+    // Formularios en pantalla propia (fase 2).
+    "/tickets/nuevo": "Nuevo ticket",
+    "/ordenes/nueva": "Nueva orden",
+    "/usuarios/nuevo": "Nuevo usuario",
+    "/tecnicos/nuevo": "Nuevo técnico",
+    "/comercial/nuevo": "Nuevo prospecto",
 };
+
+/** Pantallas dentro de una ficha (editar, cotización…): la ficha de arriba lleva el nombre del registro. */
+const SUBPANTALLAS: readonly (readonly [RegExp, string])[] = [
+    [/^\/usuarios\/[^/]+\/editar$/, "Editar"],
+    [/^\/tecnicos\/[^/]+\/editar$/, "Editar"],
+    [/^\/tecnicos\/[^/]+\/ausencias\/nueva$/, "Nueva ausencia"],
+    [/^\/comercial\/[^/]+\/cotizacion$/, "Cotización"],
+    [/^\/administracion\/buzones\/[^/]+\/editar$/, "Editar buzón"],
+];
 
 /** Fichas: la etiqueta mientras no se conoce el nombre del registro. */
 const FICHAS: readonly (readonly [RegExp, string])[] = [
@@ -45,12 +61,15 @@ const FICHAS: readonly (readonly [RegExp, string])[] = [
     [/^\/administracion\/roles\/[^/]+$/, "Rol"],
 ];
 
-function etiqueta(ruta: string, nombre: string | null | undefined, ultima: boolean): string | undefined {
+/** `conNombre`: este tramo es la ficha del registro cuyo nombre se conoce (la última ficha de la ruta). */
+function etiqueta(ruta: string, nombre: string | null | undefined, conNombre: boolean): string | undefined {
     const fija = ETIQUETAS[ruta];
     if (fija) return fija;
+    const sub = SUBPANTALLAS.find(([patron]) => patron.test(ruta));
+    if (sub) return sub[1];
     const ficha = FICHAS.find(([patron]) => patron.test(ruta));
     if (!ficha) return undefined;
-    return ultima && nombre ? nombre : ficha[1];
+    return conNombre && nombre ? nombre : ficha[1];
 }
 
 /**
@@ -63,10 +82,15 @@ export function migasDeRuta(ruta: string, nombre?: string | null): Miga[] {
     if (limpia === "/") return [{ etiqueta: "Inicio" }];
     const tramos = limpia.split("/").filter(Boolean);
     const migas: Miga[] = [];
-    tramos.forEach((_, i) => {
-        const prefijo = `/${tramos.slice(0, i + 1).join("/")}`;
+    const prefijos = tramos.map((_, i) => `/${tramos.slice(0, i + 1).join("/")}`);
+    // El nombre va en la ficha más profunda («Usuarios › Ana López › Editar»).
+    let ultimaFicha = -1;
+    prefijos.forEach((p, i) => {
+        if (!ETIQUETAS[p] && FICHAS.some(([patron]) => patron.test(p))) ultimaFicha = i;
+    });
+    prefijos.forEach((prefijo, i) => {
         const ultima = i === tramos.length - 1;
-        const texto = etiqueta(prefijo, nombre, ultima);
+        const texto = etiqueta(prefijo, nombre, i === ultimaFicha);
         if (texto) migas.push(ultima ? { etiqueta: texto } : { etiqueta: texto, href: prefijo });
     });
     return migas;

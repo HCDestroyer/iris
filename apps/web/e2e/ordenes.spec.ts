@@ -215,8 +215,9 @@ test.describe("acciones del panel", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/ordenes");
-        await page.getByRole("button", { name: "Nueva orden" }).click();
-        const dialogo = page.getByRole("dialog", { name: "Nueva orden" });
+        await page.getByRole("link", { name: "Nueva orden" }).click();
+        await expect(page).toHaveURL(/\/ordenes\/nueva$/);
+        const dialogo = page.getByRole("form", { name: "Nueva orden" });
         // Sin cliente ni dirección no se puede guardar, y se explica junto al botón.
         await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
         await expect(dialogo.getByRole("button", { name: "Crear orden" })).toHaveAccessibleDescription("Elige el cliente o escribe la dirección para crear la orden.");

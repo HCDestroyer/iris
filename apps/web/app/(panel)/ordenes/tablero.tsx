@@ -1,11 +1,11 @@
 "use client";
 
-import { CampoSelector, Entrada, Etiqueta, GrupoSegmentado, Tarjeta } from "@iris/ui";
-import { Columns3, List, Search } from "lucide-react";
+import { Boton, CampoSelector, Entrada, Etiqueta, GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { Columns3, List, Plus, Search } from "lucide-react";
+import Link from "next/link";
 import { useId, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { tecnicosDe, usePendientesAbiertos } from "@/componentes/ordenes/catalogos";
-import { DialogoCrearOrden } from "@/componentes/ordenes/crear-orden";
 import { useUsuarios } from "@/componentes/tickets/catalogos";
 import { escribirLocal, leerLocal } from "@/lib/almacen";
 import { useDiferido } from "@/lib/diferido";
@@ -40,7 +40,16 @@ export function Tablero() {
             <EncabezadoPagina
                 titulo="Órdenes"
                 descripcion={soloPropias ? "Las órdenes asignadas a ti." : "Instalaciones, visitas, retiros y cambios de equipo."}
-                acciones={puede(["ordenes.crear"]) ? <DialogoCrearOrden /> : null}
+                acciones={
+                    puede(["ordenes.crear"]) ? (
+                        <Boton asChild>
+                            <Link href="/ordenes/nueva">
+                                <Plus />
+                                Nueva orden
+                            </Link>
+                        </Boton>
+                    ) : null
+                }
             />
 
             <Tarjeta className="mb-4 grid grid-cols-2 gap-3 p-4 lg:grid-cols-[minmax(12rem,1.3fr)_repeat(5,minmax(0,1fr))]">
