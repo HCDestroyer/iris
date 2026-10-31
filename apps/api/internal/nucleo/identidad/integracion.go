@@ -70,7 +70,7 @@ func (m *Modulo) PrepararIntegracion(ctx context.Context, in EntradaPrepararInte
 		nombre = nombresIntegracion[in.Sistema]
 	}
 	salida := IntegracionPreparada{}
-	u, err := m.CrearUsuario.Ejecutar(ctx, EntradaCrearUsuario{
+	u, err := m.CrearUsuario.Ejecutar(conIntegracionInterna(ctx), EntradaCrearUsuario{
 		Nombre: nombre, Correo: correo, Tipo: "integracion", Roles: []AsignacionRol{{Rol: rol}}, Empresas: in.Empresas,
 	})
 	switch {
@@ -162,7 +162,7 @@ func (m *Modulo) EmitirTokenCanje(ctx context.Context, sistema string, expira ti
 		if err != nil {
 			return 0, "", err
 		}
-		if u, err = m.CrearUsuario.Ejecutar(ctx, EntradaCrearUsuario{
+		if u, err = m.CrearUsuario.Ejecutar(conIntegracionInterna(ctx), EntradaCrearUsuario{
 			Nombre: nombresIntegracion[sistema], Correo: correo, Tipo: "integracion", Roles: []AsignacionRol{{Rol: rol}}, Empresas: empresas,
 		}); err != nil {
 			return 0, "", err
@@ -224,4 +224,18 @@ func (m *Modulo) RevocarTokenIntegracion(ctx context.Context, id int64, motivo s
 		return nil
 	}
 	return err
+}
+
+// claveIntegracionInterna marca en el contexto la creación del usuario de integración desde
+// PrepararIntegracion o EmitirTokenCanje (consola o canje del conector). No sale de ninguna
+// entrada HTTP: por POST /usuarios la re-autenticación se exige siempre.
+type claveIntegracionInterna struct{}
+
+func conIntegracionInterna(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveIntegracionInterna{}, true)
+}
+
+func esIntegracionInterna(ctx context.Context) bool {
+	v, _ := ctx.Value(claveIntegracionInterna{}).(bool)
+	return v
 }

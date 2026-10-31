@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	soportebd "github.com/HCDestroyer/iris/apps/api/internal/soporte/bd"
 )
 
@@ -77,6 +78,8 @@ type Ticket struct {
 	// Propuesta: Horus avisó que el problema terminó, o se cerró la orden de trabajo del
 	// ticket; un agente decide (resolver o cerrar).
 	Propuesta *PropuestaTicket `json:"propuesta,omitempty" doc:"Propuesta pendiente: de Horus (el router volvió, el hallazgo se resolvió) o del cierre de su orden de trabajo; se descarta al cambiar de estado"`
+	// DatosArgos: la copia de Argos con la que se creó (solo en el detalle).
+	DatosArgos *argos.CopiaArgos `json:"datosArgos,omitempty" doc:"Solo en el detalle (GET /tickets/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear el ticket (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"`
 }
 
 // IncidenteHorus describe de dónde viene un ticket abierto por Horus.

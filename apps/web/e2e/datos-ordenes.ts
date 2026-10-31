@@ -1,4 +1,5 @@
 import type { Schema } from "@iris/contratos";
+import { copiaArgos } from "./datos-tickets";
 
 /*
  * Fixtures de órdenes, adjuntos y pendientes hacia Argos para la API falsa, tipados con
@@ -161,6 +162,7 @@ export function escenarioOrdenes(ahora: number, empresas: readonly number[]): Es
             ticketId: 1,
             clienteId: 501,
             servicioId: 5010,
+            datosArgos: copiaArgos(501, 5010),
             tecnicoId: TECNICO_ID,
             bodegaId: 30,
             direccion: "4a calle 3-21, zona 1",

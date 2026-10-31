@@ -19,7 +19,17 @@ export {
     TIPOS_EVIDENCIA,
 } from "./aplicar";
 export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
-export { CABECERA_CANAL, crearSubidorApi, crearTransporteApi, crearTransportePosicionesApi } from "./http";
+export {
+    CABECERA_APP,
+    CABECERA_CANAL,
+    CABECERA_PENDIENTES,
+    cabecerasApp,
+    crearSubidorApi,
+    crearTransporteApi,
+    crearTransportePosicionesApi,
+    valorCabeceraApp,
+    type IdentidadApp,
+} from "./http";
 export type { AdjuntoLocal, EstadoOperacionLocal, EstadoSubida, AvisoServidor, MetaSync, OperacionLocal, OrdenLocal, TurnoDelDia } from "./modelo";
 export {
     CODIGO_BLOQUEADA,

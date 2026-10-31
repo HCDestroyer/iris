@@ -220,7 +220,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
+	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}})
 	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	almacen, err := almacenAdjuntos(cfg)
@@ -241,7 +241,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
-	cmp := campo.Nuevo(campo.Config{Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop,
 		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar

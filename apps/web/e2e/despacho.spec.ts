@@ -47,7 +47,7 @@ async function abrirMover(page: Page, info: TestInfo, numero: string) {
 async function entrarAgenda(page: Page, baseURL: string | undefined, correo = ADMIN.correo) {
     await page.context().clearCookies();
     await conSesion(page.context(), baseURL ?? "", correo);
-    await page.goto("/agenda");
+    await page.goto("/agenda?vista=dia");
     await expect(cita(page, "OT-000003")).toBeVisible();
 }
 
@@ -62,7 +62,12 @@ test.describe("agenda", () => {
         await expect(page).toHaveURL(/\/agenda$/);
         await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
 
+        // Abre en el mes; tocar hoy abre el detalle del día.
         const hoy = hoyGt();
+        await expect(page.getByRole("radio", { name: "Mes" })).toBeChecked();
+        await page.locator(`[data-dia="${hoy}"]`).filter({ visible: true }).click();
+        await expect(page).toHaveURL(/vista=dia/);
+        await expect(cita(page, "OT-000003")).toBeVisible();
         const consulta = ultima(api, "/api/v1/agenda")?.query;
         expect(consulta?.get("desde")).toBe(utc(hoy, "00:00"));
         expect(consulta?.get("hasta")).toBe(new Date(Date.parse(utc(hoy, "00:00")) + 86_400_000).toISOString().replace(".000Z", "Z"));
@@ -308,7 +313,7 @@ test.describe("agenda", () => {
         const api = await simularApi(page, { despacho: true });
         api.responderProblema("/api/v1/agenda", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/agenda");
+        await page.goto("/agenda?vista=dia");
         await expect(avisoError(page)).toContainText("No se pudo cargar la agenda");
         await expect(page.locator("[data-cita]")).toHaveCount(0);
         await expect(page.locator("[data-fila-tecnico]")).toHaveCount(0);
@@ -319,7 +324,7 @@ test.describe("agenda", () => {
     test("sin permisos de órdenes: citas de solo lectura y sin bandeja; sin agenda.ver, sin acceso", async ({ page, context, baseURL }, info) => {
         await simularApi(page, { despacho: true });
         await conSesion(context, baseURL ?? "", CONSULTA.correo);
-        await page.goto("/agenda");
+        await page.goto("/agenda?vista=dia");
         await expect(cita(page, "OT-000003")).toBeVisible();
         await expect(page.getByRole("button", { name: /Mover a…/ })).toHaveCount(0);
         if (!enTelefono(info)) await expect(cita(page, "OT-000003")).toHaveAttribute("href", "/ordenes/3");

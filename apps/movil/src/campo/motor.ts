@@ -11,12 +11,14 @@ import {
     crearTransportePosicionesApi,
     ErrorTransporte,
     MotorSync,
+    type IdentidadApp,
     type Transporte,
 } from "@iris/sync";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
 import * as Crypto from "expo-crypto";
 import { deleteDatabaseAsync, openDatabaseAsync } from "expo-sqlite";
 import { Platform } from "react-native";
+import { VERSION_APP } from "../api/version";
 import { cliente, verificarDueno } from "../sesion/sesion";
 
 export interface ClaveMotor {
@@ -76,10 +78,13 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
             throw e;
         }
     };
+    // X-Iris-Pendientes en cada envío (la cola local); X-Iris-App ya lo pone el cliente.
+    let abierto: MotorSync | null = null;
+    const app: IdentidadApp = { version: VERSION_APP, plataforma: Platform.OS, pendientes: () => abierto?.obtenerEstado().pendientes ?? null };
     const motor = await MotorSync.abrir({
         almacen,
-        transporte: conConfirmacion(crearTransporteApi(api), alConfirmarServidor),
-        subidor: crearSubidorApi(api),
+        transporte: conConfirmacion(crearTransporteApi(api, app), alConfirmarServidor),
+        subidor: crearSubidorApi(api, app),
         plataforma: Platform.OS,
         sha256: sha256Hex,
         generarId: crearGeneradorUuid7(Date.now, (bytes) => {
@@ -87,9 +92,10 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         }),
         verificarIdentidad,
     });
+    abierto = motor;
     const posiciones = await ColaPosiciones.abrir({
         almacen,
-        transporte: crearTransportePosicionesApi(api),
+        transporte: crearTransportePosicionesApi(api, app),
         dispositivoId: motor.dispositivoId,
         verificarIdentidad,
     });

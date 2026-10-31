@@ -28,6 +28,7 @@ import {
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import type { Orden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
+import { useCierreSeguro } from "@/componentes/cierre-seguro";
 import { useAsignables } from "./datos";
 
 /** Destino elegido al soltar: técnico, día y minuto de Guatemala (`null` = no cambia la hora). */
@@ -62,7 +63,11 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
         resolver: zodResolver(esquemaMover(movible)),
         defaultValues: valoresIniciales(movible, destino, hoy, (conHora) => arrastrePermitido(movible, conHora, puede) !== null),
     });
-    const [tecnicoTexto, soloAsignar, fecha, hora] = useWatch({ control: form.control, name: ["tecnicoId", "soloAsignar", "fecha", "hora"] });
+    const [tecnicoTexto, soloAsignar, fecha, hora, motivoTexto] = useWatch({ control: form.control, name: ["tecnicoId", "soloAsignar", "fecha", "hora", "motivo"] });
+    // Técnico, día y hora son selecciones: sin ellas el botón queda deshabilitado y el campo lo dice.
+    const vivos = camposFaltantes(esquemaMover(movible).safeParse({ tecnicoId: tecnicoTexto, soloAsignar, fecha, hora, motivo: motivoTexto }));
+    const faltaSeleccion = Object.keys(vivos).length > 0;
+    const { pedirCierre, confirmacion } = useCierreSeguro(form.formState.isDirty, alCerrar);
     const accion = accionMover(movible.estado, !soloAsignar);
     const permitido = accion !== null && puede([PERMISO_MOVER[accion]]);
     const puedeSoloAsignar = arrastrePermitido(movible, false, puede) !== null;
@@ -126,7 +131,7 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
     const desconocido = tecnicoId !== null && !opciones.some((o) => o.usuarioId === tecnicoId);
 
     return (
-        <Dialogo open onOpenChange={(a) => !a && alCerrar()}>
+        <Dialogo open onOpenChange={(a) => !a && pedirCierre()}>
             <DialogoContenido titulo={`Mover a… · ${movible.numero}`} descripcion={movible.direccion || "Sin dirección"}>
                 <div className="flex flex-wrap items-center gap-2">
                     <InsigniaEstadoOrden estado={movible.estado} />
@@ -151,7 +156,7 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
                     </Aviso>
                 ) : null}
                 <form noValidate className="grid gap-4" onSubmit={form.handleSubmit(enviar)} aria-label={titulo}>
-                    <CampoSelector etiqueta="Técnico" error={errores.tecnicoId?.message} {...form.register("tecnicoId")}>
+                    <CampoSelector etiqueta="Técnico" error={errores.tecnicoId?.message ?? vivos.tecnicoId} {...form.register("tecnicoId")}>
                         <option value="">Elige el técnico</option>
                         {desconocido ? <option value={tecnicoId}>{filas.find((f) => f.usuarioId === tecnicoId)?.nombre ?? `Técnico ${tecnicoId}`} (no asignable)</option> : null}
                         {opciones.map((o) => (
@@ -169,8 +174,8 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
                     ) : null}
                     {!soloAsignar ? (
                         <div className="grid grid-cols-2 gap-3">
-                            <Campo etiqueta="Día" type="date" error={errores.fecha?.message} {...form.register("fecha")} />
-                            <Campo etiqueta="Hora" type="time" step={900} error={errores.hora?.message} {...form.register("hora")} />
+                            <Campo etiqueta="Día" type="date" error={errores.fecha?.message ?? vivos.fecha} {...form.register("fecha")} />
+                            <Campo etiqueta="Hora" type="time" step={900} error={errores.hora?.message ?? vivos.hora} {...form.register("hora")} />
                         </div>
                     ) : null}
                     {!soloAsignar ? <p className="-mt-2 text-sm text-muted-foreground">Hora de Guatemala. Se conserva la duración de la cita.</p> : null}
@@ -239,12 +244,24 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
                                 Volver
                             </Boton>
                         </DialogoCerrar>
-                        <Boton type="submit" disabled={enviando || conflicto || bloqueado || !permitido || desaparecida}>
+                        <Boton type="submit" disabled={enviando || conflicto || bloqueado || faltaSeleccion || !permitido || desaparecida}>
                             {enviando ? "Enviando…" : accion ? TITULOS[accion] : "Mover"}
                         </Boton>
                     </DialogoPie>
                 </form>
+                {confirmacion}
             </DialogoContenido>
         </Dialogo>
     );
+}
+
+/** Mensajes de las selecciones que faltan (técnico, día, hora); el motivo se valida al enviar. */
+function camposFaltantes(r: ReturnType<ReturnType<typeof esquemaMover>["safeParse"]>): Partial<Record<"tecnicoId" | "fecha" | "hora", string>> {
+    const salida: Partial<Record<"tecnicoId" | "fecha" | "hora", string>> = {};
+    if (r.success) return salida;
+    for (const i of r.error.issues) {
+        const campo = i.path[0];
+        if ((campo === "tecnicoId" || campo === "fecha" || campo === "hora") && salida[campo] === undefined) salida[campo] = i.message;
+    }
+    return salida;
 }

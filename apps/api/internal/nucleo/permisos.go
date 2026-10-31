@@ -2,6 +2,7 @@ package nucleo
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -26,6 +27,16 @@ const (
 	PermTokensVer          Permiso = "tokens.ver"
 	PermTokensCrear        Permiso = "tokens.crear"
 	PermTokensRevocar      Permiso = "tokens.revocar" //nolint:gosec // nombre de permiso, no una credencial
+
+	// Roles propios (los base no se editan ni se desactivan) y su asignación con alcance.
+	PermRolesCrear             Permiso = "roles.crear"
+	PermRolesEditar            Permiso = "roles.editar"
+	PermRolesActivar           Permiso = "roles.activar"
+	PermRolesDesactivar        Permiso = "roles.desactivar"
+	PermUsuariosAsignarRol     Permiso = "usuarios.asignar_rol"
+	PermUsuariosQuitarRol      Permiso = "usuarios.quitar_rol"
+	PermAccesosVer             Permiso = "accesos.ver"
+	PermUsuariosCerrarSesiones Permiso = "usuarios.cerrar_sesiones"
 
 	// Soporte (I2): una acción explícita por permiso, POST /tickets/{id}/<acción>.
 	PermTicketsVer           Permiso = "tickets.ver"
@@ -89,6 +100,9 @@ const (
 	PermCampoSincronizar         Permiso = "campo.sincronizar"
 	PermCampoRegistrarPosiciones Permiso = "campo.registrar_posiciones"
 	PermCampoVerPosiciones       Permiso = "campo.ver_posiciones"
+	// campo.ver_actividad: última conexión, sincronización, versión de la app y pendientes de cada
+	// técnico (Administración → Actividad de la app).
+	PermCampoVerActividad Permiso = "campo.ver_actividad"
 
 	// Agenda (I2): catálogos (zonas, cuadrillas, técnicos con turnos, ausencias y capacidad) y
 	// calendario de citas. Una acción explícita por permiso.
@@ -194,6 +208,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosCrear: true, PermUsuariosEditar: true, PermUsuariosDesactivar: true, PermUsuariosReiniciarMFA: true,
 	PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
 	PermTokensCrear: true, PermTokensRevocar: true,
+	PermRolesCrear: true, PermRolesEditar: true, PermRolesActivar: true, PermRolesDesactivar: true,
+	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
@@ -212,6 +228,7 @@ type DefPermiso struct {
 
 // Catalogo es la lista ordenada de todos los permisos.
 var Catalogo = []DefPermiso{
+	{PermAccesosVer, "Ver el historial de accesos (quién entró, cuándo, por qué canal y con qué resultado) y las sesiones activas de los usuarios"},
 	{PermAdjuntosSubir, "Registrar y subir adjuntos (fotos, firmas, documentos) de las órdenes y tickets que puedes trabajar"},
 	{PermAdjuntosVer, "Ver y descargar los adjuntos de las órdenes y tickets que puedes ver (lectura auditada)"},
 	{PermAgendaActivarCuadrilla, "Activar una cuadrilla"},
@@ -238,6 +255,7 @@ var Catalogo = []DefPermiso{
 	{PermBuzonesVer, "Ver los buzones de correo y su estado de lectura (nunca la contraseña)"},
 	{PermCampoRegistrarPosiciones, "Enviar la ubicación en vivo desde la app de campo (solo el técnico con sesión de campo)"},
 	{PermCampoSincronizar, "Usar la app de campo: paquete del día, cambios y lote de sincronización"},
+	{PermCampoVerActividad, "Ver la actividad de la app de campo de cada técnico: última conexión y sincronización, versión, pendientes y última ubicación (según el alcance)"},
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
@@ -295,6 +313,10 @@ var Catalogo = []DefPermiso{
 	{PermProspectosRegistrarActividad, "Registrar llamadas, visitas y notas de un prospecto"},
 	{PermProspectosVer, "Ver prospectos, su embudo, actividades, cotizaciones y contratos (según el alcance)"},
 	{PermReportesVer, "Ver los reportes de SLA, resolución, órdenes por técnico, primera visita y reincidencias (según el alcance; también en CSV)"},
+	{PermRolesActivar, "Volver a activar un rol propio desactivado"},
+	{PermRolesCrear, "Crear roles propios eligiendo sus permisos (solo los que tienes sin límite de alcance)"},
+	{PermRolesDesactivar, "Desactivar un rol propio: deja de dar permisos y de poder asignarse (los roles base no)"},
+	{PermRolesEditar, "Editar el nombre, la descripción y los permisos de un rol propio (los roles base no)"},
 	{PermRolesVer, "Ver roles y sus permisos"},
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
 	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
@@ -318,10 +340,13 @@ var Catalogo = []DefPermiso{
 	{PermTokensRevocar, "Revocar tokens de API"},
 	{PermTokensVer, "Ver tokens de API (nunca el valor)"},
 	{PermUsuariosAsignarEmpresa, "Asignar a un usuario una empresa en que operar (solo empresas en que operas tú)"},
+	{PermUsuariosAsignarRol, "Asignar un rol a un usuario, con alcance opcional por zona o cuadrilla"},
+	{PermUsuariosCerrarSesiones, "Cerrar las sesiones activas de otro usuario (una o todas)"},
 	{PermUsuariosCrear, "Crear usuarios y asignarles roles"},
 	{PermUsuariosDesactivar, "Desactivar usuarios (no se borran)"},
 	{PermUsuariosEditar, "Editar usuarios, su contraseña y sus roles"},
 	{PermUsuariosQuitarEmpresa, "Quitar a un usuario una empresa (solo empresas en que operas tú)"},
+	{PermUsuariosQuitarRol, "Quitar un rol (o una asignación con alcance) a un usuario"},
 	{PermUsuariosReiniciarMFA, "Reiniciar el MFA de otro usuario (borra su TOTP y cierra sus sesiones)"},
 	{PermUsuariosVer, "Ver y buscar usuarios"},
 }
@@ -360,7 +385,7 @@ var permisosAgenda = []Permiso{
 	PermAgendaCrearCuadrilla, PermAgendaEditarCuadrilla, PermAgendaActivarCuadrilla, PermAgendaDesactivarCuadrilla,
 	PermAgendaCrearTecnico, PermAgendaEditarTecnico, PermAgendaActivarTecnico, PermAgendaDesactivarTecnico,
 	PermAgendaFijarTurnos, PermAgendaFijarCapacidad, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
-	PermCampoVerPosiciones,
+	PermCampoVerPosiciones, PermCampoVerActividad,
 }
 
 // permisosRutas son los de rutas del día (despacho, supervisor).
@@ -390,7 +415,7 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
-			PermCampoVerPosiciones},
+			PermCampoVerPosiciones, PermCampoVerActividad},
 			slices.Concat(permisosOrdenes, permisosRutas)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
@@ -467,4 +492,33 @@ func (Permiso) Schema(r huma.Registry) *huma.Schema {
 		}
 	}
 	return &huma.Schema{Ref: "#/components/schemas/" + nombre}
+}
+
+// modulosPermiso agrupa los permisos por el prefijo de su código (`modulo.verbo`) en los módulos
+// que ve el administrador al armar un rol: código del módulo y nombre legible.
+var modulosPermiso = map[string][2]string{
+	"tickets": {"soporte", "Soporte (tickets)"}, "buzones": {"soporte", "Soporte (tickets)"},
+	"encuestas": {"encuestas", "Encuestas"},
+	"ordenes":   {"ordenes", "Órdenes de trabajo"}, "plantillas": {"ordenes", "Órdenes de trabajo"},
+	"adjuntos": {"ordenes", "Órdenes de trabajo"},
+	"campo":    {"campo", "App de campo"},
+	"agenda":   {"agenda", "Agenda y rutas"}, "rutas": {"agenda", "Agenda y rutas"},
+	"prospectos": {"comercial", "Comercial"}, "factibilidad": {"comercial", "Comercial"},
+	"cotizaciones": {"comercial", "Comercial"}, "contratos": {"comercial", "Comercial"},
+	"reportes": {"reportes", "Reportes"},
+	"clientes": {"integraciones", "Argos e integraciones"}, "integraciones": {"integraciones", "Argos e integraciones"},
+	"portal": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
+	"usuarios": {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
+	"tokens": {"usuarios", "Usuarios y accesos"},
+	"roles":  {"roles", "Roles y permisos"}, "permisos": {"roles", "Roles y permisos"},
+	"empresas": {"empresas", "Empresas"},
+}
+
+// ModuloDe devuelve el módulo (código y nombre legible) de un permiso.
+func ModuloDe(p Permiso) (codigo, nombre string) {
+	prefijo, _, _ := strings.Cut(string(p), ".")
+	if m, ok := modulosPermiso[prefijo]; ok {
+		return m[0], m[1]
+	}
+	return "otros", "Otros"
 }

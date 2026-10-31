@@ -11,8 +11,11 @@ import { useLectura, type Lectura } from "@/lib/lectura";
 import type { Orden, TipoOrden } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
 
-/** Filtros del despacho (ids del catálogo de agenda; `null` = todas). */
-export type FiltrosDespacho = { cuadrillaId: number | null; zonaId: number | null };
+/**
+ * Filtros del despacho (ids del catálogo de agenda; `null` = todas). `tecnicoId` (usuario) solo lo
+ * usa la agenda: filtra las filas y las citas, no las órdenes sin programar (son para cualquiera).
+ */
+export type FiltrosDespacho = { cuadrillaId: number | null; zonaId: number | null; tecnicoId?: number | null };
 
 const query = (f: FiltrosDespacho) => ({
     ...(f.cuadrillaId !== null ? { cuadrillaId: f.cuadrillaId } : {}),
@@ -48,15 +51,25 @@ export function useDatosAgenda(desde: Dia, dias: number, filtros: FiltrosDespach
     const { puede } = useSesion();
     const veOrdenes = puede(["ordenes.ver"]);
     const tecnicos = useLectura<Tecnicos>(async (signal) => {
-        const p = await resolver(api().GET("/api/v1/tecnicos", { params: { query: { activo: "true", limit: LIMITE_TECNICOS, ...query(filtros) } }, signal }));
+        const p = await resolver(
+            api().GET("/api/v1/tecnicos", {
+                params: { query: { activo: "true", limit: LIMITE_TECNICOS, ...query(filtros), ...(filtros.tecnicoId ? { usuarioId: filtros.tecnicoId } : {}) } },
+                signal,
+            }),
+        );
         return { lista: p.data ?? [], cortada: p.nextCursor !== null };
     });
-    const agenda = useLectura<Calendario>((signal) => resolver(api().GET("/api/v1/agenda", { params: { query: { ...rangoUtc(desde, dias), ...query(filtros) } }, signal })));
+    const agenda = useLectura<Calendario>((signal) =>
+        resolver(
+            api().GET("/api/v1/agenda", {
+                params: { query: { ...rangoUtc(desde, dias), ...query(filtros), ...(filtros.tecnicoId ? { tecnicoId: filtros.tecnicoId } : {}) } },
+                signal,
+            }),
+        ),
+    );
     const sinProgramar = useLectura(async (signal) => {
         if (!veOrdenes) return null;
-        const p = await resolver(
-            api().GET("/api/v1/ordenes", { params: { query: { estado: ["pendiente"], limit: LIMITE_SIN_PROGRAMAR, ...query(filtros) } }, signal }),
-        );
+        const p = await resolver(api().GET("/api/v1/ordenes", { params: { query: { estado: ["pendiente"], limit: LIMITE_SIN_PROGRAMAR, ...query(filtros) } }, signal }));
         return { ordenes: p.data ?? [], cortada: p.nextCursor !== null };
     });
     const refrescar = async () => {
@@ -67,10 +80,7 @@ export function useDatosAgenda(desde: Dia, dias: number, filtros: FiltrosDespach
 
 export type ConsultaAsignables = { fecha: Dia; tipo: TipoOrden; zonaId: number | null; ordenId: number | null };
 
-export type EstadoAsignables =
-    | { estado: "cargando" }
-    | { estado: "error"; error: ErrorApi | Error }
-    | { estado: "listo"; datos: RespuestaAsignables };
+export type EstadoAsignables = { estado: "cargando" } | { estado: "error"; error: ErrorApi | Error } | { estado: "listo"; datos: RespuestaAsignables };
 
 /** `GET /tecnicos/asignables` del día y la orden; se vuelve a leer al cambiar el día. */
 export function useAsignables(consulta: ConsultaAsignables | null): EstadoAsignables & { reintentar: () => void } {

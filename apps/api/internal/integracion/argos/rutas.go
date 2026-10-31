@@ -42,7 +42,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	ficha := conector.Operacion(etiquetaClientes, "obtenerFichaCliente", http.MethodGet, "/api/v1/clientes/{id}",
 		"Ficha del cliente: datos, servicios y estado de cuenta resumido", nucleo.PermClientesVer, http.StatusOK,
 		http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable)
-	ficha.Description += " Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo." + descConectorApagado
+	ficha.Description += " Lectura auditada. Refresca la instantánea si tiene más de 24 h, si es de una versión anterior de los datos o con `?refrescar=true` (si se leyó hace más de 30 s); si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo." + descConectorApagado
 	huma.Register(api, ficha, func(ctx context.Context, in *EntradaFicha) (*conector.Cuerpo[Ficha], error) {
 		return conector.Responder(m.ObtenerFicha.Ejecutar(ctx, *in))
 	})

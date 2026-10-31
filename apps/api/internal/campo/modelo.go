@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 )
 
 // Estados de la orden.
@@ -211,6 +212,8 @@ type OrdenDetalle struct {
 	Firma         *FirmaOrden       `json:"firma,omitempty" doc:"Ausente si no hay firma"`
 	Adjuntos      []AdjuntoOrden    `json:"adjuntos"`
 	Cita          *CitaOrden        `json:"cita,omitempty" doc:"Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"`
+	// DatosArgos: la copia de Argos con la que se creó (solo en GET /ordenes/{id}).
+	DatosArgos *argos.CopiaArgos `json:"datosArgos,omitempty" doc:"Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"`
 }
 
 // CitaOrden es la cita de la agenda de una orden programada.

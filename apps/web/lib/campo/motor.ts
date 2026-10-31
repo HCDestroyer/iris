@@ -15,6 +15,7 @@ import {
 import { AlmacenDexie } from "@iris/sync/dexie";
 import { useSyncExternalStore } from "react";
 import { crearClienteIris } from "@/lib/api/cliente";
+import { identidadPWA } from "./app";
 import { verificarDueno } from "./sesion";
 
 export interface ClaveMotor {
@@ -51,16 +52,20 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
             throw e;
         }
     };
+    // X-Iris-App y X-Iris-Pendientes en cada envío: la API registra versión y cola de este teléfono.
+    let abierto: MotorSync | null = null;
+    const app = identidadPWA(() => abierto?.obtenerEstado().pendientes ?? null);
     const motor = await MotorSync.abrir({
         almacen,
-        transporte: crearTransporteApi(cliente),
-        subidor: crearSubidorApi(cliente),
+        transporte: crearTransporteApi(cliente, app),
+        subidor: crearSubidorApi(cliente, app),
         plataforma: "pwa",
         verificarIdentidad,
     });
+    abierto = motor;
     const posiciones = await ColaPosiciones.abrir({
         almacen,
-        transporte: crearTransportePosicionesApi(cliente),
+        transporte: crearTransportePosicionesApi(cliente, app),
         dispositivoId: motor.dispositivoId,
         verificarIdentidad,
     });

@@ -91,6 +91,14 @@ se inyectan.
   403 de empresa, 404, 413…) deja el envío en pausa (`pausada`) hasta `reintentarAhora`.
   `detener()` cierra la cola (`cerrada`): `agregar` devuelve `false` hasta `iniciar()`. Estado para React con `suscribir` / `obtenerEstado` (`EstadoPosiciones`).
 
+- **App y pendientes** (`IdentidadApp`, `valorCabeceraApp`, `cabecerasApp`): con
+  `crearTransporteApi(cliente, app)`, `crearSubidorApi(cliente, app)` y
+  `crearTransportePosicionesApi(cliente, app)` cada petición lleva `X-Iris-App: campo/<versión>
+  (<plataforma>)` (`pwa`, `android`, `ios`) y, si `app.pendientes()` devuelve un entero,
+  `X-Iris-Pendientes: <n>` (operaciones sin enviar). La API las registra para Administración →
+  Actividad de la app y para el canal del historial de accesos (PWA o nativa). Sin `app`, no se
+  mandan (la API muestra «versión sin informar»).
+
 ## Uso (React)
 
 ```ts

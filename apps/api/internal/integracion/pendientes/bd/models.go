@@ -135,6 +135,7 @@ type AgendaTecnico struct {
 	Version     int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Telefono    string
 }
 
 type AgendaTurno struct {
@@ -686,21 +687,41 @@ type ComercialUmbralesFactibilidad struct {
 }
 
 type IntegracionArgosCliente struct {
-	ID             int64
-	EmpresaID      int64
-	Codigo         string
-	Nombre         string
-	Telefono       string
-	Direccion      string
-	Lat            *float64
-	Lon            *float64
-	ZonaID         *int64
-	Estado         string
+	ID                  int64
+	EmpresaID           int64
+	Codigo              string
+	Nombre              string
+	Telefono            string
+	Direccion           string
+	Lat                 *float64
+	Lon                 *float64
+	ZonaID              *int64
+	Estado              string
+	SincronizadoEn      time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Empresas            []int64
+	SinServicios        bool
+	Tipo                string
+	TipoDocumentoFiscal string
+	NitCui              string
+	Movil               string
+	Correo              string
+	ZonaNombre          string
+	VersionDatos        int16
+	FalloEn             *time.Time
+}
+
+type IntegracionArgosCopia struct {
+	Entidad        string
+	EntidadID      int64
+	EmpresaID      *int64
+	ClienteID      int64
+	ServicioID     *int64
+	Datos          []byte
 	SincronizadoEn time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Empresas       []int64
-	SinServicios   bool
+	CopiadoEn      time.Time
+	AnonimizadaEn  *time.Time
 }
 
 type IntegracionArgosEliminado struct {
@@ -749,6 +770,8 @@ type IntegracionArgosServicio struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	UserPpp        string
+	TipoConexion   string
 }
 
 type IntegracionArgosZona struct {
@@ -877,6 +900,23 @@ type IntegracionPendiente struct {
 	Verificar        []string
 }
 
+type NucleoAcceso struct {
+	ID          int64
+	UsuarioID   *int64
+	Canal       string
+	Resultado   string
+	Ip          string
+	UserAgent   string
+	Dispositivo string
+	App         *string
+	SesionID    *int64
+	TokenID     *int64
+	RequestID   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Intentos    int32
+}
+
 type NucleoAdjunto struct {
 	ID             uuid.UUID
 	EmpresaID      *int64
@@ -906,6 +946,20 @@ type NucleoAdjuntosParte struct {
 	AdjuntoID uuid.UUID
 	Desde     int64
 	Datos     []byte
+}
+
+type NucleoConexionesApp struct {
+	UsuarioID      int64
+	App            string
+	Plataforma     string
+	Version        string
+	Pendientes     *int32
+	PendientesEn   *time.Time
+	Ip             string
+	UserAgent      string
+	UltimaConexion time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type NucleoEmpresa struct {
@@ -991,6 +1045,7 @@ type NucleoRole struct {
 	Version     int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Activo      bool
 }
 
 type NucleoRolesPermiso struct {
@@ -1016,6 +1071,8 @@ type NucleoSesione struct {
 	MfaFallos       int32
 	Origen          string
 	ReautenticadaEn *time.Time
+	Canal           string
+	App             *string
 }
 
 type NucleoSsoTicket struct {

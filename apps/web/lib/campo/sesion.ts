@@ -11,6 +11,7 @@ import { crearClienteIris } from "@/lib/api/cliente";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "@/lib/api/errores";
 import { CODIGO_CAMBIO_REQUERIDO, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import { errorSesionAjena, ErrorTransporte } from "@iris/sync";
+import { cabecerasCampo } from "./app";
 
 export type EmpresaResumen = Schema<"EmpresaResumen">;
 
@@ -143,7 +144,7 @@ export function sesionDesdeYo(yo: Schema<"Yo">): SesionCampo {
 export async function leerYo(empresa: number | null): Promise<Schema<"Yo">> {
     const pedir = async (conEmpresa: number | null) => {
         const cliente = crearClienteIris({ leerEmpresa: () => conEmpresa ?? undefined, alProblemaEmpresa: () => undefined });
-        const r = await cliente.GET("/api/v1/yo", { headers: { "X-Iris-Canal": "campo" } }).catch((e: unknown) => {
+        const r = await cliente.GET("/api/v1/yo", { headers: cabecerasCampo() }).catch((e: unknown) => {
             throw errorSinConexion(e);
         });
         if (!r.response.ok || !r.data) {
@@ -215,7 +216,7 @@ export async function verificarDueno(usuarioId: number, empresaId: number | null
 /** DELETE /sesion con el canal de campo; lanza si no hay señal (o la API falla). */
 export async function cerrarSesionApi(): Promise<void> {
     const cliente = crearClienteIris({ alProblemaEmpresa: () => undefined });
-    const r = await cliente.DELETE("/api/v1/sesion", { headers: { "X-Iris-Canal": "campo" } }).catch((e: unknown) => {
+    const r = await cliente.DELETE("/api/v1/sesion", { headers: cabecerasCampo() }).catch((e: unknown) => {
         throw errorSinConexion(e);
     });
     if (!r.response.ok && r.response.status !== 401) {

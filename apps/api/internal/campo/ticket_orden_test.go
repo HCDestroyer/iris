@@ -668,3 +668,51 @@ func TestCerrarYCrearOrdenDelTicketSinDeadlock(t *testing.T) {
 		t.Fatalf("reabrir y crear a la vez: %v", errores)
 	}
 }
+
+// crear-orden desde el ticket pasa por la validación de cliente y empresa de Argos (#70), como
+// POST /ordenes con ticketId: toma los datos de instalación del servicio y, si el cliente del
+// ticket ya no es de la empresa según la instantánea, 422 empresa_no_coincide sin crear nada.
+func TestCrearOrdenDeTicketValidaClienteEnEmpresa(t *testing.T) {
+	registrarEmpresas(t, 65)
+	sop := soporte.Nuevo(soporte.Config{})
+	e := nuevoEntorno(func(c *campo.Config) { c.Soporte = sop })
+	d := despacho(t)
+	asignarEmpresa(t, d, 65)
+	ctx := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), d, 65, append(permisosDe("despacho"), permisosDe("soporte")...)...)
+	pool := pruebas.Pool(t)
+	exec := func(sql string) {
+		t.Helper()
+		if _, err := pool.Exec(context.Background(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO integracion.argos_clientes (id, empresa_id, empresas, nombre, codigo, telefono, movil, direccion, lat, lon,
+			nit_cui, tipo_documento_fiscal, sincronizado_en, version_datos)
+		VALUES (7821, 65, '{65}', 'Juan Cux', 'C-007821', '2233-0000', '', 'Casa de Juan', 14.6, -90.5, '1234567', 'nit', now(), 1)`)
+	exec(`INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, plan_nombre, ip, direccion, lat, lon, estado, sincronizado_en)
+		VALUES (78210, 65, 7821, 'Fibra 100', '100.64.2.1', 'Lote 3, colonia El Prado', 14.7, -90.6, 'activo', now())`)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM integracion.argos_servicios WHERE cliente_id = 7821")
+		_, _ = pool.Exec(context.Background(), "DELETE FROM integracion.argos_clientes WHERE id = 7821")
+	})
+	var cuadrilla int64
+	if err := pool.QueryRow(context.Background(), "INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES (65, 'Cuadrilla ' || $1) RETURNING id",
+		pruebas.Unico()).Scan(&cuadrilla); err != nil {
+		t.Fatal(err)
+	}
+	tk := deber(sop.CrearTicket.Ejecutar(ctx, soporte.EntradaCrearTicket{Asunto: "Sin señal", ClienteID: ptr(int64(7821)), ServicioID: ptr(int64(78210))}))(t)
+
+	o := deber(e.m.CrearOrdenDeTicket.Ejecutar(ctx, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, CuadrillaID: &cuadrilla}))(t)
+	if o.Direccion != "Lote 3, colonia El Prado" || *o.ClienteID != 7821 || *o.ServicioID != 78210 || *o.EmpresaID != 65 {
+		t.Fatalf("orden desde el ticket con datos de Argos: %+v", o)
+	}
+
+	// Argos pasó el cliente y su servicio a otra empresa: la validación de #70 lo rechaza.
+	exec(`UPDATE integracion.argos_servicios SET empresa_id = 66 WHERE id = 78210`)
+	exec(`UPDATE integracion.argos_clientes SET empresa_id = 66, empresas = '{66}' WHERE id = 7821`)
+	_, err := e.m.CrearOrdenDeTicket.Ejecutar(ctx, campo.EntradaCrearOrdenDeTicket{TicketID: tk.ID, CuadrillaID: &cuadrilla})
+	problema(t, err, 422, "empresa_no_coincide")
+	if n := contar(t, "SELECT count(*) FROM campo.ordenes WHERE ticket_id = $1", tk.ID); n != 1 {
+		t.Fatalf("órdenes: %d", n)
+	}
+}
