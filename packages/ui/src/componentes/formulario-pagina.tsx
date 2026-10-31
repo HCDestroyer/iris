@@ -33,10 +33,37 @@ export type ClicEnlace = {
     target: EventTarget | null;
 };
 
+// Caracteres de control: el navegador quita \t y \n de las URL (`/\t/otro.sitio` → `//otro.sitio`).
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Resuelve `href` contra `base` y devuelve la ruta interna (`/ruta?consulta#ancla`) solo si queda
+ * en el mismo origen y no puede leerse como «//otro.sitio»: `/.//evil.com`, `/..//evil.com` o
+ * `https://<origen>//evil.com` resuelven a un `pathname` que empieza con `//`, y `router.push` o
+ * `location.assign` lo tratarían como una URL sin protocolo. Si no es segura, `null`.
+ */
+export function rutaInterna(href: string, base: string): string | null {
+    if (href.includes("\\") || CONTROL.test(href)) return null;
+    let url: URL;
+    let origenBase: string;
+    try {
+        url = new URL(href, base);
+        origenBase = new URL(base).origin;
+    } catch {
+        return null;
+    }
+    if (url.origin !== origenBase) return null;
+    if (url.pathname.startsWith("//") || url.pathname.includes("\\")) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+}
+
 /**
  * Si el clic es en un enlace que lleva a otra pantalla de la misma app (sin pestaña nueva, sin
  * descarga, sin teclas modificadoras), devuelve la ruta destino (`/ruta?consulta#ancla`); si no,
- * `null`. Los enlaces a la misma pantalla (solo cambia el `#`) no cuentan como salir.
+ * `null`. Los enlaces a la misma pantalla (solo cambia el `#`) no cuentan como salir, y los que no
+ * pasan `rutaInterna` tampoco se interceptan (quedan como navegación normal del navegador, que nunca
+ * los manda a otro sitio).
  */
 export function rutaQueSale(clic: ClicEnlace, ubicacion: Pick<Location, "origin" | "pathname" | "search">): string | null {
     if (clic.defaultPrevented || clic.button !== 0 || clic.metaKey || clic.ctrlKey || clic.shiftKey || clic.altKey) return null;
@@ -45,15 +72,11 @@ export function rutaQueSale(clic: ClicEnlace, ubicacion: Pick<Location, "origin"
     if (!enlace) return null;
     const destinoVentana = enlace.getAttribute("target");
     if ((destinoVentana && destinoVentana !== "_self") || enlace.hasAttribute("download")) return null;
-    let url: URL;
-    try {
-        url = new URL(enlace.getAttribute("href") ?? "", `${ubicacion.origin}${ubicacion.pathname}${ubicacion.search}`);
-    } catch {
-        return null;
-    }
-    if (url.origin !== ubicacion.origin) return null;
+    const ruta = rutaInterna(enlace.getAttribute("href") ?? "", `${ubicacion.origin}${ubicacion.pathname}${ubicacion.search}`);
+    if (!ruta) return null;
+    const url = new URL(ruta, ubicacion.origin);
     if (url.pathname === ubicacion.pathname && url.search === ubicacion.search) return null;
-    return `${url.pathname}${url.search}${url.hash}`;
+    return ruta;
 }
 
 const MARCA_HISTORIAL = "__irisCambiosSinGuardar";
@@ -80,7 +103,15 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
     useEffect(() => {
         activaRef.current = activa;
     }, [activa]);
-    const ir = useCallback((ruta: string) => (navegar ? navegar(ruta) : window.location.assign(ruta)), [navegar]);
+    // Solo rutas internas: lo que no pasa `rutaInterna` va al inicio, nunca a otro sitio.
+    const ir = useCallback(
+        (ruta: string) => {
+            const segura = rutaInterna(ruta, window.location.href) ?? "/";
+            if (navegar) navegar(segura);
+            else window.location.assign(segura);
+        },
+        [navegar],
+    );
 
     // Recargar, cerrar la pestaña o salir a otro sitio.
     useEffect(() => {
@@ -125,8 +156,9 @@ export function useProteccionSalida(activa: boolean, navegar?: (ruta: string) =>
 
     const salir = useCallback(
         (ruta: string) => {
-            if (activaRef.current) setPendiente(ruta);
-            else ir(ruta);
+            const segura = rutaInterna(ruta, window.location.href) ?? "/";
+            if (activaRef.current) setPendiente(segura);
+            else ir(segura);
         },
         [ir],
     );

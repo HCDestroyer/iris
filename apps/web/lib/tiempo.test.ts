@@ -26,4 +26,11 @@ describe("rutaSegura", () => {
         }
         expect(rutaSegura("/campo?orden=3", "/", "https://iris.test")).toBe("/campo?orden=3");
     });
+
+    it("rechaza lo que se normaliza a «//host» y devuelve la ruta resuelta", () => {
+        for (const malo of ["/.//evil.com/x", "/..//evil.com/x", "/a/..//evil.com", "/%2e//evil.com", "/x\\evil.com", "/./entrar", "/a/../api/v1/yo"]) {
+            expect(rutaSegura(malo, "/", "https://iris.test"), malo).toBe("/");
+        }
+        expect(rutaSegura("/tickets/../ordenes?x=1#a", "/", "https://iris.test")).toBe("/ordenes?x=1#a");
+    });
 });

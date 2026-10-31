@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Autocompletar } from "./componentes/autocompletar";
 import { avisar, cerrarAviso, colaAvisos, contenidoHeroui, duracionAviso, useAvisoEmergente } from "./componentes/aviso-emergente";
 import { Boton } from "./componentes/boton";
-import { BarraGuardar, FormularioPagina, rutaQueSale, SeccionFormulario, type ClicEnlace } from "./componentes/formulario-pagina";
+import { BarraGuardar, FormularioPagina, rutaInterna, rutaQueSale, SeccionFormulario, type ClicEnlace } from "./componentes/formulario-pagina";
 import { Globo } from "./componentes/globo";
 import { Migas } from "./componentes/migas";
 import { PanelEmergente } from "./componentes/panel-emergente";
@@ -200,6 +200,17 @@ describe("Formulario en pantalla propia", () => {
         expect(rutaQueSale(clic(enlace("/ordenes"), { button: 1 }), ubicacion)).toBeNull();
         expect(rutaQueSale(clic(enlace("/ordenes"), { defaultPrevented: true }), ubicacion)).toBeNull();
         expect(rutaQueSale(clic({ closest: () => null }), ubicacion)).toBeNull();
+    });
+
+    it("sin redirección abierta: lo que se normaliza a «//host» no se intercepta ni se navega", () => {
+        const base = `${ubicacion.origin}${ubicacion.pathname}${ubicacion.search}`;
+        for (const malo of ["/.//evil.com/x", "/..//evil.com/x", "/a/..//evil.com/x", "https://iris.test//evil.com/x", "/\\evil.com", "/\\/evil.com", "\\\\evil.com", "/\t/evil.com", "//evil.com/x", "https://evil.com/x"]) {
+            expect(rutaQueSale(clic(enlace(malo)), ubicacion), malo).toBeNull();
+            expect(rutaInterna(malo, base), malo).toBeNull();
+        }
+        // Lo que sí es interno se devuelve ya resuelto, nunca el texto recibido.
+        expect(rutaInterna("/tickets/../ordenes?x=1#a", base)).toBe("/ordenes?x=1#a");
+        expect(rutaInterna("ordenes", "https://iris.test/tickets/")).toBe("/tickets/ordenes");
     });
 
     it("BarraGuardar: Cancelar y Guardar (submit), deshabilitado mientras falte algo", () => {
