@@ -466,7 +466,7 @@ function Resultado({
                     <div className="grid gap-2">
                         <p className="text-sm font-medium">Contraseña temporal</p>
                         <div className="flex flex-wrap items-center gap-2">
-                            <code className="rounded-md border bg-muted px-3 py-2 font-mono text-base tracking-wide break-all" data-testid="contrasena-creada">
+                            <code className="rounded-md border bg-background-secondary px-3 py-2 font-mono text-base tracking-wide break-all" data-testid="contrasena-creada">
                                 {contrasena}
                             </code>
                             <BotonCopiar texto={contrasena} etiqueta="Copiar" copiado="Copiada" sensible borrador={portapapeles} />

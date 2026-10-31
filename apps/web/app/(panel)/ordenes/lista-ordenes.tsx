@@ -143,7 +143,7 @@ function Programada({ orden }: { orden: Orden }) {
 /** Tarjeta de una orden (teléfono y columnas). */
 function TarjetaOrden({ orden: o, marca, tecnico }: PropsTarjeta & { orden: Orden }) {
     return (
-        <Link href={`/ordenes/${o.id}`} className="grid gap-2 p-4 transition-colors hover:bg-muted/60" data-orden={o.numero}>
+        <Link href={`/ordenes/${o.id}`} className="grid gap-2 p-4 transition-colors hover:bg-background-secondary/60" data-orden={o.numero}>
             <span className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-mono text-xs whitespace-nowrap text-muted-foreground">{o.numero}</span>
                 <InsigniaTipoOrden tipo={o.tipo} />
