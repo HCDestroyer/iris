@@ -226,7 +226,14 @@ function Detalle({ id }: { id: number }) {
                     {verPendientes ? <PendientesArgos ordenId={o.id} /> : null}
                     {o.ticketId !== null ? <TicketVinculado ticketId={o.ticketId} /> : null}
                     {o.clienteId !== null && puede(["clientes.ver"]) ? (
-                        <FichaArgos clienteId={o.clienteId} servicioId={o.servicioId} contacto={o.contacto} verArgos={enlaceArgosCliente(enlaces, o.clienteId)} origen="orden" />
+                        <FichaArgos
+                            clienteId={o.clienteId}
+                            servicioId={o.servicioId}
+                            copia={o.datosArgos ?? null}
+                            contacto={o.contacto}
+                            verArgos={enlaceArgosCliente(enlaces, o.clienteId)}
+                            origen="orden"
+                        />
                     ) : (
                         <Tarjeta>
                             <TarjetaEncabezado>

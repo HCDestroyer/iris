@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 )
 
@@ -98,7 +99,8 @@ func (c conCoordenadas) LatLon() (*float64, *float64) {
 			lon = primero(c.Coordenadas.Lon, c.Coordenadas.Longitud)
 		}
 	}
-	return lat.Float(), lon.Float()
+	// Normalizadas: 6 decimales y el 0,0 (formulario sin llenar) como sin coordenadas.
+	return formato.Coordenadas(lat.Float(), lon.Float())
 }
 
 func primero(a, b *Numero) *Numero {
@@ -122,7 +124,25 @@ type ClienteArgos struct {
 	Direccion string  `json:"direccion"`
 	ZonaID    *int64  `json:"zona_id"`
 	Zona      *Ref    `json:"zona"`
-	Estado    string  `json:"estado"`
+	// Estado: Argos 1.4.0 no tiene estado de cliente (lo tienen sus servicios); se lee por si
+	// algún día lo manda. Iris muestra el resumen de los servicios (resumenEstado).
+	Estado string `json:"estado"`
+	// Datos de contacto y fiscales (Argos 1.4.0, GET /clientes/:id): texto libre, se guardan
+	// tal cual y se formatean al mostrar (formato).
+	Tipo                string `json:"tipo"`
+	TipoDocumentoFiscal string `json:"tipo_documento_fiscal"`
+	NitCui              string `json:"nit_cui"`
+	Movil               string `json:"movil"`
+	Email               string `json:"email"`
+	Correo              string `json:"correo"`
+}
+
+// CorreoCliente: email (Argos) o correo.
+func (c ClienteArgos) CorreoCliente() string {
+	if c.Email != "" {
+		return c.Email
+	}
+	return c.Correo
 }
 
 // IDZona devuelve zona_id o zona.id.
@@ -144,9 +164,23 @@ type ServicioArgos struct {
 	ZonaID       *int64 `json:"zona_id"`
 	Zona         *Ref   `json:"zona"`
 	ZonaNombre   string `json:"zona_nombre"`
-	IP           string `json:"ip"`
+	// IP: Argos 1.4.0 la manda como ipv4 (la IPv4 vigente); ip queda por compatibilidad.
+	IP   string `json:"ip"`
+	IPv4 string `json:"ipv4"`
+	// Direccion: dirección de instalación del servicio (puede faltar: entonces aplica la del
+	// cliente).
 	Direccion    string `json:"direccion"`
 	Estado       string `json:"estado"`
+	UserPPP      string `json:"user_ppp"`
+	TipoConexion string `json:"tipo_conexion"`
+}
+
+// IPVigente: ipv4 (Argos 1.4.0) o ip.
+func (s ServicioArgos) IPVigente() string {
+	if s.IPv4 != "" {
+		return s.IPv4
+	}
+	return s.IP
 }
 
 func idDe(id *int64, r *Ref) *int64 {

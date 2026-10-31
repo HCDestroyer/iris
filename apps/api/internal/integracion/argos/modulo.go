@@ -78,9 +78,12 @@ type Config struct {
 type Modulo struct {
 	// verificacion: caché y cupos de la verificación de clientes en la búsqueda.
 	verificacion *verificaciones
-	cfg          Config
-	nucleo       *conector.Nucleo
-	conexion     *conector.Conexion
+	// refrescos: una sola lectura en curso por (conector, cliente) y cuota de «Refrescar».
+	refrescos           *refrescos
+	guardarFichaInterna *auditoria.Caso[entradaGuardarFicha, struct{}]
+	cfg                 Config
+	nucleo              *conector.Nucleo
+	conexion            *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -118,7 +121,7 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.VigenciaInstantanea <= 0 {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
-	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones()}
+	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,

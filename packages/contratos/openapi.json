@@ -1580,6 +1580,7 @@
             "type": "string"
           },
           "direccion": {
+            "description": "Dirección del cliente (la de instalación es la del servicio)",
             "type": "string"
           },
           "estado": {
@@ -1611,7 +1612,18 @@
             "type": "string"
           },
           "telefono": {
+            "description": "Tal como en Argos; para mostrar y llamar, telefonos",
             "type": "string"
+          },
+          "telefonos": {
+            "description": "Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original",
+            "items": {
+              "$ref": "#/components/schemas/Telefono"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1656,9 +1668,15 @@
         "additionalProperties": false,
         "properties": {
           "codigo": {
+            "description": "Código del cliente en Argos (C-000455)",
+            "type": "string"
+          },
+          "correo": {
+            "description": "Correo del cliente en Argos (email)",
             "type": "string"
           },
           "direccion": {
+            "description": "Dirección del cliente (su domicilio en Argos). No es la de instalación: esa es la de cada servicio",
             "type": "string"
           },
           "empresaId": {
@@ -1678,7 +1696,7 @@
             ]
           },
           "estado": {
-            "description": "Estado del cliente en Argos",
+            "description": "Resumen del estado de sus servicios (el más grave: suspendido, limitado, activo, pendiente_instalacion, retirado), porque Argos no tiene estado de cliente; vacío sin servicios conocidos. En la búsqueda, lo que mande Argos (hoy vacío)",
             "type": "string"
           },
           "id": {
@@ -1687,6 +1705,7 @@
             "type": "integer"
           },
           "lat": {
+            "description": "Coordenadas del cliente, en grados decimales con 6 decimales; null si Argos no las tiene (o son 0,0)",
             "format": "double",
             "type": [
               "number",
@@ -1700,10 +1719,49 @@
               "null"
             ]
           },
+          "movil": {
+            "description": "Móvil tal como está en Argos (texto libre)",
+            "type": "string"
+          },
+          "nitCui": {
+            "description": "Documento fiscal tal como en Argos: sin guiones ni espacios",
+            "type": "string"
+          },
+          "nitCuiMostrar": {
+            "description": "El documento para mostrar: NIT 1234567-8, CUI 1234 56789 0101, CF",
+            "type": "string"
+          },
           "nombre": {
             "type": "string"
           },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "telefono": {
+            "description": "Teléfono tal como está en Argos (texto libre). Para mostrar y llamar usa telefonos",
+            "type": "string"
+          },
+          "telefonos": {
+            "description": "Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios",
+            "items": {
+              "$ref": "#/components/schemas/Telefono"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tipo": {
+            "description": "persona o empresa (Argos); vacío si Argos no lo informó",
+            "type": "string"
+          },
+          "tipoDocumentoFiscal": {
+            "description": "nit, cui, pasaporte o cf (Argos); vacío si no lo informó",
             "type": "string"
           },
           "zonaId": {
@@ -1712,6 +1770,10 @@
               "integer",
               "null"
             ]
+          },
+          "zonaNombre": {
+            "description": "Nombre de la zona del cliente en Argos",
+            "type": "string"
           }
         },
         "required": [
@@ -1724,7 +1786,16 @@
           "lat",
           "lon",
           "zonaId",
-          "estado"
+          "estado",
+          "tipo",
+          "tipoDocumentoFiscal",
+          "nitCui",
+          "nitCuiMostrar",
+          "movil",
+          "correo",
+          "telefonos",
+          "zonaNombre",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -2112,6 +2183,158 @@
           "motivoAnulacion",
           "creadoEn",
           "version"
+        ],
+        "type": "object"
+      },
+      "CopiaArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "anonimizada": {
+            "description": "true: Argos eliminó al cliente y la copia quedó solo con los ids",
+            "type": "boolean"
+          },
+          "cliente": {
+            "$ref": "#/components/schemas/CopiaCliente"
+          },
+          "completa": {
+            "description": "false: se copió de una instantánea anterior a los datos coherentes (puede faltar la IP o el teléfono móvil)",
+            "type": "boolean"
+          },
+          "copiadoEn": {
+            "description": "Cuándo se copió (al crear el ticket o la orden)",
+            "format": "date-time",
+            "type": "string"
+          },
+          "direccion": {
+            "description": "La que aplica: la de instalación del servicio o, si no tiene, la del cliente",
+            "type": "string"
+          },
+          "servicio": {
+            "$ref": "#/components/schemas/CopiaServicio",
+            "description": "El servicio del ticket o la orden; ausente si no tenía, Iris no lo conocía o la copia está anonimizada"
+          },
+          "sincronizadoEn": {
+            "description": "Cuándo se había leído de Argos lo copiado",
+            "format": "date-time",
+            "type": "string"
+          },
+          "telefono": {
+            "$ref": "#/components/schemas/Telefono",
+            "description": "El de contacto: el primer móvil válido, si no el primer teléfono válido y, si ninguno se pudo interpretar, el primero tal cual; ausente si el cliente no tiene teléfonos"
+          }
+        },
+        "required": [
+          "cliente",
+          "direccion",
+          "completa",
+          "anonimizada",
+          "sincronizadoEn",
+          "copiadoEn"
+        ],
+        "type": "object"
+      },
+      "CopiaCliente": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "direccion": {
+            "description": "Dirección del cliente (no la de instalación)",
+            "type": "string"
+          },
+          "estado": {
+            "description": "Resumen del estado de sus servicios al copiar",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "zonaNombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "direccion",
+          "lat",
+          "lon",
+          "zonaNombre",
+          "estado"
+        ],
+        "type": "object"
+      },
+      "CopiaServicio": {
+        "additionalProperties": false,
+        "properties": {
+          "direccion": {
+            "description": "Dirección de instalación; vacía si Argos no tenía una propia",
+            "type": "string"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lon": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "planNombre": {
+            "type": "string"
+          },
+          "routerNombre": {
+            "type": "string"
+          },
+          "zonaNombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "planNombre",
+          "estado",
+          "direccion",
+          "lat",
+          "lon",
+          "ip",
+          "routerNombre",
+          "zonaNombre"
         ],
         "type": "object"
       },
@@ -6820,6 +7043,15 @@
               "null"
             ]
           },
+          "refrescoOmitido": {
+            "description": "Solo con ?refrescar=true cuando no se llamó a Argos: cuota (se agotó la cuota de lecturas a pedido del usuario o del conector; intenta en un minuto), reciente (se leyó hace menos de 30 s) o en_espera (Argos falló hace menos de un minuto). La ficha es la instantánea",
+            "enum": [
+              "cuota",
+              "reciente",
+              "en_espera"
+            ],
+            "type": "string"
+          },
           "servicios": {
             "items": {
               "$ref": "#/components/schemas/Servicio"
@@ -8448,6 +8680,10 @@
               "null"
             ]
           },
+          "datosArgos": {
+            "$ref": "#/components/schemas/CopiaArgos",
+            "description": "Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"
+          },
           "descripcion": {
             "type": "string"
           },
@@ -8832,6 +9068,10 @@
               "integer",
               "null"
             ]
+          },
+          "datosArgos": {
+            "$ref": "#/components/schemas/CopiaArgos",
+            "description": "Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"
           },
           "descripcion": {
             "type": "string"
@@ -13301,6 +13541,7 @@
             "type": "string"
           },
           "direccion": {
+            "description": "Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente",
             "type": "string"
           },
           "empresaId": {
@@ -13308,7 +13549,7 @@
             "type": "integer"
           },
           "estado": {
-            "description": "Estado del servicio en Argos (activo, suspendido, retirado…)",
+            "description": "Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)",
             "type": "string"
           },
           "id": {
@@ -13317,9 +13558,11 @@
             "type": "integer"
           },
           "ip": {
+            "description": "IPv4 vigente del servicio en Argos",
             "type": "string"
           },
           "lat": {
+            "description": "Coordenadas de instalación (6 decimales); null si Argos no las tiene",
             "format": "double",
             "type": [
               "number",
@@ -13353,6 +13596,19 @@
           "routerNombre": {
             "type": "string"
           },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tipoConexion": {
+            "description": "pppoe, ip_estatica o dhcp_fija",
+            "type": "string"
+          },
+          "userPpp": {
+            "description": "Usuario PPPoE; vacío fuera de pppoe",
+            "type": "string"
+          },
           "zonaId": {
             "format": "int64",
             "type": [
@@ -13379,7 +13635,10 @@
           "direccion",
           "lat",
           "lon",
-          "estado"
+          "estado",
+          "userPpp",
+          "tipoConexion",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -13954,6 +14213,41 @@
         ],
         "type": "object"
       },
+      "Telefono": {
+        "additionalProperties": false,
+        "properties": {
+          "e164": {
+            "description": "El número en E.164 (+50255123344) para llamar o escribir; null si no se pudo interpretar",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mostrar": {
+            "description": "Cómo se muestra: +502 5512 3344 para Guatemala; el original (sin espacios de más) si es de otro país o no se pudo interpretar",
+            "type": "string"
+          },
+          "original": {
+            "description": "El texto tal como está en Argos (de un campo con varios números, solo esta parte)",
+            "type": "string"
+          },
+          "tipo": {
+            "description": "De qué campo de Argos viene: telefono o movil",
+            "enum": [
+              "telefono",
+              "movil"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "original",
+          "e164",
+          "mostrar"
+        ],
+        "type": "object"
+      },
       "Ticket": {
         "additionalProperties": false,
         "properties": {
@@ -14007,6 +14301,10 @@
               "integer",
               "null"
             ]
+          },
+          "datosArgos": {
+            "$ref": "#/components/schemas/CopiaArgos",
+            "description": "Solo en el detalle (GET /tickets/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear el ticket (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"
           },
           "empresaId": {
             "description": "Empresa en Argos; null sin conector",
@@ -17634,7 +17932,7 @@
     },
     "/api/v1/clientes/{id}": {
       "get": {
-        "description": "Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h; si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
+        "description": "Permiso: `clientes.ver`. Lectura auditada. Refresca la instantánea si tiene más de 24 h, si es de una versión anterior de los datos o con `?refrescar=true` (si se leyó hace más de 30 s); si Argos no responde, devuelve la última con `stale: true`. El estado de cuenta exige además `clientes.estado_cuenta` y se lee en vivo. Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).",
         "operationId": "obtenerFichaCliente",
         "parameters": [
           {
@@ -17647,6 +17945,16 @@
               "format": "int64",
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "description": "true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay)",
+            "explode": false,
+            "in": "query",
+            "name": "refrescar",
+            "schema": {
+              "description": "true: relee de Argos aunque la instantánea tenga menos de 24 h (si se leyó hace menos de 30 s, devuelve la que hay)",
+              "type": "boolean"
             }
           }
         ],

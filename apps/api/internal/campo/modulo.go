@@ -18,6 +18,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -94,6 +95,9 @@ type Inventario interface {
 type Config struct {
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
+	// AsegurarArgos (argos.Modulo.AsegurarInstantanea): antes de crear una orden con cliente y
+	// servicio, los deja en la instantánea para validarlos. nil = no se verifica.
+	AsegurarArgos argos.Asegurador
 	// Encuestas genera la encuesta de satisfacción al cerrar con éxito una instalación o una
 	// visita, en la transacción del cierre (soporte.Modulo.GenerarEncuestaOrden). nil = no se
 	// generan (OpenAPI, pruebas).
@@ -117,7 +121,7 @@ type Config struct {
 type Modulo struct {
 	cfg Config
 
-	CrearOrden          *auditoria.Caso[EntradaCrearOrden, Orden]
+	CrearOrden          *argos.ConInstantanea[EntradaCrearOrden, Orden]
 	AsignarOrden        *auditoria.Caso[EntradaAsignarOrden, Orden]
 	ProgramarOrden      *auditoria.Caso[EntradaProgramarOrden, Orden]
 	ReprogramarOrden    *auditoria.Caso[EntradaProgramarOrden, Orden]
@@ -192,7 +196,10 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	cfg.Posiciones = cfg.Posiciones.conDefectos()
 	m := &Modulo{cfg: cfg}
-	m.CrearOrden = m.nuevoCrearOrden()
+	m.CrearOrden = &argos.ConInstantanea[EntradaCrearOrden, Orden]{
+		Caso: m.nuevoCrearOrden(), Permiso: nucleo.PermOrdenesCrear, Asegurar: cfg.AsegurarArgos,
+		Ids: func(in EntradaCrearOrden) (*int64, *int64) { return in.ClienteID, in.ServicioID },
+	}
 	m.AsignarOrden = m.nuevoAsignarOrden()
 	m.ProgramarOrden = m.nuevoProgramarOrden(false)
 	m.ReprogramarOrden = m.nuevoProgramarOrden(true)

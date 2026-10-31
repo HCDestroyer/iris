@@ -109,7 +109,7 @@ func TestCanjeSinAlcanceGlobal(t *testing.T) {
 }
 
 // §2.3 cliente.actualizado con campos[]: refresca teléfono, dirección, coordenadas y zona de la
-// instantánea; si solo cambiaron campos que Iris no guarda, no relee el cliente.
+// instantánea, y también NIT y móvil (la instantánea los guarda desde los datos coherentes).
 func TestClienteActualizadoConCampos(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, id, secreto := e.conectado()
@@ -133,11 +133,21 @@ func TestClienteActualizadoConCampos(t *testing.T) {
 		AND lat = 14.6 AND lon = -90.5 AND zona_id = 7`); n != 1 {
 		t.Fatal("la instantánea no se refrescó")
 	}
-	// Solo NIT, tipo o móvil: la instantánea no los guarda; no se relee.
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 91 AND movil = '5555-9999'`); n != 1 {
+		t.Fatal("el móvil no se guardó")
+	}
+	// Solo NIT o móvil: desde los datos coherentes la instantánea los guarda; se relee.
 	antes := e.argos.llamadasA("/api/v1/clientes/91")
+	e.argos.con(func() {
+		c := e.argos.clientes[91]
+		c["nit_cui"], c["tipo_documento_fiscal"], c["movil"] = "12345678", "nit", "4444-1111"
+	})
 	r = e.procesarWebhook(id, secreto, "cliente.actualizado", map[string]any{"cliente_id": 91, "empresa_id": 1, "campos": []string{"nit_cui", "movil"}})
-	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "campos_sin_efecto" || e.argos.llamadasA("/api/v1/clientes/91") != antes {
-		t.Fatalf("campos sin efecto: %+v (%s)", r, e.omitidoDe(r.EntranteID))
+	if r.Resultado != "aplicado" || e.argos.llamadasA("/api/v1/clientes/91") == antes {
+		t.Fatalf("NIT y móvil: %+v", r)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id = 91 AND nit_cui = '12345678' AND movil = '4444-1111'`); n != 1 {
+		t.Fatal("NIT y móvil no se refrescaron")
 	}
 	// Un campo desconocido (o sin campos[]) refresca por si acaso.
 	e.argos.con(func() { e.argos.clientes[91]["nombre"] = "Hilda M." })

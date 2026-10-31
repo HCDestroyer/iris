@@ -2,16 +2,20 @@
 
 -- name: GuardarCliente :exec
 INSERT INTO integracion.argos_clientes (
-    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos
 ) VALUES (
-    @id, @empresa_id, @empresas::bigint[], @sin_servicios, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en
+    @id, @empresa_id, @empresas::bigint[], @sin_servicios, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en,
+    @tipo, @tipo_documento_fiscal, @nit_cui, @movil, @correo, @zona_nombre, @version_datos
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, empresas = excluded.empresas, sin_servicios = excluded.sin_servicios,
     codigo = excluded.codigo, nombre = excluded.nombre,
     telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
-    updated_at = now()
+    tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
+    movil = excluded.movil, correo = excluded.correo, zona_nombre = excluded.zona_nombre,
+    version_datos = excluded.version_datos, fallo_en = NULL, updated_at = now()
 WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ClientePorID :one
@@ -23,7 +27,8 @@ DELETE FROM integracion.argos_clientes WHERE id = @id;
 -- name: BuscarClientesLocal :many
 -- Respaldo de la búsqueda cuando Argos no responde: solo lo que ya está en la instantánea.
 SELECT * FROM integracion.argos_clientes
-WHERE (nombre ILIKE '%' || @q::text || '%' OR codigo ILIKE '%' || @q::text || '%' OR telefono ILIKE '%' || @q::text || '%')
+WHERE (nombre ILIKE '%' || @q::text || '%' OR codigo ILIKE '%' || @q::text || '%' OR telefono ILIKE '%' || @q::text || '%'
+       OR movil ILIKE '%' || @q::text || '%' OR nit_cui ILIKE '%' || @q::text || '%')
   -- Visible en la empresa si es una de las de sus servicios, o si Argos dijo que no tiene servicios.
   AND (@empresa_id::bigint = 0 OR @empresa_id::bigint = ANY(empresas) OR sin_servicios
        OR (cardinality(empresas) = 0 AND empresa_id = @empresa_id::bigint))
@@ -35,17 +40,18 @@ LIMIT @limite;
 -- (ResucitarEliminado borra antes la lápida). Llamar con BloquearArgos tomado.
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
-    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en
+    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
     router_nombre = excluded.router_nombre, zona_id = excluded.zona_id, zona_nombre = excluded.zona_nombre,
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
-    estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, updated_at = now()
+    estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
+    tipo_conexion = excluded.tipo_conexion, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ServicioPorID :one
@@ -58,7 +64,7 @@ SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER B
 -- La misma IP privada puede existir en dos empresas: con @empresa_id (≠ 0) solo la de esa empresa.
 SELECT * FROM integracion.argos_servicios
 -- Un servicio sin empresa (0) no se atribuye a nadie.
-WHERE ip = @ip AND empresa_id <> 0 AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+WHERE ip = @ip AND empresa_id <> 0 AND estado <> 'retirado' AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1;
 
 -- name: BorrarServicio :exec
@@ -184,3 +190,46 @@ WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND empresa_id IS NOT NUL
   -- como número o como texto.
   AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = (@cliente_id::bigint)::text
 ORDER BY id DESC LIMIT 1;
+
+-- Nombres de catálogo -------------------------------------------------------------------------
+
+-- name: NombreZona :one
+SELECT nombre FROM integracion.argos_zonas WHERE id = @id;
+
+-- Copias de tickets y órdenes (datos coherentes) ------------------------------------------------
+
+-- name: GuardarCopia :exec
+-- Solo inserción: la copia es la de cuando se creó el ticket o la orden.
+INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
+VALUES (@entidad, @entidad_id, @empresa_id, @cliente_id, @servicio_id, @datos, @sincronizado_en)
+ON CONFLICT (entidad, entidad_id) DO NOTHING;
+
+-- name: CopiaDe :one
+SELECT * FROM integracion.argos_copias WHERE entidad = @entidad AND entidad_id = @entidad_id;
+
+-- name: AnonimizarCopiasDeCliente :exec
+-- Argos eliminó al cliente: sus copias quedan solo con los ids (sin nombre, dirección, teléfono
+-- ni IP).
+UPDATE integracion.argos_copias
+SET datos = jsonb_build_object('cliente', jsonb_build_object('id', cliente_id), 'anonimizada', true),
+    anonimizada_en = now()
+WHERE cliente_id = @cliente_id AND anonimizada_en IS NULL;
+
+-- name: MarcarFalloCliente :exec
+-- Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
+UPDATE integracion.argos_clientes SET fallo_en = @fallo_en WHERE id = @id;
+
+-- name: ClienteConfirmadoDesde :one
+-- ¿Hubo noticia del cliente desde @desde? Un alta propia hecha en Argos (pendiente crear_cliente
+-- con su id en la respuesta) o un webhook cliente.creado / cliente.actualizado procesado. Con
+-- esto la caché negativa en memoria (un 404 reciente) se descarta en cualquier proceso, aunque el
+-- webhook o el pendiente los haya procesado el worker.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes
+    WHERE operacion = 'crear_cliente' AND estado = 'hecho' AND hecho_en >= @desde
+      AND coalesce(respuesta->'data'->>'id', respuesta->>'id') = (@cliente_id::bigint)::text
+) OR EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE evento IN ('cliente.creado', 'cliente.actualizado') AND procesado_en >= @desde
+      AND coalesce(payload->>'cliente_id', payload->'cliente'->>'id', payload->>'id') = (@cliente_id::bigint)::text
+) AS confirmado;

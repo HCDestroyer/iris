@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
@@ -50,6 +51,9 @@ type Config struct {
 	Encolar func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error
 	// Encuestas de satisfacción: claves del enlace, URL pública, vigencia y tope de abuso.
 	Encuestas ConfigEncuestas
+	// AsegurarArgos (argos.Modulo.AsegurarInstantanea): antes de crear un ticket con cliente y
+	// servicio, los deja en la instantánea para validarlos. nil = no se verifica.
+	AsegurarArgos argos.Asegurador
 }
 
 // ConfigCorreo de la entrada y salida por correo.
@@ -80,7 +84,7 @@ func (c ConfigCorreo) tamanoMax() int64 {
 type Modulo struct {
 	cfg Config
 
-	CrearTicket         *auditoria.Caso[EntradaCrearTicket, Ticket]
+	CrearTicket         *argos.ConInstantanea[EntradaCrearTicket, Ticket]
 	AsignarTicket       *auditoria.Caso[EntradaAsignarTicket, Ticket]
 	ResponderTicket     *auditoria.Caso[EntradaResponderTicket, TicketConMensaje]
 	AgregarNotaInterna  *auditoria.Caso[EntradaNotaInterna, TicketConMensaje]
@@ -148,7 +152,10 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.Reloj = time.Now
 	}
 	m := &Modulo{cfg: cfg}
-	m.CrearTicket = m.nuevoCrearTicket()
+	m.CrearTicket = &argos.ConInstantanea[EntradaCrearTicket, Ticket]{
+		Caso: m.nuevoCrearTicket(), Permiso: nucleo.PermTicketsCrear, Asegurar: cfg.AsegurarArgos,
+		Ids: func(in EntradaCrearTicket) (*int64, *int64) { return in.ClienteID, in.ServicioID },
+	}
 	m.AsignarTicket = m.nuevoAsignarTicket()
 	m.ResponderTicket = m.nuevoResponderTicket()
 	m.AgregarNotaInterna = m.nuevoAgregarNotaInterna()

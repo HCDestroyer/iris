@@ -351,7 +351,7 @@ func (q *Queries) CitasDeOrdenes(ctx context.Context, ordenes []int64) ([]Agenda
 
 const clienteArgos = `-- name: ClienteArgos :one
 
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = $1
 `
 
 // Instantáneas de Argos (solo lectura) --------------------------------------------
@@ -374,12 +374,20 @@ func (q *Queries) ClienteArgos(ctx context.Context, id int64) (IntegracionArgosC
 		&i.UpdatedAt,
 		&i.Empresas,
 		&i.SinServicios,
+		&i.Tipo,
+		&i.TipoDocumentoFiscal,
+		&i.NitCui,
+		&i.Movil,
+		&i.Correo,
+		&i.ZonaNombre,
+		&i.VersionDatos,
+		&i.FalloEn,
 	)
 	return i, err
 }
 
 const clientesArgos = `-- name: ClientesArgos :many
-SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]IntegracionArgosCliente, error) {
@@ -407,6 +415,14 @@ func (q *Queries) ClientesArgos(ctx context.Context, ids []int64) ([]Integracion
 			&i.UpdatedAt,
 			&i.Empresas,
 			&i.SinServicios,
+			&i.Tipo,
+			&i.TipoDocumentoFiscal,
+			&i.NitCui,
+			&i.Movil,
+			&i.Correo,
+			&i.ZonaNombre,
+			&i.VersionDatos,
+			&i.FalloEn,
 		); err != nil {
 			return nil, err
 		}
@@ -3214,7 +3230,7 @@ func (q *Queries) RetiroAbiertoDeServicio(ctx context.Context, arg RetiroAbierto
 }
 
 const servicioArgos = `-- name: ServicioArgos :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -3239,12 +3255,14 @@ func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgos
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserPpp,
+		&i.TipoConexion,
 	)
 	return i, err
 }
 
 const serviciosArgos = `-- name: ServiciosArgos :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]IntegracionArgosServicio, error) {
@@ -3275,6 +3293,8 @@ func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]Integracio
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserPpp,
+			&i.TipoConexion,
 		); err != nil {
 			return nil, err
 		}
