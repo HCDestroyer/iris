@@ -120,3 +120,13 @@ por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemp
   `ruta.publicada`, `ruta.desactualizada`
   (`.claude/integration/contratos/eventos.md`).
 - **Consume:** nada (el espejo de zonas lee la instantánea que refresca el conector de Argos).
+
+## Vínculo con el usuario de Argos (I1, contrato 0.5.0 §3.3)
+
+`agenda.tecnicos` suma `argos_id_externo`, `argos_correo`, `argos_nombre`, `argos_vinculado_en` y
+`argos_vinculado_por` (único por usuario de Argos). `POST /tecnicos/{id}/vincular-argos
+{ version, idExterno }` (`agenda.vincular_argos`, de administración) verifica el usuario en Argos
+(`TecnicosArgos`, implementado por el conector: `GET /inventario/tecnicos`) con bodega técnico activa
+en la empresa activa; `POST /tecnicos/{id}/desvincular-argos { version, motivo? }`
+(`agenda.desvincular_argos`). Emiten `tecnico.argos_vinculado` / `tecnico.argos_desvinculado`. La
+ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínculo de SSO.
