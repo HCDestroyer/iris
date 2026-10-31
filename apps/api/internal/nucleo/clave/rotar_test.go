@@ -112,8 +112,12 @@ func entrarConMFA(t *testing.T, srv *httptest.Server, correo, codigo string) int
 }
 
 // usuarioConMFA crea un usuario y le activa el MFA con el módulo dado (y su cifrador). El código
-// de activación es el del paso anterior, para dejar libres el actual y el siguiente.
-func usuarioConMFA(t *testing.T, mod *identidad.Modulo, t0 time.Time) (int64, string, string) {
+// de activación es el del paso anterior al de ahora, para dejar libres el actual y el siguiente.
+// La API valida contra su reloj (time.Now) con ±1 paso (RFC 6238): el código se genera con la hora
+// del momento, no con una fijada al empezar la prueba (que podía quedar dos pasos atrás si la prueba
+// cruzaba el límite de 30 s), y si justo se cruza el límite entre generarlo y validarlo, se genera de
+// nuevo una vez.
+func usuarioConMFA(t *testing.T, mod *identidad.Modulo) (int64, string, string) {
 	t.Helper()
 	pool := pruebas.Pool(t)
 	correo := pruebas.Correo("mfa")
@@ -128,11 +132,27 @@ func usuarioConMFA(t *testing.T, mod *identidad.Modulo, t0 time.Time) (int64, st
 	if err != nil {
 		t.Fatal(err)
 	}
-	codigo, _ := totp.GenerateCode(cfg.Secreto, t0.Add(-30*time.Second))
-	if _, err := mod.ActivarMFA.Ejecutar(uctx, identidad.EntradaActivarMFA{Codigo: codigo}); err != nil {
-		t.Fatal(err)
+	for intento := 0; ; intento++ {
+		codigo := codigoTOTP(t, cfg.Secreto, -1)
+		_, err := mod.ActivarMFA.Ejecutar(uctx, identidad.EntradaActivarMFA{Codigo: codigo})
+		if err == nil {
+			break
+		}
+		if intento > 0 {
+			t.Fatal(err)
+		}
 	}
 	return u.ID, correo, cfg.Secreto
+}
+
+// codigoTOTP es el código del paso de ahora más desplazamiento (−1, 0, +1: lo que la API acepta).
+func codigoTOTP(t *testing.T, secreto string, desplazamiento int) string {
+	t.Helper()
+	codigo, err := totp.GenerateCode(secreto, time.Now().Add(time.Duration(desplazamiento)*30*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return codigo
 }
 
 // conectorCon canjea un enlace de Iris (como lo haría el otro sistema) con el cifrador del módulo.
@@ -267,11 +287,10 @@ func TestRotarClave(t *testing.T) {
 	sis := pruebas.ContextoSistema(pool)
 	vieja, nueva := claveNueva(t), claveNueva(t)
 	cViejo, cNuevo, cTransicion := cifrador(t, vieja), cifrador(t, nueva), cifrador(t, nueva, vieja)
-	t0 := time.Now()
 
 	// Datos cifrados con la clave vieja, por los mismos módulos que los escriben en producción.
 	_, modViejo := api(t, cViejo)
-	_, correoMFA, secretoMFA := usuarioConMFA(t, modViejo, t0)
+	_, correoMFA, secretoMFA := usuarioConMFA(t, modViejo)
 	argosViejo := argos.Nuevo(argos.Config{Cifrador: cViejo, BaseURL: "https://iris.ejemplo.gt", Origenes: []string{"https://argosisp.ejemplo.gt"}})
 	horusViejo := horus.Nuevo(horus.Config{Argos: argosViejo, Origenes: []string{"https://horus.ejemplo.gt"}})
 	tokenArgos, tokenHorus := "atk_"+pruebas.Unico()+"-token-de-argos", "hf_pat_"+pruebas.Unico()+"-token-de-horus"
@@ -289,7 +308,7 @@ func TestRotarClave(t *testing.T) {
 	}
 	// Un usuario que configuró su MFA ya con la clave nueva (API en transición): no se toca.
 	_, modTransicion := api(t, cTransicion)
-	usuarioConMFA(t, modTransicion, t0)
+	usuarioConMFA(t, modTransicion)
 
 	leerConector := func(c *nucleo.Cifrador, id int64) (conector.Leido, error) {
 		f, err := conectorbd.New(pool).ConectorPorID(ctx, id)
@@ -307,7 +326,7 @@ func TestRotarClave(t *testing.T) {
 	if cod, _ := probarIMAP(t, moduloCorreo(cNuevo), buzon.ID); cod != "cifrado" {
 		t.Fatalf("buzón antes de rotar con la nueva: %s", cod)
 	}
-	codigoActual, _ := totp.GenerateCode(secretoMFA, t0)
+	codigoActual := codigoTOTP(t, secretoMFA, 0)
 	if st := entrarConMFA(t, srvNuevo, correoMFA, codigoActual); st == 200 {
 		t.Fatal("el MFA se verificó solo con la clave nueva antes de rotar")
 	}
@@ -392,7 +411,9 @@ func TestRotarClave(t *testing.T) {
 	if cod, smtp := probarIMAP(t, moduloCorreo(cNuevo), buzon.ID); cod != "conexion" || smtp == nil || *smtp != "conexion" {
 		t.Fatalf("buzón con la nueva: imap %s smtp %v", cod, smtp)
 	}
-	codigoSiguiente, _ := totp.GenerateCode(secretoMFA, t0.Add(30*time.Second))
+	// El paso siguiente al de ahora: posterior al de la activación (la API rechaza un paso ya usado) y
+	// válido aunque se cruce el límite de 30 s antes de validarlo (queda como el actual).
+	codigoSiguiente := codigoTOTP(t, secretoMFA, +1)
 	if st := entrarConMFA(t, srvNuevo, correoMFA, codigoSiguiente); st != 200 {
 		t.Fatalf("MFA con la nueva tras rotar: %d", st)
 	}
