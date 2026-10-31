@@ -467,3 +467,49 @@ func TestMiBodegaYTraslados(t *testing.T) {
 		t.Fatalf("traslados: %+v", l.Data)
 	}
 }
+
+// B5 de la revisión: Argos rechaza al técnico (tecnico_no_encontrado); el reintento a mano tras
+// vincularlo de nuevo corrige recibido_por, y la firma (png_base64) nunca queda en la auditoría.
+func TestCorreccionDeRecepcionNoAuditaLaFirma(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx := pruebas.ContextoSistema(e.pool)
+	contenido := pngDe(t, 300, 100)
+	tr := trasladoNuevo()
+	e.enviado(tr, "u-77")
+	e.argos.mu.Lock()
+	e.argos.respuesta[strconv.FormatInt(tr, 10)] = [2]string{"422", "tecnico_no_encontrado"}
+	e.argos.mu.Unlock()
+	e.recibir(tr, e.firma(tr, contenido, true))
+	_, _ = e.inv.BarrerFirmas(ctx)
+	_, _ = e.pend.Procesar(ctx)
+	p := e.pendiente(tr)
+	if p.Estado != "fallido_negocio" || p.CodigoError == nil || *p.CodigoError != "tecnico_no_encontrado" {
+		t.Fatalf("rechazado por el técnico: %+v", p)
+	}
+	e.exec(`DELETE FROM agenda.tecnicos WHERE argos_id_externo = 'u-78'`)
+	e.exec(`UPDATE agenda.tecnicos SET argos_id_externo = 'u-78' WHERE usuario_id = $1`, e.tec)
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, e.tec, 1, nucleo.PermIntegracionesReintentar)
+	f, err := pendientes.PorID(context.Background(), e.pool, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int32
+	if err := e.pool.QueryRow(context.Background(), `SELECT version FROM integracion.pendientes WHERE id = $1`, f.ID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.pend.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: p.ID, Version: version})
+	if err != nil || r.Estado != "pendiente" || r.Payload["recibido_por"].(map[string]any)["id_externo"] != "u-78" || r.Payload["firma"] == nil {
+		t.Fatalf("corregido: %+v %v", r, err)
+	}
+	firma := base64.StdEncoding.EncodeToString(contenido)
+	var n int
+	if err := e.pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM auditoria.cambios WHERE coalesce(antes::text, '') || coalesce(despues::text, '') LIKE '%' || $1 || '%') +
+		(SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%' OR coalesce(error::text, '') LIKE '%' || $1 || '%')`,
+		firma[:60]).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("la firma quedó en la auditoría (%d filas)", n)
+	}
+}

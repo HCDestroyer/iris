@@ -134,6 +134,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Status = &s
 	}
 	r.Codigo = TipoDe(er)
+	if bodegaRequerida(er) {
+		// Argos 1.5.x no entiende tecnico (contrato 0.5.0 §3.3): «bodega_id required».
+		r.Codigo = CodigoBodegaRequerida
+	}
 	if er.Status == http.StatusConflict && conciliable(f.Operacion, r.Codigo) {
 		// Argos ya lo tiene hecho (contrato 0.5.0 §3.3): cuenta como hecho, con la nota.
 		r.Exito, r.Conciliado = true, r.Codigo
@@ -163,6 +167,21 @@ func conciliable(operacion, codigo string) bool {
 // vínculo actual de su ficha.
 var CodigosCorregibles = map[string]bool{
 	"tecnico_no_encontrado": true, "tecnico_sin_bodega": true, "tecnico_ambiguo": true, "empresa_requerida": true,
+	CodigoBodegaRequerida: true,
+}
+
+// CodigoBodegaRequerida: Argos (1.5.x) rechazó un cuerpo con tecnico y sin bodega_id con un 422 de
+// validación sobre bodega_id. Corregible: al reintentar se replanifica con bodega_id si Argos ya no
+// tiene la capacidad inventario_por_tecnico.
+const CodigoBodegaRequerida = "bodega_id_requerida"
+
+// bodegaRequerida: 422 de validación que nombra bodega_id («bodega_id required»).
+func bodegaRequerida(er *conector.ErrorRemoto) bool {
+	if er.Status != http.StatusUnprocessableEntity {
+		return false
+	}
+	texto := strings.ToLower(er.Detalle + " " + er.Titulo)
+	return strings.Contains(texto, "bodega_id") && (strings.Contains(texto, "required") || strings.Contains(texto, "requerid") || strings.Contains(texto, "obligatori"))
 }
 
 // EsCorregible indica si el último error de Argos se corrige con el vínculo del técnico.

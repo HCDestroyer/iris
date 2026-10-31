@@ -247,10 +247,11 @@ partes (ficha, ticket, orden, comercial y app de campo).
   y botón §1.4) y guarda `version_argos` / `contrato` en el conector (`version_remota`,
   `contrato_remoto`, `contrato_informado`, `version_consultada_en`). Al activar (y al reconectar)
   se encola `integracion.argos_informar_contrato`: `PUT /integraciones/iris/contrato` y
-  `GET /integraciones/iris/estado`; un 404/405 es Argos 1.5.x (no es error). El periódico
-  `integracion.argos_revisar_contrato` (al arrancar y cada 6 h) lo encola para el conector activo
-  si falta informar el contrato o la versión es desconocida o < 1.6.0: es el job «de una vez» de
-  los conectores ya activos y detecta una actualización de Argos. `Conector.capacidades` trae
+  `GET /integraciones/iris/estado`; un 404/405 es Argos 1.5.x (no es error): la versión y el contrato
+  guardados se borran (una vuelta atrás de Argos deja a Iris en `bodega_id`). El periódico
+  `integracion.argos_revisar_contrato` (al arrancar y cada 6 h) lo encola siempre para el conector
+  activo: es el job «de una vez» de los conectores ya activos y detecta una actualización o una
+  vuelta atrás de Argos. `Conector.capacidades` trae
   `inventario_por_tecnico` con Argos ≥ 1.6.0; `InventarioPorTecnico` lo consulta la cola.
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector

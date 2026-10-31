@@ -10,6 +10,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -179,10 +180,13 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		}
 		r.Resultado = "aplicado"
 	case in.traslado != nil:
-		if err := aplicarTraslado(ctx, t, q, *in.traslado); err != nil {
+		switch err := aplicarTraslado(ctx, t, q, *in.traslado); {
+		case errors.Is(err, errSinCambios):
+		case err != nil:
 			return r, err
+		default:
+			r.Resultado = "aplicado"
 		}
-		r.Resultado = "aplicado"
 	}
 	switch {
 	case in.borrar && in.ClienteID != nil:
@@ -203,7 +207,8 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	// Datos que copian las órdenes (0.5.0): campo marca las abiertas «dato de Argos cambió».
 	switch e.Evento {
 	case EventoServicioDatosCambiados:
-		if in.datosServicio != nil {
+		// Un servicio eliminado en Argos (omitido) no avisa a campo.
+		if in.datosServicio != nil && in.omitido == "" {
 			if err := emitirDatosCambiados(t, e, "servicio", leerPayload(e.Payload).cliente(), in.datosServicio); err != nil {
 				return r, err
 			}
@@ -264,9 +269,11 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoTrasladoEnviado, EventoTrasladoRecibido, EventoTrasladoCancelado:
 		// El payload trae todo lo que la app muestra (no se relee de Argos).
-		if in.traslado = trasladoDe(e); in.traslado == nil {
-			in.omitido = "traslado_sin_id"
+		con, err := conectorbd.New(bd).ConectorPorID(ctx, e.ConectorID)
+		if err != nil {
+			return ResultadoEntrante{}, err
 		}
+		in.traslado, in.omitido = trasladoDe(e, con)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()

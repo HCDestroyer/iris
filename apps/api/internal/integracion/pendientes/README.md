@@ -91,14 +91,18 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `tecnico_usuario_id`. Sin vínculo o con Argos < 1.6.0, todo como antes. Un cierre repetido que
   solo cambia `bodega_id` ↔ `tecnico` no pisa lo encolado (su huella) ni marca conflicto.
 - Consumo con `lineas[]` y solo consumibles: un material `comodato` se omite
-  (`integracion.pendiente_omitido`, `material_comodato`). El cargo de un producto
-  `consumible_cobro` de la orden no se encola (`cargo_cubierto_por_consumo`); el de un producto de
-  modalidad desconocida espera al consumo, y un `409 cargo_duplicado` cuenta como hecho (conciliado,
-  `codigo_error = cargo_duplicado`).
+  (`integracion.pendiente_omitido`, `material_comodato`). El cargo de la orden nunca se descarta: si
+  su producto está en el consumo, espera al consumo, y un `409 cargo_duplicado` (Argos ya lo cobró por
+  modalidad) cuenta como hecho (conciliado, `codigo_error = cargo_duplicado`). Si el consumo falla, el
+  cargo queda bloqueado hasta que el consumo se reintente.
+- Argos vuelto a 1.5.x: un `422` de validación sobre `bodega_id` («bodega_id required») de un cuerpo
+  con `tecnico` es corregible (`bodega_id_requerida`). Al reintentar sin la capacidad
+  `inventario_por_tecnico`, consumo y devolución se replanifican con la bodega de la orden (sin ella,
+  422 `bodega_requerida`) y el comodato sin `tecnico`.
 - La respuesta del consumo guarda `cargos[] { id, producto_id, monto }` y `factura_id` (lista blanca);
   `Pendiente.cargos` / `facturaId` en la API (la orden los ve en sus pendientes).
 - `codigo_error` (type de Argos) en cada fallo; `Pendiente.codigoError` y `corregible`
-  (`tecnico_no_encontrado`, `tecnico_sin_bodega`, `tecnico_ambiguo`, `empresa_requerida`). El
+  (`tecnico_no_encontrado`, `tecnico_sin_bodega`, `tecnico_ambiguo`, `empresa_requerida`, `bodega_id_requerida`). El
   reintento a mano de un corregible manda el vínculo actual del técnico (si cambió, corrige el
   cuerpo y emite `integracion.pendiente_corregido`; sin vínculo, 422 `tecnico_sin_vincular`).
   `producto_es_comodato`, `cobro_sin_cliente` y `existencia_insuficiente` son de negocio (no se

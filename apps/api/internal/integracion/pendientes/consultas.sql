@@ -203,3 +203,7 @@ SET payload = @payload, estado = 'bloqueado', ultimo_error = @motivo::text, codi
     intentos = 0, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'fallido_negocio'
 RETURNING *;
+
+-- name: BodegaDeOrden :one
+-- La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
+SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;

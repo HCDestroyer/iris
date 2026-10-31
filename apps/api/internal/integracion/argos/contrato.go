@@ -20,8 +20,8 @@ import (
 // Versión y contrato (contrato Iris ↔ ArgosISP 0.5.0 §3.3, «Versión y compatibilidad»):
 //
 //   - Iris manda `contrato` en el canje (§1.3 y §1.4) y, a un conector ya activo, con
-//     PUT /integraciones/iris/contrato { contrato } (job al activar o reconectar, y uno periódico que
-//     solo actúa si falta informarlo o la versión es anterior a 1.6.0);
+//     PUT /integraciones/iris/contrato { contrato } (job al activar o reconectar, y uno periódico
+//     que relee la versión en cada periodo: detecta una actualización o una vuelta atrás de Argos);
 //   - Argos devuelve `version_argos` y `contrato` en el canje y en GET /integraciones/iris/estado;
 //     Iris los guarda en el conector y elige `tecnico` (Argos ≥ 1.6.0) o `bodega_id`.
 
@@ -80,8 +80,8 @@ func (ArgsInformarContrato) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 8, UniqueOpts: river.UniqueOpts{ByArgs: true, ByPeriod: time.Minute}}
 }
 
-// ArgsRevisarContrato (periódico) encola ArgsInformarContrato para el conector Argos activo si aún
-// no se le informó este contrato o su versión es anterior a 1.6.0 (detecta una actualización de Argos).
+// ArgsRevisarContrato (periódico) encola ArgsInformarContrato para el conector Argos activo en cada
+// periodo (detecta una actualización o una vuelta atrás de Argos).
 type ArgsRevisarContrato struct{}
 
 // Kind implementa river.JobArgs.
@@ -106,6 +106,10 @@ type entradaGuardarContrato struct {
 	Version    *string `json:"version_remota"`
 	Contrato   *string `json:"contrato_remoto"`
 	Informado  *string `json:"contrato_informado"`
+	// SinVersion: GET …/estado respondió 404/405 (Argos 1.5.x, o volvió a ella): la versión guardada
+	// se borra. SinInformado: PUT …/contrato respondió 404/405.
+	SinVersion   bool `json:"sin_version,omitempty"`
+	SinInformado bool `json:"sin_informado,omitempty"`
 }
 
 // InformarContrato: PUT /integraciones/iris/contrato y GET /integraciones/iris/estado fuera de
@@ -130,6 +134,7 @@ func nuevoInformarContrato(m *Modulo) *InformarContrato {
 			}
 			despues, err := q.FijarVersionConector(ctx, conectorbd.FijarVersionConectorParams{
 				ID: in.ConectorID, VersionRemota: in.Version, ContratoRemoto: in.Contrato, ContratoInformado: in.Informado,
+				SinVersion: in.SinVersion, SinInformado: in.SinInformado,
 			})
 			if err != nil {
 				return ResultadoContrato{}, err
@@ -186,6 +191,7 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 		in.Informado = &informado
 		in.Version, in.Contrato = conector.TextoVersion(puesto.VersionArgos, 40), conector.TextoVersion(puesto.Contrato, 20)
 	case anteriorA16(err):
+		in.SinInformado = true
 	default:
 		return ResultadoContrato{}, err
 	}
@@ -200,6 +206,9 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 			in.Contrato = v
 		}
 	case anteriorA16(err):
+		// Sin /estado: Argos anterior a 1.6.0 (o volvió a ella). Nada de lo que informaba antes vale:
+		// sin versión, Iris manda bodega_id.
+		in.Version, in.Contrato, in.SinVersion = nil, nil, true
 	default:
 		return ResultadoContrato{}, err
 	}
@@ -248,9 +257,9 @@ func (w *trabajadorRevisarContrato) Work(ctx context.Context, _ *river.Job[ArgsR
 	return w.m.RevisarContrato(ctx)
 }
 
-// RevisarContrato encola el informe del contrato al conector Argos activo si hace falta (no se le
-// informó este contrato, o su versión es desconocida o anterior a 1.6.0). Es el job «de una vez»
-// para los conectores que ya estaban activos antes de esta versión de Iris.
+// RevisarContrato encola el informe del contrato y la lectura de la versión del conector Argos activo
+// en cada periodo: es el job «de una vez» para los conectores que ya estaban activos antes de esta
+// versión de Iris y detecta una actualización o una vuelta atrás de Argos.
 func (m *Modulo) RevisarContrato(ctx context.Context) error {
 	if m.cfg.Encolar == nil {
 		return nil
@@ -263,11 +272,8 @@ func (m *Modulo) RevisarContrato(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if mismoTexto(f.ContratoInformado, ptrTexto(ContratoIris)) && SoportaInventarioTecnico(f.VersionRemota) {
-			return nil
-		}
+		// Siempre: la versión se vuelve a leer cada periodo (detecta una actualización y también una
+		// vuelta atrás de Argos, que dejaría a Iris mandando tecnico a un Argos 1.5.x).
 		return m.cfg.Encolar(ctx, tx, ArgsInformarContrato{ConectorID: f.ID})
 	})
 }
-
-func ptrTexto(s string) *string { return &s }

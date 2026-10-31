@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -41,7 +42,7 @@ type Pendiente struct {
 	PorResolver      bool           `json:"porResolver,omitempty" doc:"El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)"`
 	// Contrato 0.5.0 §3.3.
 	CodigoError *string      `json:"codigoError" nullable:"true" required:"false" doc:"type del último error de Argos (tecnico_no_encontrado, existencia_insuficiente, producto_es_comodato…); en un hecho conciliado, cargo_duplicado o traslado_ya_recibido"`
-	Corregible  bool         `json:"corregible" required:"false" doc:"El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual"`
+	Corregible  bool         `json:"corregible" required:"false" doc:"El rechazo es por el técnico (tecnico_no_encontrado, tecnico_sin_bodega, tecnico_ambiguo, empresa_requerida) o Argos volvió a 1.5.x (bodega_id_requerida): vincula bien al técnico en Agenda (o dale bodega en Argos) y reintenta; el reintento manda el vínculo actual o, sin la capacidad inventario_por_tecnico, la bodega de la orden"`
 	Cargos      []CargoArgos `json:"cargos,omitempty" doc:"Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro"`
 	FacturaID   *int64       `json:"facturaId,omitempty" doc:"Consumo hecho: factura de Argos con esos cargos (si la hubo)"`
 	CreadoEn    time.Time    `json:"creadoEn"`
@@ -252,12 +253,18 @@ func errorf(formato string, args ...any) *string {
 	return &s
 }
 
-// corregirTecnico: el reintento a mano de un pendiente rechazado por el técnico (CodigosCorregibles)
-// manda el vínculo actual de su ficha. Si cambió, el cuerpo se corrige (integracion.pendiente_corregido)
-// y vuelve a la cola; si es el mismo, sigue el reintento normal (p. ej. le dieron bodega en Argos).
-// Sin vínculo: 422 tecnico_sin_vincular. ok = ya se corrigió y encoló.
+// corregirTecnico: el reintento a mano de un pendiente rechazado por el técnico (CodigosCorregibles):
+//
+//   - si el cuerpo lleva tecnico y Argos ya no lo entiende (volvió a 1.5.x: sin la capacidad), se
+//     replanifica con bodega_id (la de la orden; sin ella, 422 bodega_requerida) o, en el comodato,
+//     sin tecnico;
+//   - si no, manda el vínculo actual del técnico. Si cambió, el cuerpo se corrige; si es el mismo,
+//     sigue el reintento normal (p. ej. le dieron bodega en Argos). Sin vínculo: 422
+//     tecnico_sin_vincular.
+//
+// Corregido: integracion.pendiente_corregido y vuelve a la cola. ok = ya se corrigió y encoló.
 func (m *Modulo) corregirTecnico(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, version int32) (Pendiente, bool, error) {
-	if f.Estado != EstadoFallidoNegocio || !EsCorregible(f.CodigoError) || f.TecnicoUsuarioID == nil {
+	if f.Estado != EstadoFallidoNegocio || !EsCorregible(f.CodigoError) {
 		return Pendiente{}, false, nil
 	}
 	var cuerpo map[string]any
@@ -272,19 +279,40 @@ func (m *Modulo) corregirTecnico(ctx context.Context, t *auditoria.Tx, f pendien
 		}
 	}
 	q := pendientesbd.New(t)
-	actual, err := q.VinculoArgosDeTecnico(ctx, *f.TecnicoUsuarioID)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actual == "") {
-		return Pendiente{}, false, nucleo.ReglaNegocio("tecnico_sin_vincular",
-			"Argos rechazó al técnico ("+deref(f.CodigoError)+") y su ficha no está vinculada a un usuario de Argos: vincúlala en Agenda y reintenta")
-	}
-	if err != nil {
-		return Pendiente{}, false, err
-	}
 	anterior, _ := cuerpo[campo].(map[string]any)
-	if anterior != nil && anterior["id_externo"] == actual {
-		return Pendiente{}, false, nil
+	porTecnico := true
+	if campo == "tecnico" && m.cfg.Argos != nil {
+		var err error
+		if porTecnico, err = m.cfg.Argos.InventarioPorTecnico(ctx, t); err != nil {
+			return Pendiente{}, false, err
+		}
 	}
-	cuerpo[campo] = map[string]any{"id_externo": actual}
+	if !porTecnico {
+		delete(cuerpo, "tecnico")
+		if f.Operacion == OpConsumo || f.Operacion == OpDevolucion {
+			bodega, err := m.bodegaDe(ctx, q, f)
+			if err != nil {
+				return Pendiente{}, false, err
+			}
+			cuerpo["bodega_id"] = bodega
+		}
+	} else {
+		if f.TecnicoUsuarioID == nil {
+			return Pendiente{}, false, nil
+		}
+		actual, err := q.VinculoArgosDeTecnico(ctx, *f.TecnicoUsuarioID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && actual == "") {
+			return Pendiente{}, false, nucleo.ReglaNegocio("tecnico_sin_vincular",
+				"Argos rechazó al técnico ("+deref(f.CodigoError)+") y su ficha no está vinculada a un usuario de Argos: vincúlala en Agenda y reintenta")
+		}
+		if err != nil {
+			return Pendiente{}, false, err
+		}
+		if anterior != nil && anterior["id_externo"] == actual {
+			return Pendiente{}, false, nil
+		}
+		cuerpo[campo] = map[string]any{"id_externo": actual}
+	}
 	nuevo, err := json.Marshal(cuerpo)
 	if err != nil {
 		return Pendiente{}, false, err
@@ -296,11 +324,31 @@ func (m *Modulo) corregirTecnico(ctx context.Context, t *auditoria.Tx, f pendien
 	if err != nil {
 		return Pendiente{}, false, err
 	}
+	// Solo lo que cambió (técnico o bodega), nunca el cuerpo entero: el de una recepción lleva la
+	// firma (png_base64).
 	t.RegistrarCambios("pendiente", g.ID,
-		map[string]any{"estado": f.Estado, "payload": string(f.Payload), "codigo_error": f.CodigoError},
-		map[string]any{"estado": g.Estado, "payload": string(g.Payload), "codigo_error": g.CodigoError})
+		map[string]any{"estado": f.Estado, "codigo_error": f.CodigoError, campo: anterior, "bodega_id": nil},
+		map[string]any{"estado": g.Estado, "codigo_error": g.CodigoError, campo: cuerpo[campo], "bodega_id": cuerpo["bodega_id"]})
 	if err := t.Emitir(EventoCorregido, eventoDe(g)); err != nil {
 		return Pendiente{}, false, err
 	}
 	return aPendiente(g), true, m.avisarCola(ctx, t.Tx)
+}
+
+// bodegaDe: la bodega de la orden del pendiente (422 bodega_requerida si no tiene).
+func (m *Modulo) bodegaDe(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) (int64, error) {
+	sinBodega := nucleo.ReglaNegocio("bodega_requerida",
+		"Argos ya no entiende tecnico (anterior a 1.6.0) y la orden no tiene bodega: asígnale la bodega del técnico y reintenta")
+	id, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if f.Entidad != "orden" || err != nil {
+		return 0, sinBodega
+	}
+	b, err := q.BodegaDeOrden(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && b == nil) {
+		return 0, sinBodega
+	}
+	if err != nil {
+		return 0, err
+	}
+	return *b, nil
 }

@@ -78,6 +78,18 @@ func (q *Queries) BloquearDependientes(ctx context.Context, arg BloquearDependie
 	return items, nil
 }
 
+const bodegaDeOrden = `-- name: BodegaDeOrden :one
+SELECT bodega_id FROM campo.ordenes WHERE id = $1::bigint
+`
+
+// La bodega de la orden de trabajo (para volver de tecnico a bodega_id si Argos ya no lo entiende).
+func (q *Queries) BodegaDeOrden(ctx context.Context, id int64) (*int64, error) {
+	row := q.db.QueryRow(ctx, bodegaDeOrden, id)
+	var bodega_id *int64
+	err := row.Scan(&bodega_id)
+	return bodega_id, err
+}
+
 const completarEsperando = `-- name: CompletarEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()

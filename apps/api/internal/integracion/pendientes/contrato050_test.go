@@ -2,6 +2,7 @@ package pendientes_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
@@ -45,9 +46,10 @@ func (e *entorno) tecnico(idExterno string) int64 {
 
 func (e *entorno) llamadaA(clave string) llamada {
 	e.t.Helper()
-	for _, l := range e.argos.copia() {
-		if l.Clave == clave {
-			return l
+	ls := e.argos.copia()
+	for i := len(ls) - 1; i >= 0; i-- {
+		if ls[i].Clave == clave {
+			return ls[i] // la última
 		}
 	}
 	e.t.Fatalf("Argos no recibió %s", clave)
@@ -74,13 +76,22 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 		"cargo": map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	ps := e.pendientes(orden)
-	if _, ok := ps["iris:cargo:"+orden]; ok || len(ps) != 3 {
-		t.Fatalf("el cargo cubierto por el consumo no se encola: %+v", ps)
+	cargo, ok := ps["iris:cargo:"+orden]
+	if !ok || len(ps) != 4 {
+		t.Fatalf("el cargo se encola siempre (nunca se descarta): %+v", ps)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND depende_de = ARRAY[$2::bigint]`, cargo.ID, ps["iris:consumo:"+orden].ID); n != 1 {
+		t.Fatal("el cargo del mismo producto espera al consumo")
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_omitido' AND payload->>'orden_id' = $1
-		AND payload->>'motivo' IN ('material_comodato', 'cargo_cubierto_por_consumo')`, orden); n != 2 {
-		t.Fatalf("avisos de omisión: %d", n)
+		AND payload->>'motivo' = 'material_comodato'`, orden); n != 1 {
+		t.Fatalf("aviso del comodato: %d", n)
 	}
+	// Argos ya lo cobró por modalidad en el consumo: 409 cargo_duplicado = hecho.
+	e.argos.mu.Lock()
+	e.argos.tipos["/facturas/cargo-unico"] = "urn:argosisp:problema:cargo_duplicado"
+	e.argos.mu.Unlock()
+	e.argos.responder("/facturas/cargo-unico", 409)
 	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND tecnico_usuario_id = $2`, orden, tec); n != 2 {
 		t.Fatalf("tecnico_usuario_id (comodato y consumo): %d", n)
 	}
@@ -97,6 +108,9 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 		t.Fatalf("comodato con tecnico: %s", com.Crudo)
 	}
 	// cargos[] y factura_id del consumo quedan en el pendiente (para la orden).
+	if f := e.pendientes(orden)["iris:cargo:"+orden]; f.Estado != "hecho" {
+		t.Fatalf("cargo conciliado: %+v", f)
+	}
 	ps2, err := pendientes.DeEntidad(context.Background(), e.pool, "orden", orden)
 	if err != nil {
 		t.Fatal(err)
@@ -223,4 +237,98 @@ func (e *entorno) contar(sql string, args ...any) int {
 		e.t.Fatal(err)
 	}
 	return n
+}
+
+// MEDIUM 2 de la revisión: el cargo nunca se descarta. Si el consumo falla atómicamente en Argos, el
+// cargo queda esperándolo (bloqueado) y sale cuando el consumo se reintenta y queda hecho.
+func TestCargoNoSeDescartaSiElConsumoFalla(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-cargo")
+	orden := nuevaOrden()
+	e.argos.mu.Lock()
+	e.argos.tipos["/inventario/consumos"] = "urn:argosisp:problema:existencia_insuficiente"
+	e.argos.mu.Unlock()
+	e.argos.responder("/inventario/consumos", 409, 201)
+	e.cerrar(map[string]any{
+		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
+		"tecnico":    map[string]any{"id_externo": "u-cargo"},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
+	})
+	e.procesar()
+	ps := e.pendientes(orden)
+	if ps["iris:consumo:"+orden].Estado != "fallido_negocio" || ps["iris:cargo:"+orden].Estado != "bloqueado" {
+		t.Fatalf("consumo fallido y cargo esperándolo: %+v", ps)
+	}
+	u, err := identidad.Nuevo(identidad.Config{}).CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor", Correo: pruebas.Correo("sup"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar)
+	c := ps["iris:consumo:"+orden]
+	if _, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: c.ID, Version: c.Version}); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	ps = e.pendientes(orden)
+	if ps["iris:consumo:"+orden].Estado != "hecho" || ps["iris:cargo:"+orden].Estado != "hecho" {
+		t.Fatalf("tras el reintento, el cargo sale: %+v", ps)
+	}
+	if l := e.llamadaA("iris:cargo:" + orden); l.Cuerpo["producto_id"] != float64(5) {
+		t.Fatalf("cargo: %s", l.Crudo)
+	}
+}
+
+// MEDIUM 3 de la revisión: Argos volvió a 1.5.x. El 422 «bodega_id required» de un cuerpo con
+// tecnico es corregible; al reintentar sin la capacidad, se replanifica con la bodega de la orden
+// (sin bodega, 422 bodega_requerida).
+func TestArgosVueltoA15ReplanificaConBodega(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-15b")
+	var orden, sinBodega int64
+	if err := e.pool.QueryRow(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion, bodega_id)
+		SELECT id, 'Zona 1', 33 FROM campo.tipos_orden WHERE codigo = 'visita' RETURNING id`).Scan(&orden); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.pool.QueryRow(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion)
+		SELECT id, 'Zona 1' FROM campo.tipos_orden WHERE codigo = 'visita' RETURNING id`).Scan(&sinBodega); err != nil {
+		t.Fatal(err)
+	}
+	e.argos.mu.Lock()
+	e.argos.tipos["/inventario/consumos"] = "urn:argosisp:problema:validacion"
+	e.argos.detalle = "bodega_id required"
+	e.argos.mu.Unlock()
+	e.argos.responder("/inventario/consumos", 422, 422, 201)
+	for _, id := range []int64{orden, sinBodega} {
+		e.cerrar(map[string]any{"orden_id": id, "tipo": "visita", "resultado": "exitosa", "servicio_id": 20, "tecnico_id": tec,
+			"tecnico": map[string]any{"id_externo": "u-15b"}, "materiales": []any{map[string]any{"producto_id": 7, "cantidad": 1}}})
+	}
+	e.procesar()
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, tec, 1, nucleo.PermIntegracionesReintentar)
+	clave := func(id int64) string { return "iris:consumo:" + strconv.FormatInt(id, 10) }
+	ps, _ := pendientes.DeEntidad(context.Background(), e.pool, "orden", strconv.FormatInt(orden, 10))
+	if len(ps) != 1 || !ps[0].Corregible || *ps[0].CodigoError != pendientes.CodigoBodegaRequerida {
+		t.Fatalf("corregible: %+v", ps)
+	}
+	// Argos volvió a 1.5.x (la revisión borró la versión).
+	e.exec(`UPDATE integracion.conectores SET version_remota = NULL WHERE id = $1`, e.conID)
+	f := e.pendientes(strconv.FormatInt(sinBodega, 10))[clave(sinBodega)]
+	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: f.ID, Version: f.Version})
+	if p, _ := nucleo.AProblema(err); p == nil || p.Codigo() != "bodega_requerida" {
+		t.Fatalf("sin bodega: %v", err)
+	}
+	p, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: ps[0].ID, Version: ps[0].Version})
+	if err != nil || p.Payload["tecnico"] != nil || p.Payload["bodega_id"] != float64(33) || p.Estado != "pendiente" {
+		t.Fatalf("replanificado con bodega_id: %+v %v", p, err)
+	}
+	e.procesar()
+	if l := e.llamadaA(clave(orden)); l.Cuerpo["bodega_id"] != float64(33) || l.Cuerpo["tecnico"] != nil {
+		t.Fatalf("Argos recibe bodega_id: %s", l.Crudo)
+	}
+	if f := e.pendientes(strconv.FormatInt(orden, 10))[clave(orden)]; f.Estado != "hecho" {
+		t.Fatalf("hecho: %+v", f)
+	}
 }

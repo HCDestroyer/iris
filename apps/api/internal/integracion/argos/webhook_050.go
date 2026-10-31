@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 )
 
 // Webhooks del contrato 0.5.0 (§2.3): Argos ≥ 1.6.0 solo los manda a conectores con contrato ≥ 0.5.0
@@ -134,7 +135,8 @@ func (p *ProcesarEntrante) leerCatalogo(ctx context.Context, q conector.DBTX, e 
 		return inactivo()
 	case "router":
 		r, err := cli.ObtenerRouter(ctx, c.ID)
-		if EsNoEncontrado(err) {
+		if conector.EsNoEncontradoConfirmado(err) {
+			// Solo un 404 problem+json no_encontrado confirma que ya no está (§2.3).
 			return inactivo()
 		}
 		if err != nil {
@@ -196,11 +198,9 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 			}
 			n += m
 		}
-		agenda, err := q.CambiarZonaAgenda(ctx, argosbd.CambiarZonaAgendaParams{ID: c.ID, Nombre: c.Nombre, Activo: c.Activo})
-		if err != nil {
+		if err := cambiarZonaAgenda(ctx, t, q, c); err != nil {
 			return err
 		}
-		t.Anotar(map[string]any{"zona_agenda": agenda})
 	case "router":
 		if n, err = q.CambiarRouterArgos(ctx, argosbd.CambiarRouterArgosParams{ID: c.ID, Nombre: c.Nombre, Activo: c.Activo,
 			ConCoordenadas: c.conCoord, Lat: c.Lat, Lon: c.Lon}); err != nil {
@@ -225,28 +225,111 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 }
 
 // trasladoDe arma el traslado del webhook (nil si no trae traslado_id).
-func trasladoDe(e conector.Entrante) *argosbd.GuardarTrasladoParams {
+func trasladoDe(e conector.Entrante, con conectorbd.IntegracionConectore) (*argosbd.GuardarTrasladoParams, string) {
 	d := leerPayload050(e.Payload)
 	if d.TrasladoID == nil || *d.TrasladoID <= 0 {
-		return nil
+		return nil, "traslado_sin_id"
 	}
+	if d.EmpresaID != nil && !empresaEnAlcance(con, *d.EmpresaID) {
+		return nil, "empresa_fuera_de_alcance"
+	}
+	lineas, ok := lineasTraslado(d.Lineas)
+	if !ok {
+		return nil, "traslado_lineas_invalidas"
+	}
+	// Fuera de los valores conocidos no se guarda (el estado del traslado sí: lo necesita la app).
+	metodo, _ := enumOpcional(d.MetodoRecepcion, metodosRecepcion)
+	origen, _ := enumOpcional(d.Origen, origenesRecepcion)
 	estado := map[string]string{EventoTrasladoEnviado: "enviado", EventoTrasladoRecibido: "recibido", EventoTrasladoCancelado: "cancelado"}[e.Evento]
-	lineas := bytes.TrimSpace(d.Lineas)
-	if len(lineas) == 0 || lineas[0] != '[' {
-		lineas = []byte("[]")
-	}
 	entrante := e.ID
 	p := &argosbd.GuardarTrasladoParams{
 		ID: *d.TrasladoID, EmpresaID: d.EmpresaID, BodegaDestinoID: d.BodegaDestinoID, Estado: estado, Lineas: lineas,
 		EnviadoEn: d.EnviadoEn, RecibidoEn: d.RecibidoEn, CanceladoEn: d.CanceladoEn, EntranteID: &entrante,
-		MetodoRecepcion: textoNoVacio(d.MetodoRecepcion), OrigenRecepcion: textoNoVacio(d.Origen), Motivo: recortarPtr(d.Motivo, 500),
+		MetodoRecepcion: metodo, OrigenRecepcion: origen, Motivo: recortarPtr(d.Motivo, 500),
 		RecibidoPor: recibidoPor(d.RecibidoPor),
 	}
 	if d.Tecnico != nil {
 		p.TecnicoIDExterno = recortarPtr(string(d.Tecnico.IDExterno), 100)
 		p.TecnicoCorreo = recortarPtr(d.Tecnico.Correo, 320)
 	}
-	return p
+	return p, ""
+}
+
+// Valores de la recepción que Iris acepta en el webhook (contrato 0.5.0 §2.3 y §3.3).
+var (
+	metodosRecepcion  = []string{"firma_digital", "manual", "panel"}
+	origenesRecepcion = []string{"iris", "panel"}
+)
+
+// maxLineasTraslado acota lo que se guarda de un webhook.
+const maxLineasTraslado = 200
+
+// enumOpcional: vacío = nil; si no, debe ser uno de validos.
+func enumOpcional(v string, validos []string) (*string, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, true
+	}
+	if len(v) > 40 || !slices.Contains(validos, v) {
+		return nil, false
+	}
+	return &v, true
+}
+
+// empresaEnAlcance: la empresa está en el alcance que informó el canje del conector (alcance global o
+// sin informar: cualquiera; si no, una de sus empresas).
+func empresaEnAlcance(con conectorbd.IntegracionConectore, empresa int64) bool {
+	if con.AlcanceGlobal != nil && *con.AlcanceGlobal {
+		return true
+	}
+	if con.AlcanceGlobal == nil && len(con.Empresas) == 0 {
+		return true
+	}
+	return slices.Contains(con.Empresas, empresa)
+}
+
+// lineasTraslado valida y normaliza lineas[]: a lo más 200, cada una { linea_id?, producto_id (entero >
+// 0), cantidad (número ≥ 0), series[] (textos de hasta 100, a lo más 1000) }. Ausente = [].
+func lineasTraslado(crudo json.RawMessage) ([]byte, bool) {
+	crudo = bytes.TrimSpace(crudo)
+	if len(crudo) == 0 || string(crudo) == "null" {
+		return []byte("[]"), true
+	}
+	var lineas []struct {
+		ID         *int64          `json:"id"`
+		LineaID    *int64          `json:"linea_id"`
+		ProductoID int64           `json:"producto_id"`
+		Cantidad   conector.Numero `json:"cantidad"`
+		Series     []string        `json:"series"`
+	}
+	if conector.Decodificar(crudo, &lineas) != nil || len(lineas) > maxLineasTraslado {
+		return nil, false
+	}
+	salida := make([]map[string]any, 0, len(lineas))
+	for _, l := range lineas {
+		cant := l.Cantidad.Float()
+		if l.ProductoID <= 0 || cant == nil || *cant < 0 || len(l.Series) > 1000 {
+			return nil, false
+		}
+		series := make([]string, 0, len(l.Series))
+		for _, s := range l.Series {
+			if s = strings.TrimSpace(s); s == "" || len(s) > 100 {
+				return nil, false
+			}
+			series = append(series, s)
+		}
+		linea := l.LineaID
+		if linea == nil {
+			linea = l.ID
+		}
+		m := map[string]any{"producto_id": l.ProductoID, "cantidad": *cant, "series": series}
+		if linea != nil && *linea > 0 {
+			m["linea_id"] = *linea
+		}
+		salida = append(salida, m)
+	}
+	b, err := json.Marshal(salida)
+	return b, err == nil
 }
 
 // recibidoPor: el técnico ({ id_externo, correo }) o el texto que mande Argos.
@@ -280,9 +363,17 @@ func recortarPtr(s string, n int) *string {
 	return &s
 }
 
+// errSinCambios: el webhook no cambió nada (resultado «ignorado»).
+var errSinCambios = errors.New("argos: sin cambios")
+
 // aplicarTraslado guarda el traslado (un estado final no vuelve a enviado) y avisa.
 func aplicarTraslado(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, p argosbd.GuardarTrasladoParams) error {
 	f, err := q.GuardarTraslado(ctx, p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Ya estaba en un estado final distinto: no se toca ni se avisa.
+		t.Anotar(map[string]any{"traslado_id": p.ID, "omitido": "traslado_en_estado_final"})
+		return errSinCambios
+	}
 	if err != nil {
 		return err
 	}
@@ -325,4 +416,39 @@ func emitirDatosCambiados(t *auditoria.Tx, e conector.Entrante, entidad string, 
 		"entidad": entidad, "cliente_id": clienteID, "servicio_id": servicioID, "empresa_id": d.EmpresaID, "campos": campos,
 		"entrante_id": e.ID,
 	})
+}
+
+// cambiarZonaAgenda aplica el nombre y activa de Argos a la zona espejo de agenda (si existe y cambió),
+// auditado y con zona.actualizada { zona_id, campos[], activa }, como agenda.editar_zona.
+func cambiarZonaAgenda(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c cambioCatalogo) error {
+	antes, err := q.ZonaAgendaArgos(ctx, c.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	despues, err := q.CambiarZonaAgenda(ctx, argosbd.CambiarZonaAgendaParams{ID: c.ID, Nombre: c.Nombre, Activo: c.Activo})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	campos := []string{}
+	if antes.Nombre != despues.Nombre {
+		campos = append(campos, "nombre")
+	}
+	if antes.Activa != despues.Activa {
+		campos = append(campos, "activa")
+	}
+	t.RegistrarCambios("zona", despues.ID, map[string]any{"nombre": antes.Nombre, "activa": antes.Activa},
+		map[string]any{"nombre": despues.Nombre, "activa": despues.Activa})
+	empresa := int64(0)
+	if despues.EmpresaID != nil {
+		empresa = *despues.EmpresaID
+	}
+	t.FijarEmpresa(empresa)
+	defer t.FijarEmpresa(0)
+	return t.Emitir("zona.actualizada", map[string]any{"zona_id": despues.ID, "campos": campos, "activa": despues.Activa})
 }
