@@ -26,7 +26,7 @@ import {
     type Trazo,
 } from "@iris/ui";
 import { CircleCheck, CircleX, Lock, PenLine } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { esquemaFallar, esquemaFirma, type DatosFallar, type DatosFirma } from "@/lib/campo/esquemas";
 import { accionesDe } from "@/lib/campo/reglas";
@@ -179,6 +179,8 @@ export function PasoCierre({ orden }: { orden: OrdenVista }) {
 function FirmaYCierre({ orden }: { orden: OrdenVista }) {
     const { motor, ejecutar } = useCampo();
     const conPosicion = useConPosicion();
+    const enviando = useRef(false);
+    const [ocupado, setOcupado] = useState(false);
     const [resultado, setResultado] = useState<"exitosa" | "parcial">("exitosa");
     const [rehacer, setRehacer] = useState(false);
     const [trazos, setTrazos] = useState<{ trazos: Trazo[]; ancho: number; alto: number }>({ trazos: [], ancho: 0, alto: 0 });
@@ -190,12 +192,19 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
     const tomaFirma = !firmada && (orden.requiereFirma || firmo);
 
     const cerrar = async (d: DatosFirma | null) => {
+        // Una sola vez por toque, con o sin firma: mientras se espera el GPS o se guarda, un segundo
+        // toque no encola otro cierre.
+        if (enviando.current) {
+            return;
+        }
         if (!firmada && orden.requiereFirma && !firmo) {
             setErrorTrazo("Pide al cliente que firme en el recuadro");
             return;
         }
         setErrorTrazo(undefined);
-        await ejecutar(async () => {
+        enviando.current = true;
+        setOcupado(true);
+        const ok = await ejecutar(async () => {
             if (d && firmo) {
                 const svg = trazosASvg(trazos.trazos, trazos.ancho, trazos.alto);
                 const png = new Uint8Array(await (await trazosAPng(trazos.trazos, trazos.ancho, trazos.alto)).arrayBuffer());
@@ -216,8 +225,20 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
             }
             await motor.registrar("orden.cerrar", orden.id, { resultado, ...(await conPosicion()) });
         }, "Orden cerrada");
+        if (!ok) {
+            // Si no se guardó, se puede volver a intentar; si se guardó, la orden ya está cerrada.
+            enviando.current = false;
+            setOcupado(false);
+        }
     };
-    const enviar = tomaFirma ? form.handleSubmit((d) => cerrar(d)) : (e: FormEvent) => (e.preventDefault(), void cerrar(null));
+    const enviar = (e: FormEvent) => {
+        if (tomaFirma) {
+            void form.handleSubmit((d) => cerrar(d))(e);
+            return;
+        }
+        e.preventDefault();
+        void cerrar(null);
+    };
 
     return (
         <form onSubmit={enviar} noValidate aria-label="Firma del cliente y cierre" className="grid gap-4">
@@ -265,9 +286,9 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
                 </Aviso>
             ) : null}
             <div className="glass-material sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border px-4 py-3">
-                <Boton type="submit" tamano="lg" className="w-full" disabled={form.formState.isSubmitting}>
+                <Boton type="submit" tamano="lg" className="w-full" disabled={ocupado || form.formState.isSubmitting}>
                     <CircleCheck aria-hidden />
-                    {tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden"}
+                    {ocupado ? "Guardando…" : tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden"}
                 </Boton>
             </div>
         </form>

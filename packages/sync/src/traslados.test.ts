@@ -253,3 +253,23 @@ describe("«Por recibir»: situación y formulario", () => {
         expect(mal.error?.issues[0]?.path).toEqual(["lineas", 0, "cantidad"]);
     });
 });
+
+describe("motor: acciones del técnico de a una", () => {
+    const FIRMA = new Uint8Array([137, 80, 78, 71, 9, 9]);
+
+    it("dos registrar a la vez no comparten secuencia", async () => {
+        const { motor, almacen } = await montar();
+        const [a, b] = await Promise.all([motor.registrar("nota.agregar", 1, { texto: "a" }), motor.registrar("nota.agregar", 1, { texto: "b" })]);
+        expect(a.operacion.secuencia).not.toBe(b.operacion.secuencia);
+        expect(new Set([...almacen.operaciones.values()].map((o) => o.secuencia)).size).toBe(2);
+    });
+
+    it("dos recibirTraslado a la vez del mismo traslado encolan uno solo", async () => {
+        const { motor, transporte } = await montar();
+        transporte.sinRed = true;
+        const resultados = await Promise.allSettled([motor.recibirTraslado({ trasladoId: 60, firma: FIRMA }), motor.recibirTraslado({ trasladoId: 60, firma: FIRMA })]);
+        expect(resultados.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+        expect(motor.obtenerEstado().recepciones).toHaveLength(1);
+        expect(motor.obtenerEstado().adjuntos).toHaveLength(1);
+    });
+});

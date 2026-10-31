@@ -99,6 +99,25 @@ test.describe("pasos de la orden", () => {
         expect(api.lotes.flatMap((l) => l.operaciones ?? []).find((o) => o.tipo === "orden.cerrar")?.datos).toMatchObject({ resultado: "parcial" });
         expect(api.ordenes.get(102)?.firma?.nombre).toBe("Jorge Méndez");
     });
+    test("un doble toque en «Cerrar orden» (sin firma) encola un solo cierre", async ({ page }) => {
+        const listo = enSitio().map((o) =>
+            o.id === 102 ? { ...o, checklist: (o.checklist ?? []).map((i) => ({ ...i, valor: true as never, ocurridoEn: new Date().toISOString() })) } : o,
+        );
+        const api = await simularApiCampo(page, { ordenes: listo });
+        await page.goto("/campo?orden=102&paso=cierre");
+        const boton = page.getByRole("button", { name: "Cerrar orden" });
+        await expect(boton).toBeEnabled();
+        // Dos toques en el mismo instante, antes de que React deshabilite el botón.
+        await boton.evaluate((b: HTMLElement) => {
+            b.click();
+            b.click();
+        });
+        await expect(page.getByText("Orden cerrada", { exact: true })).toBeVisible();
+        await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
+        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
+        expect(api.lotes.flatMap((l) => l.operaciones ?? []).filter((o) => o.tipo === "orden.cerrar")).toHaveLength(1);
+        expect(api.resultados.filter((r) => r.estado === "rechazada")).toHaveLength(0);
+    });
 });
 
 test.describe("barra de estado discreta", () => {

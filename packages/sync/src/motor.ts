@@ -352,6 +352,12 @@ export class MotorSync {
     private proximoIntento: number | null = null;
     private ultimoError: ErrorVisible | null = null;
     private cadena: Promise<unknown> = Promise.resolve();
+    /**
+     * Acciones del técnico que encolan (registrar, adjuntar, recibir, rehacer un adjunto) de a una:
+     * cada una lee la `secuencia` y valida contra la cola antes de su `await`, así dos toques seguidos
+     * no comparten `secuencia` ni se saltan una validación. No espera a la red (aparte de `cadena`).
+     */
+    private cadenaLocal: Promise<unknown> = Promise.resolve();
     private readonly oyentes = new Set<Oyente>();
     private instantanea: EstadoSync;
 
@@ -434,43 +440,46 @@ export class MotorSync {
      * luego la aplica a la vista y despierta el envío.
      */
     async registrar<T extends TipoOperacion>(tipo: T, ordenId: number, datos: DatosPorTipo[T]): Promise<ResultadoRegistro> {
-        const vista = this.validarAccion(tipo, ordenId, datos);
-        const avisos: Aviso[] = [];
-        let plantilla: PlantillaFormulario | undefined;
-        if (tipo === "orden.agregar_formulario") {
-            // La versión que vio el técnico (la de su catálogo) y una copia para aplicarla sin señal.
-            const entrada = datos as DatosPorTipo["orden.agregar_formulario"];
-            plantilla = this.plantillaDelCatalogo(entrada.plantillaId);
-            if (entrada.versionId === undefined) {
-                entrada.versionId = plantilla.versionId;
+        return this.local(async () => {
+            const vista = this.validarAccion(tipo, ordenId, datos);
+            const avisos: Aviso[] = [];
+            let plantilla: PlantillaFormulario | undefined;
+            if (tipo === "orden.agregar_formulario") {
+                // La versión que vio el técnico (la de su catálogo) y una copia para aplicarla sin señal.
+                const entrada = datos as DatosPorTipo["orden.agregar_formulario"];
+                plantilla = this.plantillaDelCatalogo(entrada.plantillaId);
+                if (entrada.versionId === undefined) {
+                    entrada.versionId = plantilla.versionId;
+                }
             }
-        }
-        if (tipo === "material.usar") {
-            const { productoId, cantidad } = datos as DatosPorTipo["material.usar"];
-            const bodega = bodegaDeOrden(this.instantanea.existencias, vista.bodegaId);
-            const disponible = bodega?.lineas?.find((e) => e.productoId === productoId)?.cantidad ?? 0;
-            if (cantidad > disponible) {
-                avisos.push("material_excede_existencia");
+            if (tipo === "material.usar") {
+                const { productoId, cantidad } = datos as DatosPorTipo["material.usar"];
+                const bodega = bodegaDeOrden(this.instantanea.existencias, vista.bodegaId);
+                const disponible = bodega?.lineas?.find((e) => e.productoId === productoId)?.cantidad ?? 0;
+                if (cantidad > disponible) {
+                    avisos.push("material_excede_existencia");
+                }
             }
-        }
-        const secuencia = this.meta.secuencia + 1;
-        const operacion = {
-            id: this.generarId(),
-            tipo,
-            ordenId,
-            versionBase: vista.version,
-            ocurridoEn: this.ocurridoAhora(),
-            datos,
-            secuencia,
-            estado: "pendiente",
-            error: null,
-            intentos: 0,
-            ...(plantilla ? { plantilla: structuredClone(plantilla) } : {}),
-        } as OperacionLocal;
-        await this.guardar({ operaciones: { poner: [operacion] }, meta: { secuencia } });
-        this.emitir();
-        this.despertar();
-        return { operacion, avisos };
+            const secuencia = this.meta.secuencia + 1;
+            const operacion = {
+                id: this.generarId(),
+                tipo,
+                ordenId,
+                versionBase: vista.version,
+                ocurridoEn: this.ocurridoAhora(),
+                datos,
+                secuencia,
+                estado: "pendiente",
+                error: null,
+                intentos: 0,
+                ...(plantilla ? { plantilla: structuredClone(plantilla) } : {}),
+            } as OperacionLocal;
+            await this.guardar({ operaciones: { poner: [operacion] }, meta: { secuencia } });
+            this.emitir();
+            this.despertar();
+            return { operacion, avisos };
+    
+        });
     }
 
     /**
@@ -478,55 +487,58 @@ export class MotorSync {
      * La subida corre en `sincronizar`; `orden.cerrar` espera a los `obligatorio`.
      */
     async agregarAdjunto(entrada: EntradaAdjunto): Promise<{ adjunto: AdjuntoLocal; operacion: OperacionLocal }> {
-        const vista = this.validarAccion("adjunto.registrar", entrada.ordenId);
-        const id = this.generarId();
-        const adjunto: AdjuntoLocal = {
-            id,
-            ordenId: entrada.ordenId,
-            tipo: entrada.tipo,
-            claveChecklist: entrada.item?.codigo ?? null,
-            obligatorio: entrada.obligatorio ?? false,
-            mime: entrada.mime,
-            tamano: entrada.datos.byteLength,
-            sha256: await this.sha256(entrada.datos),
-            lat: entrada.lat ?? null,
-            lon: entrada.lon ?? null,
-            tomadoEn: entrada.tomadoEn ?? null,
-            estado: "por_crear",
-            offset: 0,
-            intentos: 0,
-            ultimoError: null,
-            problema: null,
-        };
-        const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: id, tipo: entrada.tipo };
-        if (entrada.item) {
-            datos.itemId = entrada.item.itemId;
-        }
-        if (entrada.descripcion) {
-            datos.descripcion = entrada.descripcion;
-        }
-        const secuencia = this.meta.secuencia + 1;
-        const operacion: OperacionLocal = {
-            id: this.generarId(),
-            tipo: "adjunto.registrar",
-            ordenId: entrada.ordenId,
-            versionBase: vista.version,
-            ocurridoEn: this.ocurridoAhora(),
-            datos,
-            secuencia,
-            estado: "pendiente",
-            error: null,
-            intentos: 0,
-        };
-        await this.guardar({
-            adjuntos: { poner: [adjunto] },
-            bytes: { poner: [{ id, datos: entrada.datos }] },
-            operaciones: { poner: [operacion] },
-            meta: { secuencia },
+        return this.local(async () => {
+            const vista = this.validarAccion("adjunto.registrar", entrada.ordenId);
+            const id = this.generarId();
+            const adjunto: AdjuntoLocal = {
+                id,
+                ordenId: entrada.ordenId,
+                tipo: entrada.tipo,
+                claveChecklist: entrada.item?.codigo ?? null,
+                obligatorio: entrada.obligatorio ?? false,
+                mime: entrada.mime,
+                tamano: entrada.datos.byteLength,
+                sha256: await this.sha256(entrada.datos),
+                lat: entrada.lat ?? null,
+                lon: entrada.lon ?? null,
+                tomadoEn: entrada.tomadoEn ?? null,
+                estado: "por_crear",
+                offset: 0,
+                intentos: 0,
+                ultimoError: null,
+                problema: null,
+            };
+            const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: id, tipo: entrada.tipo };
+            if (entrada.item) {
+                datos.itemId = entrada.item.itemId;
+            }
+            if (entrada.descripcion) {
+                datos.descripcion = entrada.descripcion;
+            }
+            const secuencia = this.meta.secuencia + 1;
+            const operacion: OperacionLocal = {
+                id: this.generarId(),
+                tipo: "adjunto.registrar",
+                ordenId: entrada.ordenId,
+                versionBase: vista.version,
+                ocurridoEn: this.ocurridoAhora(),
+                datos,
+                secuencia,
+                estado: "pendiente",
+                error: null,
+                intentos: 0,
+            };
+            await this.guardar({
+                adjuntos: { poner: [adjunto] },
+                bytes: { poner: [{ id, datos: entrada.datos }] },
+                operaciones: { poner: [operacion] },
+                meta: { secuencia },
+            });
+            this.emitir();
+            this.despertar();
+            return { adjunto, operacion };
+    
         });
-        this.emitir();
-        this.despertar();
-        return { adjunto, operacion };
     }
 
     /**
@@ -535,61 +547,64 @@ export class MotorSync {
      * retiene ninguna orden y su espera o su rechazo solo detienen lo que sigue de ese traslado.
      */
     async recibirTraslado(entrada: EntradaRecepcion): Promise<{ adjunto: AdjuntoLocal; operacion: OperacionTrasladoLocal }> {
-        if (!Number.isSafeInteger(entrada.trasladoId) || entrada.trasladoId <= 0) {
-            throw new ErrorSync("traslado_invalido", "Traslado inválido");
-        }
-        const grupo = grupoTraslado(entrada.trasladoId);
-        if ([...this.ops.values()].some((op) => op.ordenId === grupo)) {
-            throw new ErrorSync("traslado_en_cola", "Ya recibiste este traslado: está por enviar");
-        }
-        const id = this.generarId();
-        const adjunto: AdjuntoLocal = {
-            id,
-            ordenId: grupo,
-            entidad: "traslado",
-            tipo: "firma",
-            claveChecklist: null,
-            obligatorio: true,
-            mime: "image/png",
-            tamano: entrada.firma.byteLength,
-            sha256: await this.sha256(entrada.firma),
-            lat: null,
-            lon: null,
-            tomadoEn: null,
-            estado: "por_crear",
-            offset: 0,
-            intentos: 0,
-            ultimoError: null,
-            problema: null,
-        };
-        const ahora = this.ocurridoAhora();
-        const secuencia = this.meta.secuencia + 1;
-        const operacion: OperacionTrasladoLocal = {
-            id: this.generarId(),
-            tipo: "traslado.recibir",
-            ordenId: grupo,
-            versionBase: 0,
-            ocurridoEn: ahora,
-            datos: {
-                trasladoId: entrada.trasladoId,
-                firmaAdjuntoId: id,
-                recibidoEn: ahora,
-                ...(entrada.lineas && entrada.lineas.length > 0 ? { lineas: entrada.lineas } : {}),
-            },
-            secuencia,
-            estado: "pendiente",
-            error: null,
-            intentos: 0,
-        };
-        await this.guardar({
-            adjuntos: { poner: [adjunto] },
-            bytes: { poner: [{ id, datos: entrada.firma }] },
-            operaciones: { poner: [operacion] },
-            meta: { secuencia },
+        return this.local(async () => {
+            if (!Number.isSafeInteger(entrada.trasladoId) || entrada.trasladoId <= 0) {
+                throw new ErrorSync("traslado_invalido", "Traslado inválido");
+            }
+            const grupo = grupoTraslado(entrada.trasladoId);
+            if ([...this.ops.values()].some((op) => op.ordenId === grupo)) {
+                throw new ErrorSync("traslado_en_cola", "Ya recibiste este traslado: está por enviar");
+            }
+            const id = this.generarId();
+            const adjunto: AdjuntoLocal = {
+                id,
+                ordenId: grupo,
+                entidad: "traslado",
+                tipo: "firma",
+                claveChecklist: null,
+                obligatorio: true,
+                mime: "image/png",
+                tamano: entrada.firma.byteLength,
+                sha256: await this.sha256(entrada.firma),
+                lat: null,
+                lon: null,
+                tomadoEn: null,
+                estado: "por_crear",
+                offset: 0,
+                intentos: 0,
+                ultimoError: null,
+                problema: null,
+            };
+            const ahora = this.ocurridoAhora();
+            const secuencia = this.meta.secuencia + 1;
+            const operacion: OperacionTrasladoLocal = {
+                id: this.generarId(),
+                tipo: "traslado.recibir",
+                ordenId: grupo,
+                versionBase: 0,
+                ocurridoEn: ahora,
+                datos: {
+                    trasladoId: entrada.trasladoId,
+                    firmaAdjuntoId: id,
+                    recibidoEn: ahora,
+                    ...(entrada.lineas && entrada.lineas.length > 0 ? { lineas: entrada.lineas } : {}),
+                },
+                secuencia,
+                estado: "pendiente",
+                error: null,
+                intentos: 0,
+            };
+            await this.guardar({
+                adjuntos: { poner: [adjunto] },
+                bytes: { poner: [{ id, datos: entrada.firma }] },
+                operaciones: { poner: [operacion] },
+                meta: { secuencia },
+            });
+            this.emitir();
+            this.despertar();
+            return { adjunto, operacion };
+    
         });
-        this.emitir();
-        this.despertar();
-        return { adjunto, operacion };
     }
 
     /** El técnico ya vio el aviso de una operación aplicada. */
@@ -670,47 +685,50 @@ export class MotorSync {
      * se encola otro.
      */
     async rehacerAdjunto(id: string): Promise<AdjuntoLocal> {
-        const previo = this.adjuntoRechazado(id);
-        const bytes = await this.almacen.leerBytes(id);
-        if (bytes === null) {
-            throw new ErrorSync("adjunto_desconocido", "Los bytes del adjunto ya no están en el teléfono");
-        }
-        const nuevoId = this.generarId();
-        const nuevo: AdjuntoLocal = { ...sinEsperaAdjunto(previo), id: nuevoId, estado: "por_crear", offset: 0, intentos: 0, ultimoError: null, problema: null };
-        const reescritas = [...this.ops.values()]
-            .filter((op) => adjuntoDeOp(op) === id && !this.enVuelo.has(op.id))
-            .map((op) => cambiarAdjunto({ ...op, estado: "pendiente", error: null } as OperacionLocal, id, nuevoId));
-        const lote: LoteEscritura = {
-            adjuntos: { borrar: [id], poner: [nuevo] },
-            bytes: { borrar: [id], poner: [{ id: nuevoId, datos: bytes }] },
-            operaciones: { poner: reescritas },
-        };
-        if (previo.entidad !== "traslado" && !reescritas.some((op) => op.tipo === "adjunto.registrar")) {
-            const orden = this.ordenes.get(previo.ordenId);
-            const item = orden?.base.checklist?.find((i) => i.codigo === previo.claveChecklist);
-            const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: nuevoId, tipo: previo.tipo };
-            if (item) {
-                datos.itemId = item.itemId;
+        return this.local(async () => {
+            const previo = this.adjuntoRechazado(id);
+            const bytes = await this.almacen.leerBytes(id);
+            if (bytes === null) {
+                throw new ErrorSync("adjunto_desconocido", "Los bytes del adjunto ya no están en el teléfono");
             }
-            const secuencia = this.meta.secuencia + 1;
-            reescritas.push({
-                id: this.generarId(),
-                tipo: "adjunto.registrar",
-                ordenId: previo.ordenId,
-                versionBase: orden?.base.version ?? 0,
-                ocurridoEn: this.ocurridoAhora(),
-                datos,
-                secuencia,
-                estado: "pendiente",
-                error: null,
-                intentos: 0,
-            });
-            lote.meta = { secuencia };
-        }
-        await this.guardar(lote);
-        this.emitir();
-        this.despertar();
-        return nuevo;
+            const nuevoId = this.generarId();
+            const nuevo: AdjuntoLocal = { ...sinEsperaAdjunto(previo), id: nuevoId, estado: "por_crear", offset: 0, intentos: 0, ultimoError: null, problema: null };
+            const reescritas = [...this.ops.values()]
+                .filter((op) => adjuntoDeOp(op) === id && !this.enVuelo.has(op.id))
+                .map((op) => cambiarAdjunto({ ...op, estado: "pendiente", error: null } as OperacionLocal, id, nuevoId));
+            const lote: LoteEscritura = {
+                adjuntos: { borrar: [id], poner: [nuevo] },
+                bytes: { borrar: [id], poner: [{ id: nuevoId, datos: bytes }] },
+                operaciones: { poner: reescritas },
+            };
+            if (previo.entidad !== "traslado" && !reescritas.some((op) => op.tipo === "adjunto.registrar")) {
+                const orden = this.ordenes.get(previo.ordenId);
+                const item = orden?.base.checklist?.find((i) => i.codigo === previo.claveChecklist);
+                const datos: DatosPorTipo["adjunto.registrar"] = { adjuntoId: nuevoId, tipo: previo.tipo };
+                if (item) {
+                    datos.itemId = item.itemId;
+                }
+                const secuencia = this.meta.secuencia + 1;
+                reescritas.push({
+                    id: this.generarId(),
+                    tipo: "adjunto.registrar",
+                    ordenId: previo.ordenId,
+                    versionBase: orden?.base.version ?? 0,
+                    ocurridoEn: this.ocurridoAhora(),
+                    datos,
+                    secuencia,
+                    estado: "pendiente",
+                    error: null,
+                    intentos: 0,
+                });
+                lote.meta = { secuencia };
+            }
+            await this.guardar(lote);
+            this.emitir();
+            this.despertar();
+            return nuevo;
+    
+        });
     }
 
     /**
@@ -905,6 +923,13 @@ export class MotorSync {
             }
         }
         return proxima;
+    }
+
+    /** Corre una acción del técnico detrás de la anterior (ver `cadenaLocal`). */
+    private local<T>(tarea: () => Promise<T>): Promise<T> {
+        const resultado = this.cadenaLocal.then(tarea);
+        this.cadenaLocal = resultado.catch(() => undefined);
+        return resultado;
     }
 
     private serializar<T>(tarea: () => Promise<T>): Promise<T> {
