@@ -78,6 +78,67 @@ func (q *Queries) BloquearDependientes(ctx context.Context, arg BloquearDependie
 	return items, nil
 }
 
+const completarEsperando = `-- name: CompletarEsperando :one
+UPDATE integracion.pendientes
+SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error
+`
+
+type CompletarEsperandoParams struct {
+	Payload []byte
+	Ahora   time.Time
+	ID      int64
+	Motivo  string
+}
+
+// El pendiente que esperaba algo de Iris (ultimo_error = @motivo, p. ej. esperando_firma) recibe su
+// cuerpo final y vuelve a la cola. Una sola vez: después ya no está bloqueado con ese motivo.
+func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperandoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, completarEsperando,
+		arg.Payload,
+		arg.Ahora,
+		arg.ID,
+		arg.Motivo,
+	)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+	)
+	return i, err
+}
+
 const corregirPendiente = `-- name: CorregirPendiente :one
 UPDATE integracion.pendientes
 SET payload = $1, ruta = $2, depende_de = $3, datos_incompletos = false,
@@ -332,6 +393,66 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 		return nil, err
 	}
 	return items, nil
+}
+
+const fallarEsperando = `-- name: FallarEsperando :one
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', ultimo_error = $1::text, codigo_error = $2::text, version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error
+`
+
+type FallarEsperandoParams struct {
+	Detalle string
+	Codigo  string
+	ID      int64
+	Motivo  string
+}
+
+// Lo que esperaba no sirve (firma inválida…): queda fallido_negocio con el código, sin llamar a Argos.
+func (q *Queries) FallarEsperando(ctx context.Context, arg FallarEsperandoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, fallarEsperando,
+		arg.Detalle,
+		arg.Codigo,
+		arg.ID,
+		arg.Motivo,
+	)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+	)
+	return i, err
 }
 
 const fallarResolucion = `-- name: FallarResolucion :one
@@ -900,6 +1021,146 @@ func (q *Queries) PendientesDeEntidad(ctx context.Context, arg PendientesDeEntid
 	return items, nil
 }
 
+const pendientesDeTecnico = `-- name: PendientesDeTecnico :many
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error FROM integracion.pendientes
+WHERE tecnico_usuario_id = $1 AND operacion = $2::text AND updated_at >= $3
+ORDER BY id DESC
+LIMIT $4
+`
+
+type PendientesDeTecnicoParams struct {
+	UsuarioID *int64
+	Operacion string
+	Desde     time.Time
+	Limite    int32
+}
+
+// Los de una operación de un técnico (recepciones: la app de campo ve su estado), recientes primero.
+func (q *Queries) PendientesDeTecnico(ctx context.Context, arg PendientesDeTecnicoParams) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, pendientesDeTecnico,
+		arg.UsuarioID,
+		arg.Operacion,
+		arg.Desde,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+			&i.Verificar,
+			&i.TecnicoUsuarioID,
+			&i.CodigoError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendientesEsperando = `-- name: PendientesEsperando :many
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = $1::text AND operacion = $2::text
+ORDER BY id
+LIMIT $3
+`
+
+type PendientesEsperandoParams struct {
+	Motivo    string
+	Operacion string
+	Limite    int32
+}
+
+// Los bloqueados esperando algo de Iris (barrido del job).
+func (q *Queries) PendientesEsperando(ctx context.Context, arg PendientesEsperandoParams) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, pendientesEsperando, arg.Motivo, arg.Operacion, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+			&i.Verificar,
+			&i.TecnicoUsuarioID,
+			&i.CodigoError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pendientesPorIDCompartido = `-- name: PendientesPorIDCompartido :many
 SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error FROM integracion.pendientes WHERE id = ANY ($1::bigint[]) ORDER BY id FOR SHARE
 `
@@ -1023,6 +1284,62 @@ func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]Integr
 		return nil, err
 	}
 	return items, nil
+}
+
+const rehacerEsperando = `-- name: RehacerEsperando :one
+UPDATE integracion.pendientes
+SET payload = $1, estado = 'bloqueado', ultimo_error = $2::text, codigo_error = NULL, ultimo_status = NULL,
+    intentos = 0, version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'fallido_negocio'
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error
+`
+
+type RehacerEsperandoParams struct {
+	Payload []byte
+	Motivo  string
+	ID      int64
+}
+
+// Un pendiente rechazado (fallido_negocio: Argos no guardó la clave, o nunca salió) vuelve a esperar
+// con un cuerpo nuevo (p. ej. otra recepción del técnico con otra firma).
+func (q *Queries) RehacerEsperando(ctx context.Context, arg RehacerEsperandoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, rehacerEsperando, arg.Payload, arg.Motivo, arg.ID)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+	)
+	return i, err
 }
 
 const reintentarPendiente = `-- name: ReintentarPendiente :one

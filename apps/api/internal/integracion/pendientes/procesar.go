@@ -17,6 +17,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	pendientesbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -105,7 +106,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	var cuerpo any = json.RawMessage(f.Payload)
 	var crudo conector.Crudo
-	err = cliente.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
+	cli := cliente.Cliente
+	if f.Operacion == OpRecepcion && f.EmpresaID != nil {
+		// Sin servicio, Argos toma la bodega del técnico en la empresa de X-Empresa-Id (0.5.0 §3.3).
+		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
+	}
+	err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)
 		if len(crudo) > 0 && r.respuesta == nil {

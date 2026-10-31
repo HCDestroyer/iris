@@ -185,6 +185,9 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_incompleto",
 					"La orden no traía los datos para esta acción ("+deref(f.UltimoError)+"); vuelve a cerrar la orden con los datos "+
 						"(el pendiente se corrige y vuelve a la cola) o hazlo a mano en Argos")
+			case f.Estado == EstadoBloqueado && len(f.DependeDe) == 0:
+				return Pendiente{}, nucleo.ReglaNegocio("pendiente_esperando",
+					"Espera algo de Iris ("+deref(f.UltimoError)+", p. ej. que termine de subir la firma); sale solo hacia Argos cuando llegue")
 			case f.Estado == EstadoBloqueado:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable",
 					"Está bloqueado ("+deref(f.UltimoError)+"): reintenta su dependencia; al quedar hecha, este vuelve a la cola")
