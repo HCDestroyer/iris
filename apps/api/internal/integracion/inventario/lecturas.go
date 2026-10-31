@@ -456,7 +456,7 @@ func estadoRecepcion(p pendientes.Registro) EstadoRecepcion {
 	switch p.Estado {
 	case pendientes.EstadoBloqueado:
 		e.Estado = EsperandoFirma
-	case pendientes.EstadoHecho:
+	case pendientes.EstadoHecho, pendientes.EstadoResueltoManual:
 		e.Estado = "recibida"
 	case pendientes.EstadoFallidoNegocio:
 		e.Estado, e.Codigo, e.Detalle = "rechazada", p.CodigoError, p.UltimoError

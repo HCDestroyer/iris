@@ -502,6 +502,21 @@ func TestCorreccionDeRecepcionNoAuditaLaFirma(t *testing.T) {
 		t.Fatalf("corregido: %+v %v", r, err)
 	}
 	firma := base64.StdEncoding.EncodeToString(contenido)
+	// La API de pendientes nunca muestra la imagen (LOW 1 de la segunda revisión): ni en el
+	// reintento, ni en la lista de la entidad, ni en payloadConflicto. El sha256 sí.
+	if f, _ := r.Payload["firma"].(map[string]any); f["png_base64"] != "***" || f["sha256"] == "***" || f["sha256"] == nil {
+		t.Fatalf("firma oculta en el reintento: %+v", r.Payload["firma"])
+	}
+	e.exec(`UPDATE integracion.pendientes SET conflicto = 'cierre_repetido_con_otros_datos', conflicto_en = now(),
+		conflicto_payload = payload WHERE id = $1`, p.ID)
+	lista, err := pendientes.DeEntidad(context.Background(), e.pool, "traslado", strconv.FormatInt(tr, 10))
+	if err != nil || len(lista) != 1 {
+		t.Fatalf("pendientes del traslado: %+v %v", lista, err)
+	}
+	crudo, _ := json.Marshal(lista)
+	if strings.Contains(string(crudo), firma[:60]) || strings.Count(string(crudo), `"png_base64":"***"`) != 2 {
+		t.Fatalf("la firma sale en la API de pendientes: %s", crudo)
+	}
 	var n int
 	if err := e.pool.QueryRow(context.Background(), `SELECT
 		(SELECT count(*) FROM auditoria.cambios WHERE coalesce(antes::text, '') || coalesce(despues::text, '') LIKE '%' || $1 || '%') +

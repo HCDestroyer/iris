@@ -221,6 +221,25 @@ func anteriorA16(err error) bool {
 	return errors.As(err, &er) && (er.Status == http.StatusNotFound || er.Status == http.StatusMethodNotAllowed)
 }
 
+// RevisarContratoYa encola InformarContrato para el conector Argos activo, en tx: la cola de
+// pendientes recibió un «bodega_id required» (Argos volvió a 1.5.x) y la versión guardada se
+// relee enseguida en vez de esperar al periódico.
+func (m *Modulo) RevisarContratoYa(ctx context.Context, tx pgx.Tx) error {
+	if m.cfg.Encolar == nil {
+		return nil
+	}
+	var id int64
+	err := tx.QueryRow(ctx, `SELECT id FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return m.encolarInformarContrato(ctx, tx, id)
+}
+
 // encolarInformarContrato: en la transacción de la activación (AlActivar).
 func (m *Modulo) encolarInformarContrato(ctx context.Context, tx pgx.Tx, conectorID int64) error {
 	if m.cfg.Encolar == nil {

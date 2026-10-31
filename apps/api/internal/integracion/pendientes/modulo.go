@@ -39,20 +39,24 @@ const (
 	// EstadoBloqueado: una dependencia quedó fallido_negocio o agotado; vuelve a pendiente
 	// cuando todas sus dependencias están hechas (p. ej. tras reintentar la dependencia).
 	EstadoBloqueado = "bloqueado"
+	// EstadoResueltoManual: un supervisor lo dio por resuelto a mano (ya corregido en Argos). Final:
+	// no vuelve a salir; para sus dependientes cuenta como hecho.
+	EstadoResueltoManual = "resuelto_manual"
 )
 
 // Eventos que emite el módulo (contratos/eventos.md, «Pendientes hacia Argos»).
 const (
-	EventoHecho        = "integracion.pendiente_hecho"
-	EventoFallido      = "integracion.pendiente_fallido"
-	EventoAgotado      = "integracion.pendiente_agotado"
-	EventoOmitido      = "integracion.pendiente_omitido"
-	EventoReintentado  = "integracion.pendiente_reintentado"
-	EventoCorregido    = "integracion.pendiente_corregido"
-	EventoConflicto    = "integracion.pendiente_conflicto"
-	EventoBloqueado    = "integracion.pendiente_bloqueado"
-	EventoDesbloqueado = "integracion.pendiente_desbloqueado"
-	EventoOrdenCerrada = "orden.cerrada"
+	EventoHecho          = "integracion.pendiente_hecho"
+	EventoFallido        = "integracion.pendiente_fallido"
+	EventoAgotado        = "integracion.pendiente_agotado"
+	EventoOmitido        = "integracion.pendiente_omitido"
+	EventoReintentado    = "integracion.pendiente_reintentado"
+	EventoCorregido      = "integracion.pendiente_corregido"
+	EventoConflicto      = "integracion.pendiente_conflicto"
+	EventoBloqueado      = "integracion.pendiente_bloqueado"
+	EventoDesbloqueado   = "integracion.pendiente_desbloqueado"
+	EventoResueltoManual = "integracion.pendiente_resuelto_manual"
+	EventoOrdenCerrada   = "orden.cerrada"
 )
 
 // Esperas entre intentos (contratos/argosisp.md §0): tras el n-ésimo intento fallido se espera
@@ -83,6 +87,7 @@ type Modulo struct {
 
 	Listar             *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente]]
 	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
+	ResolverManual     *auditoria.Caso[EntradaResolverManual, Pendiente]
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[time.Time, int]
@@ -99,6 +104,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg}
 	m.Listar = nuevoListar(m)
 	m.Reintentar = nuevoReintentar(m)
+	m.ResolverManual = nuevoResolverManual(m)
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.resolver = nuevoResolver(m)
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{

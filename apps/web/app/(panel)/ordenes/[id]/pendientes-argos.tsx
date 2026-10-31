@@ -27,7 +27,7 @@ export function PendientesArgos({ ordenId }: { ordenId: number }) {
         ),
     );
     const { primera, items } = paginado;
-    const abiertos = items.filter((p) => p.estado !== "hecho").length;
+    const abiertos = items.filter((p) => p.estado !== "hecho" && p.estado !== "resuelto_manual").length;
 
     return (
         <Tarjeta data-testid="pendientes-argos">
@@ -123,7 +123,7 @@ function FilaPendiente({ pendiente: p, paginado }: { pendiente: Pendiente; pagin
                         <dd className="tabular-nums">{formatearFecha(p.hechoEn)}</dd>
                     </>
                 ) : null}
-                {resumen && p.estado !== "hecho" ? (
+                {resumen && p.estado !== "hecho" && p.estado !== "resuelto_manual" ? (
                     <>
                         <dt className="text-muted-foreground">Último error</dt>
                         <dd className="min-w-0 break-words" title={p.ultimoError ?? undefined} data-testid="ultimo-error">
