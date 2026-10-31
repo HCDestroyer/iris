@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
+import { alResumen, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -64,11 +65,15 @@ function ordenesConFormularios(estado: OrdenCampo["estado"] = "en_sitio"): Orden
     );
 }
 
-async function abrirOrden(page: Page, numero = "OT-000102") {
+/** Abre la orden en el paso pedido (por defecto, el checklist; `null`, el resumen). */
+async function abrirOrden(page: Page, numero = "OT-000102", paso: Paso | null = "Checklist") {
     await page.goto("/campo");
     await expect(page.getByRole("heading", { name: "Mis órdenes de hoy" })).toBeVisible();
     await page.getByRole("link", { name: new RegExp(numero) }).click();
     await expect(page.getByRole("heading", { name: numero })).toBeVisible();
+    if (paso) {
+        await irAPaso(page, paso);
+    }
 }
 
 async function sinSenal(context: BrowserContext, api: ApiCampo, sin: boolean) {
@@ -152,8 +157,9 @@ test.describe("en el teléfono", () => {
         await expect(page.getByText(/Ese formulario se desactivó mientras no tenías señal/)).toBeVisible();
         // El catálogo de cambios ya no lo ofrece.
         await page.getByRole("button", { name: "Descartar" }).click();
-        await page.getByRole("button", { name: "Mis órdenes" }).click();
+        await pestanaCampo(page, "Hoy");
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await irAPaso(page, "Checklist");
         await page.getByRole("button", { name: "Agregar formulario" }).click();
         await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toContainText("No hay más formularios en el catálogo del teléfono.");
     });
@@ -162,8 +168,8 @@ test.describe("en el teléfono", () => {
         test.setTimeout(60_000);
         await page.clock.install({ time: new Date("2026-10-28T10:00:00-06:00") });
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios() });
-        await abrirOrden(page);
-        await expect(page.getByRole("button", { name: "Cerrar orden" })).toBeVisible();
+        await abrirOrden(page, "OT-000102", null);
+        await expect(page.getByRole("button", { name: "No se pudo" })).toBeVisible();
 
         await sinSenal(context, api, true);
         await page.getByRole("button", { name: "Pausar" }).click();
@@ -178,17 +184,22 @@ test.describe("en el teléfono", () => {
         await expect(pausada).toContainText("Orden pausada: Otro motivo");
         await expect(pausada).toContainText("El cliente pidió volver después del almuerzo");
         await expect(page.locator('[data-slot="insignia-estado"]', { hasText: "Pausada" }).first()).toBeVisible();
-        for (const nombre of ["Cerrar orden", "No se pudo", "Llegué", "En camino", "Pausar"]) {
+        for (const nombre of ["No se pudo", "Llegué", "En camino", "Pausar"]) {
             await expect(page.getByRole("button", { name: nombre, exact: true })).toHaveCount(0);
         }
         // Evidencia: el checklist y las notas siguen.
+        await irAPaso(page, "Checklist");
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
         await expect(notificacion(page)).toContainText("«Señal restablecida» guardado");
+        // Con la orden pausada no se cierra: el paso final lo dice.
+        await irAPaso(page, "Firma del cliente y cierre");
+        await expect(page.getByText("La orden está pausada")).toBeVisible();
+        await alResumen(page);
 
         await page.clock.fastForward("15:00");
         await expect(page.getByTestId("tiempo-pausado").first()).toContainText("15 min en total");
         await pausada.getByRole("button", { name: "Reanudar" }).click();
-        await expect(page.getByRole("button", { name: "Cerrar orden" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "No se pudo" })).toBeVisible();
         await expect(page.getByTestId("tiempo-pausado")).toContainText("Tiempo pausado en esta visita: 15 min");
 
         await sinSenal(context, api, false);
@@ -205,7 +216,8 @@ test.describe("en el teléfono", () => {
         await context.setGeolocation({ latitude: 14.6407, longitude: -90.5133, accuracy: 12 });
         await context.addInitScript((clave) => window.localStorage.setItem(clave, "aceptada"), `iris-campo-ubicacion-explicada-${TECNICO.id}`);
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios("en_camino") });
-        await abrirOrden(page);
+        await abrirOrden(page, "OT-000102", null);
+        await empezarTrabajo(page);
         const indicador = page.getByTestId("indicador-ubicacion");
         await page.getByRole("button", { name: "Llegué" }).click();
         await expect(indicador).toHaveText("Ubicación activa");
@@ -228,11 +240,10 @@ test.describe("en el teléfono", () => {
 
     test("cierre incompleto: el mensaje de la API por formulario y el ítem que falta señalado", async ({ page }) => {
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios() });
-        await abrirOrden(page);
-        // El teléfono dice qué falta y de qué formulario antes de cerrar.
-        await page.getByRole("button", { name: "Cerrar orden" }).click();
-        await expect(page.getByRole("dialog")).toContainText("Falta «Señal restablecida» (Visita técnica).");
-        await page.keyboard.press("Escape");
+        await abrirOrden(page, "OT-000102", "Firma del cliente y cierre");
+        // El teléfono dice qué falta y de qué formulario antes de la firma y el cierre.
+        await expect(page.getByTestId("falta-para-firmar")).toContainText("Falta «Señal restablecida» (Visita técnica).");
+        await page.getByTestId("falta-para-firmar").getByRole("button", { name: "Ir a checklist" }).click();
 
         // Lo marca, pero el servidor responde que falta (agrupado por formulario).
         api.rechazar((op) => op.tipo === "orden.cerrar", {
@@ -242,9 +253,10 @@ test.describe("en el teléfono", () => {
             errors: [{ field: `formularios.${FORM_VISITA.id}.checklist.senal_ok`, message: "Falta: Señal restablecida (Visita técnica)" }],
         });
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
+        await irAPaso(page, "Firma del cliente y cierre");
         await page.getByRole("button", { name: "Cerrar orden" }).click();
-        await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
         await expect(page.getByText("1 acción rechazada por el servidor")).toBeVisible({ timeout: 15_000 });
+        await irAPaso(page, "Checklist");
         const visita = page.getByTestId("formulario-visita");
         await expect(visita).toContainText("Faltan 1 para cerrar");
         await expect(visita.locator('[data-slot="insignia-estado"]', { hasText: "Falta para cerrar" })).toBeVisible();
@@ -282,9 +294,10 @@ test("capturas de formularios y pausa", async ({ page, context, baseURL }, info)
             : o,
     );
     await simularApiCampo(page, { ordenes, plantillas: [INVENTARIO] });
-    await abrirOrden(page);
+    await abrirOrden(page, "OT-000102", null);
     await expect(page.getByTestId("orden-pausada")).toContainText("Orden pausada: Esperando material");
     await page.screenshot({ path: nombre("01-pausada"), fullPage: true });
+    await irAPaso(page, "Checklist");
     await page.getByRole("button", { name: "Agregar formulario" }).click();
     await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toBeVisible();
     await page.screenshot({ path: nombre("02-agregar") });

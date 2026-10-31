@@ -136,13 +136,24 @@ await motor.registrar("orden.llegar", orden.id, { lat, lon, precision });
 | `contrato.ts` | Alias de `@iris/contratos` (`Schema<"OrdenCampo">`…) y `DatosPorTipo` derivado de las entradas de cada acción |
 | `almacen.ts`, `almacen-memoria.ts`, `almacen-dexie.ts` | Persistencia: interfaz, memoria (pruebas) e IndexedDB (`@iris/sync/dexie`) |
 | `almacen-sqlite.ts` | `@iris/sync/sqlite`: `AlmacenSqlite` (cola, órdenes, adjuntos en BLOB, meta y posiciones) sobre una conexión con la forma de `expo-sqlite` (`execAsync`, `runAsync`, `getAllAsync`, `closeAsync`), sin importarlo; una operación a la vez y cada escritura en `BEGIN IMMEDIATE … COMMIT`/`ROLLBACK` |
-| `campo/` | `@iris/sync/campo`: reglas y textos que comparten la PWA y la app nativa (acciones por estado, faltantes del cierre, esquemas zod, fechas en Guatemala, lector de serie/MAC, textos de estados y rechazos) |
-| `transporte.ts`, `http.ts` | Interfaces `Transporte` y `Subidor` y su implementación con el cliente `openapi-fetch` (lote, paquete, cambios, alta y tus 1.0) |
+| `campo/` | `@iris/sync/campo`: reglas y textos que comparten la PWA y la app nativa (acciones por estado, faltantes del cierre, la orden por pasos `pasos.ts`, «Por recibir» y el formulario de recepción `traslados.ts`, esquemas zod, fechas en Guatemala, lector de serie/MAC, textos de estados y rechazos) |
+| `transporte.ts`, `http.ts` | Interfaces `Transporte` y `Subidor` y su implementación con el cliente `openapi-fetch` (lote, paquete, cambios, alta y tus 1.0); `crearInventarioApi` (traslados por recibir y mi bodega, solo lectura) |
 | `reloj.ts`, `uuid7.ts` | Reloj inyectable, espera exponencial con jitter y UUID v7 monótono |
 | `pruebas/` | `@iris/sync/pruebas`: reloj manual, transporte y subidor falsos, `TransportePosicionesFalso` (6 lotes/min, 429, duplicadas), fábricas |
 
 Nada del cable se declara a mano: si cambia el OpenAPI, `tsc` marca lo que hay que adaptar. El
 modelo local (`modelo.ts`: operación, orden, adjunto y meta guardados) sí es propio del teléfono.
+
+## Recepción de traslados (`traslado.recibir`)
+
+`motor.recibirTraslado({ trasladoId, firma, lineas? })` guarda la firma PNG (adjunto de la entidad
+`traslado`) y encola la operación en una escritura. En la cola va agrupada por traslado con la
+clave negativa `grupoTraslado(id)` = `-trasladoId` (como `grupoDe` en la API), nunca con una orden
+ni con `0`: su espera propia (`traslado_sin_confirmar`, `recepcion_en_envio`) y sus rechazos solo
+detienen lo que sigue de ese traslado. En el lote viaja sin `ordenId` ni `versionBase`. Si el alta
+de la firma responde 404 (el traslado aún no llega a Iris), la firma espera con espera
+exponencial y se reintenta (el bucle despierta al vencer); pasadas 24 h queda rechazada. El estado
+expone `recepciones` (las de la cola).
 
 ## Eventos
 

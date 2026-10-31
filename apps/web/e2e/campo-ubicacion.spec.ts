@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
+import { empezarTrabajo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -122,6 +123,7 @@ test.describe("en el teléfono", () => {
         await context.setOffline(true);
         api.sinRed = true;
         await page.getByRole("link", { name: /OT-000101/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "En camino" }).click();
 
         // El navegador niega el permiso (Playwright no lo concedió).
@@ -141,7 +143,7 @@ test.describe("en el teléfono", () => {
         await expect(page.getByText("Llegada registrada sin ubicación. Se enviará al volver la señal.")).toBeVisible();
         api.sinRed = false;
         await context.setOffline(false);
-        await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible({ timeout: 15_000 });
         const ops = api.lotes.flatMap((l) => l.operaciones ?? []);
         expect(ops.map((o) => [o.tipo, o.datos])).toEqual([
             ["orden.iniciar_camino", {}],
@@ -155,6 +157,7 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page);
         await abrirCampo(page);
         await page.getByRole("link", { name: /OT-000101/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "En camino" }).click();
         await declinarUbicacion(page);
         await expect(page.getByText(/^En camino, sin ubicación/)).toBeVisible();
@@ -172,6 +175,7 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page);
         await abrirCampo(page);
         await page.getByRole("link", { name: /OT-000101/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "En camino" }).click();
         // El permiso del navegador ya estaba dado (p. ej. desde antes de actualizar): igual se explica.
         const explicacion = page.getByRole("dialog", { name: "¿Compartir tu ubicación?" });
@@ -205,14 +209,17 @@ test.describe("en el teléfono", () => {
         const api = await simularApiCampo(page, { ordenes: ordenesDelDia().filter((o) => o.id === 102) });
         await page.goto("/campo");
         await page.getByRole("link", { name: /OT-000102/ }).click();
+        await empezarTrabajo(page);
         await page.getByRole("button", { name: "Llegué" }).click();
         await aceptarUbicacion(page);
         await expect(indicador(page)).toHaveText("Ubicación activa");
         await expect.poll(() => puntosEnviados(api).length).toBe(1);
 
+        await irAPaso(page, "Checklist");
+
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
-        await page.getByRole("button", { name: "Cerrar orden" }).click();
-        await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
+        await irAPaso(page, "Firma del cliente y cierre");
+        await page.getByRole("button", { name: /^(Firmar y cerrar orden|Cerrar orden)$/ }).click();
         await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno terminado: no tienes órdenes en curso");
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
@@ -254,8 +261,9 @@ test.describe("en el teléfono", () => {
                 ],
             },
         });
-        await page.getByRole("button", { name: "Menú" }).click();
+        await pestanaCampo(page, "Yo");
         await page.getByRole("button", { name: "Actualizar órdenes del día" }).click();
+        await pestanaCampo(page, "Hoy");
         await expect(page.getByText("en orden de ruta")).toBeVisible();
         await expect(tarjetas.nth(0)).toContainText("OT-000102");
         await expect(tarjetas.nth(0).getByLabel("Parada 1")).toBeVisible();

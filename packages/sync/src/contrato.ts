@@ -158,6 +158,12 @@ export type LineaRecepcion = Schema<"LineaRecepcion">;
 /** Cómo va una recepción (`ResultadoOperacion.recepcion` y `Cambios.recepciones`). */
 export type EstadoRecepcion = Schema<"EstadoRecepcion">;
 
+/** Orden de traslado de Argos hacia la bodega del técnico (`GET /campo/inventario/traslados`). */
+export type Traslado = Schema<"Traslado">;
+export type LineaTraslado = Schema<"LineaTraslado">;
+/** Bodega del técnico en Argos con existencias, unidades y kardex (`GET /campo/inventario/mi-bodega`). */
+export type MiBodega = Schema<"MiBodegaRespuesta">;
+
 /** `traslado.recibir` tal como viaja en `POST /sync/lote`. */
 export type OperacionTrasladoCable = Omit<OperacionLote, "tipo" | "datos" | "versionBase" | "ocurridoEn" | "ordenId"> & {
     tipo: typeof TIPO_RECIBIR_TRASLADO;

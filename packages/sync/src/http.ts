@@ -3,7 +3,7 @@
 // las credenciales (cookie + `X-CSRF-Token` en la PWA, Bearer en Expo) y la empresa activa
 // (`X-Iris-Empresa`); aquí se agrega el canal `X-Iris-Canal: campo` a toda petición.
 import type { ClienteIris } from "@iris/contratos";
-import type { Problema } from "./contrato";
+import type { MiBodega, Problema, Traslado } from "./contrato";
 import { ErrorTransporte } from "./errores";
 import type { TransportePosiciones } from "./posiciones";
 import type { RespuestaApi, Subidor, Transporte } from "./transporte";
@@ -101,6 +101,45 @@ export function crearTransporteApi(cliente: ClienteIris, app?: IdentidadApp): Tr
                 cliente.GET("/api/v1/campo/cambios", { params: { query: { cursor } }, headers: conApp(app) }),
             );
             return conHora(datos, respuesta);
+        },
+    };
+}
+
+/** Lecturas del inventario del técnico (contrato Iris ↔ ArgosISP 0.5.0), solo con señal. */
+export interface InventarioCampo {
+    /** Traslados enviados a su bodega que faltan por recibir (con la recepción que mandó, si la hay). */
+    porRecibir(): Promise<Traslado[]>;
+    /** Su bodega en Argos: existencias, unidades y kardex reciente. */
+    miBodega(): Promise<MiBodega>;
+}
+
+/**
+ * `GET /campo/inventario/traslados?estado=enviado` (todas las páginas, hasta 10) y
+ * `GET /campo/inventario/mi-bodega` con el cliente de la API. Lanzan `ErrorTransporte`.
+ */
+export function crearInventarioApi(cliente: ClienteIris, app?: IdentidadApp): InventarioCampo {
+    return {
+        async porRecibir() {
+            const todos: Traslado[] = [];
+            let cursor: string | undefined;
+            for (let pagina = 0; pagina < 10; pagina += 1) {
+                const { datos } = await resolver(
+                    cliente.GET("/api/v1/campo/inventario/traslados", {
+                        params: { query: { estado: "enviado", ...(cursor ? { cursor } : {}) } },
+                        headers: conApp(app),
+                    }),
+                );
+                todos.push(...(datos.data ?? []));
+                if (!datos.nextCursor) {
+                    break;
+                }
+                cursor = datos.nextCursor;
+            }
+            return todos;
+        },
+        async miBodega() {
+            const { datos } = await resolver(cliente.GET("/api/v1/campo/inventario/mi-bodega", { headers: conApp(app) }));
+            return datos;
         },
     };
 }

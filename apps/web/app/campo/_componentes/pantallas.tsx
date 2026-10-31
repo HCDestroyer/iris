@@ -1,19 +1,20 @@
 "use client";
 
 import { ErrorTransporte } from "@iris/sync";
-import { Aviso, Boton, Dialogo, DialogoContenido, DialogoPie, LogoIris, cn } from "@iris/ui";
-import { Building2, LogOut, Menu, RefreshCw } from "lucide-react";
+import { Aviso, Boton, LogoIris, cn } from "@iris/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SelectorTema } from "@/componentes/selector-tema";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
-import { BarraConexion } from "./barra-conexion";
+import { BarraConexion, PuntoConexion } from "./barra-conexion";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
+import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
 import { ListaOrdenes } from "./lista-ordenes";
+import { NavegacionInferior } from "./navegacion-inferior";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
-import { useUbicacion } from "./ubicacion";
+import { IndicadorUbicacion, useUbicacion } from "./ubicacion";
+import { Yo } from "./yo";
 
 /** Espera tras el primer error al bajar el paquete; se duplica en cada falla, hasta 10 min. */
 const ESPERA_BASE_MS = 5_000;
@@ -132,26 +133,31 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const nombreEmpresa = sesion.empresas.find((e) => e.id === empresa)?.nombre;
 
     return (
-        <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-24">
-            <header className="glass-material sticky top-0 z-30 flex items-center gap-3 border-b border-border px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
-                <LogoIris className="size-8" />
-                <div className="min-w-0 flex-1 leading-tight">
-                    <p className="font-semibold tracking-[-0.015em]">Iris Campo</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                        {sesion.nombre}
-                        {nombreEmpresa ? ` · ${nombreEmpresa}` : ""}
-                    </p>
+        <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+            <header className="glass-material sticky top-0 z-30 border-b border-border pt-[env(safe-area-inset-top)]">
+                <div className="flex items-center gap-3 px-4 py-1.5">
+                    <LogoIris className="size-8" />
+                    <div className="min-w-0 flex-1 leading-tight">
+                        <p className="flex items-center gap-2 font-semibold tracking-[-0.015em]">
+                            Iris Campo
+                            <PuntoConexion />
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {sesion.nombre}
+                            {nombreEmpresa ? ` · ${nombreEmpresa}` : ""}
+                        </p>
+                    </div>
+                    <IndicadorUbicacion className="-mr-2 max-w-[55%] shrink-0" />
                 </div>
-                <MenuCampo nombreEmpresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} bajarPaquete={bajarPaquete} />
+                <BarraConexion />
             </header>
-            <BarraConexion />
             {estado.conexion === "sin_sesion" ? (
                 <div className="px-4 pt-3">
                     <Aviso
                         tono="error"
                         titulo="Tu sesión terminó"
                         accion={
-                            <Boton variante="secundario" onClick={() => window.location.assign(`${RUTA_ENTRAR}&motivo=expirada`)}>
+                            <Boton variante="secundario" tamano="lg" onClick={() => window.location.assign(`${RUTA_ENTRAR}&motivo=expirada`)}>
                                 Entrar de nuevo
                             </Boton>
                         }
@@ -166,7 +172,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                         tono="error"
                         titulo="Ya no puedes trabajar en esta empresa"
                         accion={
-                            <Boton variante="secundario" onClick={pedirEmpresa}>
+                            <Boton variante="secundario" tamano="lg" onClick={pedirEmpresa}>
                                 Elegir empresa
                             </Boton>
                         }
@@ -177,16 +183,24 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
             ) : null}
             <main className="flex-1 px-4 pt-4">
                 {vista.tipo === "orden" ? (
-                    <DetalleOrden id={vista.id} />
+                    <DetalleOrden id={vista.id} paso={vista.paso} />
                 ) : vista.tipo === "pendientes" ? (
                     <Pendientes />
+                ) : vista.tipo === "recibir" ? (
+                    <PorRecibir />
+                ) : vista.tipo === "traslado" ? (
+                    <DetalleTraslado id={vista.id} />
+                ) : vista.tipo === "yo" ? (
+                    <Yo nombreEmpresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} bajarPaquete={bajarPaquete} />
+                ) : vista.tipo === "bodega" ? (
+                    <MiBodega />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={bajarPaquete} />
                 )}
             </main>
             <div
                 aria-live="polite"
-                className="pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 mx-auto w-full max-w-2xl px-4 pb-2"
             >
                 {notificacion ? (
                     <div
@@ -201,143 +215,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     </div>
                 ) : null}
             </div>
+            <NavegacionInferior />
         </div>
-    );
-}
-
-function MenuCampo({
-    nombreEmpresa,
-    pedirEmpresa,
-    bajarPaquete,
-}: {
-    nombreEmpresa: string | undefined;
-    pedirEmpresa: () => void;
-    bajarPaquete: () => Promise<void>;
-}) {
-    const { estado, sesion, motor, cerrarSesion, notificar } = useCampo();
-    const [abierto, setAbierto] = useState(false);
-    const [confirmarEmpresa, setConfirmarEmpresa] = useState(false);
-    const [confirmarSalida, setConfirmarSalida] = useState(false);
-    const [saliendo, setSaliendo] = useState(false);
-    const porEnviar = estado.pendientes + estado.rechazos.length + estado.esperandoAdjuntos.length + estado.subidas.pendientes;
-    const conSenal = estado.conexion === "en_linea" || estado.conexion === "desconocida";
-
-    const salir = async (conservarPendientes: boolean) => {
-        setSaliendo(true);
-        try {
-            await cerrarSesion({ conservarPendientes });
-        } catch {
-            notificar({ tono: "error", texto: "No se pudo cerrar la sesión en el teléfono. Vuelve a intentarlo." });
-            setSaliendo(false);
-        }
-    };
-
-    const enviarYSalir = async () => {
-        setSaliendo(true);
-        try {
-            await motor.sincronizar();
-        } catch {
-            // Lo que no salió se informa abajo.
-        }
-        const e = motor.obtenerEstado();
-        const quedan = e.pendientes + e.rechazos.length + e.esperandoAdjuntos.length + e.subidas.pendientes;
-        if (quedan === 0) {
-            await salir(false);
-            return;
-        }
-        setSaliendo(false);
-        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Por enviar» o sal conservándolos.` });
-    };
-
-    return (
-        <Dialogo
-            open={abierto}
-            onOpenChange={(v) => {
-                setAbierto(v);
-                if (!v) {
-                    setConfirmarSalida(false);
-                    setConfirmarEmpresa(false);
-                }
-            }}
-        >
-            <Boton variante="fantasma" tamano="icono" aria-label="Menú" title="Menú" onClick={() => setAbierto(true)}>
-                <Menu />
-            </Boton>
-            <DialogoContenido titulo="Menú" descripcion={`${sesion.nombre} · ${sesion.correo}`}>
-                <div className="grid gap-3">
-                    <SelectorTema />
-                    <Boton
-                        variante="secundario"
-                        tamano="lg"
-                        className="justify-start"
-                        onClick={() => {
-                            setAbierto(false);
-                            void bajarPaquete();
-                        }}
-                    >
-                        <RefreshCw aria-hidden />
-                        Actualizar órdenes del día
-                    </Boton>
-                    {sesion.empresas.length > 1 ? (
-                        confirmarEmpresa ? (
-                            <Aviso tono="warning" titulo={`Quedan ${porEnviar} cosas por enviar en ${nombreEmpresa ?? "esta empresa"}`}>
-                                <p>Se enviarán cuando vuelvas a esta empresa. ¿Cambiar de todos modos?</p>
-                                <DialogoPie className="mt-3">
-                                    <Boton variante="fantasma" onClick={() => setConfirmarEmpresa(false)}>
-                                        Quedarme
-                                    </Boton>
-                                    <Boton variante="secundario" onClick={pedirEmpresa}>
-                                        Cambiar de empresa
-                                    </Boton>
-                                </DialogoPie>
-                            </Aviso>
-                        ) : (
-                            <Boton
-                                variante="secundario"
-                                tamano="lg"
-                                className="justify-start"
-                                onClick={() => (porEnviar > 0 ? setConfirmarEmpresa(true) : pedirEmpresa())}
-                            >
-                                <Building2 aria-hidden />
-                                Cambiar de empresa
-                            </Boton>
-                        )
-                    ) : null}
-                    {confirmarSalida && porEnviar > 0 ? (
-                        <Aviso tono="warning" titulo={`Tienes ${porEnviar} ${porEnviar === 1 ? "cambio" : "cambios"} sin enviar`}>
-                            <p>
-                                {conSenal
-                                    ? "Envíalos antes de salir, o sal y consérvalos: se guardan sin datos de clientes y se envían cuando vuelvas a entrar."
-                                    : "Sin señal no se pueden enviar. Si sales, se conservan sin datos de clientes y se envían cuando vuelvas a entrar."}
-                            </p>
-                            <DialogoPie className="mt-3">
-                                <Boton variante="fantasma" disabled={saliendo} onClick={() => setConfirmarSalida(false)}>
-                                    Quedarme
-                                </Boton>
-                                <Boton variante="secundario" disabled={saliendo} onClick={() => void salir(true)}>
-                                    Salir y conservarlos
-                                </Boton>
-                                {conSenal ? (
-                                    <Boton disabled={saliendo} onClick={() => void enviarYSalir()}>
-                                        {saliendo ? "Enviando…" : "Enviar y salir"}
-                                    </Boton>
-                                ) : null}
-                            </DialogoPie>
-                        </Aviso>
-                    ) : (
-                        <Boton
-                            variante="fantasma"
-                            tamano="lg"
-                            className="justify-start"
-                            disabled={saliendo}
-                            onClick={() => (porEnviar > 0 ? setConfirmarSalida(true) : void salir(false))}
-                        >
-                            <LogOut aria-hidden />
-                            {saliendo ? "Cerrando sesión…" : "Cerrar sesión"}
-                        </Boton>
-                    )}
-                </div>
-            </DialogoContenido>
-        </Dialogo>
     );
 }

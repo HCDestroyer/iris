@@ -56,8 +56,12 @@ export type EscenarioOrdenes = {
     eventos: (Evento & { ordenId: number })[];
     adjuntos: Adjunto[];
     pendientes: Pendiente[];
-    /** «Dato de Argos cambió» por orden (va en `Orden`: lista y tablero). */
+    /** «Dato de Argos cambió» por orden (lista, tablero y detalle). */
     datosArgos: Map<number, Schema<"DatosArgosCambiados">>;
+    /** Si no es null, la próxima acción sobre los datos de Argos responde con este problema. */
+    fallaDatosArgos?: Schema<"Problema"> | null;
+    /** Cuerpos recibidos por aplicar y descartar datos de Argos. */
+    accionesDatosArgos?: { accion: "aplicar" | "descartar"; cuerpo: unknown }[];
 };
 
 function base(id: number, ahora: number, empresa: number | null, p: Partial<OrdenDetalle>): OrdenDetalle {

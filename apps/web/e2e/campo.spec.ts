@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
+import { alResumen, empezarTrabajo, firmarEn, irAPaso } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -49,27 +50,17 @@ async function conSenal(page: Page, api: ApiCampo) {
 }
 
 async function firmar(page: Page) {
-    const lienzo = page.getByRole("img", { name: /Firma del cliente/ });
-    // Al centro: que no quede bajo la barra fija de «Cerrar orden» ni bajo el aviso flotante.
-    await lienzo.evaluate((el) => el.scrollIntoView({ block: "center" }));
-    const caja = await lienzo.boundingBox();
-    if (!caja) {
-        throw new Error("sin lienzo");
-    }
-    await page.mouse.move(caja.x + 30, caja.y + caja.height * 0.7);
-    await page.mouse.down();
-    for (let i = 1; i <= 12; i += 1) {
-        await page.mouse.move(caja.x + 30 + i * 22, caja.y + caja.height * (0.7 - Math.sin(i / 2) * 0.35));
-    }
-    await page.mouse.up();
-    await expect(lienzo).toHaveAccessibleName("Firma del cliente: firmada");
+    await firmarEn(page);
+    await expect(page.getByRole("img", { name: /Firma del cliente/ })).toHaveAccessibleName("Firma del cliente: firmada");
 }
 
-test("lista del día con estado, conexión y «Todo enviado»", async ({ page }) => {
+test("lista del día con estado y, con todo enviado, solo el punto de conexión", async ({ page }) => {
     const api = await simularApiCampo(page);
     await abrirCampo(page);
-    await expect(conexion(page)).toHaveText(/En línea|Sincronizando…/);
-    await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible();
+    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+    await expect(conexion(page)).toHaveText("En línea");
+    // La barra de estado no se abre: nada por enviar.
+    await expect(page.locator('[data-slot="barra-conexion"]')).toHaveCount(0);
     const tarjetas = page.getByRole("list", { name: "Órdenes del día" }).getByRole("link");
     await expect(tarjetas).toHaveCount(3);
     // Sin ruta: por hora de cita.
@@ -89,11 +80,19 @@ test("detalle: cliente, «Cómo llegar», llamar y solo las acciones válidas", 
     await expect(page.getByRole("heading", { name: "OT-000101" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Cómo llegar" })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=14.6407,-90.5133");
     await expect(page.getByRole("link", { name: "Llamar" })).toHaveAttribute("href", "tel:+50255551234");
+    // El resumen no tiene las acciones de trabajo: «Empezar trabajo» lleva a la llegada.
+    await expect(page.getByRole("button", { name: "En camino" })).toHaveCount(0);
+    await empezarTrabajo(page);
+    await expect(page).toHaveURL(/\/campo\?orden=101&paso=llegada$/);
     await expect(page.getByRole("button", { name: "En camino" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Llegué" })).toBeVisible();
-    // En programada no hay trabajo ni cierre.
-    await expect(page.getByRole("heading", { name: "Checklist" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Cerrar orden" })).toHaveCount(0);
+    // En programada el checklist no se llena y la firma y el cierre están bloqueados.
+    await irAPaso(page, "Checklist");
+    await expect(page.getByText("Marca tu llegada para llenar este paso")).toBeVisible();
+    await irAPaso(page, "Firma del cliente y cierre");
+    await expect(page.getByTestId("falta-para-firmar")).toContainText("Marca tu llegada al sitio.");
+    await expect(page.getByRole("img", { name: /Firma del cliente/ })).toHaveCount(0);
+    await alResumen(page);
     await page.getByRole("button", { name: "Mis órdenes" }).click();
     await expect(page).toHaveURL(/\/campo$/);
 });
@@ -112,15 +111,17 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     await expect(page.getByRole("heading", { name: "Mis órdenes de hoy" })).toBeVisible();
     await expect(conexion(page)).toHaveText("Sin conexión");
     await page.getByRole("link", { name: /OT-000101/ }).click();
+    await empezarTrabajo(page);
 
     await page.getByRole("button", { name: "En camino" }).click();
     // Primera vez de este técnico: la explicación sale aunque el permiso ya esté dado.
     await aceptarUbicacion(page);
     await expect(page.getByText("Se enviará al volver la señal")).toBeVisible();
     await page.getByRole("button", { name: "Llegué" }).click();
-    await expect(page.getByRole("heading", { name: "OT-000101" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Checklist" })).toBeVisible();
-    await expect(page.locator('[data-slot="insignia-estado"]', { hasText: "En sitio" }).first()).toBeVisible();
+    await expect(page.getByText("Llegaste al sitio")).toBeVisible();
+    // Cada paso se guarda solo; «Siguiente» lleva al checklist.
+    await page.getByRole("button", { name: "Siguiente: checklist" }).click();
+    await expect(page).toHaveURL(/paso=checklist$/);
 
     // Checklist: sí/no, medición, foto y texto.
     await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
@@ -132,7 +133,8 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     await expect(page.getByText("Por subir").first()).toBeVisible();
 
     // Material de su bodega y equipo instalado (escrito a mano).
-    await page.getByLabel("Material").selectOption(String(CABLE));
+    await page.getByRole("button", { name: "Siguiente: materiales y equipos" }).click();
+    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
     await page.getByLabel("Cantidad").fill("35");
     await page.getByRole("button", { name: "Registrar material" }).click();
     await expect(page.getByText("Cable drop 1 hilo — quedan 85 m")).toBeAttached();
@@ -142,24 +144,27 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     await page.getByRole("button", { name: "Registrar equipo instalado" }).click();
     await expect(page.getByText("A0:B1:C2:D3:E4:F6")).toBeVisible();
 
-    // Firma del cliente.
+    // Fotos (opcionales) y el paso final: el cliente ve el resumen, firma y se cierra ahí mismo.
+    await page.getByRole("button", { name: "Siguiente: fotos" }).click();
+    await page.getByRole("button", { name: "Firma y cierre" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Firma del cliente y cierre" })).toBeVisible();
+    const resumen = page.locator('[data-slot="resumen-trabajo"]');
+    await expect(resumen).toContainText("checklist 3/4 · 1 foto · 1 material · 1 equipo");
+    await expect(resumen).toContainText("La ONU enciende");
+    await expect(resumen).toContainText("Instalado: ZTE F670L · ZTEGC8F1A2B3");
     await page.getByLabel("Nombre de quien firma").fill("María Castillo");
     await page.getByLabel("Documento (DPI)").fill("2456789010101");
     await firmar(page);
-    await page.getByRole("button", { name: "Guardar firma" }).click();
-    await expect(page.getByText("Firmada")).toBeVisible();
-
-    // Cerrar.
-    await page.getByRole("button", { name: "Cerrar orden" }).click();
-    const dialogo = page.getByRole("dialog");
-    await expect(dialogo.getByText("Las fotos o la firma aún se están subiendo")).toBeVisible();
-    await dialogo.getByRole("button", { name: "Confirmar cierre" }).click();
-    await expect(page.locator('[data-slot="insignia-estado"]', { hasText: "Cerrada" }).first()).toBeVisible();
+    await expect(page.getByText("Las fotos o la firma aún se están subiendo")).toBeVisible();
+    await page.getByRole("button", { name: "Firmar y cerrar orden" }).click();
+    await expect(page.getByText("Orden cerrada", { exact: true })).toBeVisible();
 
     // Todo quedó en el teléfono: nada llegó a la API.
     await expect(porEnviar(page)).toContainText("pendientes por enviar");
     await expect(porEnviar(page)).toContainText("2 archivos por subir");
     expect(api.lotes).toHaveLength(0);
+    // Sin señal y con cosas por enviar, la barra de estado se abre.
+    await expect(page.locator('[data-slot="barra-conexion"]')).toBeVisible();
     await page.getByRole("button", { name: /pendientes por enviar/ }).click();
     const cola = page.getByRole("list", { name: "Cola de envío" });
     await expect(cola.getByRole("listitem")).toHaveCount(11);
@@ -168,7 +173,8 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     // Vuelve la señal: se suben los archivos, se envía la cola y se reconcilia.
     await conSenal(page, api);
     await expect(page.getByText("No queda nada por enviar desde este teléfono.")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("button", { name: /Todo enviado/ })).toBeVisible();
+    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+    await expect(page.locator('[data-slot="barra-conexion"]')).toHaveCount(0);
     const servidor = api.ordenes.get(101);
     expect(servidor?.estado).toBe("cerrada");
     expect(servidor?.firma?.nombre).toBe("María Castillo");
@@ -220,9 +226,11 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     api.sinRed = true;
     await page.context().setOffline(true);
     await page.getByRole("link", { name: /OT-000102/ }).click();
+    await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     // Sin permiso de ubicación: la acción se registra igual, sin GPS.
     await declinarUbicacion(page);
+    await alResumen(page);
     await page.getByLabel("Nueva nota").fill("Cliente pide llegar después de las 3");
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await expect(porEnviar(page)).toHaveText("2 pendientes por enviar");
@@ -256,15 +264,17 @@ test("faltan_adjuntos: el cierre espera hasta que termina de subir la foto", asy
     const api = await simularApiCampo(page, { ordenes, fotosExigidas: ["medidor"] });
     await abrirCampo(page);
     await page.getByRole("link", { name: /OT-000102/ }).click();
+    await empezarTrabajo(page);
     await page.getByRole("button", { name: "Llegué" }).click();
     await declinarUbicacion(page);
+    await irAPaso(page, "Checklist");
     await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
 
     api.pausarSubidas = true;
     await page.getByLabel("Tomar foto: Foto del equipo").setInputFiles(FOTO);
     await expect(page.getByRole("button", { name: "Cambiar foto: Foto del equipo" })).toBeVisible();
+    await irAPaso(page, "Firma del cliente y cierre");
     await page.getByRole("button", { name: "Cerrar orden" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Confirmar cierre" }).click();
 
     // La API responde faltan_adjuntos: queda esperando la foto, sin pedir nada al técnico.
     await page.getByRole("button", { name: /por enviar|por subir|rechazado/ }).click();

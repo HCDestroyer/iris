@@ -185,3 +185,51 @@ export function ordenesDeB(): OrdenCampo[] {
         }),
     ];
 }
+
+export const ONT = 902;
+
+/** Traslados de bodega central hacia la bodega del técnico (enviados en Argos, por recibir). */
+export function trasladosDelTecnico(): Schema<"Traslado">[] {
+    const ayer = new Date(Date.now() - 20 * 60 * 60_000).toISOString();
+    return [
+        {
+            id: 31,
+            estado: "enviado",
+            empresaId: 0,
+            bodegaDestinoId: BODEGA,
+            enviadoEn: ayer,
+            lineas: [
+                { lineaId: 1, productoId: CABLE, cantidad: 100, series: null },
+                { lineaId: 2, productoId: ONT, cantidad: 2, series: ["ZTEGC8F10001", "ZTEGC8F10002"] },
+            ],
+        },
+        {
+            id: 32,
+            estado: "enviado",
+            empresaId: 0,
+            bodegaDestinoId: BODEGA,
+            enviadoEn: ayer,
+            lineas: [{ lineaId: 3, productoId: CONECTOR, cantidad: 20, series: null }],
+        },
+    ];
+}
+
+/** «Mi bodega» de Tomás en Argos. */
+export function bodegaDelTecnico(): Schema<"MiBodegaRespuesta"> {
+    const hace = (h: number) => new Date(Date.now() - h * 60 * 60_000).toISOString();
+    return {
+        bodega: { id: BODEGA, nombre: "Bodega móvil · Tomás", empresaId: 0 },
+        existencias: [
+            { productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: 120, unidad: "m", modalidad: "consumible_gasto" },
+            { productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, unidad: "u", modalidad: "consumible_cobro" },
+            { productoId: ONT, descripcion: "ONT ZTE F670L", cantidad: 1, unidad: "u", modalidad: "comodato" },
+        ],
+        unidades: [{ id: 501, productoId: ONT, descripcion: "ONT ZTE F670L", serie: "ZTEGC8F09999", mac: "A0:B1:C2:D3:E4:00", estado: "disponible" }],
+        trasladosPendientes: [31, 32],
+        kardex: [
+            { id: 9001, tipo: "consumo", productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: -35, referencia: "OT-000099", ocurridoEn: hace(26) },
+            { id: 9002, tipo: "traslado_entrada", productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, referencia: "Traslado 28", ocurridoEn: hace(50) },
+        ],
+        leidoEn: new Date().toISOString(),
+    };
+}

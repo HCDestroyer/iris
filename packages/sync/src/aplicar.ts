@@ -170,6 +170,10 @@ function cambiarEstado(orden: OrdenCampo, op: OperacionLocal, destino: EstadoOrd
 }
 
 export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCampo {
+    if (op.tipo === "traslado.recibir") {
+        // No es de una orden.
+        return orden;
+    }
     const destino = TRANSICIONES[op.tipo];
     if (destino) {
         return cambiarEstado(orden, op, destino);

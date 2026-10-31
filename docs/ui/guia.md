@@ -263,8 +263,40 @@ lectores de pantalla.
       pregunta «¿Argos ya cobró el cargo?» (Sí → `resolver_tambien`, No → `liberar`);
     - modalidad de cada material («Se cobra al cliente», «Comodato: regístralo como equipo»,
       «Gasto»), referencia del cliente y del servicio y contacto en sitio;
-    - «Dato de Argos cambió» en el tablero. El detalle de la orden aún no lo trae (pedido a I2 en
-      `.claude/integration/i3.md`) ni hay acción para aplicarlo: solo se avisa.
+    - «Dato de Argos cambió» en el tablero, en la cabecera de la orden y en su pestaña «Argos», con
+      qué cambió. «Aplicar» (`ordenes.aplicar_datos_argos`) deja elegir dirección, coordenadas,
+      referencia y contacto (marcado lo que cambió) y «Descartar» (`ordenes.descartar_datos_argos`)
+      pide un motivo opcional. Ambos mandan `version` y `avisoEn` (el `datosArgosCambiados.en`
+      leído): un 409 `aviso_argos_cambiado` recarga la orden y muestra el aviso nuevo; un 422
+      `instantanea_no_coincide` dice «El servicio en Argos ya no es de este cliente; revisa la orden
+      a mano» (y `sin_instantanea_argos`, algo parecido).
+
+## App de campo en el navegador (fase 4, hecha)
+
+- **Barra inferior** Hoy · Por recibir · Pendientes · Yo (zonas de 56 px, con contador de lo que
+  falta por enviar y por recibir). «Mapa» no entra: la app no tiene vista de mapa y «Cómo llegar»
+  ya abre la app de mapas del teléfono. Cada vista tiene su URL (`lib/campo/vista.ts`):
+  `?orden=N`, `?orden=N&paso=…`, `?vista=pendientes|recibir|yo|bodega`, `?traslado=N`.
+- **La orden paso a paso** (`@iris/sync/campo` `estadoPasos`): resumen (cliente, avisos, pausa,
+  avance, notas, «No se pudo») → «Empezar trabajo» → **Llegada · Checklist · Materiales y equipos ·
+  Fotos**. Cada paso es su propia vista, se guarda solo en el teléfono al tocar, se puede volver a
+  cualquiera (avance con enlaces, «Anterior» / «Siguiente» y «Atrás» del navegador) y la barra de
+  progreso dice cuántos están listos.
+- **«Firma del cliente y cierre», paso final y único:** solo se abre con lo obligatorio listo (si
+  no, dice qué falta y lleva ahí); muestra al cliente el resumen (checklist, fotos, materiales y
+  equipos), el cliente firma y «Firmar y cerrar orden» guarda la firma y el cierre juntos. La firma
+  no aparece en otro lugar.
+- **Barra de estado discreta:** con conexión y todo enviado es un punto junto a «Iris Campo»
+  (`role="status"`, «En línea, todo enviado»). Crece con texto y acción solo si hay algo por
+  enviar (sin señal o enviando), un rechazo, la sesión venció o la empresa ya no vale.
+- **«Por recibir»** (contrato 0.5.0, #83): traslados enviados a la bodega del técnico; al abrir
+  uno marca lo que faltó (cantidad o series) y firma; la recepción va a la cola
+  (`motor.recibirTraslado`, agrupada por traslado con la clave `-trasladoId`) con su firma de la
+  entidad `traslado` (si el alta da 404 porque el traslado aún no llega, se reintenta con espera).
+  `traslado_no_encontrado` solo se descarta; un rechazo tras 24 h sin respuesta de Argos se rehace.
+- **«Mi bodega»** dentro de «Yo»: existencias con modalidad, equipos con serie y movimientos
+  recientes, solo lectura, con «Reintentar» si no se pudo leer.
+- **Botones de 44 px o más** en toda la app de campo (`tamano="lg"`; `Casilla tamano="lg"`).
 
 ## Plan por fases
 
@@ -280,7 +312,7 @@ Cada fase:
 | 1 · Navegación del panel (hecha) | Barra lateral agrupada (Operación, Equipo, Ventas, Análisis, Administración; contraíble), migas, buscador Ctrl + K, avisos emergentes al guardar y barra inferior en el teléfono (Inicio, Tickets, Órdenes, Agenda, Más) | I3 |
 | 2 · Formularios a pantalla propia (hecha) | Tickets, órdenes, usuarios, técnicos y ausencias, comercial (prospecto y cotización) y buzón en dos pasos | I3 |
 | 3 · Fichas con pestañas (hecha) | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral; Argos 0.5.0 en el panel | I3 |
-| 4 · App de campo en el navegador | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes | I4 |
+| 4 · App de campo en el navegador (hecha) | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes, «Por recibir» y «Mi bodega» | I3 |
 | 5 · App nativa | Las pantallas de la fase 4 con HeroUI Native | I4 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
 

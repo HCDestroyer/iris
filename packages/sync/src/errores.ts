@@ -87,7 +87,9 @@ export type CodigoErrorLocal =
     | "formulario_desconocido"
     | "formulario_del_tipo"
     | "formulario_ajeno"
-    | "formulario_con_respuestas";
+    | "formulario_con_respuestas"
+    | "traslado_invalido"
+    | "traslado_en_cola";
 
 /** El teléfono no acepta la acción (antes de encolarla). */
 export class ErrorSync extends Error {

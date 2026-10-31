@@ -8,7 +8,7 @@ import { enlaceComoLlegar } from "./gps";
 import { MANIFEST_CAMPO } from "./manifest";
 import { accionesDe, faltantesCierre } from "./reglas";
 import { describirCampo, detallesProblema, textoProblema } from "./textos";
-import { urlDeVista, vistaDeUrl } from "./vista";
+import { PASOS_ORDEN, pestanaDe, urlDeVista, vistaDeUrl, type Vista } from "./vista";
 
 const vista = (parcial: Partial<OrdenVista> = {}): OrdenVista => ({
     ...ordenDePrueba(1),
@@ -132,6 +132,28 @@ describe("varios", () => {
         expect(vistaDeUrl("?vista=pendientes")).toEqual({ tipo: "pendientes" });
         expect(vistaDeUrl("?orden=abc")).toEqual({ tipo: "lista" });
         expect(urlDeVista({ tipo: "orden", id: 3 })).toBe("/campo?orden=3");
+    });
+    it("cada paso, traslado y pestaña tiene su dirección (ida y vuelta)", () => {
+        const vistas: Vista[] = [
+            { tipo: "lista" },
+            { tipo: "orden", id: 7 },
+            ...PASOS_ORDEN.map((paso): Vista => ({ tipo: "orden", id: 7, paso })),
+            { tipo: "pendientes" },
+            { tipo: "recibir" },
+            { tipo: "traslado", id: 31 },
+            { tipo: "yo" },
+            { tipo: "bodega" },
+        ];
+        for (const v of vistas) {
+            expect(vistaDeUrl(urlDeVista(v).replace("/campo", ""))).toEqual(v);
+        }
+        expect(urlDeVista({ tipo: "orden", id: 7, paso: "checklist" })).toBe("/campo?orden=7&paso=checklist");
+        // Un paso desconocido abre el resumen; un traslado inválido, la lista.
+        expect(vistaDeUrl("?orden=7&paso=otro")).toEqual({ tipo: "orden", id: 7 });
+        expect(vistaDeUrl("?traslado=-3")).toEqual({ tipo: "lista" });
+        expect(pestanaDe({ tipo: "orden", id: 7, paso: "fotos" })).toBe("hoy");
+        expect(pestanaDe({ tipo: "traslado", id: 31 })).toBe("recibir");
+        expect(pestanaDe({ tipo: "bodega" })).toBe("yo");
     });
     it("manifest: Iris Campo, standalone, alcance /campo y el logo", () => {
         expect(MANIFEST_CAMPO).toMatchObject({ name: "Iris Campo", display: "standalone", start_url: "/campo", scope: "/campo", theme_color: "#0f766e" });

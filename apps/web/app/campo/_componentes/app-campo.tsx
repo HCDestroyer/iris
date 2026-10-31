@@ -25,6 +25,7 @@ import {
 } from "@/lib/campo/sesion";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
+import { ProveedorInventario } from "./inventario-datos";
 import { Pantallas } from "./pantallas";
 import { ProveedorUbicacion, TurnoAutomatico } from "./ubicacion";
 
@@ -348,6 +349,7 @@ function ConMotor({
                     accion={
                         <Boton
                             variante="secundario"
+                            tamano="lg"
                             onClick={() => {
                                 setError(null);
                                 setIntento((n) => n + 1);
@@ -373,8 +375,10 @@ function ConMotor({
     return (
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-                <TurnoAutomatico rastreador={rastreador} />
-                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                <ProveedorInventario inventario={abierto.inventario}>
+                    <TurnoAutomatico rastreador={rastreador} />
+                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                </ProveedorInventario>
             </ProveedorCampo>
         </ProveedorUbicacion>
     );

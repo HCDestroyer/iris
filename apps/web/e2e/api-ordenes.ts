@@ -265,7 +265,8 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
             if (!o) return noEncontrado(route).then(() => true);
             const sub = deOrden[2];
             if (metodo === "GET" && !sub) {
-                await json(route, o);
+                const aviso = esc.datosArgos.get(o.id);
+                await json(route, aviso ? { ...o, datosArgosCambiados: aviso } : o);
                 return true;
             }
             if (metodo === "GET" && sub === "eventos") {
@@ -291,6 +292,30 @@ export function apiOrdenes(empresas: readonly number[], opciones: OpcionesOrdene
                 await json(route, soloOrden(o));
                 return true;
             };
+            if (metodo === "POST" && (sub === "aplicar-datos-argos" || sub === "descartar-datos-argos")) {
+                const aplicar = sub === "aplicar-datos-argos";
+                if (!puede(aplicar ? "ordenes.aplicar_datos_argos" : "ordenes.descartar_datos_argos")) return prohibido(route).then(() => true);
+                if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");
+                const e = cuerpo as Schema<"EntradaAplicarDatosArgos"> & { motivo?: string };
+                (esc.accionesDatosArgos ??= []).push({ accion: aplicar ? "aplicar" : "descartar", cuerpo: e });
+                const aviso = esc.datosArgos.get(o.id);
+                if (!aviso) return regla("sin_aviso_argos", "La orden no tiene aviso de Argos");
+                if (e.version !== o.version) return conflicto();
+                if (e.avisoEn !== aviso.en) return regla("aviso_argos_cambiado", "Argos avisó otro cambio después", 409);
+                if (esc.fallaDatosArgos) {
+                    const p = esc.fallaDatosArgos;
+                    esc.fallaDatosArgos = null;
+                    await problema(route, p);
+                    return true;
+                }
+                if (aplicar) {
+                    const campos = e.campos ?? ["direccion", "coordenadas", "referencia", "contacto"];
+                    if (campos.includes("direccion")) o.direccion = "Colonia El Maestro, lote 12, zona 7";
+                    if (campos.includes("contacto")) o.contacto = { nombre: o.contacto.nombre, telefono: "+502 5599 0011" };
+                }
+                esc.datosArgos.delete(o.id);
+                return listo();
+            }
             if (metodo === "POST" && sub === "igualar-asignacion") {
                 if (!puede("ordenes.igualar_asignacion")) return prohibido(route).then(() => true);
                 if (!c.idempotencia) return regla("validacion", "Falta Idempotency-Key");

@@ -2,30 +2,27 @@
 
 import { CODIGOS_TERMINALES, codigoProblema, faltantesDe, type AdjuntoLocal, type OperacionLocal } from "@iris/sync";
 import { Aviso, Boton, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { ArrowLeft, CloudCheck, CloudUpload, Hourglass, RefreshCw, Trash2, TriangleAlert, Undo2 } from "lucide-react";
+import { sePuedeRehacerRecepcion } from "@iris/sync/campo";
+import { CloudCheck, CloudUpload, Hourglass, RefreshCw, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import { formatearFecha } from "@/lib/fechas";
 import { describirCampo, detallesProblema, OPERACIONES, textoProblema } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
 
 /** Lo que queda por enviar, lo que espera adjuntos y los rechazos del servidor con su motivo. */
 export function Pendientes() {
-    const { estado, navegar, motor } = useCampo();
+    const { estado, motor } = useCampo();
     const adjuntosRechazados = estado.adjuntos.filter((a) => a.estado === "rechazado");
     const subiendo = estado.adjuntos.filter((a) => a.estado === "por_crear" || a.estado === "subiendo");
     const nada = estado.cola.length + estado.rechazos.length + estado.esperandoAdjuntos.length + estado.adjuntos.filter((a) => a.estado !== "subido").length === 0;
 
     return (
         <section aria-labelledby="titulo-pendientes" className="grid gap-4">
-            <Boton variante="fantasma" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "lista" })}>
-                <ArrowLeft aria-hidden />
-                Mis órdenes
-            </Boton>
             <div className="flex items-center justify-between gap-2">
                 <h1 id="titulo-pendientes" className="text-2xl font-semibold tracking-[-0.015em]">
                     Por enviar
                 </h1>
                 {!nada ? (
-                    <Boton variante="secundario" onClick={() => motor.reintentarAhora()}>
+                    <Boton variante="secundario" tamano="lg" onClick={() => motor.reintentarAhora()}>
                         <RefreshCw aria-hidden />
                         Reintentar
                     </Boton>
@@ -76,7 +73,7 @@ export function Pendientes() {
                             {subiendo.map((a) => (
                                 <li key={a.id} className="flex items-center justify-between gap-2">
                                     <span>
-                                        {a.tipo === "firma" ? "Firma" : "Foto"} · {numeroOrden(estado.ordenes, a.ordenId)}
+                                        {a.entidad === "traslado" ? "Firma de la recepción" : a.tipo === "firma" ? "Firma" : "Foto"} · {numeroOrden(estado.ordenes, a.ordenId)}
                                     </span>
                                     <InsigniaEstado
                                         tono="warning"
@@ -114,7 +111,11 @@ export function Pendientes() {
     );
 }
 
+/** Número de la orden; una recepción de traslado va agrupada con su clave negativa (`-trasladoId`). */
 function numeroOrden(ordenes: readonly { id: number; numero: string }[], id: number): string {
+    if (id < 0) {
+        return `Traslado ${-id}`;
+    }
     return ordenes.find((o) => o.id === id)?.numero ?? `Orden ${id}`;
 }
 
@@ -122,13 +123,15 @@ function Rechazo({ op }: { op: OperacionLocal }) {
     const { estado, motor, ejecutar } = useCampo();
     const orden = estado.ordenes.find((o) => o.id === op.ordenId);
     const codigo = codigoProblema(op.error) ?? "";
-    const terminal = CODIGOS_TERMINALES.has(codigo);
+    const traslado = op.tipo === "traslado.recibir";
+    const terminal = !traslado && CODIGOS_TERMINALES.has(codigo);
+    const rehacer = traslado ? sePuedeRehacerRecepcion(op) : !terminal;
     const detalles = detallesProblema(op.error, orden);
     return (
         <Aviso
             tono="error"
             icono={TriangleAlert}
-            titulo={`${OPERACIONES[op.tipo]} · ${orden?.numero ?? `Orden ${op.ordenId}`}`}
+            titulo={`${OPERACIONES[op.tipo]} · ${orden?.numero ?? numeroOrden(estado.ordenes, op.ordenId)}`}
             data-testid="rechazo"
         >
             <p>{textoProblema(op.error)}</p>
@@ -140,17 +143,17 @@ function Rechazo({ op }: { op: OperacionLocal }) {
                 </ul>
             ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
-                <Boton variante="secundario" onClick={() => void ejecutar(() => motor.descartar(op.id), "Se descartó")}>
+                <Boton variante="secundario" tamano="lg" onClick={() => void ejecutar(() => motor.descartar(op.id), "Se descartó")}>
                     <Trash2 aria-hidden />
                     Descartar
                 </Boton>
-                {!terminal ? (
-                    <Boton variante="secundario" onClick={() => void ejecutar(() => motor.rehacer(op.id), "Se volverá a enviar")}>
+                {rehacer ? (
+                    <Boton variante="secundario" tamano="lg" onClick={() => void ejecutar(() => motor.rehacer(op.id), "Se volverá a enviar")}>
                         <Undo2 aria-hidden />
                         Rehacer
                     </Boton>
-                ) : (
-                    <Boton variante="secundario" onClick={() => void ejecutar(() => motor.descartarOrden(op.ordenId), "Se descartó lo pendiente de la orden")}>
+                ) : traslado ? null : (
+                    <Boton variante="secundario" tamano="lg" onClick={() => void ejecutar(() => motor.descartarOrden(op.ordenId), "Se descartó lo pendiente de la orden")}>
                         <Trash2 aria-hidden />
                         Descartar todo de esta orden
                     </Boton>
@@ -179,14 +182,18 @@ function Esperando({ op }: { op: OperacionLocal }) {
 function AdjuntoRechazado({ adjunto }: { adjunto: AdjuntoLocal }) {
     const { estado, motor, ejecutar } = useCampo();
     return (
-        <Aviso tono="error" titulo={`${adjunto.tipo === "firma" ? "Firma" : "Foto"} · ${numeroOrden(estado.ordenes, adjunto.ordenId)}`} data-testid="adjunto-rechazado">
+        <Aviso
+            tono="error"
+            titulo={`${adjunto.entidad === "traslado" ? "Firma de la recepción" : adjunto.tipo === "firma" ? "Firma" : "Foto"} · ${numeroOrden(estado.ordenes, adjunto.ordenId)}`}
+            data-testid="adjunto-rechazado"
+        >
             <p>{textoProblema(adjunto.problema, adjunto.ultimoError ?? "El servidor rechazó el archivo.")}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-                <Boton variante="secundario" onClick={() => void ejecutar(() => motor.descartarAdjunto(adjunto.id), "Se descartó el archivo")}>
+                <Boton variante="secundario" tamano="lg" onClick={() => void ejecutar(() => motor.descartarAdjunto(adjunto.id), "Se descartó el archivo")}>
                     <Trash2 aria-hidden />
                     Descartar
                 </Boton>
-                <Boton variante="secundario" onClick={() => void ejecutar(() => motor.rehacerAdjunto(adjunto.id), "Se volverá a subir")}>
+                <Boton variante="secundario" tamano="lg" onClick={() => void ejecutar(() => motor.rehacerAdjunto(adjunto.id), "Se volverá a subir")}>
                     <Undo2 aria-hidden />
                     Volver a subir
                 </Boton>

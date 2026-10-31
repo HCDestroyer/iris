@@ -1,7 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import type { BrowserContext, Page, Route } from "@playwright/test";
 import { CSRF } from "./api-falsa";
-import { PERMISOS_TECNICO, TECNICO, TECNICO_B, existenciasDelTecnico, ordenesDeB, ordenesDelDia } from "./datos-campo";
+import { PERMISOS_TECNICO, TECNICO, TECNICO_B, bodegaDelTecnico, existenciasDelTecnico, ordenesDeB, ordenesDelDia, trasladosDelTecnico } from "./datos-campo";
 
 /*
  * API falsa de la app de campo para Playwright, con la forma exacta de I2 (paquete, cambios,
@@ -31,6 +31,8 @@ export interface OpcionesCampo {
     plantillas?: Schema<"PlantillaFormulario">[];
     /** Turno de la agenda para el día pedido (`undefined` = ese día no trabaja). */
     turno?: (fecha: string) => Schema<"TurnoCampo"> | undefined;
+    /** Traslados de Argos hacia la bodega de Tomás (por defecto, 31 y 32 enviados). */
+    traslados?: Schema<"Traslado">[];
 }
 
 export interface ApiCampo {
@@ -65,6 +67,16 @@ export interface ApiCampo {
     contrasenaTemporal: boolean;
     /** Catálogo de plantillas del servidor (despacho puede desactivar una: se quita de aquí). */
     plantillas: Schema<"PlantillaFormulario">[];
+    /** Traslados que Iris conoce (webhook de Argos), por id. */
+    traslados: Map<number, Schema<"Traslado">>;
+    /** Recepciones aplicadas (`traslado.recibir`), en orden. */
+    recepciones: Schema<"EntradaRecibirTraslado">[];
+    /** Las próximas N altas de la firma de un traslado responden 404 (el traslado aún no llega). */
+    firmaTrasladoNoLlega: number;
+    /** Si no es null, GET /campo/inventario/mi-bodega responde con este problema. */
+    fallarBodega: Problema | null;
+    /** Mientras sea true, `traslado.recibir` responde 503 `traslado_sin_confirmar` (Argos no contesta). */
+    trasladoSinConfirmar: boolean;
 }
 
 /** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
@@ -142,6 +154,11 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         fallarPaquete: null,
         contrasenaTemporal: false,
         plantillas: structuredClone(opciones.plantillas ?? []),
+        traslados: new Map((opciones.traslados ?? trasladosDelTecnico()).map((t) => [t.id, structuredClone(t)])),
+        recepciones: [],
+        firmaTrasladoNoLlega: 0,
+        fallarBodega: null,
+        trasladoSinConfirmar: false,
         limitarPosiciones: (veces, retryAfter = 20) => {
             limite429.veces = veces;
             limite429.retryAfter = retryAfter;
@@ -157,8 +174,31 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 s.recibido === s.entrada.tamano,
         );
 
+    /** `traslado.recibir` (contratos/sync.md §3): agrupada por traslado, sin orden. */
+    function recibir(op: OperacionLote): ResultadoOperacion {
+        const d = op.datos as Schema<"EntradaRecibirTraslado">;
+        const i = pendientesRechazo.findIndex((r) => r.cuando(op));
+        if (i >= 0) {
+            const [r] = pendientesRechazo.splice(i, 1);
+            return { id: op.id, estado: "rechazada", error: r?.problema ?? problema("validacion", 422, "Inválido") };
+        }
+        if (api.trasladoSinConfirmar) {
+            return { id: op.id, estado: "rechazada", error: problema("traslado_sin_confirmar", 503, "Argos no respondió") };
+        }
+        const t = api.traslados.get(d.trasladoId);
+        if (!t || t.estado !== "enviado") {
+            return { id: op.id, estado: "rechazada", error: problema("traslado_no_encontrado", 404, "Traslado no encontrado") };
+        }
+        api.recepciones.push(d);
+        const firmaLista = [...api.subidas.values()].some((s) => s.entrada.id === d.firmaAdjuntoId && s.recibido === s.entrada.tamano);
+        t.recepcion = { trasladoId: t.id, pendienteId: api.recepciones.length, estado: firmaLista ? "enviando" : "esperando_firma", actualizadoEn: new Date().toISOString() };
+        return { id: op.id, estado: "aplicada", recepcion: t.recepcion };
+    }
+
     function aplicar(op: OperacionLote, rechazadas: Set<number>, usuario: Schema<"Usuario">): ResultadoOperacion {
-        // ordenId es opcional en el contrato (traslado.recibir no es de una orden): aquí solo hay órdenes.
+        if (op.tipo === "traslado.recibir") {
+            return recibir(op);
+        }
         const ordenId = op.ordenId ?? 0;
         const o = api.ordenes.get(ordenId);
         if (!o || o.tecnicoId !== usuario.id) {
@@ -462,7 +502,12 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         }
         if (ruta === "/api/v1/adjuntos" && metodo === "POST") {
             const e = req.postDataJSON() as Schema<"EntradaRegistrar">;
-            if (api.ordenes.get(Number(e.entidadId))?.tecnicoId !== usuario.id) {
+            if (e.entidad === "traslado") {
+                if (api.firmaTrasladoNoLlega > 0 || !api.traslados.has(Number(e.entidadId))) {
+                    api.firmaTrasladoNoLlega = Math.max(0, api.firmaTrasladoNoLlega - 1);
+                    return error(route, problema("traslado_no_encontrado", 404, "Traslado no encontrado"));
+                }
+            } else if (api.ordenes.get(Number(e.entidadId))?.tecnicoId !== usuario.id) {
                 return error(route, problema("no_encontrado", 404, "No existe o no puedes usar su entidad"));
             }
             const previa = api.subidas.get(e.id);
@@ -497,7 +542,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         const subida = /^\/api\/v1\/adjuntos\/([^/]+)\/subida$/.exec(ruta);
         if (subida) {
             const s = api.subidas.get(subida[1] ?? "");
-            if (!s || api.ordenes.get(Number(s.entrada.entidadId))?.tecnicoId !== usuario.id) {
+            if (!s || (s.entrada.entidad !== "traslado" && api.ordenes.get(Number(s.entrada.entidadId))?.tecnicoId !== usuario.id)) {
                 return error(route, problema("no_encontrado", 404, "No existe"));
             }
             if (metodo === "HEAD") {
@@ -550,6 +595,18 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             api.posiciones.push(entrada);
             api.respuestasPosiciones.push(r);
             return json(route, r);
+        }
+        if (ruta === "/api/v1/campo/inventario/traslados" && metodo === "GET") {
+            const estado = url.searchParams.get("estado");
+            const data = [...api.traslados.values()].filter((t) => !estado || t.estado === estado).map((t) => structuredClone(t));
+            const r: Schema<"PaginaTraslados"> = { data, nextCursor: null };
+            return json(route, r);
+        }
+        if (ruta === "/api/v1/campo/inventario/mi-bodega" && metodo === "GET") {
+            if (api.fallarBodega) {
+                return error(route, api.fallarBodega);
+            }
+            return json(route, bodegaDelTecnico());
         }
         if (ruta === "/api/v1/sesion" && metodo === "DELETE") {
             return route.fulfill({ status: 204 });

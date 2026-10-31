@@ -273,3 +273,70 @@ test.describe("Argos 0.5.0 en la orden", () => {
         }
     });
 });
+
+test.describe("Datos de Argos en la orden: aplicar o descartar", () => {
+    test("«Aplicar» con los datos elegidos manda versión y aviso; el aviso desaparece", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page, { argos050: true });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/ordenes/2?pestana=argos");
+        const aviso = page.getByTestId("aviso-datos-argos");
+        await expect(aviso).toContainText("Cambió en Argos: dirección del servicio, teléfono de contacto en sitio");
+        await expect(page.getByTestId("datos-argos-cambiados")).toBeVisible();
+        const version = api.ordenes.ordenes.find((o) => o.id === 2)?.version;
+        const en = api.ordenes.datosArgos.get(2)?.en;
+        await aviso.getByRole("button", { name: "Aplicar" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Aplicar datos de Argos" });
+        // Marcado lo que cambió; se puede quitar.
+        await expect(dialogo.getByLabel("Dirección")).toBeChecked();
+        await expect(dialogo.getByLabel("Contacto en sitio")).toBeChecked();
+        await expect(dialogo.getByLabel("Referencia")).not.toBeChecked();
+        await dialogo.getByLabel("Contacto en sitio").uncheck();
+        await dialogo.getByRole("button", { name: "Aplicar" }).click();
+        await expect(dialogo).toBeHidden();
+        await expect(page.getByTestId("aviso-datos-argos")).toHaveCount(0);
+        await expect(page.getByTestId("datos-argos-cambiados")).toHaveCount(0);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText("Colonia El Maestro, lote 12, zona 7");
+        expect(api.ordenes.accionesDatosArgos?.[0]).toEqual({ accion: "aplicar", cuerpo: { version, avisoEn: en, campos: ["direccion"] } });
+    });
+
+    test("«Descartar» con motivo opcional", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page, { argos050: true });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/ordenes/2?pestana=argos");
+        const en = api.ordenes.datosArgos.get(2)?.en;
+        await page.getByTestId("aviso-datos-argos").getByRole("button", { name: "Descartar" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Descartar el aviso de Argos" });
+        await dialogo.getByLabel("Motivo (opcional)").fill("El cliente confirmó que sigue en la misma casa");
+        await dialogo.getByRole("button", { name: "Descartar aviso" }).click();
+        await expect(page.getByTestId("aviso-datos-argos")).toHaveCount(0);
+        expect(api.ordenes.accionesDatosArgos?.[0]?.cuerpo).toMatchObject({ avisoEn: en, motivo: "El cliente confirmó que sigue en la misma casa" });
+    });
+
+    test("409 aviso_argos_cambiado recarga y muestra el aviso nuevo; 422 instantanea_no_coincide se explica", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page, { argos050: true });
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/ordenes/2?pestana=argos");
+        const aviso = page.getByTestId("aviso-datos-argos");
+        await aviso.getByRole("button", { name: "Aplicar" }).click();
+        // Mientras despacho decide, Argos avisa otro cambio.
+        api.ordenes.datosArgos.set(2, { en: new Date().toISOString(), campos: ["servicio.direccion", "servicio.contacto_telefono", "servicio.referencia"] });
+        await page.getByRole("dialog", { name: "Aplicar datos de Argos" }).getByRole("button", { name: "Aplicar" }).click();
+        await expect(page.getByTestId("mensaje-datos-argos")).toContainText("Argos avisó otro cambio");
+        await expect(aviso).toContainText("referencia del servicio");
+
+        api.ordenes.fallaDatosArgos = { type: "urn:iris:problema:instantanea_no_coincide", title: "No coincide", status: 422 };
+        await aviso.getByRole("button", { name: "Aplicar" }).click();
+        await page.getByRole("dialog", { name: "Aplicar datos de Argos" }).getByRole("button", { name: "Aplicar" }).click();
+        await expect(page.getByTestId("mensaje-datos-argos")).toContainText("El servicio en Argos ya no es de este cliente; revisa la orden a mano.");
+        await expect(aviso).toBeVisible();
+    });
+
+    test("sin los permisos solo se ve el aviso", async ({ page, context, baseURL }) => {
+        await simularApi(page, { argos050: true });
+        await conSesion(context, baseURL ?? "", DESPACHO.correo);
+        await page.goto("/ordenes/2?pestana=argos");
+        const aviso = page.getByTestId("aviso-datos-argos");
+        await expect(aviso).toBeVisible();
+        await expect(aviso.getByRole("button")).toHaveCount(0);
+    });
+});
