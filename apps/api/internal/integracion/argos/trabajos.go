@@ -93,14 +93,21 @@ func (w *trabajadorCatalogos) Timeout(*river.Job[ArgsSincronizarCatalogos]) time
 func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajadorEntrante{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorCatalogos{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorContrato{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorRevisarContrato{m: m, bd: bd})
 }
 
-// TrabajosPeriodicos: refresco de zonas y routers cada intervalo (6 h por defecto).
+// TrabajosPeriodicos: refresco de zonas y routers cada intervalo (6 h por defecto) y revisión del
+// contrato informado a Argos (al arrancar y cada 6 h: el job «de una vez» para los conectores que ya
+// estaban activos, y detecta una actualización de Argos a 1.6.0).
 func TrabajosPeriodicos(intervalo time.Duration) []*river.PeriodicJob {
 	if intervalo <= 0 {
 		intervalo = 6 * time.Hour
 	}
 	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(intervalo),
 		func() (river.JobArgs, *river.InsertOpts) { return ArgsSincronizarCatalogos{}, nil },
-		&river.PeriodicJobOpts{RunOnStart: true})}
+		&river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(intervalo),
+			func() (river.JobArgs, *river.InsertOpts) { return ArgsRevisarContrato{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true})}
 }

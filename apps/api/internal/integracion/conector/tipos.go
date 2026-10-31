@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,9 +31,16 @@ type Conector struct {
 	WebhookURL      string     `json:"webhookUrl" doc:"URL a la que el otro sistema envía los webhooks"`
 	ActivadoEn      *time.Time `json:"activadoEn" nullable:"true"`
 	UltimoWebhookEn *time.Time `json:"ultimoWebhookEn" nullable:"true"`
-	Version         int32      `json:"version"`
-	CreadoEn        time.Time  `json:"creadoEn"`
-	ActualizadoEn   time.Time  `json:"actualizadoEn"`
+	// Versión del otro sistema (Argos 0.5.0: version_argos y contrato del canje y de GET
+	// /integraciones/iris/estado).
+	VersionRemota       *string    `json:"versionRemota" nullable:"true" required:"false" doc:"Versión que informó el otro sistema (version_argos de Argos ≥ 1.6.0: \"1.6.0\"); null = no la informó (Argos anterior a 1.6.0) o aún no se consultó"`
+	ContratoRemoto      *string    `json:"contratoRemoto" nullable:"true" required:"false" doc:"Contrato que el otro sistema dice tener registrado para Iris (\"0.5.0\"); null = no lo informó"`
+	ContratoInformado   *string    `json:"contratoInformado" nullable:"true" required:"false" doc:"Contrato que Iris le informó y aceptó (en el canje o con PUT /integraciones/iris/contrato); null = todavía no (el worker lo reintenta)"`
+	VersionConsultadaEn *time.Time `json:"versionConsultadaEn" nullable:"true" required:"false" doc:"Cuándo se leyó la versión por última vez"`
+	Capacidades         []string   `json:"capacidades" required:"false" doc:"Lo que el otro sistema permite según su versión. inventario_por_tecnico: Argos ≥ 1.6.0 (contrato 0.5.0 §3.3: tecnico en consumos y comodatos, mi-bodega, traslados). Sin ella, el panel muestra «Argos < 1.6.0: inventario por técnico no disponible» y Iris sigue con bodega_id"`
+	Version             int32      `json:"version"`
+	CreadoEn            time.Time  `json:"creadoEn"`
+	ActualizadoEn       time.Time  `json:"actualizadoEn"`
 }
 
 // AConector arma el tipo de la API desde la fila.
@@ -45,7 +53,19 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 		ID: f.ID, Sistema: f.Sistema, BaseURL: f.BaseUrl, APIURL: f.BaseUrl, PanelURL: f.PanelUrl, URLPublica: urlPublica(f), Origen: f.Origen, Estado: f.Estado,
 		RemotoID: f.RemotoID, Empresas: empresas, AlcanceGlobal: f.AlcanceGlobal, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
 		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
+		VersionRemota: f.VersionRemota, ContratoRemoto: f.ContratoRemoto, ContratoInformado: f.ContratoInformado,
+		VersionConsultadaEn: f.VersionConsultadaEn, Capacidades: n.capacidadesDe(f),
 	}
+}
+
+// capacidadesDe: las del sistema según la versión guardada (vacía si el sistema no las define).
+func (n *Nucleo) capacidadesDe(f conectorbd.IntegracionConectore) []string {
+	if c := n.sistema(f.Sistema); c != nil && c.s.Capacidades != nil {
+		if caps := c.s.Capacidades(f.VersionRemota, f.ContratoRemoto); caps != nil {
+			return caps
+		}
+	}
+	return []string{}
 }
 
 // urlPublica es el origen del panel del otro sistema para «Ver en …»: la configurada a mano, la
@@ -135,6 +155,8 @@ type PeticionCanje struct {
 	Webhook WebhookCanje `json:"webhook"`
 	// CodeVerifier: solo en el canje de un código nacido en «Conectar con un botón» (§1.4).
 	CodeVerifier string `json:"code_verifier,omitempty"`
+	// Contrato: la versión del contrato que habla Iris (Argos 0.5.0 §3.3); vacío = no se manda.
+	Contrato string `json:"contrato,omitempty"`
 }
 
 // WebhookCanje es un receptor de webhooks y su secreto HMAC, en el canje.
@@ -156,6 +178,10 @@ type RespuestaCanje struct {
 	AlcanceGlobal *bool             `json:"alcance_global"`
 	// PanelURL: PANEL_URL_PUBLICA de Argos (0.4.0, §1.4 paso 6); vacío en versiones anteriores.
 	PanelURL string `json:"panel_url"`
+	// VersionArgos y Contrato (0.5.0, §3.3): versión de Argos («1.6.0») y contrato que registró para
+	// este conector; vacíos en versiones anteriores.
+	VersionArgos string `json:"version_argos"`
+	Contrato     string `json:"contrato"`
 }
 
 // EmpresaCanje es una empresa del alcance que informa el canje: nombre comercial y NIT sin
@@ -245,4 +271,58 @@ func recortar(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+var versionValida = regexp.MustCompile(`^[0-9A-Za-z.+_-]+$`)
+
+// textoVersion: una versión o contrato informado por el otro sistema, recortado; nil si viene vacío
+// o con caracteres raros (no se guarda texto arbitrario del otro lado).
+func textoVersion(s string, maximo int) *string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > maximo || !versionValida.MatchString(s) {
+		return nil
+	}
+	return &s
+}
+
+// TextoVersion es textoVersion para los sistemas (lo que lean de GET …/estado).
+func TextoVersion(s string, maximo int) *string { return textoVersion(s, maximo) }
+
+// VersionAlMenos compara versiones semver «x.y.z» (ignora un sufijo -pre o +build). false si v es
+// nil o no es una versión.
+func VersionAlMenos(v *string, minima string) bool {
+	if v == nil {
+		return false
+	}
+	a, ok := partesVersion(*v)
+	b, ok2 := partesVersion(minima)
+	if !ok || !ok2 {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return true
+}
+
+func partesVersion(v string) ([3]int, bool) {
+	var p [3]int
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	trozos := strings.Split(v, ".")
+	if len(trozos) == 0 || len(trozos) > 3 {
+		return p, false
+	}
+	for i, t := range trozos {
+		n, err := strconv.Atoi(t)
+		if err != nil || n < 0 {
+			return p, false
+		}
+		p[i] = n
+	}
+	return p, true
 }

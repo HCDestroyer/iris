@@ -101,6 +101,11 @@ type entradaAplicar struct {
 	eliminado *eliminacion
 	omitido   string
 	errArgos  error
+	// Contrato 0.5.0: catálogo releído de Argos, traslado del webhook y si se avisa a campo que
+	// cambiaron datos que copian las órdenes.
+	catalogo      *cambioCatalogo
+	traslado      *argosbd.GuardarTrasladoParams
+	datosServicio *int64
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -168,6 +173,18 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		r.Resultado = "aplicado"
 	}
 	switch {
+	case in.catalogo != nil:
+		if err := aplicarCatalogo(ctx, t, q, *in.catalogo); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	case in.traslado != nil:
+		if err := aplicarTraslado(ctx, t, q, *in.traslado); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	switch {
 	case in.borrar && in.ClienteID != nil:
 		// Argos ya no tiene al cliente: sus copias en tickets y órdenes se anonimizan.
 		if err := q.AnonimizarCopiasDeCliente(ctx, *in.ClienteID); err != nil {
@@ -182,6 +199,22 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			return r, err
 		}
 		r.Resultado = "aplicado"
+	}
+	// Datos que copian las órdenes (0.5.0): campo marca las abiertas «dato de Argos cambió».
+	switch e.Evento {
+	case EventoServicioDatosCambiados:
+		if in.datosServicio != nil {
+			if err := emitirDatosCambiados(t, e, "servicio", leerPayload(e.Payload).cliente(), in.datosServicio); err != nil {
+				return r, err
+			}
+			r.Resultado = "aplicado"
+		}
+	case EventoClienteActualizado:
+		if c := clienteDelEvento(e); c != nil {
+			if err := emitirDatosCambiados(t, e, "cliente", c, nil); err != nil {
+				return r, err
+			}
+		}
 	}
 	if e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(leerPayload(e.Payload).A, "retirado") {
 		s := in.retiro
@@ -226,6 +259,19 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 	}
 	datos := leerPayload(e.Payload)
 	switch e.Evento {
+	case EventoCatalogoCambiado:
+		in.catalogo, in.omitido, in.errArgos = p.leerCatalogo(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoTrasladoEnviado, EventoTrasladoRecibido, EventoTrasladoCancelado:
+		// El payload trae todo lo que la app muestra (no se relee de Argos).
+		if in.traslado = trasladoDe(e); in.traslado == nil {
+			in.omitido = "traslado_sin_id"
+		}
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoServicioDatosCambiados:
+		in.datosServicio = datos.servicio()
+	}
+	switch e.Evento {
 	case EventoServicioEliminado, EventoRouterEliminado:
 		in.eliminado, in.omitido, in.errArgos = p.leerEliminacion(ctx, bd, e, datos)
 		if in.eliminado == nil || in.eliminado.Tipo == eliminadoRouter || in.eliminado.clienteFicha == nil {
@@ -241,7 +287,7 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		in.ClienteID = in.eliminado.clienteFicha
 		in.ficha, in.borrar, in.errArgos = p.leerDeArgos(ctx, bd, e.ConectorID, *in.ClienteID)
 		return p.aplicar.Ejecutar(ctx, in)
-	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
+	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado, EventoServicioDatosCambiados:
 		// Un evento atrasado de un servicio que Argos eliminó no recrea la instantánea.
 		if s := datos.servicio(); s != nil {
 			eliminado, err := servicioEliminado(ctx, q, *s)
@@ -312,7 +358,7 @@ func clienteARefrescar(ctx context.Context, q *argosbd.Queries, e conector.Entra
 		if clienteID == nil {
 			clienteID = datos.ID
 		}
-	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado:
+	case EventoServicioCreado, EventoServicioConfigCambiada, EventoAsignacionCambiada, EventoServicioEstadoCambiado, EventoServicioDatosCambiados:
 		clienteID = datos.cliente()
 		if s := datos.servicio(); clienteID == nil && s != nil {
 			srv, err := q.ServicioPorID(ctx, *s)
@@ -349,4 +395,13 @@ func (p *ProcesarEntrante) leerDeArgos(ctx context.Context, q conector.DBTX, con
 		return nil, false, err
 	}
 	return &ficha, false, nil
+}
+
+// clienteDelEvento: el cliente de cliente.actualizado (cliente_id, cliente.id o id).
+func clienteDelEvento(e conector.Entrante) *int64 {
+	d := leerPayload(e.Payload)
+	if c := d.cliente(); c != nil {
+		return c
+	}
+	return d.ID
 }

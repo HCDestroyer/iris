@@ -58,6 +58,13 @@ type argosFalso struct {
 	desafio string
 	// panelURL: lo que responde el canje en panel_url (0.4.0); vacío = no lo manda.
 	panelURL string
+	// Contrato 0.5.0 (Argos ≥ 1.6.0): version vacía = Argos 1.5.x (no conoce las rutas nuevas ni
+	// informa versión). contrato: el que registró para Iris (canje o PUT …/contrato).
+	version   string
+	contrato  string
+	tecnicos  []map[string]any
+	planes    []map[string]any
+	contratos int // PUT /integraciones/iris/contrato recibidos
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -81,9 +88,35 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/zonas", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.zonas) }))
 	mux.HandleFunc("GET /api/v1/routers", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.routers) }))
 	mux.HandleFunc("GET /api/v1/routers/{id}", a.conToken(a.router))
+	a.rutas050(mux)
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
+}
+
+// rutas050: lo nuevo de Argos 1.6.0 (contrato 0.5.0). Con version vacía responde 404 (Argos 1.5.x).
+func (a *argosFalso) rutas050(mux *http.ServeMux) {
+	solo16 := func(fn http.HandlerFunc) http.HandlerFunc {
+		return a.conToken(func(w http.ResponseWriter, r *http.Request) {
+			if a.version == "" {
+				problema(w, 404, "urn:argosisp:problema:no_encontrado", "Ruta no encontrada")
+				return
+			}
+			fn(w, r)
+		})
+	}
+	mux.HandleFunc("PUT /api/v1/integraciones/iris/contrato", solo16(func(w http.ResponseWriter, r *http.Request) {
+		var p map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		a.contrato, _ = p["contrato"].(string)
+		a.contratos++
+		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
+	}))
+	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {
+		escribir(w, map[string]any{"version_argos": a.version, "contrato": a.contrato, "activo": true})
+	}))
+	mux.HandleFunc("GET /api/v1/inventario/tecnicos", solo16(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.tecnicos) }))
+	mux.HandleFunc("GET /api/v1/planes", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.planes) }))
 }
 
 func (a *argosFalso) enlace() string { return a.srv.URL + "/conectar#" + a.codigo }
@@ -174,6 +207,11 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.panelURL != "" {
 		resp["panel_url"] = a.panelURL
+	}
+	if a.version != "" {
+		// Argos 1.6.0: informa su versión y registra el contrato que mandó Iris.
+		a.contrato, _ = p["contrato"].(string)
+		resp["version_argos"], resp["contrato"] = a.version, a.contrato
 	}
 	escribir(w, resp)
 }

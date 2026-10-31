@@ -240,3 +240,35 @@ partes (ficha, ticket, orden, comercial y app de campo).
   que no vuelve a pedir a Argos si la instantánea es de hace menos de 30 s). Argos 1.4.0 no avisa
   cambios de la dirección o las coordenadas de un servicio ni del correo del cliente: hasta que lo
   haga (pedidos en `.claude/integration/i1.md`), se ven al vencer las 24 h o con «Refrescar».
+
+## Contrato 0.5.0 (Argos ≥ 1.6.0): inventario del técnico
+
+- **Versión y contrato** (`contrato.go`). Iris manda `contrato: "0.5.0"` en el canje (enlace §1.3
+  y botón §1.4) y guarda `version_argos` / `contrato` en el conector (`version_remota`,
+  `contrato_remoto`, `contrato_informado`, `version_consultada_en`). Al activar (y al reconectar)
+  se encola `integracion.argos_informar_contrato`: `PUT /integraciones/iris/contrato` y
+  `GET /integraciones/iris/estado`; un 404/405 es Argos 1.5.x (no es error). El periódico
+  `integracion.argos_revisar_contrato` (al arrancar y cada 6 h) lo encola para el conector activo
+  si falta informar el contrato o la versión es desconocida o < 1.6.0: es el job «de una vez» de
+  los conectores ya activos y detecta una actualización de Argos. `Conector.capacidades` trae
+  `inventario_por_tecnico` con Argos ≥ 1.6.0; `InventarioPorTecnico` lo consulta la cola.
+- **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
+  (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
+  del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)
+  recorre las páginas. `IDExterno` acepta texto o número y se guarda como texto.
+- **Instantánea**: `referencia` del cliente; `referencia`, `contacto_nombre` y
+  `contacto_telefono` del servicio (`contactoTelefonos` normalizados en la API).
+- **Webhooks** (`webhook_050.go`):
+  - `servicio.datos_cambiados` refresca la ficha (como `servicio.config_cambiada`) y emite
+    `argos.datos_cambiados` (campos con prefijo `servicio.`); `cliente.actualizado` con campos que
+    copian las órdenes (dirección, coordenadas, referencia, contacto, teléfonos, nombre) también
+    (`cliente.`). Campo marca sus órdenes abiertas sin pisarlas.
+  - `catalogo.cambiado`: relee el elemento (zona en `GET /zonas`, router con `GET /routers/:id`,
+    plan en `GET /planes`) y actualiza `argos_zonas` / `argos_routers` (`activo` nuevo), los
+    nombres copiados en servicios y clientes y la zona espejo de agenda (`nombre`, `activa`). Si ya
+    no aparece y el aviso es de `activo`, queda inactivo.
+  - `inventario.traslado_enviado|recibido|cancelado`: modelo de lectura
+    `integracion.argos_traslados` (un estado final no vuelve a `enviado`) y `argos.traslado_cambiado`
+    con el técnico de Iris del vínculo (`usuario_id`).
+- **Errores** del inventario por técnico: 422 `argos_sin_inventario_tecnico` (Argos < 1.6.0),
+  `tecnico_no_encontrado`, `tecnico_sin_bodega`.

@@ -123,6 +123,10 @@ const (
 	PermAgendaFijarCapacidad      Permiso = "agenda.fijar_capacidad"
 	PermAgendaRegistrarAusencia   Permiso = "agenda.registrar_ausencia"
 	PermAgendaAnularAusencia      Permiso = "agenda.anular_ausencia"
+	// Vínculo del técnico con su usuario de Argos (contrato 0.5.0 §3.3; I1): define desde qué
+	// bodega de Argos se consumen materiales y comodatos, así que es de administración.
+	PermAgendaVincularArgos    Permiso = "agenda.vincular_argos"
+	PermAgendaDesvincularArgos Permiso = "agenda.desvincular_argos"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -215,6 +219,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
 	PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -241,6 +246,7 @@ var Catalogo = []DefPermiso{
 	{PermAgendaDesactivarCuadrilla, "Desactivar una cuadrilla"},
 	{PermAgendaDesactivarTecnico, "Desactivar la ficha de agenda de un técnico (deja de ser asignable)"},
 	{PermAgendaDesactivarZona, "Desactivar una zona"},
+	{PermAgendaDesvincularArgos, "Quitar el vínculo de la ficha de un técnico con su usuario de Argos"},
 	{PermAgendaEditarCuadrilla, "Editar una cuadrilla y sus zonas"},
 	{PermAgendaEditarTecnico, "Editar la ficha de agenda de un técnico"},
 	{PermAgendaEditarZona, "Editar una zona (nombre de las locales y polígono)"},
@@ -248,6 +254,7 @@ var Catalogo = []DefPermiso{
 	{PermAgendaFijarTurnos, "Fijar los turnos semanales de un técnico"},
 	{PermAgendaRegistrarAusencia, "Registrar ausencias de un técnico (vacaciones, enfermedad…)"},
 	{PermAgendaVer, "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)"},
+	{PermAgendaVincularArgos, "Vincular la ficha de un técnico con su usuario de Argos (inventario por técnico, Argos ≥ 1.6.0) y ver los técnicos de Argos"},
 	{PermBuzonesActivar, "Activar un buzón de correo (empieza a leer y abrir tickets)"},
 	{PermBuzonesCrear, "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets"},
 	{PermBuzonesDesactivar, "Desactivar un buzón de correo (deja de leerse)"},

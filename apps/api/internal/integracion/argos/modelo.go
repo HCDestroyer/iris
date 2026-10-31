@@ -32,6 +32,7 @@ type ClienteResumen struct {
 	Correo              string             `json:"correo" doc:"Correo del cliente en Argos (email)"`
 	Telefonos           []formato.Telefono `json:"telefonos" doc:"Teléfono y móvil normalizados para mostrar (+502 5512 3344) y llamar (E.164), sin perder el original; un campo con varios números da varios"`
 	ZonaNombre          string             `json:"zonaNombre" doc:"Nombre de la zona del cliente en Argos"`
+	Referencia          string             `json:"referencia" required:"false" doc:"Punto de referencia del cliente (Argos ≥ 1.6.0, «frente a la iglesia»); vacío si no hay"`
 	SincronizadoEn      *time.Time         `json:"sincronizadoEn" nullable:"true" doc:"Cuándo se leyó de Argos (instantánea); null en un resultado de búsqueda leído en vivo"`
 	// Servicios: solo en la búsqueda con ?servicios=true (selector de cliente del panel).
 	Servicios []Servicio `json:"servicios" required:"false" nullable:"true" doc:"Solo en GET /clientes con servicios=true: los servicios del cliente en la empresa activa (todas sin empresa activa), para mostrarlos al buscar. null: no se pidieron o no se pudieron leer. Solo informativo: el servicio elegido se toma de la ficha GET /clientes/{id}"`
@@ -39,24 +40,29 @@ type ClienteResumen struct {
 
 // Servicio de un cliente de Argos.
 type Servicio struct {
-	ID             int64     `json:"id" doc:"Id del servicio en Argos"`
-	EmpresaID      int64     `json:"empresaId"`
-	ClienteID      int64     `json:"clienteId"`
-	Codigo         string    `json:"codigo"`
-	PlanID         *int64    `json:"planId" nullable:"true"`
-	PlanNombre     string    `json:"planNombre"`
-	RouterID       *int64    `json:"routerId" nullable:"true"`
-	RouterNombre   string    `json:"routerNombre"`
-	ZonaID         *int64    `json:"zonaId" nullable:"true"`
-	ZonaNombre     string    `json:"zonaNombre"`
-	IP             string    `json:"ip" doc:"IPv4 vigente del servicio en Argos"`
-	Direccion      string    `json:"direccion" doc:"Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente"`
-	Lat            *float64  `json:"lat" nullable:"true" doc:"Coordenadas de instalación (6 decimales); null si Argos no las tiene"`
-	Lon            *float64  `json:"lon" nullable:"true"`
-	Estado         string    `json:"estado" doc:"Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)"`
-	UserPPP        string    `json:"userPpp" doc:"Usuario PPPoE; vacío fuera de pppoe"`
-	TipoConexion   string    `json:"tipoConexion" doc:"pppoe, ip_estatica o dhcp_fija"`
-	SincronizadoEn time.Time `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos"`
+	ID           int64    `json:"id" doc:"Id del servicio en Argos"`
+	EmpresaID    int64    `json:"empresaId"`
+	ClienteID    int64    `json:"clienteId"`
+	Codigo       string   `json:"codigo"`
+	PlanID       *int64   `json:"planId" nullable:"true"`
+	PlanNombre   string   `json:"planNombre"`
+	RouterID     *int64   `json:"routerId" nullable:"true"`
+	RouterNombre string   `json:"routerNombre"`
+	ZonaID       *int64   `json:"zonaId" nullable:"true"`
+	ZonaNombre   string   `json:"zonaNombre"`
+	IP           string   `json:"ip" doc:"IPv4 vigente del servicio en Argos"`
+	Direccion    string   `json:"direccion" doc:"Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente"`
+	Lat          *float64 `json:"lat" nullable:"true" doc:"Coordenadas de instalación (6 decimales); null si Argos no las tiene"`
+	Lon          *float64 `json:"lon" nullable:"true"`
+	Estado       string   `json:"estado" doc:"Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)"`
+	UserPPP      string   `json:"userPpp" doc:"Usuario PPPoE; vacío fuera de pppoe"`
+	TipoConexion string   `json:"tipoConexion" doc:"pppoe, ip_estatica o dhcp_fija"`
+	// Ubicación y contacto en sitio (Argos ≥ 1.6.0, contrato 0.5.0 §2.1).
+	Referencia        string             `json:"referencia" required:"false" doc:"Punto de referencia de la instalación; vacío si no hay"`
+	ContactoNombre    string             `json:"contactoNombre" required:"false" doc:"Quien atiende en el sitio (si no es el titular); vacío si no hay"`
+	ContactoTelefono  string             `json:"contactoTelefono" required:"false" doc:"Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344)"`
+	ContactoTelefonos []formato.Telefono `json:"contactoTelefonos" required:"false" doc:"El teléfono del contacto en sitio para mostrar y llamar (E.164)"`
+	SincronizadoEn    time.Time          `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos"`
 }
 
 // CopiaArgos es lo que Iris sabía del cliente y del servicio al crear un ticket o una orden. Se
