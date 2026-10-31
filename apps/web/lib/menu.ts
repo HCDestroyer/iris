@@ -16,8 +16,20 @@ import {
 
 export type Permiso = Schema<"Permiso">;
 
+/** Grupos de la barra lateral (propuesta aprobada, §2), en este orden. */
+export type GrupoMenu = "operacion" | "equipo" | "ventas" | "analisis" | "administracion";
+
+export const GRUPOS: readonly { id: GrupoMenu; etiqueta: string }[] = [
+    { id: "operacion", etiqueta: "Operación" },
+    { id: "equipo", etiqueta: "Equipo" },
+    { id: "ventas", etiqueta: "Ventas" },
+    { id: "analisis", etiqueta: "Análisis" },
+    { id: "administracion", etiqueta: "Administración" },
+];
+
 export type EntradaMenu = {
     href: string;
+    grupo: GrupoMenu;
     etiqueta: string;
     icono: LucideIcon;
     /**
@@ -42,18 +54,20 @@ export const permisosPendientes = {
 } as const;
 
 export const MENU: readonly EntradaMenu[] = [
-    { href: "/", etiqueta: "Inicio", icono: LayoutDashboard, permisos: null },
-    { href: "/tickets", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"] },
+    { href: "/", grupo: "operacion", etiqueta: "Inicio", icono: LayoutDashboard, permisos: null },
+    { href: "/tickets", grupo: "operacion", etiqueta: "Tickets", icono: LifeBuoy, permisos: ["tickets.ver"] },
     {
         href: "/ordenes",
+        grupo: "operacion",
         etiqueta: "Órdenes",
         icono: ClipboardList,
         permisos: ["ordenes.ver", "ordenes.ver_propias"],
     },
-    { href: "/agenda", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
-    { href: "/despacho", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
+    { href: "/agenda", grupo: "operacion", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
+    { href: "/despacho", grupo: "operacion", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
     {
         href: "/tecnicos",
+        grupo: "equipo",
         etiqueta: "Técnicos",
         icono: HardHat,
         // Quien administra fichas (alta, edición, estado, turnos o ausencias); ver la agenda no basta.
@@ -67,12 +81,13 @@ export const MENU: readonly EntradaMenu[] = [
             "agenda.anular_ausencia",
         ],
     },
-    { href: "/comercial", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
-    { href: "/encuestas", etiqueta: "Encuestas", icono: MessageSquareHeart, permisos: ["encuestas.ver"] },
-    { href: "/reportes", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
-    { href: "/usuarios", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
+    { href: "/usuarios", grupo: "equipo", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
+    { href: "/comercial", grupo: "ventas", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
+    { href: "/encuestas", grupo: "ventas", etiqueta: "Encuestas", icono: MessageSquareHeart, permisos: ["encuestas.ver"] },
+    { href: "/reportes", grupo: "analisis", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
     {
         href: "/administracion",
+        grupo: "administracion",
         etiqueta: "Administración",
         icono: Settings,
         permisos: [
@@ -112,4 +127,24 @@ export function entradaActiva(ruta: string): EntradaMenu | undefined {
     return [...MENU]
         .sort((a, b) => b.href.length - a.href.length)
         .find((e) => (e.href === "/" ? ruta === "/" : ruta === e.href || ruta.startsWith(`${e.href}/`)));
+}
+
+export type GrupoVisible = { id: GrupoMenu; etiqueta: string; entradas: EntradaMenu[] };
+
+/** Entradas visibles agrupadas (los grupos sin entradas no aparecen). */
+export function menuAgrupado(permisos: readonly Permiso[] | null | undefined): GrupoVisible[] {
+    const visibles = menuVisible(permisos);
+    return GRUPOS.map((g) => ({ ...g, entradas: visibles.filter((e) => e.grupo === g.id) })).filter((g) => g.entradas.length > 0);
+}
+
+/** Accesos de la barra inferior del teléfono (más «Más», que abre el resto). */
+export const BARRA_INFERIOR: readonly string[] = ["/", "/tickets", "/ordenes", "/agenda"];
+
+/** Barra inferior y resto del menú (lo que va en «Más»), según los permisos. */
+export function repartoTelefono(permisos: readonly Permiso[] | null | undefined): { barra: EntradaMenu[]; resto: GrupoVisible[] } {
+    const barra = menuVisible(permisos).filter((e) => BARRA_INFERIOR.includes(e.href));
+    const resto = menuAgrupado(permisos)
+        .map((g) => ({ ...g, entradas: g.entradas.filter((e) => !BARRA_INFERIOR.includes(e.href)) }))
+        .filter((g) => g.entradas.length > 0);
+    return { barra, resto };
 }
