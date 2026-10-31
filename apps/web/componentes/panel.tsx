@@ -199,8 +199,9 @@ function AvisosDelPanel() {
 }
 
 function EstructuraPanel({ children }: { children: ReactNode }) {
-    const { yo, permisos, puede } = useSesion();
+    const { yo, permisos, puede, empresas } = useSesion();
     const ruta = usePathname();
+    const conEmpresa = yo.modoEmpresa !== "sin_conector" && empresas.length > 0;
     const avisoAdopcion = yo.hayDatosSinEmpresa && puede(["empresas.adoptar"]) && !ruta.startsWith("/administracion/datos-sin-empresa");
     const router = useRouter();
     const grupos = menuAgrupado(permisos);
@@ -313,10 +314,12 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
             <BarraInferior entradas={telefono.barra} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
                 <div className="mt-2 flex flex-1 flex-col gap-6">
                     {telefono.resto.length > 0 ? <Navegacion grupos={telefono.resto} alNavegar={() => setMasAbierto(false)} /> : null}
-                    <div className="grid gap-2">
-                        <span className="text-xs font-medium text-dimmed">Empresa</span>
-                        <SelectorEmpresa />
-                    </div>
+                    {conEmpresa ? (
+                        <div className="grid gap-2">
+                            <span className="text-xs font-medium text-dimmed">Empresa</span>
+                            <SelectorEmpresa />
+                        </div>
+                    ) : null}
                     <MenuCuentaLista cerrando={cerrando} cerrarSesion={cerrarSesion} antes={() => setMasAbierto(false)} />
                     <div className="mt-auto grid gap-2">
                         <span className="text-xs text-muted-foreground">Tema</span>

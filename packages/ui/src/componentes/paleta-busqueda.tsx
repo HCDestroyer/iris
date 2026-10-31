@@ -73,7 +73,16 @@ export function PaletaBusqueda({
                         {titulo}
                     </Heading>
                     <Autocomplete inputValue={texto} onInputChange={alCambiarTexto}>
-                        <SearchField aria-label={titulo} autoFocus className="relative border-b p-3">
+                        {/* Escape cierra el buscador aunque haya texto (SearchField solo lo borraría). */}
+                        <SearchField
+                            aria-label={titulo}
+                            autoFocus
+                            className="relative border-b p-3"
+                            onKeyDown={(e) => {
+                                if (e.key === "Escape") alCambiarAbierta(false);
+                                else e.continuePropagation();
+                            }}
+                        >
                             <Search aria-hidden className="pointer-events-none absolute top-1/2 left-6 size-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
                                 placeholder={placeholder}

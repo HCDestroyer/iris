@@ -99,6 +99,12 @@ test("Ctrl + K: pantallas por permiso y un ticket por número; errores con «Rei
     await expect(page).toHaveURL(/\/administracion\/roles$/);
     await expect(buscador).toHaveCount(0);
 
+    // Escape cierra aunque haya texto escrito.
+    await page.keyboard.press("Control+k");
+    await buscador.getByRole("searchbox").fill("tick");
+    await page.keyboard.press("Escape");
+    await expect(buscador).toHaveCount(0);
+
     // Un ticket por su número; si la búsqueda falla, «Reintentar» la repite.
     api.responderProblema("/api/v1/tickets", { type: "urn:iris:problema:error_interno", title: "Error interno", status: 500 }, 1);
     await page.getByRole("button", { name: "Buscador global" }).filter({ visible: true }).click();
