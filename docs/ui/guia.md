@@ -183,6 +183,46 @@ lectores de pantalla.
     - «Más» abre una hoja con el resto del menú, la empresa, la cuenta (como menú) y el tema;
     - ya no hay hamburguesa.
 
+## Formularios en pantalla propia (fase 2, hecha)
+
+- **Cada formulario de más de 3 campos tiene su ruta** y usa `FormularioPagina`:
+
+  | Antes en diálogo | Ahora | Permiso |
+  | --- | --- | --- |
+  | Nuevo ticket | `/tickets/nuevo` | `tickets.crear` |
+  | Nueva orden | `/ordenes/nueva` | `ordenes.crear` |
+  | Crear orden (y asignar) desde el ticket | `/ordenes/nueva?ticket=<id>` | `ordenes.crear` (y `tickets.crear_orden` para asignar) |
+  | Nuevo usuario · Editar usuario | `/usuarios/nuevo` · `/usuarios/[id]/editar` | `usuarios.crear` · `usuarios.editar` |
+  | Nuevo técnico · Editar técnico | `/tecnicos/nuevo` · `/tecnicos/[id]/editar` | `agenda.crear_tecnico` · `agenda.editar_tecnico` |
+  | Ausencia (7 campos) | `/tecnicos/[id]/ausencias/nueva` | `agenda.registrar_ausencia` |
+  | Nuevo prospecto · Cotización | `/comercial/nuevo` · `/comercial/[id]/cotizacion` | `prospectos.crear` · `cotizaciones.crear` |
+  | Buzón de correo | `/administracion/buzones/nuevo` · `/[id]/editar`, en dos pasos (Recibir · Enviar) | `buzones.crear` · `buzones.editar` |
+
+- **Qué trae cada pantalla:**
+    - se llega por un enlace que se ve como botón, con el mismo texto de antes («Nuevo ticket»);
+    - el formulario se nombra con su título (`getByRole("form", { name: "Nuevo ticket" })`);
+    - las migas salen de la ruta (`lib/migas.ts`); en editar, la ficha lleva el nombre del registro
+      («Usuarios › Ana López › Editar»);
+    - «Guardar» siempre visible al pie; si falta una selección obligatoria se deshabilita y dice qué
+      falta («Falta elegir el técnico o la cuadrilla para guardar.»). Los textos obligatorios se
+      validan al enviar, junto al campo;
+    - un 422 se muestra junto a su campo (`erroresACampos`); lo que no tiene campo va arriba;
+    - al guardar: aviso emergente y la ficha del registro (`router.replace`). Un buzón no tiene
+      ficha: vuelve a la lista;
+    - salir con cambios pregunta antes: enlaces y migas, «Cancelar», «Atrás» y recargar.
+- **Lo que llega por la URL nunca se muestra tal cual:** `?ticket=`, `?usuario=` y los `[id]` se
+  aceptan solo como id numérico (`lib/parametros.ts`) y el registro se lee de la API.
+- **Nuevo usuario** muestra la contraseña temporal una sola vez en la misma pantalla (nunca en la
+  URL ni en el historial). Desde «Nuevo técnico», «Crear usuario» lleva a
+  `/usuarios/nuevo?para=tecnico` y «Continuar con la ficha» vuelve a `/tecnicos/nuevo?usuario=<id>`
+  con ese usuario elegido.
+- **Buzón:** si al guardar hay un error en el otro paso, se pasa a ese paso (`lib/buzones/pasos.ts`).
+- **Teléfono:** mientras hay un formulario en pantalla, la barra inferior de navegación se oculta
+  para no tapar «Guardar».
+- **Siguen en diálogo:** confirmaciones, cambiar contraseña, reautenticar, «Mover a…», cuadrilla y
+  zona, guardar vista, turnos, firmar contrato y las acciones del ticket y de la orden (pasan a un
+  panel lateral en la fase 3).
+
 ## Plan por fases
 
 Cada fase:
@@ -195,23 +235,11 @@ Cada fase:
 | --- | --- | --- |
 | 0 · Base | HeroUI instalado, tema Horus, interior de `packages/ui` en HeroUI con los mismos nombres, componentes nuevos y esta guía | I3 |
 | 1 · Navegación del panel (hecha) | Barra lateral agrupada (Operación, Equipo, Ventas, Análisis, Administración; contraíble), migas, buscador Ctrl + K, avisos emergentes al guardar y barra inferior en el teléfono (Inicio, Tickets, Órdenes, Agenda, Más) | I3 |
-| 2 · Formularios a pantalla propia | Primero tickets, órdenes, usuarios y técnicos; después comercial y administración (buzón en dos pasos) | I3 |
+| 2 · Formularios a pantalla propia (hecha) | Tickets, órdenes, usuarios, técnicos y ausencias, comercial (prospecto y cotización) y buzón en dos pasos | I3 |
 | 3 · Fichas con pestañas | Ticket, orden, técnico, prospecto y usuario; acciones en un panel lateral | I3 |
 | 4 · App de campo en el navegador | Barra inferior, pasos independientes, firma y cierre como paso final, barra de estado discreta, botones grandes | I4 |
 | 5 · App nativa | Las pantallas de la fase 4 con HeroUI Native | I4 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
-
-### Formularios que pasan a pantalla propia (fase 2)
-
-| Hoy en diálogo | Pasa a |
-| --- | --- |
-| Nuevo ticket | `/tickets/nuevo` |
-| Crear orden / Crear orden y asignar | `/ordenes/nueva` (desde el ticket llega precargada) |
-| Nuevo usuario · Editar usuario | `/usuarios/nuevo` · `/usuarios/[id]/editar` |
-| Nuevo técnico · Ausencia | `/tecnicos/nuevo` · pestaña «Ausencias» |
-| Nuevo prospecto · Cotización | `/comercial/nuevo` · `/comercial/[id]/cotizacion` |
-| Buzón de correo (IMAP/SMTP) | `/administracion/buzones/nuevo`, en dos pasos: recibir y enviar |
-| Acciones del ticket y de la orden | panel lateral con la ficha visible detrás |
 
 ## Uso rápido
 
@@ -222,12 +250,13 @@ Cada fase:
     <ProveedorAvisosEmergentes />
 </ProveedorRutas>
 
-// Pantalla de formulario (fase 2).
+// Pantalla de formulario (fase 2). En el panel las migas las pone el layout: no se pasan.
 <FormularioPagina
     titulo="Nueva orden"
-    migas={[{ etiqueta: "Órdenes", href: "/ordenes" }, { etiqueta: "Nueva orden" }]}
     alEnviar={form.handleSubmit(guardar)}
     navegar={router.push}
+    volverA="/ordenes"
+    sucio={form.formState.isDirty}
     barra={{ textoGuardar: "Crear orden", enviando: form.formState.isSubmitting, faltan }}
 >
     <SeccionFormulario titulo="1. Cliente y servicio">…</SeccionFormulario>
