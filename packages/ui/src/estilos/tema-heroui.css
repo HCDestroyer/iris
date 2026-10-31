@@ -154,6 +154,20 @@
     --tw-ring-offset-shadow: 0 0 transparent;
 }
 
+/*
+ * Campos: un solo indicador de foco, el contorno de Horus sobre el borde (como antes), sin el
+ * anillo de HeroUI encima. Los inválidos conservan su borde de error.
+ */
+.input:focus-visible,
+.input[data-focus-visible="true"],
+.textarea:focus-visible,
+.textarea[data-focus-visible="true"] {
+    outline: 2px solid var(--hx-primary);
+    outline-offset: 0;
+    --tw-ring-shadow: 0 0 transparent;
+    --tw-ring-offset-shadow: 0 0 transparent;
+}
+
 /* Sin transparencias ni blur cuando el sistema lo pide (horus-tokens hace lo mismo con el vidrio). */
 @media (prefers-reduced-transparency: reduce) {
     :root,
