@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/HCDestroyer/iris/compare/v0.8.0...v0.9.0) (2026-10-31)
+
+
+### Funcionalidades
+
+* **movil:** fase 5, parte 1 — pantallas de la fase 4 en la app nativa con la lógica separada de la vista ([#91](https://github.com/HCDestroyer/iris/issues/91)) ([ce4f731](https://github.com/HCDestroyer/iris/commit/ce4f731fdbfad805f1fb7d008947f2a63cddcc73))
+
 ## [0.8.0](https://github.com/HCDestroyer/iris/compare/v0.7.0...v0.8.0) (2026-10-31)
 
 
