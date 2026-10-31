@@ -194,6 +194,7 @@ Una tarea está terminada solo si:
 | `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
 | `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
+| `orden.datos_argos_aplicados` / `orden.datos_argos_descartados` | campo (I1) | orden_id, numero, campos_argos[]; campos[], cambiados[] (aplicados); motivo (o null) (descartados) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |
