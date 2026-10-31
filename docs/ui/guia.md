@@ -169,7 +169,7 @@ lectores de pantalla.
     - busca pantallas por permiso;
     - busca tickets, órdenes y prospectos desde 2 letras, y clientes de Argos desde 3;
     - usa los listados de siempre con `q` y `limit`, sin endpoints nuevos;
-    - un cliente lleva a sus tickets (`/tickets?clienteId=&cliente=`).
+    - un cliente lleva a sus tickets (`/tickets?clienteId=`); la bandeja lee el nombre de la API y muestra «Cliente #id» mientras tanto o si falla. Las respuestas se guardan por empresa y se olvidan al cerrar el buscador.
 - **Avisos emergentes:**
     - van después de cada acción que cambia algo, con el texto en `lib/avisos.ts`
       («Orden OT-000042 asignada a Luis Pérez»);

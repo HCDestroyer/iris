@@ -22,7 +22,9 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
+import { api, resolver } from "@/lib/api/cliente";
 import { useDiferido } from "@/lib/diferido";
+import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import {
     consultaDeFiltros,
@@ -38,35 +40,58 @@ import { ESTADOS, ORDEN_ESTADOS, ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/ti
 import { AltaRapida } from "./alta-rapida";
 import { ListaTickets } from "./lista-tickets";
 
-type ClienteFiltro = { id: number; nombre: string };
-
-/** `?clienteId=&cliente=` (desde el buscador global): los tickets de un cliente de Argos. */
-function clienteDeParametros(params: URLSearchParams): ClienteFiltro | null {
+/**
+ * `?clienteId=` (desde el buscador global): los tickets de un cliente de Argos. Solo el id viene
+ * de la URL; el nombre se lee de la API (que filtra por empresa), nunca de un parámetro que
+ * cualquiera puede armar.
+ */
+function clienteDeParametros(params: URLSearchParams): number | null {
     const id = Number(params.get("clienteId"));
-    if (!Number.isSafeInteger(id) || id <= 0) return null;
-    return { id, nombre: params.get("cliente")?.trim() || `Cliente ${id}` };
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /** Bandeja de tickets; con un cliente en la URL, la historia de ese cliente (todos los estados). */
 export function PantallaTickets() {
     const params = useSearchParams();
-    const cliente = clienteDeParametros(params);
-    return <Bandeja key={cliente?.id ?? "todos"} cliente={cliente} />;
+    const clienteId = clienteDeParametros(params);
+    return <Bandeja key={clienteId ?? "todos"} clienteId={clienteId} />;
 }
 
-function Bandeja({ cliente }: { cliente: ClienteFiltro | null }) {
+/** Aviso del filtro por cliente: «Cliente #id» hasta leer el nombre, o si no se pudo leer. */
+function AvisoCliente({ clienteId, alQuitar }: { clienteId: number; alQuitar: () => void }) {
+    const ficha = useLectura((signal) => resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId } }, signal })));
+    const nombre = ficha.estado === "listo" ? ficha.datos.cliente.nombre : `Cliente #${clienteId}`;
+    return (
+        <Aviso
+            tono="info"
+            titulo={`Tickets de ${nombre}`}
+            className="mb-3"
+            data-testid="filtro-cliente"
+            accion={
+                <Boton variante="secundario" tamano="sm" onClick={alQuitar}>
+                    <X />
+                    Ver todos los tickets
+                </Boton>
+            }
+        >
+            Solo los de este cliente, en cualquier estado.
+        </Aviso>
+    );
+}
+
+function Bandeja({ clienteId }: { clienteId: number | null }) {
     const { yo, puede } = useSesion();
     const router = useRouter();
     const categorias = useCategorias();
     const usuarios = useUsuarios();
-    const [filtros, setFiltros] = useState<Filtros>(() => (cliente ? { ...FILTROS_INICIALES, estado: "todos" } : FILTROS_INICIALES));
+    const [filtros, setFiltros] = useState<Filtros>(() => (clienteId ? { ...FILTROS_INICIALES, estado: "todos" } : FILTROS_INICIALES));
     const [propias, setPropias] = useState<Vista[]>(() => leerVistas(yo.usuario.id));
     const [guardando, setGuardando] = useState(false);
     const idBuscar = useId();
     const q = useDiferido(filtros.q, 350);
 
     const efectivos: Filtros = { ...filtros, q };
-    const consulta = { ...consultaDeFiltros(efectivos, yo.usuario.id), ...(cliente ? { clienteId: cliente.id } : {}) };
+    const consulta = { ...consultaDeFiltros(efectivos, yo.usuario.id), ...(clienteId ? { clienteId } : {}) };
     const vistas = [...VISTAS_PREDEFINIDAS, ...propias];
     const vistaActiva = vistas.find((v) => mismosFiltros(v.filtros, filtros));
     const cambiar = (parcial: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parcial }));
@@ -86,22 +111,7 @@ function Bandeja({ cliente }: { cliente: ClienteFiltro | null }) {
                 acciones={puede(["tickets.crear"]) ? <AltaRapida categorias={listaCategorias} /> : null}
             />
 
-            {cliente ? (
-                <Aviso
-                    tono="info"
-                    titulo={`Tickets de ${cliente.nombre}`}
-                    className="mb-3"
-                    data-testid="filtro-cliente"
-                    accion={
-                        <Boton variante="secundario" tamano="sm" onClick={() => router.replace("/tickets")}>
-                            <X />
-                            Ver todos los tickets
-                        </Boton>
-                    }
-                >
-                    Solo los de este cliente, en cualquier estado.
-                </Aviso>
-            ) : null}
+            {clienteId ? <AvisoCliente clienteId={clienteId} alQuitar={() => router.replace("/tickets")} /> : null}
 
             <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Vistas">
                 {vistas.map((v) => {
@@ -206,7 +216,7 @@ function Bandeja({ cliente }: { cliente: ClienteFiltro | null }) {
                 categorias={categorias.estado === "listo" ? categorias.datos : undefined}
                 usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
                 yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
-                hayFiltros={cliente !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
+                hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
             />
 
             <DialogoGuardarVista

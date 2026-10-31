@@ -3,7 +3,7 @@
 import { Boton, Cargando, PaletaBusqueda, type SeccionPaleta } from "@iris/ui";
 import { RotateCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import {
@@ -46,14 +46,23 @@ const sinArgos = (e: unknown) => e instanceof ErrorApi && e.estado === 503 && e.
  * Pantallas por permiso y tickets, órdenes, prospectos y clientes por número o texto.
  */
 export function BuscadorGlobal() {
-    const { permisos } = useSesion();
+    const { permisos, yo } = useSesion();
+    const empresa = yo.empresaActiva?.id ?? 0;
     const router = useRouter();
     const [abierta, setAbierta] = useState(false);
     const [texto, setTexto] = useState("");
     const q = useDiferido(texto.trim(), 300);
-    /** Respuestas por `fuente|texto|intento`: lo que no está aún es «buscando». */
+    /**
+     * Respuestas por `empresa|fuente|texto|intento`: lo que no está aún es «buscando». La empresa
+     * va en la clave porque el buscador vive fuera de lo que se remonta al cambiarla.
+     */
     const [respuestas, setRespuestas] = useState<Readonly<Record<string, EstadoFuente>>>({});
     const [intento, setIntento] = useState(0);
+    /** Copia para el efecto: no vuelve a pedir lo que ya respondió bien. */
+    const respuestasRef = useRef(respuestas);
+    useEffect(() => {
+        respuestasRef.current = respuestas;
+    });
 
     useEffect(() => {
         const alTeclear = (e: KeyboardEvent) => {
@@ -67,19 +76,20 @@ export function BuscadorGlobal() {
     }, []);
 
     const fuentes = useMemo(() => (abierta ? fuentesActivas(permisos, q) : []), [abierta, permisos, q]);
-    const clave = (f: Fuente) => `${f}|${q}|${intento}`;
+    const clave = (f: Fuente) => `${empresa}|${f}|${q}|${intento}`;
 
     useEffect(() => {
         const control = new AbortController();
         for (const f of fuentes) {
-            const k = `${f}|${q}|${intento}`;
+            const k = `${empresa}|${f}|${q}|${intento}`;
+            if (respuestasRef.current[k]?.estado === "listo") continue;
             buscar(f, q, control.signal).then(
                 (datos) => !control.signal.aborted && setRespuestas((r) => ({ ...r, [k]: { estado: "listo", datos } })),
                 (error: unknown) => !control.signal.aborted && setRespuestas((r) => ({ ...r, [k]: sinArgos(error) ? { estado: "listo", datos: [] } : { estado: "error", error } })),
             );
         }
         return () => control.abort();
-    }, [fuentes, q, intento]);
+    }, [empresa, fuentes, q, intento]);
 
     const resultados: Partial<Record<Fuente, EstadoFuente>> = Object.fromEntries(fuentes.map((f) => [f, respuestas[clave(f)] ?? { estado: "cargando" }]));
 
@@ -119,7 +129,11 @@ export function BuscadorGlobal() {
 
     function cambiarAbierta(valor: boolean) {
         setAbierta(valor);
-        if (!valor) setTexto("");
+        if (!valor) {
+            setTexto("");
+            // Al cerrar se olvida lo buscado: la próxima vez se lee de nuevo (y con la empresa de ese momento).
+            setRespuestas({});
+        }
     }
 
     return (

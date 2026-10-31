@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, conSesion, simularApi } from "./api-falsa";
-import { abrirMenu, barraInferior, esTelefono, hojaMas, menu } from "./ayudas";
+import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { abrirMenu, barraInferior, cerrarMenu, esTelefono, hojaMas, menu, selectorEmpresa } from "./ayudas";
 
 // Fase 1 de la interfaz: barra lateral agrupada y contraíble, migas, buscador global (Ctrl/⌘ + K),
 // avisos emergentes tras una acción y, en el teléfono, barra inferior con «Más».
@@ -116,6 +116,75 @@ test("Ctrl + K: pantallas por permiso y un ticket por número; errores con «Rei
     await ticket.click();
     await expect(page).toHaveURL(/\/tickets\/1$/);
     await expect(page.getByRole("heading", { name: "Sin internet desde la mañana" })).toBeVisible();
+});
+
+test("Ctrl + K: un cliente lleva a sus tickets; el nombre sale de la API, nunca de la URL", async ({ page }) => {
+    await simularApi(page);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Hola, Ana" })).toBeVisible();
+    await page.keyboard.press("Control+k");
+    const buscador = page.getByRole("dialog", { name: "Buscar en Iris" });
+    await buscador.getByRole("searchbox").fill("Castillo");
+    await buscador.getByRole("option", { name: /María Castillo/ }).click();
+    await expect(page).toHaveURL(/\/tickets\?clienteId=501$/);
+    await expect(page.getByTestId("filtro-cliente")).toContainText("Tickets de María Castillo");
+
+    // Un enlace armado con `cliente=` no pone su texto en el aviso: se usa el nombre de la ficha.
+    await page.goto("/tickets?clienteId=501&cliente=URGENTE%3A+llame+al+5555+0000");
+    await expect(page.getByTestId("filtro-cliente")).toContainText("Tickets de María Castillo");
+    await expect(page.getByText(/URGENTE/)).toHaveCount(0);
+
+    // Si la ficha no se puede leer (otra empresa, no existe), queda «Cliente #id».
+    await page.goto("/tickets?clienteId=999999&cliente=Banco+Central");
+    await expect(page.getByTestId("filtro-cliente")).toContainText("Tickets de Cliente #999999");
+    await expect(page.getByText(/Banco Central/)).toHaveCount(0);
+});
+
+test("Ctrl + K: al cambiar de empresa no quedan resultados de la anterior", async ({ page }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await page.goto("/tickets");
+    await page.getByRole("list", { name: "Empresas" }).getByRole("button", { name: "Cable Norte" }).click();
+    await expect(page.getByText("Sin internet desde la mañana").filter({ visible: true })).toBeVisible();
+
+    const buscador = page.getByRole("dialog", { name: "Buscar en Iris" });
+    await page.keyboard.press("Control+k");
+    await buscador.getByRole("searchbox").fill("sin internet");
+    await expect(buscador.getByRole("option", { name: /Sin internet desde la mañana/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(buscador).toHaveCount(0);
+
+    await (await selectorEmpresa(page)).selectOption({ label: "Fibra Sur" });
+    await cerrarMenu(page);
+    await expect(page.getByText("Antena desalineada (Fibra Sur)").filter({ visible: true })).toBeVisible();
+
+    const busquedas = () => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/tickets" && p.query.get("q") === "sin internet");
+    const antes = busquedas().length;
+    // La búsqueda con la empresa nueva tarda: mientras tanto no puede verse lo de Cable Norte.
+    let soltar = () => {};
+    const espera = new Promise<void>((r) => (soltar = r));
+    await page.route(/\/api\/v1\/tickets\?.*q=sin/, async (route) => {
+        await espera;
+        await route.fallback();
+    });
+    await page.keyboard.press("Control+k");
+    await buscador.getByRole("searchbox").fill("sin internet");
+    // Ninguna respuesta guardada de Cable Norte: se espera la de la empresa nueva…
+    await expect(buscador.getByText("Buscando…")).toBeVisible();
+    await expect(buscador.getByRole("option", { name: /Sin internet desde la mañana/ })).toHaveCount(0);
+    soltar();
+    await expect.poll(() => busquedas().slice(antes).length).toBeGreaterThan(0);
+    expect(busquedas().slice(antes).every((p) => p.empresa === "20")).toBe(true);
+    await expect(buscador.getByText("Buscando…")).toHaveCount(0);
+    await expect(buscador.getByRole("option", { name: /Sin internet desde la mañana/ })).toHaveCount(0);
+    // …y la misma búsqueda otra vez no repite la petición.
+    const yaHechas = busquedas().length;
+    await buscador.getByRole("searchbox").fill("antena");
+    await expect(buscador.getByRole("option", { name: /Antena desalineada/ })).toBeVisible();
+    await buscador.getByRole("searchbox").fill("sin internet");
+    // La respuesta guardada sale al pasar la espera entre teclas (sin «Antena» ni «Buscando…»).
+    await expect(buscador.getByRole("option", { name: /Antena desalineada/ })).toHaveCount(0);
+    await expect(buscador.getByText("Buscando…")).toHaveCount(0);
+    expect(busquedas()).toHaveLength(yaHechas);
 });
 
 test("aviso emergente después de una acción", async ({ page }) => {

@@ -24,7 +24,7 @@ describe("buscador global", () => {
 
     it("un cliente lleva a la bandeja filtrada por ese cliente", () => {
         const r = resultadoCliente({ id: 7, nombre: "Ferretería El Roble", codigo: "C-2041", direccion: "Zona 7" } as Parameters<typeof resultadoCliente>[0]);
-        expect(r.href).toBe("/tickets?clienteId=7&cliente=Ferreter%C3%ADa+El+Roble");
+        expect(r.href).toBe("/tickets?clienteId=7");
         expect(r.detalle).toBe("C-2041 · Zona 7");
     });
 });

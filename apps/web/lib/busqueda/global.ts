@@ -85,5 +85,6 @@ export const resultadoCliente = (c: Schema<"ClienteResumen">): ResultadoBusqueda
     etiqueta: c.nombre,
     detalle: [c.codigo, c.direccion].filter(Boolean).join(" · "),
     icono: UserRound,
-    href: `/tickets?${new URLSearchParams({ clienteId: String(c.id), cliente: c.nombre })}`,
+    // Solo el id: la bandeja lee el nombre de la API (un nombre en la URL se podría falsificar).
+    href: `/tickets?clienteId=${c.id}`,
 });
