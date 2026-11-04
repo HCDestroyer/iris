@@ -3,8 +3,8 @@
 import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { diaLargo, ESTADOS_TEXTO, horaCorta, hoyEnGuatemala, TIPOS_ORDEN, ventanaCita } from "@iris/sync/campo";
 import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react-native";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Aviso, Boton, Insignia, Pila, Texto, Titulo, Tocable } from "../componentes";
+import { StyleSheet, View } from "react-native";
+import { Aviso, Boton, Cargando, Insignia, Pila, Texto, Titulo, Tocable } from "../componentes";
 import { useCampo } from "../campo/contexto";
 import { ICONOS_ESTADO } from "../campo/iconos";
 import { useTema } from "../tema/tema";
@@ -20,7 +20,6 @@ export function InsigniaOrden({ estado }: { estado: OrdenVista["estado"] }) {
 
 export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; bajarPaquete: () => Promise<void> }) {
     const { estado } = useCampo();
-    const { colores } = useTema();
     const fecha = estado.fecha ?? hoyEnGuatemala();
     const conRuta = (estado.ruta?.ordenIds?.length ?? 0) > 0;
     const activas = estado.ordenes.filter((o) => !TERMINALES.has(o.estado) && !o.reasignada);
@@ -35,7 +34,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                         {diaLargo(fecha)} · {conRuta ? "en orden de ruta" : "por hora de cita"}
                     </Texto>
                 </View>
-                {carga.estado === "cargando" ? <ActivityIndicator color={colores.primario} accessibilityLabel="Bajando órdenes" /> : null}
+                {carga.estado === "cargando" ? <Cargando etiqueta="Bajando órdenes" /> : null}
             </View>
 
             {conRuta && estado.ruta?.desactualizada ? (

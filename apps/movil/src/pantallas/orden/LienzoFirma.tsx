@@ -30,9 +30,19 @@ export class ControladorFirma {
     private oyentes = new Set<() => void>();
     private alCambiar: (l: LienzoListo) => void = () => undefined;
 
+    /**
+     * Gestos del sistema de respuesta de React Native (`PanResponder`), no de Gesture Handler: el
+     * lienzo no va dentro de ningún detector de Gesture Handler 3 y así no compite con él. Una vez
+     * que el dedo empieza a firmar, el trazo es del lienzo: el desplazamiento de la vista no se lo
+     * lleva (en un lienzo dentro de un `ScrollView`, un trazo vertical movía la pantalla).
+     */
     readonly gestos = PanResponder.create({
         onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: (e) => this.empezar(e.nativeEvent.locationX, e.nativeEvent.locationY),
         onPanResponderMove: (e) => this.seguir(e.nativeEvent.locationX, e.nativeEvent.locationY),
     });

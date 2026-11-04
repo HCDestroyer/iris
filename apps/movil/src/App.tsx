@@ -5,10 +5,12 @@ import type { Schema } from "@iris/contratos";
 import * as Network from "expo-network";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, AppState, ScrollView, StyleSheet, View } from "react-native";
+import { AppState, ScrollView, StyleSheet, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import "./global.css";
 import { ErrorApi } from "./api/errores";
-import { Aviso, Boton, Pila } from "./componentes";
+import { Aviso, Boton, Cargando, Pila } from "./componentes";
 import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida } from "./campo/gps-nativo";
@@ -83,15 +85,21 @@ function dependenciasNativas(): DependenciasCampo {
     return depsNativas;
 }
 
+/**
+ * `GestureHandlerRootView` va por fuera de todo (lo pide HeroUI Native y Gesture Handler 3); dentro,
+ * el área segura y el tema (HeroUI con Horus).
+ */
 export default function App() {
     return (
-        <SafeAreaProvider>
-            <ProveedorTema>
-                <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
-                    <Raiz />
-                </RecuperarError>
-            </ProveedorTema>
-        </SafeAreaProvider>
+        <GestureHandlerRootView style={estilos.raiz}>
+            <SafeAreaProvider>
+                <ProveedorTema>
+                    <RecuperarError claves={() => entorno().claves} gps={gpsNativo}>
+                        <Raiz />
+                    </RecuperarError>
+                </ProveedorTema>
+            </SafeAreaProvider>
+        </GestureHandlerRootView>
     );
 }
 
@@ -155,7 +163,11 @@ function Raiz() {
     let contenido;
     switch (paso.tipo) {
         case "cargando":
-            contenido = <Centro><ActivityIndicator accessibilityLabel="Abriendo Iris" /></Centro>;
+            contenido = (
+                <Centro>
+                    <Cargando etiqueta="Abriendo Iris" />
+                </Centro>
+            );
             break;
         case "entrar":
             contenido = (
@@ -237,6 +249,7 @@ function Formulario({ children }: { children: React.ReactNode }) {
 }
 
 const estilos = StyleSheet.create({
+    raiz: { flex: 1 },
     centro: { flex: 1, alignItems: "center", justifyContent: "center" },
     formulario: { padding: 16, paddingBottom: 48 },
 });

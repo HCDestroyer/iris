@@ -1,6 +1,8 @@
 // Barra inferior de la app de campo: Hoy · Por recibir · Pendientes · Yo, con zonas táctiles de
 // 56 px y el contador de lo que falta por enviar y por recibir (`contadoresPestanas` de
 // `@iris/sync/campo`, igual que la PWA). La lista de traslados se lee al abrir la app con señal.
+// Es capa funcional (vidrio, `bg-glass`); la pestaña actual va en teal con su raya arriba, el
+// icono más grueso y el texto en negrita (no solo color).
 import { contadoresPestanas, pestanaDe, PESTANAS, type Pestana } from "@iris/sync/campo";
 import { CalendarCheck, CloudUpload, PackageOpen, UserRound, type LucideIcon } from "lucide-react-native";
 import { StyleSheet, Text, View } from "react-native";
@@ -26,6 +28,7 @@ export function NavegacionInferior() {
             accessibilityRole="tablist"
             accessibilityLabel="Secciones de la app"
             testID="navegacion-inferior"
+            className="flex-row border-t border-border bg-glass"
             style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.vidrio, paddingBottom: margen.bottom }]}
         >
             {PESTANAS.map((p) => {
@@ -45,14 +48,16 @@ export function NavegacionInferior() {
                     >
                         {activa ? <View style={[estilos.marca, { backgroundColor: colores.primario }]} /> : null}
                         <View>
-                            <Icono size={24} color={color} />
+                            <Icono size={24} color={color} strokeWidth={activa ? 2.5 : 2} />
                             {cuenta > 0 ? (
-                                <View style={[estilos.contador, { backgroundColor: colores.primario }]}>
-                                    <Text style={[estilos.textoContador, { color: colores.sobrePrimario }]}>{cuenta > 99 ? "99+" : String(cuenta)}</Text>
+                                <View className="bg-accent" style={[estilos.contador, { backgroundColor: colores.primario, borderColor: colores.fondo }]}>
+                                    <Text className="text-on-primary" style={[estilos.textoContador, { color: colores.sobrePrimario }]}>
+                                        {cuenta > 99 ? "99+" : String(cuenta)}
+                                    </Text>
                                 </View>
                             ) : null}
                         </View>
-                        <Text style={[estilos.texto, { color }]}>{p.texto}</Text>
+                        <Text style={[estilos.texto, activa ? estilos.textoActivo : null, { color }]}>{p.texto}</Text>
                     </Tocable>
                 );
             })}
@@ -64,7 +69,8 @@ const estilos = StyleSheet.create({
     barra: { flexDirection: "row", borderTopWidth: 1 },
     pestana: { flex: 1, minHeight: 56, alignItems: "center", justifyContent: "center", gap: 2, paddingVertical: 6 },
     marca: { position: "absolute", top: 0, left: 24, right: 24, height: 2, borderRadius: 999 },
-    contador: { position: "absolute", top: -6, right: -12, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
+    contador: { position: "absolute", top: -6, right: -12, minWidth: 18, height: 18, borderRadius: 9, borderWidth: 1.5, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
     textoContador: { fontSize: 11, fontWeight: "600" },
     texto: { fontSize: 12, fontWeight: "500" },
+    textoActivo: { fontWeight: "700" },
 });

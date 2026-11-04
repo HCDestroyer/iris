@@ -16,10 +16,10 @@ import {
     type FormularioRecepcion,
     type SituacionTraslado,
 } from "@iris/sync/campo";
-import { ArrowLeft, ChevronRight, CircleCheck, CloudUpload, Hourglass, PackageCheck, PackageOpen, RefreshCw, Send, Trash2, TriangleAlert, Undo2, WifiOff, type LucideIcon } from "lucide-react-native";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ArrowLeft, ChevronRight, CircleAlert, CircleCheck, CloudUpload, Hourglass, PackageCheck, PackageOpen, RefreshCw, Send, Trash2, TriangleAlert, Undo2, WifiOff, type LucideIcon } from "lucide-react-native";
+import { StyleSheet, View } from "react-native";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
-import { Aviso, Boton, Campo, Fila, Insignia, Opciones, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
+import { Aviso, Boton, Campo, Cargando, Fila, Insignia, Opciones, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
 import { useCampo } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario, useReleerAlEnviar } from "../campo/inventario";
 import { sePuedeRecibir, situacionDe, useRecepcion } from "../campo/recepcion";
@@ -62,7 +62,6 @@ export function ErrorLectura({ error, que, reintentar, conDatos }: { error: unkn
 
 export function PorRecibir() {
     const { estado } = useCampo();
-    const { colores } = useTema();
     const { traslados, cargarTraslados } = useInventario();
     useCargarAlAbrir(cargarTraslados);
     useReleerAlEnviar(cargarTraslados);
@@ -78,7 +77,7 @@ export function PorRecibir() {
                     <Titulo>Por recibir</Titulo>
                     <Texto suave>Material que bodega te mandó en Argos.</Texto>
                 </View>
-                {traslados.estado === "cargando" ? <ActivityIndicator color={colores.primario} accessibilityLabel="Leyendo" /> : null}
+                {traslados.estado === "cargando" ? <Cargando etiqueta="Leyendo" /> : null}
             </Fila>
             {traslados.estado === "error" ? <ErrorLectura error={traslados.error} que="tus traslados" reintentar={() => void cargarTraslados()} conDatos={traslados.datos !== null} /> : null}
             {traslados.datos !== null && lista.length === 0 && soloLocales.length === 0 ? (
@@ -87,7 +86,7 @@ export function PorRecibir() {
                 </Aviso>
             ) : null}
             {traslados.datos === null && traslados.estado !== "error" && soloLocales.length === 0 ? (
-                <ActivityIndicator color={colores.primario} accessibilityLabel="Leyendo tus traslados" />
+                <Cargando etiqueta="Leyendo tus traslados" />
             ) : null}
             {lista.map((t) => (
                 <TarjetaTraslado key={t.id} id={t.id} lineas={t.lineas?.length ?? 0} enviadoEn={t.enviadoEn} situacion={situacionTraslado(t, estado.recepciones)} />
@@ -136,7 +135,6 @@ function useDescripciones(): (productoId: number) => string {
 /** Un traslado: lo que llegó, la firma del técnico y «Confirmar recepción». */
 export function DetalleTraslado({ id }: { id: number }) {
     const { estado, navegar } = useCampo();
-    const { colores } = useTema();
     const { traslados, cargarTraslados } = useInventario();
     useCargarAlAbrir(cargarTraslados);
     useReleerAlEnviar(cargarTraslados);
@@ -161,7 +159,7 @@ export function DetalleTraslado({ id }: { id: number }) {
                 </Aviso>
             ) : null}
             {!traslado && !local && (traslados.estado === "cargando" || traslados.estado === "inactiva") ? (
-                <ActivityIndicator color={colores.primario} accessibilityLabel="Leyendo el traslado" />
+                <Cargando etiqueta="Leyendo el traslado" />
             ) : null}
             {traslado ? <LineasTraslado traslado={traslado} /> : null}
             {traslado && situacion === "rechazado_argos" ? (
@@ -272,7 +270,6 @@ function RecepcionLocal({ op }: { op: OperacionTrasladoLocal }) {
 }
 
 function FormularioRecibir({ traslado }: { traslado: Traslado }) {
-    const { colores } = useTema();
     const descripcion = useDescripciones();
     const r = useRecepcion(traslado);
     const form = useForm<FormularioRecepcion>({ resolver: zodResolver(esquemaFormularioRecepcion), defaultValues: formularioRecepcionInicial(traslado) });
@@ -360,11 +357,7 @@ function FormularioRecibir({ traslado }: { traslado: Traslado }) {
             </Tarjeta>
             <Tarjeta titulo="Tu firma" descripcion="Confirma que recibiste lo que marcaste.">
                 <LienzoFirma etiqueta="Recuadro para la firma del técnico" alCambiar={r.setLienzo} />
-                {r.errorFirma ? (
-                    <Texto testID="error-firma" estilo={{ color: colores.error }}>
-                        {r.errorFirma}
-                    </Texto>
-                ) : null}
+                {r.errorFirma ? <Aviso tono="error" icono={CircleAlert} titulo={r.errorFirma} testID="error-firma" /> : null}
             </Tarjeta>
             <Boton icono={PackageCheck} cargando={r.ocupado || form.formState.isSubmitting} alPresionar={() => void confirmar()} testID="confirmar-recepcion">
                 Confirmar recepción

@@ -4,7 +4,7 @@
 import { ErrorTransporte } from "@iris/sync";
 import { montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { BackHandler } from "react-native";
+import { BackHandler, StyleSheet } from "react-native";
 import { irA, MAXIMO_PILA, pilaInicial, retroceder } from "../src/campo/navegacion";
 import { abrirCampo, paqueteCon, tipos } from "./arnes";
 
@@ -64,7 +64,7 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         const barra = screen.getByTestId("navegacion-inferior");
         const pestanas = within(barra).getAllByRole("tab");
         expect(pestanas.map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Por recibir", "Pendientes (1)", "Yo"]);
-        expect(screen.getByRole("tab", { name: "Hoy" }).props.accessibilityState).toEqual({ selected: true });
+        expect(screen.getByRole("tab", { name: "Hoy" })).toBeSelected();
         for (const id of ["hoy", "recibir", "pendientes", "yo"]) {
             expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 56 });
         }
@@ -90,7 +90,7 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         expect(screen.queryByText(/Firma del cliente$/)).toBeNull();
         await fireEvent.press(screen.getByRole("button", { name: /Empezar trabajo/ }));
         expect(await screen.findByText("Paso 1 de 5", { exact: false })).toBeTruthy();
-        expect(screen.getByRole("button", { name: "1. Llegada: falta 1" }).props.accessibilityState).toEqual({ selected: true });
+        expect(screen.getByRole("button", { name: "1. Llegada: falta 1" })).toBeSelected();
 
         // «Firma y cierre» con candado mientras falte algo: dice qué falta y lleva ahí.
         await fireEvent.press(screen.getByRole("button", { name: "5. Firma del cliente y cierre: al terminar lo demás" }));
@@ -144,8 +144,13 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         await abrirCampo(m, { esquema, vista: { tipo: "orden", id: 1, paso: "cierre" }, servicios: { posicion: () => gps } });
 
         const cerrar = await screen.findByRole("button", { name: /Firmar y cerrar orden/ });
+        // El paso final dice que todo lo obligatorio está listo (icono + texto) antes del resumen.
+        expect(screen.getByTestId("listo-para-firmar")).toHaveTextContent("Todo lo obligatorio está listo");
+        expect((StyleSheet.flatten(cerrar.props.style) as { minHeight: number }).minHeight).toBeGreaterThanOrEqual(44);
         await fireEvent.press(cerrar);
+        // Sin trazo: el error es un aviso (`alert`, con icono y texto), no solo texto en rojo.
         expect(await screen.findByTestId("error-firma")).toHaveTextContent("Pide al cliente que firme en el recuadro");
+        expect(screen.getByTestId("error-firma").props.role).toBe("alert");
         expect(tipos(m)).toEqual(["checklist.marcar"]);
 
         await fireEvent.press(screen.getByLabelText(/Firmar en Recuadro para la firma del cliente/));
@@ -167,7 +172,9 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         await abrirCampo(m, { esquema });
 
         expect(screen.queryByTestId("barra-conexion")).toBeNull();
+        // Solo un punto (sin texto visible); el estado completo va en su nombre accesible.
         expect(screen.getByTestId("punto-conexion").props.accessibilityLabel).toBe("En línea, todo enviado");
+        expect(within(screen.getByTestId("punto-conexion")).queryByText(/./)).toBeNull();
 
         m.transporte.sinRed = true;
         await act(async () => {

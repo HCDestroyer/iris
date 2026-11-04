@@ -3,16 +3,14 @@
 import type { MiBodega as DatosBodega } from "@iris/sync";
 import { fechaHoraCorta, MODALIDADES_BODEGA } from "@iris/sync/campo";
 import { ArrowLeft, PackageOpen } from "lucide-react-native";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Aviso, Boton, Fila, Pila, Tarjeta, Texto, Titulo } from "../componentes";
+import { StyleSheet, View } from "react-native";
+import { Aviso, Boton, Cargando, Fila, Pila, Tarjeta, Texto, Titulo } from "../componentes";
 import { useCampo } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario } from "../campo/inventario";
-import { useTema } from "../tema/tema";
 import { ErrorLectura } from "./PorRecibir";
 
 export function MiBodega() {
     const { navegar } = useCampo();
-    const { colores } = useTema();
     const { bodega, cargarBodega } = useInventario();
     useCargarAlAbrir(cargarBodega);
     const d = bodega.datos;
@@ -26,10 +24,10 @@ export function MiBodega() {
                     <Titulo>Mi bodega</Titulo>
                     <Texto suave>{d ? d.bodega.nombre : "Tu inventario en Argos (solo lectura)."}</Texto>
                 </View>
-                {bodega.estado === "cargando" ? <ActivityIndicator color={colores.primario} accessibilityLabel="Leyendo" /> : null}
+                {bodega.estado === "cargando" ? <Cargando etiqueta="Leyendo" /> : null}
             </Fila>
             {bodega.estado === "error" ? <ErrorLectura error={bodega.error} que="tu bodega" reintentar={() => void cargarBodega()} conDatos={d !== null} /> : null}
-            {!d && bodega.estado !== "error" ? <ActivityIndicator color={colores.primario} accessibilityLabel="Leyendo tu bodega" /> : null}
+            {!d && bodega.estado !== "error" ? <Cargando etiqueta="Leyendo tu bodega" /> : null}
             {d ? <ContenidoBodega bodega={d} /> : null}
             {d && bodega.leidoEn !== null ? <Texto suave>Leído de Argos {fechaHoraCorta(d.leidoEn) ?? ""}</Texto> : null}
         </Pila>
