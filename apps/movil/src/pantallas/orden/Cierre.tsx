@@ -5,14 +5,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MOTIVOS_FALLA as CODIGOS_FALLA, type OrdenVista } from "@iris/sync";
 import { esquemaFallar, esquemaFirma, MOTIVOS_FALLA, resumenTrabajo, type DatosFallar, type DatosFirma } from "@iris/sync/campo";
-import { CircleCheck, CircleX, Lock, PenLine } from "lucide-react-native";
+import { CircleAlert, CircleCheck, CircleX, ClipboardCheck, Lock, PenLine } from "lucide-react-native";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { StyleSheet, View } from "react-native";
 import { Aviso, Boton, Campo, Dialogo, Fila, Insignia, Opciones, Pila, Tarjeta, Texto } from "../../componentes";
 import { etapaCierre, useFirmaYCierre } from "../../campo/cierre";
 import { useCampo } from "../../campo/contexto";
-import { useTema } from "../../tema/tema";
 import { EstadoAdjunto } from "./Fotos";
 import { LienzoFirma } from "./LienzoFirma";
 
@@ -117,9 +116,12 @@ export function PasoCierre({ orden }: { orden: OrdenVista }) {
     }
 }
 
+/**
+ * El paso final en tres partes, en el orden en que se hacen con el cliente: revisar lo hecho, que
+ * firme y cerrar. Un solo botón primario al pie («Firmar y cerrar orden»).
+ */
 function FirmaYCierre({ orden }: { orden: OrdenVista }) {
     const { estado } = useCampo();
-    const { colores } = useTema();
     const c = useFirmaYCierre(orden);
     const form = useForm<DatosFirma>({ resolver: zodResolver(esquemaFirma), defaultValues: { nombre: orden.contacto.nombre ?? "", documento: "" } });
     const enviar = () => {
@@ -132,8 +134,9 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
 
     return (
         <Pila espacio={14}>
+            <Insignia tono="success" icono={ClipboardCheck} texto="Todo lo obligatorio está listo" testID="listo-para-firmar" />
             <ResumenTrabajo orden={orden} />
-            <Tarjeta titulo="Firma del cliente" descripcion={orden.requiereFirma ? "Obligatoria para cerrar esta orden." : "Opcional."}>
+            <Tarjeta titulo="Firma del cliente" descripcion={orden.requiereFirma ? "Obligatoria para cerrar esta orden. Muéstrale el resumen antes de que firme." : "Opcional."}>
                 {c.firmada && orden.firma ? (
                     <View style={estilos.pila}>
                         <Insignia tono="success" icono={PenLine} texto="Firmada" />
@@ -161,11 +164,7 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
                             )}
                         />
                         <LienzoFirma etiqueta="Recuadro para la firma del cliente" alCambiar={c.setLienzo} />
-                        {c.errorTrazo ? (
-                            <Texto testID="error-firma" estilo={{ color: colores.error }}>
-                                {c.errorTrazo}
-                            </Texto>
-                        ) : null}
+                        {c.errorTrazo ? <Aviso tono="error" icono={CircleAlert} titulo={c.errorTrazo} testID="error-firma" /> : null}
                     </View>
                 )}
             </Tarjeta>

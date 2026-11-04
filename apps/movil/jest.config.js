@@ -12,4 +12,13 @@ module.exports = {
     moduleNameMapper: {
         "^lucide-react-native$": "<rootDir>/node_modules/lucide-react-native/dist/cjs/lucide-react-native.js",
     },
+    // Los de jest-expo más HeroUI Native y Uniwind, que se publican como ESM (con pnpm, la ruta
+    // real pasa por `node_modules/.pnpm/<paquete>/node_modules/<paquete>`).
+    // Reanimated y Worklets en su implementación de JS (la que traen para Jest), sin módulo nativo.
+    resolver: "<rootDir>/prueba/resolver.js",
+    transformIgnorePatterns: [
+        "/node_modules/(?!(\\.pnpm|react-native|@react-native|@react-native-community|expo|@expo|heroui-native|uniwind|tailwind-variants|tailwind-merge)(/|@|\\+|-))",
+        "/node_modules/react-native-reanimated/plugin/",
+        "/node_modules/@react-native/babel-preset/",
+    ],
 };

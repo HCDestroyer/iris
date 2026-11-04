@@ -1,5 +1,6 @@
 // ESLint de la app nativa: TypeScript estricto (sin `any`), reglas de hooks y nada de primitivos
-// táctiles crudos en las pantallas (pasan por `src/componentes`, el equivalente de `@iris/ui`).
+// táctiles crudos ni de HeroUI Native directo en las pantallas (pasan por `src/componentes`, el
+// equivalente de `@iris/ui`).
 import js from "@eslint/js";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
@@ -28,8 +29,14 @@ export default tseslint.config(
                     paths: [
                         {
                             name: "react-native",
-                            importNames: ["Pressable", "TouchableOpacity", "TouchableHighlight", "TextInput", "Button"],
-                            message: "Usa Boton, Campo, Opciones o Tocable de src/componentes (identidad Horus).",
+                            importNames: ["Pressable", "TouchableOpacity", "TouchableHighlight", "TextInput", "Button", "ActivityIndicator"],
+                            message: "Usa Boton, Campo, Opciones, Tocable o Cargando de src/componentes (identidad Horus).",
+                        },
+                    ],
+                    patterns: [
+                        {
+                            group: ["heroui-native", "heroui-native/*"],
+                            message: "Las pantallas usan src/componentes (HeroUI Native envuelto con el tema Horus), nunca heroui-native directo.",
                         },
                     ],
                 },
@@ -37,7 +44,7 @@ export default tseslint.config(
         },
     },
     {
-        files: ["*.config.{js,mjs}", "jest.config.js"],
+        files: ["*.config.{js,mjs}", "jest.config.js", "prueba/resolver.js"],
         languageOptions: { globals: { ...globals.node }, sourceType: "commonjs" },
         rules: { "@typescript-eslint/no-require-imports": "off" },
     },

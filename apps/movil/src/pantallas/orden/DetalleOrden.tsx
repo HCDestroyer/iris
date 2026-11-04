@@ -22,8 +22,8 @@ import {
     type LucideIcon,
 } from "lucide-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
-import { Aviso, Boton, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
+import { Linking, StyleSheet, View } from "react-native";
+import { Aviso, Boton, Cargando, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
 import { useCampo, useOrden } from "../../campo/contexto";
 import { avanceOrden, botonTrabajo, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
@@ -49,7 +49,7 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
     const { navegar, estado } = useCampo();
     const orden = useOrden(id);
     if (!orden && estado.fecha === null && estado.ultimaSincronizacion === null) {
-        return <ActivityIndicator accessibilityLabel="Cargando la orden" />;
+        return <Cargando etiqueta="Cargando la orden" />;
     }
     if (!orden) {
         return (

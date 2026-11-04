@@ -91,7 +91,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     }, [bajarPaquete]);
 
     return (
-        <View style={[estilos.pantalla, { backgroundColor: colores.fondo, paddingTop: margen.top }]}>
+        <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: colores.fondo, paddingTop: margen.top }]}>
             <Encabezado empresa={empresa} nombre={sesion.nombre} />
             <BarraConexion />
             {/* Cada vista empieza arriba (como la PWA al navegar). */}
@@ -138,11 +138,14 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     );
 }
 
-/** «Iris Campo» con el punto de estado, quién está y en qué empresa, y la ubicación. */
+/**
+ * «Iris Campo» con el punto de estado, quién está y en qué empresa, y la ubicación. Es capa
+ * funcional (vidrio, `bg-glass`), nunca una tarjeta.
+ */
 function Encabezado({ nombre, empresa }: { nombre: string; empresa: string | null }) {
     const { colores } = useTema();
     return (
-        <View style={[estilos.encabezado, { borderColor: colores.borde, backgroundColor: colores.vidrio }]}>
+        <View className="border-b border-border bg-glass" style={[estilos.encabezado, { borderColor: colores.borde, backgroundColor: colores.vidrio }]}>
             <View style={estilos.fila}>
                 <Texto negrita>Iris Campo</Texto>
                 <PuntoConexion />
@@ -158,7 +161,8 @@ function Encabezado({ nombre, empresa }: { nombre: string; empresa: string | nul
 
 /**
  * Punto de estado junto al título: con conexión y todo enviado es solo esto («En línea, todo
- * enviado»). Cuando la barra está abierta, el punto acompaña y la barra explica.
+ * enviado»), sin texto ni caja. Cuando la barra está abierta, el punto acompaña y la barra explica.
+ * El nombre accesible siempre dice el estado completo (nunca solo color).
  */
 export function PuntoConexion() {
     const { estado } = useCampo();
@@ -172,8 +176,10 @@ export function PuntoConexion() {
             accessibilityLabel={etiquetaPunto(estado.conexion, r)}
             accessibilityLiveRegion="polite"
             testID="punto-conexion"
-            style={[estilos.punto, { backgroundColor: colores.tono[tono] }]}
-        />
+            style={[estilos.halo, { backgroundColor: colores.fondoTono[tono] }]}
+        >
+            <View style={[estilos.punto, { backgroundColor: colores.tono[tono] }]} />
+        </View>
     );
 }
 
@@ -193,7 +199,12 @@ export function BarraConexion() {
     const hayAlgo = pendientes.length > 0 || rechazos !== null;
     const texto = [...pendientes, ...(rechazos ? [rechazos] : [])];
     return (
-        <View accessibilityLabel="Estado de la sincronización" testID="barra-conexion" style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.fondo }]}>
+        <View
+            accessibilityLabel="Estado de la sincronización"
+            testID="barra-conexion"
+            className="border-b border-border bg-background"
+            style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.fondo }]}
+        >
             <View style={estilos.filaBarra}>
                 <Insignia tono={c.tono} icono={ICONOS_CONEXION[estado.conexion]} texto={r.texto} testID="estado-conexion" />
                 <View style={estilos.flex} />
@@ -316,7 +327,8 @@ const estilos = StyleSheet.create({
     pantalla: { flex: 1 },
     fila: { flexDirection: "row", alignItems: "center", gap: 8 },
     encabezado: { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, gap: 2 },
-    punto: { width: 10, height: 10, borderRadius: 5 },
+    halo: { width: 16, height: 16, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    punto: { width: 8, height: 8, borderRadius: 4 },
     barra: { paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 1, gap: 4 },
     filaBarra: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
     contenido: { padding: 16, gap: 14, paddingBottom: 32 },

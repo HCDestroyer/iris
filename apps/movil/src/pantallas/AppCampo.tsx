@@ -5,9 +5,9 @@
 // reemplazan).
 import { ErrorTransporte, type ColaPosiciones, type Conexion, type InventarioCampo, type MotorSync } from "@iris/sync";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { ErrorApi } from "../api/errores";
-import { Aviso } from "../componentes";
+import { Aviso, Cargando } from "../componentes";
 import { ProveedorInventario } from "../campo/inventario";
 import { ProveedorCampo, useEstadoMotor, useEstadoPosiciones, type CerrarSesion, type ServiciosNativos } from "../campo/contexto";
 import { ordenesEnCurso, RastreoUbicacion, registrarReceptor, type EstadoRastreo, type GpsFondo } from "../campo/ubicacion";
@@ -139,7 +139,7 @@ export function AppCampo({
     if (!abierto) {
         return (
             <Centro>
-                <ActivityIndicator accessibilityLabel="Abriendo tus órdenes" />
+                <Cargando etiqueta="Abriendo tus órdenes" />
             </Centro>
         );
     }
