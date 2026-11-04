@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/HCDestroyer/iris/compare/v0.8.0...v0.9.0) (2026-11-04)
+
+
+### Funcionalidades
+
+* **movil:** fase 5, parte 1 — pantallas de la fase 4 en la app nativa con la lógica separada de la vista ([#91](https://github.com/HCDestroyer/iris/issues/91)) ([ce4f731](https://github.com/HCDestroyer/iris/commit/ce4f731fdbfad805f1fb7d008947f2a63cddcc73))
+* **movil:** fase 5, parte 2 — capa visual de la app nativa con HeroUI Native ([#93](https://github.com/HCDestroyer/iris/issues/93)) ([92e03b2](https://github.com/HCDestroyer/iris/commit/92e03b2b64f74f9474d67fdfacdba05dfa206845))
+
 ## [0.8.0](https://github.com/HCDestroyer/iris/compare/v0.7.0...v0.8.0) (2026-10-31)
 
 
