@@ -70,9 +70,43 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   navegación, pasos, cierre, recepción, inventario, guarda contra el doble toque) y en
   `@iris/sync/campo`; `src/pantallas/` solo dibuja. Así, pasar a HeroUI Native es cambiar la capa
   visual.
-- **Identidad Horus:** tokens de `docs/marca/horus-tokens.css` traducidos a `src/tema/tokens.ts`
-  (claro y oscuro según el teléfono), íconos de `lucide-react-native`, estados con icono + texto +
-  color. Las pantallas usan `src/componentes` (no `Pressable`/`TextInput` crudos; ESLint lo exige).
+- **Identidad Horus con HeroUI Native (fase 5):** HeroUI Native 1 sobre Uniwind (Tailwind 4 para
+  React Native). `src/global.css` trae el tema: cada variable de HeroUI apunta a un `--hx-*` de
+  `docs/marca/horus-tokens.css` (el mismo mapeo que `packages/ui/src/estilos/tema-heroui.css` en la
+  web), con un solo color de marca (teal) y claro y oscuro según el teléfono (`@variant light` /
+  `@variant dark`). `src/tema/tokens.ts` lleva los mismos colores en JS para lo que no se pinta con
+  clases (íconos de Lucide, lienzo de firma). `prueba/tema.test.ts` comprueba que los tres coinciden.
+  `GestureHandlerRootView` va en la raíz (`App.tsx`) y `ProveedorTema` monta `HeroUINativeProvider`.
+- **Componentes** (`src/componentes`, el equivalente de `@iris/ui`; las pantallas no importan de
+  `heroui-native` ni usan `Pressable`/`TextInput`/`ActivityIndicator` crudos, ESLint lo exige). Los
+  nombres y las props no cambiaron con HeroUI:
+
+  | Componente | Por dentro |
+  | --- | --- |
+  | `Boton` | HeroUI `Button` (`primary`, `outline`, `ghost`, `danger`), esquina de 6 px, 48 px de alto, `Spinner` al cargar |
+  | `Campo` | HeroUI `TextField` + `Label` + `Input` + `Description` + `FieldError` (48 px) |
+  | `Tarjeta` | HeroUI `Card` (radio 14 px, borde de 1 px) |
+  | `Insignia` | HeroUI `Chip` suave con icono; «info» con el azul de Horus |
+  | `Aviso` | HeroUI `Alert` con fondo tintado; `alert` solo en errores |
+  | `Opciones` | HeroUI `RadioGroup` + `Radio` (48 px por opción) |
+  | `Tocable` | HeroUI `PressableFeedback` (44 px como mínimo; 56 px en la barra inferior) |
+  | `Cargando` | HeroUI `Spinner` teal con nombre accesible |
+  | `Dialogo` | `Modal` de React Native con la capa flotante de Horus (ver abajo) |
+
+  - **`Dialogo` no es el `Dialog` de HeroUI:** ese no atiende el «Atrás» de Android, que entonces
+    cambiaría de vista debajo de la hoja abierta. El `Modal` lo cierra (`onRequestClose`).
+  - **El lienzo de firma sigue con `PanResponder`** y no va dentro de ningún detector de Gesture
+    Handler 3; una vez que el dedo empieza a firmar, el desplazamiento de la vista no se lleva el
+    trazo (`onPanResponderTerminationRequest: false`).
+  - **Las medidas táctiles van en `style`** (y las pruebas las miden); los colores y la forma, en
+    clases de Uniwind.
+  - **Fondos tintados con `bg-suave-*`**, no `bg-success/10` ni `bg-*-soft`: con un color que cambia
+    con el tema, Uniwind resuelve esa mezcla al compilar y la deja en `unset`.
+  - **Barra de estado:** con señal y todo enviado es un punto de 8 px con su halo, sin texto (el
+    estado completo va en su nombre accesible). **Barra inferior y encabezado** son vidrio
+    (`bg-glass`); la pestaña actual va en teal, con raya, icono más grueso y texto en negrita.
+  - **«Firma del cliente y cierre»:** dice «Todo lo obligatorio está listo», muestra el resumen,
+    pide la firma y, si falta el trazo, lo dice con un aviso (icono + texto + color).
 
 ## Eventos
 
@@ -87,10 +121,19 @@ pnpm --filter @iris/movil start      # Expo (Expo Go no trae la tarea de GPS: us
 pnpm --filter @iris/movil exportar   # bundle de Android en dist/ (comprobación sin dispositivo)
 ```
 
+Metro compila el tema con Uniwind (`metro.config.js`) y escribe `src/uniwind-types.d.ts` (tipos de
+`className`; se regenera al arrancar Metro y se commitea para el `typecheck` del CI). No hace falta
+`babel.config.js`: `babel-preset-expo` agrega solo el plugin de `react-native-worklets`.
+
 ## Pruebas
 
 `pnpm --filter @iris/movil test` (Jest + jest-expo + React Native Testing Library), sin red ni
-dispositivo: inicio de sesión con MFA y CSRF, 429, sin señal; `verificarDueno`; cerrar una orden
+dispositivo. Reanimated y Worklets van en su versión de JS (`prueba/resolver.js`, el resolutor de
+Reanimated corregido para las rutas de pnpm) con el simulacro oficial de Worklets, y Gesture
+Handler con su `jestSetup`; en Jest Uniwind no compila clases, así que las pruebas miden lo que va
+en `style`. Cubre: componentes sobre HeroUI (zonas de 44 px o más, deshabilitado y ocupado, radios,
+errores con texto, «Atrás» cierra la hoja, el lienzo no suelta el trazo) y el tema (cada `--hx-*`
+igual a `docs/marca/horus-tokens.css`, en claro y oscuro); inicio de sesión con MFA y CSRF, 429, sin señal; `verificarDueno`; cerrar una orden
 paso a paso sin señal y enviarla al volver (motor real sobre memoria, API simulada); barra
 inferior con contadores, pasos con «Anterior» / «Siguiente» y «Atrás» de Android, la firma solo
 en el paso final, firma obligatoria y doble toque al cerrar, barra de estado discreta; «Por
@@ -115,5 +158,6 @@ a mano con la URL de la API o solo en cada versión. La versión y el `versionCo
 ## Lo que necesita un dispositivo
 
 La lógica está probada; lo nativo (permisos reales, la tarea de GPS con la app en segundo plano o
-cerrada, la cámara, el lector de códigos y el PNG de la firma con `toDataURL`) se valida en un
+cerrada, la cámara, el lector de códigos, el trazo y el PNG de la firma con `toDataURL`, y cómo se
+ven los componentes de HeroUI con el tema compilado por Uniwind, en claro y oscuro) se valida en un
 teléfono con un dev build (`npx expo run:android`), que no se hace en CI.
