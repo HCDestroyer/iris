@@ -17,6 +17,7 @@ import type { EstadoRastreo } from "../campo/ubicacion";
 import { activarHuella, CODIGO_CAMBIO_CONTRASENA, debeOfrecerHuella } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 import { AgendaDia, AgendaSemana } from "./Agenda";
+import { ConversacionChat, ListaChat, NuevoChat } from "./Chat";
 import { BarraCompacta, Encabezado } from "./Encabezado";
 import { AvisoIsla, IslaMenu, IslaPasos } from "./Isla";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
@@ -51,7 +52,10 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma y
     // el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
-    const conIsla = paso === undefined;
+    // La conversación ocupa la pantalla (encabezado propio y compositor sobre el teclado): sin isla.
+    const conIsla = paso === undefined && vista.tipo !== "conversacion";
+    // El chat lleva su propio desplazamiento (deslizar para actualizar, el hilo).
+    const pantallaChat = vista.tipo === "chat" || vista.tipo === "chat_nuevo" || vista.tipo === "conversacion";
     const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const descargando = useRef(false);
@@ -107,7 +111,16 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     return (
         <ProveedorBorradores>
         <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: campo.lienzo }]}>
-            {/* Cada vista empieza arriba (como la PWA al navegar). */}
+            {pantallaChat ? (
+                vista.tipo === "conversacion" ? (
+                    <ConversacionChat id={vista.id} />
+                ) : vista.tipo === "chat_nuevo" ? (
+                    <NuevoChat />
+                ) : (
+                    <ListaChat />
+                )
+            ) : (
+            /* Cada vista empieza arriba (como la PWA al navegar). */
             <ScrollView
                 key={url}
                 contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 8, paddingBottom: margen.bottom + 180 }]}
@@ -159,6 +172,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
             </ScrollView>
+            )}
             {/* Franja sólida bajo la barra de estado: el contenido que sube nunca se ve detrás de la hora. */}
             <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
             <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} />

@@ -8,6 +8,8 @@ import { render, screen } from "@testing-library/react-native";
 import { ProveedorCampo, type ServiciosNativos, type Vista } from "../src/campo/contexto";
 import { ProveedorAgenda } from "../src/campo/agenda";
 import { ProveedorInventario } from "../src/campo/inventario";
+import type { MotorChat } from "@iris/sync/chat";
+import { ProveedorChat } from "../src/campo/chat";
 import { Marco } from "../src/pantallas/Marco";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { TemaDePrueba } from "./raiz";
@@ -111,6 +113,8 @@ export interface OpcionesArnes {
     enLinea?: () => boolean;
     /** Otra sesión (p. ej. sin `ordenes.registrar`). */
     sesion?: SesionCampo;
+    /** Chat interno (con `chat.ver`); sin él la app no ofrece el chat. */
+    chat?: MotorChat;
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
@@ -121,7 +125,13 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
             <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>
-                        <Marco empresa={null} alSesionVencida={jest.fn()} />
+                        {o.chat ? (
+                            <ProveedorChat chat={o.chat}>
+                                <Marco empresa={null} alSesionVencida={jest.fn()} />
+                            </ProveedorChat>
+                        ) : (
+                            <Marco empresa={null} alSesionVencida={jest.fn()} />
+                        )}
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>

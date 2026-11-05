@@ -25,6 +25,8 @@ export interface ServiciosNativos {
     posicion: (esperaMs?: number) => Promise<Posicion | null>;
     /** ¿Hay red? (la notificación dice «Enviando…» o «al volver la señal»). */
     enLinea: () => boolean;
+    /** ¿Ya dio el permiso de ubicación? (el chat ofrece compartirla solo entonces; nunca pregunta). */
+    ubicacionPermitida?: () => Promise<boolean>;
 }
 
 export type CerrarSesion = (opciones: { conservarPendientes: boolean }) => Promise<void>;

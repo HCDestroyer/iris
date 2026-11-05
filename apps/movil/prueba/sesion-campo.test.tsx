@@ -2,7 +2,8 @@
 // toda salida apaga el GPS y borra la marca (sesión vencida, sesión ajena, cambiar de empresa) y el
 // técnico puede «Dejar de compartir ubicación».
 import { ColaPosiciones, ErrorTransporte } from "@iris/sync";
-import { montar, ordenDePrueba, paqueteDePrueba, TransportePosicionesFalso } from "@iris/sync/pruebas";
+import { MotorChat } from "@iris/sync/chat";
+import { AlmacenChatMemoria, montar, ordenDePrueba, paqueteDePrueba, ServidorChatFalso, TransportePosicionesFalso } from "@iris/sync/pruebas";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { useState } from "react";
 import { Text } from "react-native";
@@ -73,7 +74,8 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
                 alConfirmarServidor();
                 return r;
             };
-            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), agenda: async () => [], nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
+            const chat = await MotorChat.abrir({ almacen: new AlmacenChatMemoria(), transporte: new ServidorChatFalso(5), usuarioId: 5, reloj: m.reloj });
+            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), agenda: async () => [], chat, nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
         },
         gps,
         claves,

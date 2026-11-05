@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Aviso, Boton, Interruptor, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
 import { useCampo } from "../campo/contexto";
+import { EntradaChat } from "./Chat";
 import { porEnviarEnTelefono } from "../campo/yo";
 import { activarHuella, biometriaDisponible, huellaActiva } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
@@ -57,6 +58,8 @@ export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string 
             </View>
 
             <DesbloquearConHuella />
+            {/* Mientras el PM decide su lugar (isla o encabezado), el chat se abre desde aquí. */}
+            <EntradaChat />
             <Tocable
                 etiqueta="Mi bodega"
                 alPresionar={() => navegar({ tipo: "bodega" })}

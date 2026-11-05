@@ -17,7 +17,9 @@ import {
     type OrdenCampo,
     type Transporte,
 } from "@iris/sync";
+import { crearTransporteChatApi, MotorChat } from "@iris/sync/chat";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
+import { File, Paths } from "expo-file-system";
 import * as Crypto from "expo-crypto";
 import { deleteDatabaseAsync, openDatabaseAsync } from "expo-sqlite";
 import { Platform } from "react-native";
@@ -42,6 +44,12 @@ export interface MotorAbierto {
     inventario: InventarioCampo;
     /** Agenda de «Mañana» y «Semana» (`GET /campo/paquete?fecha=hasta`, solo con señal; ver `campo/agenda.tsx`). */
     agenda: (hasta: string) => Promise<OrdenCampo[]>;
+    /**
+     * Chat interno, en la misma base. Tiempo real por sondeo de `/chat/cambios` (cada 12 s con la
+     * app al frente): el `fetch` de React Native 0.88 (whatwg-fetch sobre XHR) resuelve al terminar
+     * la respuesta y no da `response.body` como flujo, así que no puede leer `GET /chat/eventos`.
+     */
+    chat: MotorChat;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -123,11 +131,43 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
         await verificarIdentidad();
         return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
     };
-    return { motor, posiciones, almacen, nombre, inventario, agenda };
+    const chat = await MotorChat.abrir({
+        almacen,
+        transporte: crearTransporteChatApi(api, app),
+        subidor: crearSubidorApi(api, app),
+        usuarioId: clave.usuarioId,
+        sha256: sha256Hex,
+        generarId: crearGeneradorUuid7(Date.now, (bytes) => {
+            Crypto.getRandomValues(bytes);
+        }),
+        verificarIdentidad,
+        abrirFlujo: null,
+    });
+    return { motor, posiciones, almacen, nombre, inventario, agenda, chat };
+}
+
+/**
+ * «¿No eres tú?»: borra la caché del chat (no la cola) de las bases de ese usuario que existan
+ * (`<documentos>/SQLite/<nombre>`, donde las crea `expo-sqlite`).
+ */
+export async function borrarCachesChat(usuarioId: number, empresas: readonly (number | null)[]): Promise<void> {
+    for (const empresaId of empresas) {
+        const nombre = nombreBase({ usuarioId, empresaId });
+        if (!new File(Paths.document, "SQLite", nombre).exists) {
+            continue;
+        }
+        const almacen = new AlmacenSqlite(await openDatabaseAsync(nombre));
+        try {
+            await almacen.borrarCacheChat();
+        } finally {
+            await almacen.cerrar();
+        }
+    }
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */
 export async function borrarBase(abierto: MotorAbierto): Promise<void> {
+    abierto.chat.detener();
     abierto.motor.detener();
     abierto.posiciones.detener();
     await abierto.almacen.cerrar();
