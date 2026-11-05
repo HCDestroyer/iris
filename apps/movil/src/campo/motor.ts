@@ -14,6 +14,7 @@ import {
     MotorSync,
     type IdentidadApp,
     type InventarioCampo,
+    type OrdenCampo,
     type Transporte,
 } from "@iris/sync";
 import { AlmacenSqlite } from "@iris/sync/sqlite";
@@ -39,6 +40,8 @@ export interface MotorAbierto {
     nombre: string;
     /** «Por recibir» y «Mi bodega» (solo con señal, tras comprobar el dueño de la sesión). */
     inventario: InventarioCampo;
+    /** Agenda de «Mañana» y «Semana» (`GET /campo/paquete?fecha=hasta`, solo con señal; ver `campo/agenda.tsx`). */
+    agenda: (hasta: string) => Promise<OrdenCampo[]>;
 }
 
 /** El transporte de la API, avisando cada respuesta correcta de paquete o cambios. */
@@ -85,9 +88,10 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
     // X-Iris-Pendientes en cada envío (la cola local); X-Iris-App ya lo pone el cliente.
     let abierto: MotorSync | null = null;
     const app: IdentidadApp = { version: VERSION_APP, plataforma: Platform.OS, pendientes: () => abierto?.obtenerEstado().pendientes ?? null };
+    const transporte = crearTransporteApi(api, app);
     const motor = await MotorSync.abrir({
         almacen,
-        transporte: conConfirmacion(crearTransporteApi(api, app), alConfirmarServidor),
+        transporte: conConfirmacion(transporte, alConfirmarServidor),
         subidor: crearSubidorApi(api, app),
         plataforma: Platform.OS,
         sha256: sha256Hex,
@@ -114,7 +118,12 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void, a
             return lecturas.miBodega();
         },
     };
-    return { motor, posiciones, almacen, nombre, inventario };
+    // La agenda va por el transporte sin la confirmación del GPS: no es el paquete del día.
+    const agenda = async (hasta: string) => {
+        await verificarIdentidad();
+        return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
+    };
+    return { motor, posiciones, almacen, nombre, inventario, agenda };
 }
 
 /** Cierra y borra la base del teléfono (cerrar sesión en un teléfono compartido). */

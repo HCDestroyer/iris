@@ -18,11 +18,20 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   Android.
 - **Empresa:** con varias, se elige; la cola de cada usuario y empresa va en su propio archivo SQLite
   (`iris-campo-<usuario>-<empresa>.db`, `AlmacenSqlite` de `@iris/sync/sqlite`).
-- **Barra inferior** Hoy · Por recibir · Pendientes · Yo (zonas de 56 px) con el contador de lo que
-  falta por enviar y por recibir (`contadoresPestanas` de `@iris/sync/campo`). Las vistas son las
-  de la PWA (`@iris/sync/campo` `vista.ts`) con una pila propia (`src/campo/navegacion.ts`): una
-  pestaña empieza desde ella con «Hoy» debajo, lo demás se apila, y el «Atrás» de Android vuelve a
-  la vista anterior (en «Hoy» sale de la app).
+- **Diseño «combinada» (nov 2026), igual que la PWA:** encabezado dentro del desplazamiento
+  (fecha, punto, «Hola, <nombre>», buscar, cuenta y chips Hoy · Mañana · Semana) que vuelve como
+  barra compacta al subir; «Hoy» con la siguiente orden en grande (anillo «2/4», «Continuar
+  trabajo», «Cómo llegar», «Llamar»), mosaicos con datos reales y «Después»; **isla de menú**
+  Hoy · Por recibir · «+» · Agenda · Yo (54 px, 44 encogida al bajar) con la **píldora de
+  estado** encima (lleva a «Por enviar», que también está en «Yo»); hoja del «+» («Agregar
+  formulario» con «Deshacer», solo con `ordenes.registrar`; «Agendar tarea propia»
+  «Próximamente»); agenda «Mañana» y «Semana» con la tira de 7 días (`src/campo/agenda.tsx`, lee
+  `GET /campo/paquete?fecha=<hoy+6>` con señal); pasos con chips, tarjetas de 28 px, − / + en
+  materiales y avisos que entran desde arriba con su acción. La lógica es la de `@iris/sync/campo`
+  (`inicio.ts`); los colores, `campo` de `useTema()` (mezclas de los `--hx-*`, `coloresCampo`).
+  Las vistas son las de la PWA (`vista.ts`) con una pila propia (`src/campo/navegacion.ts`): un
+  botón de la isla o un chip empieza desde él con «Hoy» debajo, lo demás se apila, y el «Atrás»
+  de Android vuelve a la vista anterior (en «Hoy» sale de la app).
 - **Hoy (mis órdenes):** orden de ruta publicada o por hora de cita, llegada estimada, ventana
   acordada, «Tu ruta cambió», «Reintentar» si no se pudo bajar el paquete (nunca totales inventados).
 - **La orden paso a paso:** resumen (cliente, avisos, pausa con motivo / reanudar, avance, notas,
@@ -93,7 +102,8 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   | --- | --- |
   | `Boton` | HeroUI `Button` (`primary`, `outline`, `ghost`, `danger`), esquina de 6 px, 48 px de alto, `Spinner` al cargar |
   | `Campo` | HeroUI `TextField` + `Label` + `Input` + `Description` + `FieldError` (48 px) |
-  | `Tarjeta` | HeroUI `Card` (radio 14 px, borde de 1 px) |
+  | `Tarjeta` | HeroUI `Card` (radio 28 px, borde de 1 px, panel del tema) |
+  | `BotonRedondo` | HeroUI `PressableFeedback` redondo (isla, buscar, cuenta, − / +): 44 px como mínimo |
   | `Insignia` | HeroUI `Chip` suave con icono; «info» con el azul de Horus |
   | `Aviso` | HeroUI `Alert` con fondo tintado; `alert` solo en errores |
   | `Opciones` | HeroUI `RadioGroup` + `Radio` (48 px por opción) |
