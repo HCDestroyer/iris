@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { elegirSugerencia } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
 /*
@@ -76,7 +77,7 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     await page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" }).click();
     const recientes = page.getByRole("listbox", { name: "Clientes recientes" });
     const fichas = api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length;
-    await recientes.getByRole("option", { name: /Ana Morales/ }).click();
+    await elegirSugerencia(recientes.getByRole("option", { name: /Ana Morales/ }));
     await expect(page.getByRole("listbox", { name: "Servicios del cliente" })).toBeVisible();
     expect(api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length).toBeGreaterThan(fichas);
 });
@@ -169,7 +170,7 @@ test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async
     const dialogo = page.getByRole("form", { name: "Nueva orden" });
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
     await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("CL-0501");
-    await page.getByRole("option", { name: /María Castillo/ }).click();
+    await elegirSugerencia(page.getByRole("option", { name: /María Castillo/ }));
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeEnabled();
     await dialogo.getByRole("button", { name: "Crear orden" }).click();
@@ -184,7 +185,7 @@ test("los errores de la verificación del cliente en el servidor se explican en 
     const dialogo = await abrirNuevoTicket(page);
     await dialogo.getByLabel("Asunto").fill("Sin servicio");
     await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
-    await page.getByRole("option", { name: /María Castillo/ }).click();
+    await elegirSugerencia(page.getByRole("option", { name: /María Castillo/ }));
     await expect(dialogo.getByTestId("servicio-elegido")).toBeVisible();
 
     // 422 empresa_no_coincide: aviso claro y mensaje junto al selector.

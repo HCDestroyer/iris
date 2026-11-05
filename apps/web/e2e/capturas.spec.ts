@@ -62,8 +62,11 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
 
     await page.getByRole("link", { name: "Nuevo ticket" }).click();
     // Recién llegada la pantalla, lo escrito antes de que React tome el campo no busca: se reintenta.
+    // Se vacía antes: escribir el mismo texto otra vez no cambia nada y no vuelve a abrir la lista.
     await expect(async () => {
-        await page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
+        const cliente = page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" });
+        await cliente.fill("");
+        await cliente.fill("Castillo");
         await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible({ timeout: 2000 });
     }).toPass();
     await page.screenshot({ path: nombre("13-alta-rapida") });

@@ -112,7 +112,7 @@ export function Reportes() {
             </CampoSelector>
 
             <Tarjeta className="mb-4 grid gap-4 p-4" role="search" aria-label="Filtros del reporte">
-                <Periodo key={`${filtros.desde}|${filtros.hasta}`} desde={filtros.desde} hasta={filtros.hasta} alCambiar={(desde, hasta) => cambiar({ desde, hasta })} />
+                <Periodo desde={filtros.desde} hasta={filtros.hasta} alCambiar={(desde, hasta) => cambiar({ desde, hasta })} />
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <CampoSelector
@@ -260,13 +260,30 @@ function opciones<T>(lista: readonly T[] | null, elegido: number | null, id: (x:
 /** Período: atajos y las dos fechas. Una fecha a medio escribir no se aplica hasta ser válida. */
 function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; alCambiar: (desde: string, hasta: string) => void }) {
     const [borrador, setBorrador] = useState({ desde, hasta });
+    // La fecha se escribe por partes (día, mes, año) y cada parte válida ya va a la URL: el campo no
+    // se vuelve a montar (perdería el foco a medio escribir). Si la URL cambia por otra cosa (atajo,
+    // «Quitar filtros», Atrás), el borrador toma el período nuevo; el eco de lo que se mandó desde aquí
+    // (aunque llegue tarde) no pisa lo que se sigue escribiendo.
+    const actual = `${desde}|${hasta}`;
+    const [previo, setPrevio] = useState(actual);
+    const [enviados, setEnviados] = useState<readonly string[]>([]);
+    if (actual !== previo) {
+        setPrevio(actual);
+        if (!enviados.includes(actual)) {
+            setBorrador({ desde, hasta });
+            setEnviados([]);
+        }
+    }
     // Solo lo que la persona escribió; un período inválido en la URL lo explica el aviso de abajo.
     const editado = borrador.desde !== desde || borrador.hasta !== hasta;
     const error = editado ? errorDeRango(borrador.desde, borrador.hasta) : undefined;
     const editar = (parcial: Partial<typeof borrador>) => {
         const nuevo = { ...borrador, ...parcial };
         setBorrador(nuevo);
-        if (!errorDeRango(nuevo.desde, nuevo.hasta)) alCambiar(nuevo.desde, nuevo.hasta);
+        if (!errorDeRango(nuevo.desde, nuevo.hasta)) {
+            setEnviados((e) => [...e.slice(-9), `${nuevo.desde}|${nuevo.hasta}`]);
+            alCambiar(nuevo.desde, nuevo.hasta);
+        }
     };
     return (
         <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-end">

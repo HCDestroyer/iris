@@ -116,3 +116,14 @@ export async function cerrarOpciones(page: Page): Promise<void> {
     await page.keyboard.press("Escape");
     await expect(page.locator('[role="listbox"]').filter({ visible: true })).toHaveCount(0);
 }
+
+/**
+ * Toca una opción de un `Autocompletar` (`ComboBox` de HeroUI). Su lista no es modal y React Aria
+ * la cierra si la página se desplaza: mientras llegan los resultados el panel crece y la opción
+ * puede quedar un instante recortada, y el clic de Playwright desplazaría la página para verla (y
+ * cerraría la lista). Se espera a que la opción se vea entera.
+ */
+export async function elegirSugerencia(opcion: Locator): Promise<void> {
+    await expect(opcion).toBeInViewport({ ratio: 1 });
+    await opcion.click();
+}
