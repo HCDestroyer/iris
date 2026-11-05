@@ -13,6 +13,7 @@ import {
     type EstadoPosiciones,
     type EstadoSync,
     type InventarioCampo,
+    type OrdenCampo,
 } from "@iris/sync";
 import { AlmacenDexie } from "@iris/sync/dexie";
 import { useSyncExternalStore } from "react";
@@ -35,6 +36,13 @@ export interface MotorAbierto {
     almacen: AlmacenDexie;
     /** «Por recibir» y «Mi bodega» (solo con señal), comprobando antes que la sesión sea del dueño. */
     inventario: InventarioCampo;
+    /**
+     * Agenda de «Mañana» y «Semana» (solo con señal, en memoria): las órdenes del técnico con cita
+     * hasta `hasta`. El técnico no tiene `agenda.ver` (el calendario de despacho, `GET /agenda`):
+     * su agenda es la de `GET /campo/paquete?fecha=hasta` (programadas hasta ese día), que no toca
+     * la cola ni el paquete guardado.
+     */
+    agenda: (hasta: string) => Promise<OrdenCampo[]>;
 }
 
 /**
@@ -59,9 +67,10 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
     // X-Iris-App y X-Iris-Pendientes en cada envío: la API registra versión y cola de este teléfono.
     let abierto: MotorSync | null = null;
     const app = identidadPWA(() => abierto?.obtenerEstado().pendientes ?? null);
+    const transporte = crearTransporteApi(cliente, app);
     const motor = await MotorSync.abrir({
         almacen,
-        transporte: crearTransporteApi(cliente, app),
+        transporte,
         subidor: crearSubidorApi(cliente, app),
         plataforma: "pwa",
         verificarIdentidad,
@@ -84,7 +93,11 @@ export async function abrirMotor(clave: ClaveMotor, alSesionAjena: () => void): 
             return lecturas.miBodega();
         },
     };
-    return { motor, posiciones, almacen, inventario };
+    const agenda = async (hasta: string) => {
+        await verificarIdentidad();
+        return (await transporte.obtenerPaquete(hasta)).datos.ordenes ?? [];
+    };
+    return { motor, posiciones, almacen, inventario, agenda };
 }
 
 /** Estado de la cola de posiciones para React. */

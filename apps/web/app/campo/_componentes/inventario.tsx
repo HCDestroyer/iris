@@ -86,7 +86,7 @@ function useDescripciones(): (productoId: number) => string {
         `Producto ${productoId}`;
 }
 
-function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: () => Promise<void>) {
+export function useCargarAlAbrir<T>(lectura: Lectura<T>, cargar: () => Promise<void>) {
     const { estado } = useCampo();
     const sinSenal = estado.conexion === "sin_conexion";
     useEffect(() => {
@@ -116,7 +116,7 @@ function useReleerAlEnviar(cargar: () => Promise<void>) {
     }, [ids]);
 }
 
-function ErrorLectura({ error, que, reintentar, conDatos }: { error: unknown; que: string; reintentar: () => void; conDatos: boolean }) {
+export function ErrorLectura({ error, que, reintentar, conDatos }: { error: unknown; que: string; reintentar: () => void; conDatos: boolean }) {
     const e = textoErrorLectura(error, que);
     return (
         <Aviso

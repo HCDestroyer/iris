@@ -20,6 +20,12 @@ export interface SesionCampo {
     empresaActiva: number | null;
     /** Último GET /yo correcto de este usuario (ms). */
     verificadoEn: number;
+    /**
+     * Permisos efectivos de ese GET /yo: el «+» ofrece «Agregar formulario» solo con
+     * `ordenes.registrar`. Ausente en una sesión guardada antes de esta versión (= sin permiso
+     * hasta el próximo GET /yo con señal).
+     */
+    permisos?: string[];
 }
 
 const HORA_MS = 60 * 60 * 1000;
@@ -104,6 +110,7 @@ export function sesionDesdeYo(yo: Schema<"Yo">, ahora = Date.now()): SesionCampo
         modoEmpresa: yo.modoEmpresa,
         empresaActiva: yo.empresaActiva?.id ?? null,
         verificadoEn: ahora,
+        permisos: yo.permisos ?? [],
     };
 }
 

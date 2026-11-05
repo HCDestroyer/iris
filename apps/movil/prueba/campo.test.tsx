@@ -44,7 +44,8 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         expect(m.transporte.lotes).toHaveLength(0);
         expect(screen.getByTestId("pendientes-por-enviar")).toHaveTextContent(/4 pendientes por enviar/);
         expect(screen.getByTestId("estado-conexion")).toHaveTextContent("Sin conexión");
-        expect(screen.getByRole("tab", { name: "Pendientes (4)" })).toBeTruthy();
+        // La píldora encima de la isla lleva a «Por enviar».
+        expect(screen.getByRole("button", { name: "Sin conexión: 4 pendientes por enviar. Ver detalle" })).toBeTruthy();
 
         // Vuelve la señal: sale en un lote, en orden, y la barra se vuelve el punto.
         m.transporte.sinRed = false;

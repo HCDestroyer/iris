@@ -1,44 +1,53 @@
-// Marco de la app (fase 4 de la PWA en nativo): encabezado «Iris Campo» con el punto de estado y la
-// ubicación, la barra de estado discreta (solo crece cuando hace falta), la vista actual, el aviso
-// flotante y la barra inferior Hoy · Por recibir · Pendientes · Yo. «Atrás» de Android vuelve a la
-// vista anterior. Baja el paquete del día al abrir y al cambiar el día, con espera exponencial tras
-// un error (como la PWA).
-import { ErrorTransporte, type Conexion } from "@iris/sync";
-import { CONEXION_TEXTO, etiquetaPunto, hoyEnGuatemala, horaCorta, partesEnvio, resumenEnvio, urlDeVista, type TonoEstado } from "@iris/sync/campo";
-import { Building2, CloudUpload, KeyRound, LocateFixed, LocateOff, RefreshCw, TriangleAlert, Wifi, WifiOff, type LucideIcon } from "lucide-react-native";
+// Marco de la app con el diseño «combinada» (como la PWA): el encabezado va dentro del desplazamiento
+// (se va al bajar y vuelve compacto al subir), la vista actual, el aviso que entra desde arriba con su
+// acción, la píldora de estado (la barra discreta de la fase 4) y la isla de menú Hoy · Por recibir ·
+// «+» · Agenda · Yo, que se encoge al bajar. «Atrás» de Android vuelve a la vista anterior. Baja el
+// paquete del día al abrir y al cambiar el día, con espera exponencial tras un error (como la PWA).
+import { ErrorTransporte } from "@iris/sync";
+import { CONEXION_TEXTO, DESPLAZAMIENTO_INICIAL, desplazar, etiquetaPunto, hoyEnGuatemala, horaCorta, resumenEnvio, urlDeVista, type TonoEstado } from "@iris/sync/campo";
+import { Building2, CircleCheck, Info, KeyRound, LocateFixed, LocateOff, RefreshCw, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, Boton, Insignia, Texto } from "../componentes";
+import { Aviso, Boton, BotonRedondo, Insignia, Texto, Tocable } from "../componentes";
 import { useAtrasAndroid } from "../campo/atras";
 import { useCampo, useEstadoPosiciones } from "../campo/contexto";
 import type { EstadoRastreo } from "../campo/ubicacion";
 import { CODIGO_CAMBIO_CONTRASENA } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
+import { AgendaDia, AgendaSemana } from "./Agenda";
+import { BarraCompacta, Encabezado } from "./Encabezado";
+import { AvisoIsla, IslaMenu } from "./Isla";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
 import { MiBodega } from "./MiBodega";
-import { NavegacionInferior } from "./NavegacionInferior";
 import { DetalleOrden } from "./orden/DetalleOrden";
 import { Pendientes } from "./Pendientes";
 import { DetalleTraslado, PorRecibir } from "./PorRecibir";
 import { Yo } from "./Yo";
 
-const ICONOS_CONEXION: Record<Conexion, LucideIcon> = {
-    en_linea: Wifi,
-    desconocida: Wifi,
-    sin_conexion: WifiOff,
-    sin_sesion: KeyRound,
-    sin_empresa: Building2,
-};
-
 const ESPERA_BASE_MS = 5_000;
 const ESPERA_MAX_MS = 10 * 60_000;
 
 export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: string | null; cambiarEmpresa?: () => void; alSesionVencida: () => void }) {
-    const { motor, estado, sesion, vista, notificacion, atras } = useCampo();
+    const { motor, estado, vista, atras } = useCampo();
     useAtrasAndroid(atras);
-    const { colores } = useTema();
+    useAvisoDeRechazos();
+    const { campo } = useTema();
     const margen = useSafeAreaInsets();
+    // Por vista: cada una empieza arriba, con el encabezado completo y la isla sin encoger.
+    const url = urlDeVista(vista);
+    const [porVista, setPorVista] = useState({ url, d: DESPLAZAMIENTO_INICIAL });
+    const desplazamiento = porVista.url === url ? porVista.d : DESPLAZAMIENTO_INICIAL;
+    const altoEncabezado = useRef(0);
+    const alDesplazar = useCallback(
+        (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const y = e.nativeEvent.contentOffset.y;
+            setPorVista((p) => ({ url, d: desplazar(p.url === url ? p.d : DESPLAZAMIENTO_INICIAL, y, altoEncabezado.current) }));
+        },
+        [url],
+    );
+    // Los pasos de la orden llevan su propia barra («Anterior» / «Siguiente»): sin isla.
+    const conIsla = !(vista.tipo === "orden" && vista.paso !== undefined);
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const descargando = useRef(false);
     const espera = useRef({ fallos: 0, hasta: 0 });
@@ -91,11 +100,23 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     }, [bajarPaquete]);
 
     return (
-        <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: colores.fondo, paddingTop: margen.top }]}>
-            <Encabezado empresa={empresa} nombre={sesion.nombre} />
-            <BarraConexion />
+        <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: campo.lienzo }]}>
             {/* Cada vista empieza arriba (como la PWA al navegar). */}
-            <ScrollView key={urlDeVista(vista)} contentContainerStyle={estilos.contenido} keyboardShouldPersistTaps="handled">
+            <ScrollView
+                key={url}
+                contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 8, paddingBottom: margen.bottom + 180 }]}
+                keyboardShouldPersistTaps="handled"
+                onScroll={alDesplazar}
+                scrollEventThrottle={16}
+                testID="desplazamiento"
+            >
+                <View
+                    onLayout={(e) => {
+                        altoEncabezado.current = e.nativeEvent.layout.height;
+                    }}
+                >
+                    <Encabezado punto={<PuntoConexion />} ubicacion={<IndicadorUbicacion />} empresa={empresa} />
+                </View>
                 <ExplicacionUbicacion />
                 {estado.conexion === "sin_sesion" ? (
                     <Aviso tono="error" icono={KeyRound} titulo="Tu sesión venció" accion={<Boton alPresionar={alSesionVencida}>Volver a entrar</Boton>}>
@@ -124,39 +145,85 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <Yo empresa={empresa} cambiarEmpresa={cambiarEmpresa} bajarPaquete={() => bajarPaquete(true)} />
                 ) : vista.tipo === "bodega" ? (
                     <MiBodega />
+                ) : vista.tipo === "agenda" ? (
+                    <AgendaDia dia={vista.dia} />
+                ) : vista.tipo === "semana" ? (
+                    <AgendaSemana />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
             </ScrollView>
-            {notificacion ? (
-                <View style={[estilos.notificacion, { bottom: margen.bottom + 72 }]} pointerEvents="none">
-                    <Aviso tono={notificacion.tono} titulo={notificacion.texto} testID="notificacion" />
-                </View>
-            ) : null}
-            <NavegacionInferior />
+            <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} />
+            <AvisoIsla abajo={margen.bottom + (conIsla ? (desplazamiento.islaEncogida ? 72 : 100) : 24)} alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />
+            {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
+            <NotificacionArriba arriba={margen.top + 12} />
+        </View>
+    );
+}
+
+const ICONO_AVISO: Record<TonoEstado, LucideIcon> = { error: TriangleAlert, warning: TriangleAlert, success: CircleCheck, info: Info, neutral: Info };
+
+/** Aviso que entra desde arriba, con su acción («Deshacer», «Revisar») si la tiene. */
+function NotificacionArriba({ arriba }: { arriba: number }) {
+    const { notificacion, cerrarNotificacion } = useCampo();
+    const { campo, colores } = useTema();
+    if (!notificacion) {
+        return null;
+    }
+    const t = notificacion.tono;
+    const Icono = ICONO_AVISO[t];
+    const fondoIcono = t === "error" ? campo.errorFondo : t === "warning" ? campo.avisoFondo : t === "success" ? campo.marcaSuave : t === "info" ? campo.infoFondo : campo.panel2;
+    const tintaIcono = t === "success" ? campo.marcaSuaveTexto : colores.tono[t];
+    const borde = t === "error" ? campo.errorBorde : t === "warning" ? campo.avisoBorde : colores.borde;
+    return (
+        <View
+            testID="notificacion"
+            accessibilityLiveRegion="polite"
+            style={[estilos.notificacion, { top: arriba, backgroundColor: campo.panel, borderColor: borde, shadowColor: campo.sombra }]}
+        >
+            <View style={[estilos.iconoNotificacion, { backgroundColor: fondoIcono }]}>
+                <Icono size={20} color={tintaIcono} />
+            </View>
+            <Text accessibilityRole={t === "error" ? "alert" : "text"} style={[estilos.textoNotificacion, { color: t === "error" ? colores.error : colores.texto }]}>
+                {notificacion.texto}
+            </Text>
+            {notificacion.accion ? (
+                <Tocable
+                    etiqueta={notificacion.accion.texto}
+                    alPresionar={() => {
+                        notificacion.accion?.alPresionar();
+                        cerrarNotificacion();
+                    }}
+                    estilo={[estilos.accionNotificacion, { backgroundColor: campo.tinta, justifyContent: "center" }]}
+                >
+                    <Text style={{ color: campo.sobreTinta, fontWeight: "600", fontSize: 13 }}>{notificacion.accion.texto}</Text>
+                </Tocable>
+            ) : (
+                <BotonRedondo icono={X} etiqueta="Cerrar aviso" tamano={44} fondo="transparent" tinta={colores.textoSuave} alPresionar={cerrarNotificacion} />
+            )}
         </View>
     );
 }
 
 /**
- * «Iris Campo» con el punto de estado, quién está y en qué empresa, y la ubicación. Es capa
- * funcional (vidrio, `bg-glass`), nunca una tarjeta.
+ * Un rechazo nuevo del servidor entra desde arriba con «Revisar» (lleva a «Por enviar»): nunca pasa
+ * en silencio. Solo cuando crece; los que ya estaban al abrir los muestra la píldora.
  */
-function Encabezado({ nombre, empresa }: { nombre: string; empresa: string | null }) {
-    const { colores } = useTema();
-    return (
-        <View className="border-b border-border bg-glass" style={[estilos.encabezado, { borderColor: colores.borde, backgroundColor: colores.vidrio }]}>
-            <View style={estilos.fila}>
-                <Texto negrita>Iris Campo</Texto>
-                <PuntoConexion />
-            </View>
-            <Texto suave>
-                {nombre}
-                {empresa ? ` · ${empresa}` : ""}
-            </Texto>
-            <IndicadorUbicacion />
-        </View>
-    );
+function useAvisoDeRechazos() {
+    const { estado, notificar, navegar } = useCampo();
+    const rechazos = estado.rechazos.length + estado.subidas.rechazadas;
+    const previos = useRef(rechazos);
+    useEffect(() => {
+        if (rechazos > previos.current) {
+            const nuevos = rechazos - previos.current;
+            notificar({
+                tono: "error",
+                texto: nuevos === 1 ? "El servidor rechazó una acción." : `El servidor rechazó ${nuevos} acciones.`,
+                accion: { texto: "Revisar", alPresionar: () => navegar({ tipo: "pendientes" }) },
+            });
+        }
+        previos.current = rechazos;
+    }, [rechazos, notificar, navegar]);
 }
 
 /**
@@ -179,55 +246,6 @@ export function PuntoConexion() {
             style={[estilos.halo, { backgroundColor: colores.fondoTono[tono] }]}
         >
             <View style={[estilos.punto, { backgroundColor: colores.tono[tono] }]} />
-        </View>
-    );
-}
-
-/**
- * Barra que crece solo cuando hace falta: algo por enviar (sin señal o enviando), un rechazo, la
- * sesión vencida o la empresa no válida. Con todo enviado no se muestra (queda el punto).
- */
-export function BarraConexion() {
-    const { estado, motor, navegar } = useCampo();
-    const { colores } = useTema();
-    const r = resumenEnvio(estado);
-    if (!r.abierta) {
-        return null;
-    }
-    const c = CONEXION_TEXTO[estado.conexion];
-    const { pendientes, rechazos } = partesEnvio(r);
-    const hayAlgo = pendientes.length > 0 || rechazos !== null;
-    const texto = [...pendientes, ...(rechazos ? [rechazos] : [])];
-    return (
-        <View
-            accessibilityLabel="Estado de la sincronización"
-            testID="barra-conexion"
-            className="border-b border-border bg-background"
-            style={[estilos.barra, { borderColor: colores.borde, backgroundColor: colores.fondo }]}
-        >
-            <View style={estilos.filaBarra}>
-                <Insignia tono={c.tono} icono={ICONOS_CONEXION[estado.conexion]} texto={r.texto} testID="estado-conexion" />
-                <View style={estilos.flex} />
-                {hayAlgo ? (
-                    <Boton
-                        variante={rechazos ? "secundario" : "fantasma"}
-                        icono={rechazos ? TriangleAlert : CloudUpload}
-                        etiqueta={`${texto.join(", ")}. Ver detalle`}
-                        testID="pendientes-por-enviar"
-                        alPresionar={() => navegar({ tipo: "pendientes" })}
-                    >
-                        {texto.join(" · ")}
-                    </Boton>
-                ) : null}
-            </View>
-            {estado.proximoIntento !== null && estado.conexion !== "sin_sesion" && hayAlgo ? (
-                <View style={estilos.filaBarra}>
-                    <Texto suave>Reintento a las {horaCorta(new Date(estado.proximoIntento).toISOString()) ?? ""}</Texto>
-                    <Boton variante="fantasma" icono={RefreshCw} alPresionar={() => motor.reintentarAhora()}>
-                        Reintentar ahora
-                    </Boton>
-                </View>
-            ) : null}
         </View>
     );
 }
@@ -325,12 +343,26 @@ function ExplicacionUbicacion() {
 const estilos = StyleSheet.create({
     flex: { flex: 1 },
     pantalla: { flex: 1 },
-    fila: { flexDirection: "row", alignItems: "center", gap: 8 },
-    encabezado: { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, gap: 2 },
     halo: { width: 16, height: 16, borderRadius: 8, alignItems: "center", justifyContent: "center" },
     punto: { width: 8, height: 8, borderRadius: 4 },
-    barra: { paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 1, gap: 4 },
     filaBarra: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-    contenido: { padding: 16, gap: 14, paddingBottom: 32 },
-    notificacion: { position: "absolute", left: 16, right: 16 },
+    contenido: { paddingHorizontal: 18, gap: 16 },
+    notificacion: {
+        position: "absolute",
+        left: 14,
+        right: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 12,
+        borderRadius: 22,
+        borderWidth: 1,
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 10,
+    },
+    iconoNotificacion: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+    textoNotificacion: { flex: 1, fontSize: 14, fontWeight: "500" },
+    accionNotificacion: { minHeight: 44, borderRadius: 999, paddingHorizontal: 14 },
 });

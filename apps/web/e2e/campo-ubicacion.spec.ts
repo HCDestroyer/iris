@@ -240,7 +240,7 @@ test.describe("en el teléfono", () => {
         }
         await simularApiCampo(page, { ordenes });
         await page.goto("/campo");
-        const tarjetas = page.getByRole("list", { name: "Órdenes del día" }).getByRole("link");
+        const tarjetas = page.getByRole("region", { name: "Órdenes del día" }).getByRole("link", { name: /^OT-/ });
         await expect(tarjetas).toHaveCount(3);
         await expect(tarjetas.nth(0)).toContainText("OT-000103");
         await expect(tarjetas.nth(0)).toContainText("08:00");

@@ -61,7 +61,7 @@ test("lista del día con estado y, con todo enviado, solo el punto de conexión"
     await expect(conexion(page)).toHaveText("En línea");
     // La barra de estado no se abre: nada por enviar.
     await expect(page.locator('[data-slot="barra-conexion"]')).toHaveCount(0);
-    const tarjetas = page.getByRole("list", { name: "Órdenes del día" }).getByRole("link");
+    const tarjetas = page.getByRole("region", { name: "Órdenes del día" }).getByRole("link", { name: /^OT-/ });
     await expect(tarjetas).toHaveCount(3);
     // Sin ruta: por hora de cita.
     await expect(tarjetas.nth(0)).toContainText("OT-000101");
@@ -237,7 +237,8 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     await conSenal(page, api);
 
     await expect(page.getByText(/acciones rechazadas por el servidor/)).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "Revisar" }).click();
+    await // El del aviso de la orden (el rechazo también entra desde arriba con su «Revisar»).
+    await page.getByRole("button", { name: "Revisar" }).first().click();
     const rechazos = page.getByTestId("rechazo");
     await expect(rechazos).toHaveCount(2);
     await expect(rechazos.nth(0)).toContainText("En camino · OT-000102");

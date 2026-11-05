@@ -4,7 +4,7 @@
 // `docs/marca/horus-tokens.css`, la única fuente de color, en claro y en oscuro.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CLARO, OSCURO, crearTema, type Colores } from "../src/tema/tokens";
+import { CLARO, OSCURO, coloresCampo, crearTema, mezclar, type Colores } from "../src/tema/tokens";
 
 const leer = (ruta: string) => readFileSync(join(__dirname, ruta), "utf8");
 const MARCA = leer("../../../docs/marca/horus-tokens.css");
@@ -80,6 +80,30 @@ describe.each(["light", "dark"] as const)("tema Horus (%s)", (esquema) => {
             expect([nombre, normalizar(valor)]).toEqual([nombre, m.get(nombre)]);
         }
         expect(crearTema(esquema === "dark").colores).toBe(c);
+    });
+});
+
+describe("diseño «combinada»: colores de la app de campo desde los tokens", () => {
+    it("mezcla como color-mix en srgb", () => {
+        expect(mezclar("#000000", "#ffffff", 50)).toBe("#808080");
+        expect(mezclar("#0f766e", "#ffffff", 100)).toBe("#0f766e");
+        expect(mezclar("#0f766e", "#ffffff", 0)).toBe("#ffffff");
+    });
+
+    it.each([
+        [false, CLARO],
+        [true, OSCURO],
+    ] as const)("oscuro=%s: un solo teal y solo tokens o mezclas de tokens", (oscuro, c) => {
+        const campo = crearTema(oscuro).campo;
+        expect(campo).toEqual(coloresCampo(c, oscuro));
+        expect(campo.tinta).toBe(c.texto);
+        expect(campo.sobreTinta).toBe(c.fondo);
+        expect(campo.avisoFondo).toBe(mezclar(c.advertencia, c.fondo, 10));
+        expect(campo.anillo).toBe(c.borde);
+        // El teal de la marca sigue siendo uno solo: claro #0f766e, oscuro #2dd4bf.
+        expect(c.primario).toBe(oscuro ? "#2dd4bf" : "#0f766e");
+        expect(campo.lienzo).toBe(oscuro ? c.fondo : mezclar(c.primario, c.fondoElevado, 4));
+        expect(crearTema(oscuro).radioTarjeta).toBe(28);
     });
 });
 

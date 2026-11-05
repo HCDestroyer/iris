@@ -1,0 +1,111 @@
+/*
+ * App de campo con el diseño «combinada» (nov 2026): los dos temas de C-Hoy llevados a los tokens
+ * de Horus. Nada de colores nuevos: cada variable sale de un `--hx-*` (o de una mezcla de dos), así
+ * el teal sigue siendo uno solo (claro #0f766e, oscuro #2dd4bf) y el modo oscuro sigue al teléfono.
+ * Solo vale dentro de `.campo-app` (el panel no cambia).
+ */
+.campo-app {
+    /* Lienzo apenas teñido de la marca; tarjetas blancas; relleno de botones redondos. */
+    --campo-lienzo: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
+    --campo-panel: var(--hx-bg);
+    --campo-panel-2: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
+    --campo-heroe: var(--hx-bg);
+    --campo-heroe-borde: var(--hx-border);
+    /* Lo elegido (chip, botón de la isla): tinta del texto con el fondo del tema encima. */
+    --campo-tinta: var(--hx-text);
+    --campo-sobre-tinta: var(--hx-bg);
+    /* Marca suave: pasos listos, «En sitio». */
+    --campo-marca-suave: color-mix(in srgb, var(--hx-primary) 18%, var(--hx-bg));
+    --campo-marca-suave-texto: var(--hx-primary-hover);
+    /* Aviso e info: el 10 % del tono sobre el fondo, borde al 30 % (como `Aviso`). */
+    --campo-aviso-fondo: color-mix(in srgb, var(--hx-warning) 10%, var(--hx-bg));
+    --campo-aviso-borde: color-mix(in srgb, var(--hx-warning) 30%, var(--hx-bg));
+    --campo-info-fondo: color-mix(in srgb, var(--hx-info) 10%, var(--hx-bg));
+    --campo-info-borde: color-mix(in srgb, var(--hx-info) 30%, var(--hx-bg));
+    --campo-error-fondo: color-mix(in srgb, var(--hx-error) 10%, var(--hx-bg));
+    --campo-error-borde: color-mix(in srgb, var(--hx-error) 30%, var(--hx-bg));
+    --campo-anillo: var(--hx-border);
+    --campo-isla: var(--hx-bg);
+    --campo-sombra: 0 10px 30px color-mix(in srgb, var(--hx-text) 7%, transparent);
+    --campo-sombra-isla: 0 16px 36px color-mix(in srgb, var(--hx-text) 16%, transparent);
+
+    /* Tarjetas de 28 px de radio y sólidas (lo flotante ya es sólido en Iris). */
+    --hx-radius-card: 1.75rem;
+    --radius-card: 1.75rem;
+    --hx-card: var(--campo-panel);
+
+    background: var(--campo-lienzo);
+    color: var(--hx-text);
+}
+
+.dark .campo-app,
+[data-theme='dark'] .campo-app {
+    --campo-lienzo: var(--hx-bg);
+    --campo-panel: var(--hx-bg-muted);
+    --campo-panel-2: var(--hx-bg-elevated);
+    --campo-heroe: color-mix(in srgb, var(--hx-primary) 7%, var(--hx-bg));
+    --campo-heroe-borde: color-mix(in srgb, var(--hx-primary) 22%, var(--hx-bg));
+    --campo-marca-suave: color-mix(in srgb, var(--hx-primary) 14%, var(--hx-bg));
+    --campo-marca-suave-texto: var(--hx-primary);
+    --campo-isla: var(--hx-bg-elevated);
+    --campo-sombra: 0 10px 30px rgb(0 0 0 / 0.35);
+    --campo-sombra-isla: 0 16px 36px rgb(0 0 0 / 0.55);
+}
+
+/*
+ * Botones en píldora y redondos del diseño: el radio de Horus de los botones (`.button` en
+ * tema-heroui.css, fuera de capas) se deja para el panel; aquí manda la utilidad `rounded-*` de
+ * cada botón (`revert-layer` vuelve a la capa de utilidades). También en las hojas de la app
+ * (`campo-hoja`), que se abren fuera de `.campo-app`.
+ */
+.campo-app .button[class*='rounded-'],
+.campo-hoja .button[class*='rounded-'] {
+    border-radius: revert-layer;
+}
+
+/* Lo que se enfoca o se desplaza a la vista no queda debajo de la isla ni de la barra de pasos. */
+html:has(.campo-app) {
+    scroll-padding-top: 1rem;
+    scroll-padding-bottom: 10rem;
+}
+
+/* Avisos que entran desde arriba; la isla y la barra compacta se mueven con suavidad. */
+@keyframes campo-entra-arriba {
+    from {
+        opacity: 0;
+        transform: translateY(-16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.campo-entra-arriba {
+    animation: campo-entra-arriba 200ms ease-out;
+}
+
+.campo-suave {
+    transition:
+        transform 200ms ease-out,
+        opacity 200ms ease-out,
+        padding 200ms ease-out,
+        gap 200ms ease-out;
+}
+
+/* La tira de pasos y la de la semana se desplazan de lado sin barra visible. */
+.campo-sin-barra {
+    scrollbar-width: none;
+}
+.campo-sin-barra::-webkit-scrollbar {
+    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .campo-entra-arriba {
+        animation: none;
+    }
+    .campo-suave {
+        transition: none;
+    }
+}

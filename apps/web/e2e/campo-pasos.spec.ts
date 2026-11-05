@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesionTecnico, declinarUbicacion, problema, simularApiCampo } from "./api-campo";
-import { alResumen, empezarTrabajo, firmarEn, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, alResumen, empezarTrabajo, firmarEn, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -140,7 +140,8 @@ test.describe("barra de estado discreta", () => {
         await expect(barra(page)).toBeVisible();
         await expect(barra(page).getByTestId("estado-conexion")).toHaveText("Sin conexión");
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");
-        await expect(page.getByRole("link", { name: "Pendientes (1)" })).toBeVisible();
+        // La píldora encima de la isla lleva a «Por enviar».
+        await expect(page.getByRole("button", { name: "Sin conexión: 1 pendiente por enviar. Ver detalle" })).toBeVisible();
 
         api.sinRed = false;
         await context.setOffline(false);
@@ -155,7 +156,9 @@ test.describe("barra de estado discreta", () => {
         await page.getByLabel("Nueva nota").fill("Nota rechazada");
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 rechazado", { timeout: 15_000 });
-        await page.getByRole("button", { name: "1 rechazados. Ver detalle" }).click();
+        // El rechazo entra también como aviso desde arriba, con «Revisar».
+        await expect(page.locator('[data-slot="notificacion"]')).toContainText("El servidor rechazó una acción.");
+        await page.getByRole("button", { name: /1 rechazado\. Ver detalle$/ }).click();
         await expect(page.getByTestId("rechazo")).toContainText("Algún dato no es válido.");
     });
 
@@ -172,22 +175,27 @@ test.describe("barra de estado discreta", () => {
         await expect(page.getByText("Ya no puedes trabajar en esta empresa")).toBeVisible();
     });
 
-    test("la barra inferior lleva a cada sección y marca la actual", async ({ page }) => {
+    test("la isla lleva a cada sección, marca la actual y tiene zonas de 54 px", async ({ page }) => {
         await simularApiCampo(page);
         await page.goto("/campo");
         const nav = page.getByRole("navigation", { name: "Secciones de la app" });
         await expect(nav.getByRole("link", { name: "Hoy" })).toHaveAttribute("aria-current", "page");
-        await pestanaCampo(page, "Pendientes");
-        await expect(page).toHaveURL(/vista=pendientes$/);
-        await expect(page.getByRole("heading", { name: "Por enviar" })).toBeVisible();
+        await pestanaCampo(page, "Agenda");
+        await expect(page).toHaveURL(/vista=agenda$/);
+        await expect(page.getByRole("heading", { name: /^Mañana, / })).toBeVisible();
         await pestanaCampo(page, "Yo");
         await expect(page).toHaveURL(/vista=yo$/);
         await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
-        // Zonas táctiles de al menos 44 px.
-        for (const enlace of await nav.getByRole("link").all()) {
-            expect((await enlace.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        // «Por enviar» se abre desde «Yo» (ya no es una pestaña).
+        await abrirPorEnviar(page);
+        await expect(page).toHaveURL(/vista=pendientes$/);
+        await expect(nav.getByRole("link", { name: "Yo" })).not.toHaveAttribute("aria-current", "page");
+        // Zonas táctiles de 54 px (también el «+»).
+        for (const boton of [...(await nav.getByRole("link").all()), nav.getByRole("button", { name: "Acciones rápidas" })]) {
+            expect((await boton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(54);
         }
         await page.goBack();
-        await expect(nav.getByRole("link", { name: "Pendientes" })).toHaveAttribute("aria-current", "page");
+        await page.goBack();
+        await expect(nav.getByRole("link", { name: "Agenda" })).toHaveAttribute("aria-current", "page");
     });
 });

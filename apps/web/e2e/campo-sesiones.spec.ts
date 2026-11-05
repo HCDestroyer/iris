@@ -120,7 +120,8 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
-    await pestanaCampo(page, "Yo");
+    // En un paso de la orden no hay isla: «Yo» desde la cuenta del encabezado.
+    await page.getByRole("button", { name: "Tu cuenta" }).first().click();
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     const aviso = page.getByText("Tienes 1 cambio sin enviar");
     await expect(aviso).toBeVisible();

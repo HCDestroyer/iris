@@ -158,10 +158,18 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, editab
     );
 }
 
-/** HeroUI `Card` (`surface-card`: casi sólida, radio 14 px, borde de 1 px): título, descripción y cuerpo. */
+/**
+ * HeroUI `Card` (sólida, borde de 1 px): título, descripción y cuerpo. Radio de 28 px (diseño
+ * «combinada»), sobre el panel del tema.
+ */
 export function Tarjeta({ titulo, descripcion, children, accion, testID }: { titulo?: string; descripcion?: string; children?: ReactNode; accion?: ReactNode; testID?: string }) {
+    const { campo, colores, radioTarjeta } = useTema();
     return (
-        <Card testID={testID} className="gap-3 rounded-card border border-border bg-surface p-4">
+        <Card
+            testID={testID}
+            className="gap-3 rounded-card border border-border bg-surface p-4"
+            style={{ borderRadius: radioTarjeta, backgroundColor: campo.panel, borderColor: colores.borde }}
+        >
             {titulo || accion ? (
                 <Card.Header className="flex-row items-start justify-between gap-2">
                     <View style={estilos.flex}>
@@ -433,6 +441,60 @@ export function Tocable({
     );
 }
 
+/**
+ * Botón redondo (diseño «combinada»): la isla, buscar, la cuenta, − / +, «Cómo llegar». Solo icono
+ * (o un texto corto como las iniciales) con nombre accesible obligatorio; `tamano` en px y nunca
+ * menos de 44. `fondo` y `tinta` vienen del tema (`useTema().campo`).
+ */
+export function BotonRedondo({
+    icono: Icono,
+    texto,
+    etiqueta,
+    alPresionar,
+    tamano = 48,
+    fondo,
+    tinta,
+    borde,
+    seleccionado,
+    rol = "button",
+    testID,
+    children,
+}: {
+    icono?: LucideIcon;
+    texto?: string;
+    etiqueta: string;
+    alPresionar: () => void;
+    tamano?: number;
+    fondo: string;
+    tinta: string;
+    borde?: string;
+    seleccionado?: boolean;
+    rol?: "button" | "tab";
+    testID?: string;
+    /** Algo encima del icono (el contador de «Por recibir»). */
+    children?: ReactNode;
+}) {
+    const lado = Math.max(ZONA_TACTIL, tamano);
+    return (
+        <Tocable
+            etiqueta={etiqueta}
+            alPresionar={alPresionar}
+            rol={rol}
+            {...(seleccionado === undefined ? {} : { seleccionado })}
+            {...(testID ? { testID } : {})}
+            estilo={[
+                estilos.redondo,
+                { width: lado, height: lado, minHeight: lado, borderRadius: lado / 2, backgroundColor: fondo },
+                borde ? { borderWidth: 1, borderColor: borde } : null,
+            ]}
+        >
+            {Icono ? <Icono size={Math.round(lado * 0.42)} color={tinta} strokeWidth={seleccionado ? 2.4 : 2} /> : null}
+            {texto ? <Text style={[estilos.textoRedondo, { color: tinta }]}>{texto}</Text> : null}
+            {children}
+        </Tocable>
+    );
+}
+
 export function Fila({ children, entre }: { children: ReactNode; entre?: boolean }) {
     return <View style={entre ? estilos.filaEntre : estilos.filaEnvuelta}>{children}</View>;
 }
@@ -472,4 +534,6 @@ const estilos = StyleSheet.create({
     hoja: { maxHeight: "90%", borderWidth: 1 },
     contenidoHoja: { padding: 16, gap: 12, paddingBottom: 32 },
     tocable: { minHeight: ZONA_TACTIL },
+    redondo: { alignItems: "center", justifyContent: "center" },
+    textoRedondo: { fontSize: 15, fontWeight: "600" },
 });

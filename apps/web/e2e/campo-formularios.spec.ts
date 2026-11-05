@@ -153,7 +153,8 @@ test.describe("en el teléfono", () => {
         await expect.poll(() => api.resultados.map((r) => r.estado), { timeout: 30_000 }).toEqual(["rechazada"]);
         await expect(page.getByText("1 acción rechazada por el servidor")).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId("formulario-inventario")).toHaveCount(0);
-        await page.getByRole("button", { name: "Revisar" }).click();
+        await // El del aviso de la orden (el rechazo también entra desde arriba con su «Revisar»).
+        await page.getByRole("button", { name: "Revisar" }).first().click();
         await expect(page.getByText(/Ese formulario se desactivó mientras no tenías señal/)).toBeVisible();
         // El catálogo de cambios ya no lo ofrece.
         await page.getByRole("button", { name: "Descartar" }).click();
@@ -260,7 +261,8 @@ test.describe("en el teléfono", () => {
         const visita = page.getByTestId("formulario-visita");
         await expect(visita).toContainText("Faltan 1 para cerrar");
         await expect(visita.locator('[data-slot="insignia-estado"]', { hasText: "Falta para cerrar" })).toBeVisible();
-        await page.getByRole("button", { name: "Revisar" }).click();
+        await // El del aviso de la orden (el rechazo también entra desde arriba con su «Revisar»).
+        await page.getByRole("button", { name: "Revisar" }).first().click();
         await expect(page.getByText("Falta: Señal restablecida (Visita técnica)")).toBeVisible();
     });
 });

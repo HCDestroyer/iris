@@ -2,7 +2,9 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { bodegaDeOrden, type OrdenVista } from "@iris/sync";
+import { pasoCantidad } from "@iris/sync/campo";
 import { Aviso, Boton, Campo, CampoSelector, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Minus, Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { esquemaMaterial, type DatosMaterial, type EntradaMaterial } from "@/lib/campo/esquemas";
 import { useCampo } from "./contexto";
@@ -83,8 +85,34 @@ export function Materiales({ orden, editable }: { orden: OrdenVista; editable: b
                                 </option>
                             ))}
                         </CampoSelector>
-                        <Campo etiqueta="Cantidad" inputMode="decimal" autoComplete="off" error={form.formState.errors.cantidad?.message} {...form.register("cantidad")} />
-                        <Boton tamano="lg" type="submit" variante="secundario" disabled={form.formState.isSubmitting}>
+                        <div className="flex items-start gap-2">
+                            <Boton
+                                type="button"
+                                variante="secundario"
+                                aria-label="Quitar uno"
+                                className="mt-[1.625rem] size-11 shrink-0 rounded-full p-0 md:size-11"
+                                onClick={() => form.setValue("cantidad", pasoCantidad(form.getValues("cantidad"), -1), { shouldValidate: form.formState.isSubmitted })}
+                            >
+                                <Minus aria-hidden />
+                            </Boton>
+                            <Campo
+                                etiqueta="Cantidad"
+                                inputMode="decimal"
+                                autoComplete="off"
+                                className="flex-1"
+                                error={form.formState.errors.cantidad?.message}
+                                {...form.register("cantidad")}
+                            />
+                            <Boton
+                                type="button"
+                                aria-label="Agregar uno"
+                                className="mt-[1.625rem] size-11 shrink-0 rounded-full p-0 shadow-none md:size-11"
+                                onClick={() => form.setValue("cantidad", pasoCantidad(form.getValues("cantidad"), 1), { shouldValidate: form.formState.isSubmitted })}
+                            >
+                                <Plus aria-hidden />
+                            </Boton>
+                        </div>
+                        <Boton tamano="lg" type="submit" variante="secundario" className="rounded-full" disabled={form.formState.isSubmitting}>
                             Registrar material
                         </Boton>
                     </form>

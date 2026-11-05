@@ -19,7 +19,7 @@ import {
     Play,
     Route,
 } from "lucide-react";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ListaTelefonos } from "@/componentes/clientes/telefonos";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { horaCorta, ventanaCita } from "@/lib/campo/fechas";
@@ -74,22 +74,21 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
 
     return (
         <article aria-labelledby="titulo-orden" className="grid gap-4">
-            <Boton variante="fantasma" tamano="lg" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "lista" })}>
-                <ArrowLeft aria-hidden />
-                Mis órdenes
-            </Boton>
-            <header className="grid gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                    <h1 id="titulo-orden" className="font-mono text-xl font-semibold">
-                        {orden.numero}
-                    </h1>
-                    <InsigniaOrden estado={orden.estado} />
-                </div>
-                <p className="text-sm text-muted-foreground">
+            <header className="flex items-center gap-3">
+                <BotonVolver etiqueta="Mis órdenes" alPresionar={() => navegar({ tipo: "lista" })} />
+                <div className="grid min-w-0 gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h1 id="titulo-orden" className="font-mono text-xl font-semibold">
+                            {orden.numero}
+                        </h1>
+                        <InsigniaOrden estado={orden.estado} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
                     {TIPOS_ORDEN[orden.tipo]}
                     {inicio ? ` · cita ${horaCorta(inicio)}${fin ? `–${horaCorta(fin)}` : ""}` : ""}
                     {ventana ? ` · llegada acordada ${ventana}` : ""}
-                </p>
+                    </p>
+                </div>
             </header>
 
             <AvisosOrden orden={orden} />
@@ -99,7 +98,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
                 </Aviso>
             ) : null}
             {trabajable ? (
-                <Boton tamano="lg" className="h-12 w-full text-base" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: empezado ? siguientePaso(orden) : "llegada" })}>
+                <Boton tamano="lg" className="h-[3.25rem] w-full rounded-full text-base" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: empezado ? siguientePaso(orden) : "llegada" })}>
                     {empezado ? <ListChecks aria-hidden /> : <Play aria-hidden />}
                     {empezado ? "Continuar trabajo" : "Empezar trabajo"}
                 </Boton>
@@ -136,28 +135,27 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
 
     return (
         <article aria-labelledby="titulo-paso" className="grid gap-4" data-paso={paso}>
-            <Boton variante="fantasma" tamano="lg" className="-ml-2 w-fit" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
-                <ArrowLeft aria-hidden />
-                Resumen de {orden.numero}
-            </Boton>
-            <header className="grid gap-1">
-                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-                    <span>
-                        <span className="font-mono">{orden.numero}</span> · {paso === "cierre" ? "Paso final" : `Paso ${indice + 1} de ${PASOS_ORDEN.length}`}
-                    </span>
-                    <InsigniaOrden estado={orden.estado} />
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                    <h1 id="titulo-paso" className="text-2xl font-semibold tracking-[-0.015em]">
-                        {TITULOS_PASO[paso]}
-                    </h1>
-                    {estado && paso !== "cierre" ? (
-                        estado.completo ? (
-                            <InsigniaEstado tono="success" icono={CircleCheck} texto={estado.opcional ? "Opcional" : "Listo"} />
-                        ) : (
-                            <InsigniaEstado tono="warning" icono={CircleDashed} texto={`Falta${estado.faltan.length === 1 ? "" : "n"} ${estado.faltan.length}`} />
-                        )
-                    ) : null}
+            <header className="flex items-center gap-3">
+                <BotonVolver etiqueta={`Resumen de ${orden.numero}`} alPresionar={() => navegar({ tipo: "orden", id: orden.id })} />
+                <div className="grid min-w-0 gap-0.5">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>
+                            <span className="font-mono">{orden.numero}</span> · {paso === "cierre" ? "Paso final" : `Paso ${indice + 1} de ${PASOS_ORDEN.length}`}
+                        </span>
+                        <InsigniaOrden estado={orden.estado} />
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h1 id="titulo-paso" className="text-[1.375rem] leading-tight font-bold tracking-[-0.02em]">
+                            {TITULOS_PASO[paso]}
+                        </h1>
+                        {estado && paso !== "cierre" ? (
+                            estado.completo ? (
+                                <InsigniaEstado tono="success" icono={CircleCheck} texto={estado.opcional ? "Opcional" : "Listo"} />
+                            ) : (
+                                <InsigniaEstado tono="warning" icono={CircleDashed} texto={`Falta${estado.faltan.length === 1 ? "" : "n"} ${estado.faltan.length}`} />
+                            )
+                        ) : null}
+                    </div>
                 </div>
             </header>
             <ProgresoOrden orden={orden} actual={paso} compacto />
@@ -201,21 +199,22 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
             {paso !== "cierre" ? (
                 <nav
                     aria-label="Pasos"
-                    className="glass-material sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 grid grid-cols-2 gap-2 border-t border-border px-4 py-3"
+                    data-slot="barra-pasos"
+                    className="fixed inset-x-3.5 bottom-[calc(1.75rem+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[calc(42rem-1.75rem)] gap-2 rounded-full border border-border bg-[var(--campo-isla)] p-1.5 shadow-[var(--campo-sombra-isla)]"
                 >
                     {anterior ? (
-                        <Boton variante="secundario" tamano="lg" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: anterior })}>
+                        <Boton variante="secundario" tamano="lg" className="h-[3.375rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] px-5 shadow-none" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: anterior })}>
                             <ArrowLeft aria-hidden />
                             Anterior
                         </Boton>
                     ) : (
-                        <Boton variante="secundario" tamano="lg" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
+                        <Boton variante="secundario" tamano="lg" className="h-[3.375rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] px-5 shadow-none" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
                             <ArrowLeft aria-hidden />
                             Resumen
                         </Boton>
                     )}
                     {siguiente ? (
-                        <Boton tamano="lg" className="h-auto min-h-11 whitespace-normal py-1.5" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: siguiente })}>
+                        <Boton tamano="lg" className="h-auto min-h-[3.375rem] flex-1 rounded-full py-1.5 whitespace-normal" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: siguiente })}>
                             {siguiente === "cierre" ? "Firma y cierre" : `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`}
                             <ArrowRight aria-hidden />
                         </Boton>
@@ -226,9 +225,34 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
     );
 }
 
+/** Botón redondo de 48 px para volver (al resumen o a «Mis órdenes»). */
+function BotonVolver({ etiqueta, alPresionar }: { etiqueta: string; alPresionar: () => void }) {
+    return (
+        <Boton
+            variante="secundario"
+            aria-label={etiqueta}
+            title={etiqueta}
+            className="size-12 shrink-0 rounded-full bg-[var(--campo-panel)] p-0 md:size-12 [&_svg]:size-5"
+            onClick={alPresionar}
+        >
+            <ArrowLeft aria-hidden />
+        </Boton>
+    );
+}
+
+/** Texto corto de cada paso en los chips (el nombre accesible lleva el título completo). */
+const CORTO_PASO: Record<PasoOrden, string> = {
+    llegada: "Llegada",
+    checklist: "Checklist",
+    materiales: "Materiales",
+    fotos: "Fotos",
+    cierre: "Firma",
+};
+
 /**
- * Avance de la orden: barra con los pasos listos y cada paso como enlace (se puede volver a
- * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada.
+ * Avance de la orden: los pasos listos (barra por pasos) y cada paso como enlace (se puede volver a
+ * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada. En el resumen
+ * es una tarjeta con la lista; dentro de un paso, chips (listo en marca suave, el actual en tinta).
  */
 function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista; actual?: PasoOrden; compacto?: boolean }) {
     const { navegar } = useCampo();
@@ -236,34 +260,88 @@ function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista;
     const { listos, total } = progresoPasos(orden);
     const listaParaFirmar = faltantesAntesDeFirmar(orden).length === 0;
     const texto = `${listos} de ${total} pasos listos`;
+    const actualRef = useRef<HTMLAnchorElement | null>(null);
+    useEffect(() => {
+        // El chip del paso actual siempre a la vista (la tira se desplaza de lado).
+        actualRef.current?.scrollIntoView?.({ block: "nearest", inline: "center" });
+    }, [actual]);
     const ir = (p: PasoOrden) => (e: MouseEvent<HTMLAnchorElement>) => {
         e.preventDefault();
         navegar({ tipo: "orden", id: orden.id, paso: p });
     };
+    const barra = (
+        <div
+            role="progressbar"
+            aria-label="Avance de la orden"
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={listos}
+            aria-valuetext={texto}
+            className="grid gap-1.5"
+            style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}
+        >
+            {Array.from({ length: total }, (_, i) => (
+                <span key={i} className={cn("h-1.5 rounded-full", i < listos ? "bg-primary" : "bg-[var(--campo-anillo)]")} />
+            ))}
+        </div>
+    );
+    const estadoDe = (p: (typeof pasos)[number]) => {
+        const bloqueado = p.paso === "cierre" && !listaParaFirmar && orden.estado !== "cerrada";
+        const hecho = p.paso === "cierre" ? orden.estado === "cerrada" : p.completo;
+        const Icono = p.paso === "cierre" ? (orden.estado === "cerrada" ? CircleCheck : bloqueado ? Lock : PenLine) : p.completo ? CircleCheck : CircleDashed;
+        const estadoTexto =
+            p.paso === "cierre" ? (orden.estado === "cerrada" ? "hecho" : bloqueado ? "bloqueado" : "listo para firmar") : p.completo ? (p.opcional ? "opcional" : "listo") : `faltan ${p.faltan.length}`;
+        return { bloqueado, hecho, Icono, estadoTexto };
+    };
+
+    if (compacto) {
+        return (
+            <nav aria-label="Pasos de la orden" className="grid gap-2.5">
+                {barra}
+                <ol className="campo-sin-barra -mx-[1.125rem] flex gap-1.5 overflow-x-auto px-[1.125rem] pb-0.5">
+                    {pasos.map((p, i) => {
+                        const { hecho, Icono, estadoTexto } = estadoDe(p);
+                        const esActual = actual === p.paso;
+                        return (
+                            <li key={p.paso} className="shrink-0">
+                                <a
+                                    ref={esActual ? actualRef : undefined}
+                                    href={urlDeVista({ tipo: "orden", id: orden.id, paso: p.paso })}
+                                    onClick={ir(p.paso)}
+                                    aria-current={esActual ? "step" : undefined}
+                                    aria-label={`${i + 1}. ${p.titulo}: ${estadoTexto}`}
+                                    data-paso={p.paso}
+                                    className={cn(
+                                        "inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-[0.8125rem] whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2",
+                                        esActual
+                                            ? "bg-[var(--campo-tinta)] font-semibold text-[var(--campo-sobre-tinta)]"
+                                            : hecho
+                                              ? "bg-[var(--campo-marca-suave)] font-semibold text-[var(--campo-marca-suave-texto)]"
+                                              : "border border-border bg-[var(--campo-panel)] font-medium text-muted-foreground",
+                                    )}
+                                >
+                                    {esActual ? null : <Icono aria-hidden className="size-4 shrink-0" />}
+                                    <span aria-hidden>{esActual ? `${i + 1} · ${CORTO_PASO[p.paso]}` : CORTO_PASO[p.paso]}</span>
+                                </a>
+                            </li>
+                        );
+                    })}
+                </ol>
+            </nav>
+        );
+    }
+
     return (
-        <nav aria-label="Pasos de la orden" className={cn("grid gap-2", !compacto && "surface-card rounded-card p-4")}>
+        <nav aria-label="Pasos de la orden" className="surface-card grid gap-2 rounded-card p-4">
             <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="font-semibold">{compacto ? "Avance" : "Trabajo en la orden"}</span>
+                <span className="font-semibold">Trabajo en la orden</span>
                 <span className="text-muted-foreground tabular-nums">{texto}</span>
             </div>
-            <div
-                role="progressbar"
-                aria-label="Avance de la orden"
-                aria-valuemin={0}
-                aria-valuemax={total}
-                aria-valuenow={listos}
-                aria-valuetext={texto}
-                className="h-2 overflow-hidden rounded-full bg-muted"
-            >
-                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round((listos / total) * 100)}%` }} />
-            </div>
-            <ol className={cn(compacto ? "grid grid-cols-5 gap-1" : "grid gap-1")}>
+            {barra}
+            <ol className="grid gap-1">
                 {pasos.map((p, i) => {
-                    const bloqueado = p.paso === "cierre" && !listaParaFirmar && orden.estado !== "cerrada";
-                    const Icono = p.paso === "cierre" ? (orden.estado === "cerrada" ? CircleCheck : bloqueado ? Lock : PenLine) : p.completo ? CircleCheck : CircleDashed;
+                    const { bloqueado, Icono, estadoTexto } = estadoDe(p);
                     const tono = p.completo && p.paso !== "cierre" ? "text-success" : p.paso === "cierre" && orden.estado === "cerrada" ? "text-success" : "text-muted-foreground";
-                    const estadoTexto =
-                        p.paso === "cierre" ? (orden.estado === "cerrada" ? "hecho" : bloqueado ? "bloqueado" : "listo para firmar") : p.completo ? (p.opcional ? "opcional" : "listo") : `faltan ${p.faltan.length}`;
                     return (
                         <li key={p.paso}>
                             <a
@@ -272,35 +350,23 @@ function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista;
                                 aria-current={actual === p.paso ? "step" : undefined}
                                 aria-label={`${i + 1}. ${p.titulo}: ${estadoTexto}`}
                                 data-paso={p.paso}
-                                className={cn(
-                                    "flex min-h-11 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-elevated focus-visible:outline-2 focus-visible:outline-offset-2",
-                                    compacto && "flex-col justify-center gap-0.5 px-0 py-1 text-center text-[0.7rem] leading-tight",
-                                    actual === p.paso && "bg-primary/10 font-semibold text-primary",
-                                )}
+                                className="flex min-h-11 items-center gap-2 rounded-xl px-2 text-sm transition-colors hover:bg-[var(--campo-panel-2)] focus-visible:outline-2 focus-visible:outline-offset-2"
                             >
-                                <Icono aria-hidden className={cn("size-5 shrink-0", actual === p.paso ? "text-primary" : tono)} />
-                                {compacto ? (
-                                    <span aria-hidden className="line-clamp-2">
-                                        {i + 1}
-                                    </span>
-                                ) : (
-                                    <>
-                                        <span className="flex-1">{p.titulo}</span>
-                                        <span className="text-xs text-muted-foreground">
-                                            {p.paso === "cierre"
-                                                ? orden.estado === "cerrada"
-                                                    ? "Hecho"
-                                                    : bloqueado
-                                                      ? "Al terminar lo demás"
-                                                      : "Listo para firmar"
-                                                : p.completo
-                                                  ? p.opcional
-                                                      ? "Opcional"
-                                                      : "Listo"
-                                                  : `Falta${p.faltan.length === 1 ? "" : "n"} ${p.faltan.length}`}
-                                        </span>
-                                    </>
-                                )}
+                                <Icono aria-hidden className={cn("size-5 shrink-0", tono)} />
+                                <span className="flex-1">{p.titulo}</span>
+                                <span className="text-xs text-muted-foreground">
+                                    {p.paso === "cierre"
+                                        ? orden.estado === "cerrada"
+                                            ? "Hecho"
+                                            : bloqueado
+                                              ? "Al terminar lo demás"
+                                              : "Listo para firmar"
+                                        : p.completo
+                                          ? p.opcional
+                                              ? "Opcional"
+                                              : "Listo"
+                                          : `Falta${p.faltan.length === 1 ? "" : "n"} ${p.faltan.length}`}
+                                </span>
                             </a>
                         </li>
                     );
