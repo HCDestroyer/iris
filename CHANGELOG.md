@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/HCDestroyer/iris/compare/v0.9.0...v0.10.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **campo:** escáner de serie y MAC por campo, con recuadro y elección entre varios códigos (web y app nativa) ([#94](https://github.com/HCDestroyer/iris/issues/94)) ([77ad9db](https://github.com/HCDestroyer/iris/commit/77ad9dbc2fd04ce21a825e78c6a35376f1cf1b22))
+
 ## [0.9.0](https://github.com/HCDestroyer/iris/compare/v0.8.0...v0.9.0) (2026-11-04)
 
 
