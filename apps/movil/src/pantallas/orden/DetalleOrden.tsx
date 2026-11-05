@@ -112,7 +112,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
 }
 
 /**
- * Un paso de trabajo: su contenido y el avance. «Anterior», «Guardar» y «Siguiente» van en la isla
+ * Un paso de trabajo: su contenido y el avance. «Anterior» y «Siguiente» (o «Guardar y seguir») van en la isla
  * de pasos (`IslaPasos`, fuera del desplazamiento). Con la orden en pausa, todo de solo lectura con
  * el aviso «Orden en pausa» y «Reanudar» arriba.
  */
