@@ -5,6 +5,7 @@
 export * from "./cierre";
 export * from "./codigos";
 export * from "./escaneo";
+export * from "./entrar";
 export * from "./envio";
 export * from "./esquemas";
 export * from "./fechas";
