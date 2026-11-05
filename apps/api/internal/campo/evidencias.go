@@ -107,8 +107,8 @@ func (e EntradaEquipo) ordenID() int64           { return e.ID }
 func (e EntradaCapturarFirma) ordenID() int64    { return e.ID }
 func (e EntradaRegistrarAdjunto) ordenID() int64 { return e.ID }
 
-// estadosEnCurso: la orden admite checklist, materiales, equipos y firma (también pausada:
-// sigue abierta y el técnico puede dejar evidencia).
+// estadosEnCurso: la orden admite checklist, materiales, equipos y firma. Pausada, solo desde el
+// panel: desde la app de campo es 422 orden_pausada (sinTrabajoEnPausa).
 var estadosEnCurso = []string{EstadoProgramada, EstadoEnCamino, EstadoEnSitio, EstadoPausada}
 
 // idDeEvidencia: el id de la operación del lote (el cliente ya lo conoce) o uno v7 nuevo.
@@ -139,6 +139,9 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 				return f, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, f)
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "marcar el checklist"); err != nil {
+				return f, "", err
+			}
 			if err := exigirEstado(f, "marcar el checklist de", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
@@ -265,6 +268,9 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			if err != nil {
 				return f, "", err
 			}
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar materiales"); err != nil {
+				return f, "", err
+			}
 			if err := exigirEstado(f, "registrar materiales en", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
@@ -356,6 +362,9 @@ func (m *Modulo) nuevoEquipo(accionEquipo string) *auditoria.Caso[EntradaEquipo,
 			if err != nil {
 				return f, "", err
 			}
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar equipos"); err != nil {
+				return f, "", err
+			}
 			if err := exigirEstado(f, "registrar equipos en", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
@@ -439,6 +448,9 @@ func (m *Modulo) nuevoCapturarFirma() *auditoria.Caso[EntradaCapturarFirma, Orde
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaCapturarFirma) (campobd.CampoOrden, string, error) {
 			f, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesRegistrar, in.Version, in.Sync)
 			if err != nil {
+				return f, "", err
+			}
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "tomar la firma"); err != nil {
 				return f, "", err
 			}
 			if err := exigirEstado(f, "capturar la firma de", estadosEnCurso...); err != nil {

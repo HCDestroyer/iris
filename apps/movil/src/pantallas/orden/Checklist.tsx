@@ -4,9 +4,10 @@
 import { formularioConRespuestas, valorDe, type FormularioOrden, type ItemChecklist, type OrdenVista, type PlantillaFormulario } from "@iris/sync";
 import { esquemaNumeroItem, faltantesPorFormulario, ORIGENES_FORMULARIO } from "@iris/sync/campo";
 import { Camera, Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Boton, Campo, Dialogo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
+import { useBorrador } from "../../campo/borradores";
 import { useCampo } from "../../campo/contexto";
 import { EstadoAdjunto, Miniatura, useTomarFoto } from "./Fotos";
 
@@ -120,9 +121,6 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
                         </Boton>
                     ))
                 )}
-                <Boton variante="fantasma" alPresionar={() => setAbierto(false)}>
-                    Volver
-                </Boton>
             </Dialogo>
         </>
     );
@@ -233,47 +231,77 @@ function ItemFoto({
     );
 }
 
+/**
+ * Texto, número o medición: se guarda solo al salir del campo y con el «Guardar» de la isla (sin
+ * botón por campo). Lo escrito y todavía sin guardar es un borrador (`useBorrador`).
+ */
 function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; editable: boolean; falta?: string | undefined; alGuardar: (v: string | number) => Promise<boolean> }) {
     const v = valorDe(item);
-    const [texto, setTexto] = useState(v === null ? "" : String(v));
+    const guardado = v === null ? "" : String(v);
+    const [texto, setTexto] = useState(guardado);
     const [error, setError] = useState<string | undefined>();
     const numerico = item.tipo === "numero" || item.tipo === "medicion";
-    const guardar = async () => {
+    // Un número escrito con coma («-18,5») es el mismo que el guardado (-18.5): no queda pendiente.
+    const leido = numerico ? esquemaNumeroItem.safeParse(texto) : null;
+    const enviado = useRef<string | number | null>(null);
+    const pendiente = editable && texto.trim() !== "" && (leido?.success ? leido.data !== v : texto.trim() !== guardado);
+    const guardar = async (): Promise<true | string> => {
+        let valor: string | number;
         if (numerico) {
             const r = esquemaNumeroItem.safeParse(texto);
             if (!r.success) {
-                setError(r.error.issues[0]?.message);
-                return;
+                const m = r.error.issues[0]?.message ?? "Escribe un número";
+                setError(m);
+                return m;
             }
-            setError(undefined);
-            await alGuardar(r.data);
-            return;
-        }
-        const t = texto.trim();
-        if (t === "" || t.length > 2000) {
-            setError(t === "" ? "Escribe el valor" : "Máximo 2000 caracteres");
-            return;
+            valor = r.data;
+        } else {
+            const t = texto.trim();
+            if (t === "" || t.length > 2000) {
+                const m = t === "" ? "Escribe el valor" : "Máximo 2000 caracteres";
+                setError(m);
+                return m;
+            }
+            valor = t;
         }
         setError(undefined);
-        await alGuardar(t);
+        // Salir del campo y tocar «Guardar» casi a la vez: el mismo valor se manda una sola vez.
+        if (enviado.current === valor) {
+            return true;
+        }
+        enviado.current = valor;
+        const ok = await alGuardar(valor);
+        if (!ok) {
+            enviado.current = null;
+        }
+        return ok ? true : "No se pudo guardar en el teléfono.";
     };
+    useBorrador(
+        `item-${item.formularioId ?? ""}-${item.itemId}`,
+        { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
+        pendiente,
+    );
     return (
         <>
             <Encabezado item={item} falta={falta} />
             <Campo
                 etiqueta={item.etiqueta}
                 valor={texto}
-                alCambiar={setTexto}
+                alCambiar={(t) => {
+                    setTexto(t);
+                    setError(undefined);
+                }}
+                onEndEditing={() => {
+                    if (pendiente) {
+                        void guardar();
+                    }
+                }}
                 editable={editable}
                 keyboardType={numerico ? "numbers-and-punctuation" : "default"}
                 sufijo={item.unidad}
                 error={error}
+                {...(pendiente ? { ayuda: "Sin guardar: se guarda al salir del campo o con «Guardar»." } : {})}
             />
-            {editable ? (
-                <Boton variante="secundario" etiqueta={`Guardar ${item.etiqueta}`} alPresionar={() => void guardar()}>
-                    Guardar
-                </Boton>
-            ) : null}
         </>
     );
 }

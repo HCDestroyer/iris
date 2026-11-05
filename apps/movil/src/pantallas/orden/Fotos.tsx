@@ -82,7 +82,8 @@ export function Miniatura({ id, alt }: { id: string; alt: string }) {
 }
 
 /** Fotos sueltas de la orden (evidencia), también en una orden cancelada. */
-export function FotosOrden({ orden }: { orden: OrdenVista }) {
+/** Fotos sueltas de la orden; `editable` en falso (orden en pausa) solo las muestra. */
+export function FotosOrden({ orden, editable = true }: { orden: OrdenVista; editable?: boolean }) {
     const { estado } = useCampo();
     const { tomar, procesando } = useTomarFoto();
     const delItem = new Set((orden.checklist ?? []).map((i) => String(i.valor)));
@@ -102,9 +103,11 @@ export function FotosOrden({ orden }: { orden: OrdenVista }) {
             ) : (
                 <Texto suave>Sin fotos todavía.</Texto>
             )}
-            <Boton variante="secundario" icono={Camera} cargando={procesando} alPresionar={() => void tomar({ ordenId: orden.id })}>
-                {procesando ? "Procesando foto…" : "Agregar foto"}
-            </Boton>
+            {editable ? (
+                <Boton variante="secundario" icono={Camera} cargando={procesando} alPresionar={() => void tomar({ ordenId: orden.id })}>
+                    {procesando ? "Procesando foto…" : "Agregar foto"}
+                </Boton>
+            ) : null}
         </Tarjeta>
     );
 }

@@ -207,7 +207,16 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
             <Boton variante="secundario" icono={CircleX} alPresionar={() => setAbierto(true)}>
                 No se pudo
             </Boton>
-            <Dialogo abierto={abierto} alCerrar={() => setAbierto(false)} titulo={`No se pudo hacer ${orden.numero}`} descripcion="Indica el motivo; despacho la reprogramará.">
+            <Dialogo
+                abierto={abierto}
+                alCerrar={() => {
+                    setAbierto(false);
+                    form.reset({ detalle: "" });
+                }}
+                cambios={form.formState.isDirty}
+                titulo={`No se pudo hacer ${orden.numero}`}
+                descripcion="Indica el motivo; despacho la reprogramará."
+            >
                 <Controller
                     control={form.control}
                     name="motivoFalla"
@@ -231,9 +240,6 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
                 />
                 <Boton cargando={form.formState.isSubmitting} alPresionar={() => void enviar()}>
                     Confirmar
-                </Boton>
-                <Boton variante="fantasma" alPresionar={() => setAbierto(false)}>
-                    Volver
                 </Boton>
             </Dialogo>
         </>

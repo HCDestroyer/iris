@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
-import { irAPaso, pestanaCampo } from "./ayudas-campo";
+import { avisoCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE, ordenesDelDia, PERMISOS_TECNICO } from "./datos-campo";
 
 /*
@@ -23,7 +23,7 @@ test.beforeEach(async ({ context, baseURL }, info) => {
 });
 
 const isla = (page: Page) => page.getByRole("navigation", { name: "Secciones de la app" });
-const notificacion = (page: Page) => page.locator('[data-slot="notificacion"]');
+const notificacion = (page: Page) => avisoCampo(page);
 
 /** Día `n` días después de hoy en Guatemala, a las `hora` (UTC) de ese día. */
 function diaMas(n: number, hora: string): string {

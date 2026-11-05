@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo, type ApiCampo } from "./api-campo";
-import { alResumen, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
+import { alResumen, avisoCampo, empezarTrabajo, irAPaso, pestanaCampo, type Paso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -82,7 +82,7 @@ async function sinSenal(context: BrowserContext, api: ApiCampo, sin: boolean) {
 }
 
 const operaciones = (api: ApiCampo) => api.lotes.flatMap((l) => l.operaciones ?? []);
-const notificacion = (page: Page) => page.locator('[data-slot="notificacion"]');
+const notificacion = (page: Page) => avisoCampo(page);
 
 test.describe("en el teléfono", () => {
     test.beforeEach(async ({ context, baseURL }, info) => {
@@ -165,7 +165,7 @@ test.describe("en el teléfono", () => {
         await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toContainText("No hay más formularios en el catálogo del teléfono.");
     });
 
-    test("pausa sin señal con motivo y nota, sigue con evidencia, muestra el tiempo pausado y reanuda", async ({ page, context }) => {
+    test("pausa sin señal con motivo y nota, deja los pasos de solo lectura, muestra el tiempo pausado y reanuda", async ({ page, context }) => {
         test.setTimeout(60_000);
         await page.clock.install({ time: new Date("2026-10-28T10:00:00-06:00") });
         const api = await simularApiCampo(page, { ordenes: ordenesConFormularios() });
@@ -182,19 +182,23 @@ test.describe("en el teléfono", () => {
         await dialogo.getByRole("button", { name: "Pausar" }).click();
 
         const pausada = page.getByTestId("orden-pausada");
-        await expect(pausada).toContainText("Orden pausada: Otro motivo");
+        await expect(pausada).toContainText("Orden en pausa: Otro motivo");
         await expect(pausada).toContainText("El cliente pidió volver después del almuerzo");
         await expect(page.locator('[data-slot="insignia-estado"]', { hasText: "Pausada" }).first()).toBeVisible();
         for (const nombre of ["No se pudo", "Llegué", "En camino", "Pausar"]) {
             await expect(page.getByRole("button", { name: nombre, exact: true })).toHaveCount(0);
         }
-        // Evidencia: el checklist y las notas siguen.
+        // En pausa no se registra trabajo: el checklist es de solo lectura, con «Orden en pausa» y
+        // «Reanudar» arriba, y el «Guardar» de la isla deshabilitado.
         await irAPaso(page, "Checklist");
-        await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
-        await expect(notificacion(page)).toContainText("«Señal restablecida» guardado");
+        await expect(page.getByTestId("orden-pausada")).toContainText("Orden en pausa: Otro motivo");
+        await expect(page.getByTestId("orden-pausada").getByRole("button", { name: "Reanudar" })).toBeVisible();
+        await expect(page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" })).toBeDisabled();
+        await expect(page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /^Guardar/ })).toBeDisabled();
         // Con la orden pausada no se cierra: el paso final lo dice.
         await irAPaso(page, "Firma del cliente y cierre");
-        await expect(page.getByText("La orden está pausada")).toBeVisible();
+        await expect(page.getByTestId("orden-pausada")).toBeVisible();
+        await expect(page.getByRole("button", { name: /Cerrar orden|Firmar y cerrar/ })).toHaveCount(0);
         await alResumen(page);
 
         await page.clock.fastForward("15:00");
@@ -204,7 +208,7 @@ test.describe("en el teléfono", () => {
         await expect(page.getByTestId("tiempo-pausado")).toContainText("Tiempo pausado en esta visita: 15 min");
 
         await sinSenal(context, api, false);
-        await expect.poll(() => operaciones(api).map((o) => o.tipo), { timeout: 15_000 }).toEqual(["orden.pausar", "checklist.marcar", "orden.reanudar"]);
+        await expect.poll(() => operaciones(api).map((o) => o.tipo), { timeout: 15_000 }).toEqual(["orden.pausar", "orden.reanudar"]);
         expect(api.ordenes.get(102)?.estado).toBe("en_sitio");
         expect(operaciones(api)[0]?.datos).toEqual({ motivo: "otro", nota: "El cliente pidió volver después del almuerzo" });
         // 15 min del reloj de Playwright (más lo poco que corre el reloj real durante la prueba).
@@ -297,9 +301,12 @@ test("capturas de formularios y pausa", async ({ page, context, baseURL }, info)
     );
     await simularApiCampo(page, { ordenes, plantillas: [INVENTARIO] });
     await abrirOrden(page, "OT-000102", null);
-    await expect(page.getByTestId("orden-pausada")).toContainText("Orden pausada: Esperando material");
+    await expect(page.getByTestId("orden-pausada")).toContainText("Orden en pausa: Esperando material");
     await page.screenshot({ path: nombre("01-pausada"), fullPage: true });
     await irAPaso(page, "Checklist");
+    // En pausa el checklist es de solo lectura: para agregar un formulario, primero se reanuda.
+    await expect(page.getByRole("button", { name: "Agregar formulario" })).toHaveCount(0);
+    await page.getByTestId("orden-pausada").getByRole("button", { name: "Reanudar" }).click();
     await page.getByRole("button", { name: "Agregar formulario" }).click();
     await expect(page.getByRole("dialog", { name: "Agregar formulario" })).toBeVisible();
     await page.screenshot({ path: nombre("02-agregar") });

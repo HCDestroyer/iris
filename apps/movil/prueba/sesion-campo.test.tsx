@@ -10,7 +10,7 @@ import { CLAVE_RASTREO, claveExplicacion, clavePausaManual, leerMarca, type GpsF
 import { AppCampo, type DependenciasCampo } from "../src/pantallas/AppCampo";
 import { RecuperarError } from "../src/pantallas/RecuperarError";
 import type { SesionCampo } from "../src/sesion/sesion";
-import { ProveedorTema } from "../src/tema/tema";
+import { TemaDePrueba } from "./raiz";
 import { clavesMemoria } from "./preparar";
 import { InventarioFalso } from "./arnes";
 
@@ -88,7 +88,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
     function Arnes() {
         const [dentro, setDentro] = useState(true);
         return (
-            <ProveedorTema>
+            <TemaDePrueba>
                 {dentro ? (
                     <AppCampo
                         sesion={sesion}
@@ -106,7 +106,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
                 ) : (
                     <Text>Fuera</Text>
                 )}
-            </ProveedorTema>
+            </TemaDePrueba>
         );
     }
     await render(<Arnes />);
@@ -234,11 +234,11 @@ describe("pantalla de error de la raíz", () => {
         }
         const errorConsola = jest.spyOn(console, "error").mockImplementation(() => undefined);
         await render(
-            <ProveedorTema>
+            <TemaDePrueba>
                 <RecuperarError claves={() => claves} gps={{ detener }}>
                     <Fragil />
                 </RecuperarError>
-            </ProveedorTema>,
+            </TemaDePrueba>,
         );
         expect(await screen.findByTestId("pantalla-error")).toHaveTextContent(/se apagó la ubicación/);
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { alResumen, empezarTrabajo, firmarEn, irAPaso } from "./ayudas-campo";
+import { alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarPaso, irAPaso } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -126,9 +126,9 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     // Checklist: sí/no, medición, foto y texto.
     await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
     await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
-    await page.getByRole("button", { name: "Guardar Potencia óptica" }).click();
+    await guardarPaso(page);
     await page.getByLabel("Tomar foto: Foto de la fachada").setInputFiles(FOTO);
-    await expect(page.getByText(/^Foto guardada/)).toBeVisible();
+    await expect(avisoCampo(page)).toContainText("Foto guardada");
     await expect(page.getByRole("img", { name: "Foto de la fachada" })).toBeVisible();
     await expect(page.getByText("Por subir").first()).toBeVisible();
 

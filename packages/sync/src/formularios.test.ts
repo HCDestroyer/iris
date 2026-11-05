@@ -181,7 +181,7 @@ describe("formularios sin señal (orden.agregar_formulario / quitar_formulario)"
 });
 
 describe("pausa (orden.pausar / orden.reanudar)", () => {
-    it("pausa desde en sitio, bloquea cerrar/fallar/llegar/salir, admite evidencia y reanuda donde estaba", async () => {
+    it("pausa desde en sitio, bloquea cerrar/fallar/llegar/salir y el trabajo, admite notas y reanuda donde estaba", async () => {
         const { motor, transporte, reloj } = await conFormularios();
         transporte.ordenes.set(1, { version: 1, estado: "en_sitio" });
         transporte.sinRed = true;
@@ -196,9 +196,20 @@ describe("pausa (orden.pausar / orden.reanudar)", () => {
             await expect(motor.registrar(tipo, 1, tipo === "orden.fallar" ? { motivoFalla: "clima" } : {})).rejects.toMatchObject({ codigo: "orden_pausada" });
         }
         await expect(motor.registrar("orden.pausar", 1, { motivo: "clima" })).rejects.toMatchObject({ codigo: "orden_pausada" });
+        // En pausa no se registra trabajo: checklist, formularios, materiales, equipos ni firma.
+        const trabajo: [Parameters<typeof motor.registrar>[0], unknown][] = [
+            ["checklist.marcar", { itemId: 1, valor: true }],
+            ["material.usar", { productoId: 900, cantidad: 2 }],
+            ["equipo.instalar", { serie: "ZTE-1" }],
+            ["equipo.retirar", { serie: "ZTE-2" }],
+            ["firma.capturar", { adjuntoId: "0190f0f0-0000-7000-8000-000000000001", nombre: "Ana" }],
+            ["orden.agregar_formulario", { plantillaId: 9 }],
+            ["orden.quitar_formulario", { formularioId: "0190f0f0-0000-7000-8000-000000000002" }],
+        ];
+        for (const [tipo, datos] of trabajo) {
+            await expect(motor.registrar(tipo, 1, datos as never)).rejects.toMatchObject({ codigo: "orden_pausada" });
+        }
         await motor.registrar("nota.agregar", 1, { texto: "espero el conector" });
-        await motor.registrar("checklist.marcar", 1, { itemId: 1, valor: true });
-        await motor.registrar("material.usar", 1, { productoId: 900, cantidad: 2 });
 
         reloj.fijar(reloj.ahora() + 15 * 60_000);
         expect(segundosPausada(motor.obtenerOrden(1) ?? ordenDePrueba(1), reloj.ahora())).toBe(900);
@@ -212,8 +223,6 @@ describe("pausa (orden.pausar / orden.reanudar)", () => {
         expect(transporte.lotes.at(-1)?.operaciones?.map((o) => o.tipo)).toEqual([
             "orden.pausar",
             "nota.agregar",
-            "checklist.marcar",
-            "material.usar",
             "orden.reanudar",
         ]);
         expect(motor.obtenerOrden(1)).toMatchObject({ estado: "en_sitio", pendientes: 0 });

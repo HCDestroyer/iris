@@ -30,12 +30,24 @@ export const ESTADOS_TERMINALES: ReadonlySet<EstadoOrden> = new Set<EstadoOrden>
 /** Estados desde los que se puede pausar (y a los que vuelve al reanudar). */
 export const ESTADOS_PAUSABLES: ReadonlySet<EstadoOrden> = new Set<EstadoOrden>(["en_camino", "en_sitio"]);
 
-/** Con la orden pausada, la API responde 422 `orden_pausada` a estas (primero `orden.reanudar`). */
+/**
+ * Con la orden pausada, la API responde 422 `orden_pausada` a estas (primero `orden.reanudar`): no
+ * se sale, llega, cierra ni falla, y tampoco se registra trabajo (checklist, formularios,
+ * materiales, equipos, firma). Notas y adjuntos sí (evidencia), como en una cancelada
+ * (`contratos/sync.md` §3).
+ */
 export const TIPOS_BLOQUEADOS_EN_PAUSA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>([
     "orden.iniciar_camino",
     "orden.llegar",
     "orden.cerrar",
     "orden.fallar",
+    "checklist.marcar",
+    "material.usar",
+    "equipo.instalar",
+    "equipo.retirar",
+    "firma.capturar",
+    "orden.agregar_formulario",
+    "orden.quitar_formulario",
 ]);
 
 /** Segundos que la orden lleva pausada en total: las pausas terminadas más la que sigue en curso. */

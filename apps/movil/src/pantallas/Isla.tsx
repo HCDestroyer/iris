@@ -4,13 +4,32 @@
 // la barra discreta de la fase 4): sin señal con algo por enviar, un rechazo, la sesión vencida o
 // la empresa no válida. El «+» abre la hoja de acciones rápidas con lo que ya tiene API.
 import type { PlantillaFormulario } from "@iris/sync";
-import { accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, type Pestana } from "@iris/sync/campo";
-import { Building2, CalendarClock, CalendarDays, CloudUpload, FilePlus2, House, KeyRound, PackageOpen, Plus, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react-native";
+import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, type PasoOrden, type Pestana } from "@iris/sync/campo";
+import {
+    ArrowLeft,
+    ArrowRight,
+    Building2,
+    CalendarClock,
+    CalendarDays,
+    CloudUpload,
+    FilePlus2,
+    House,
+    KeyRound,
+    PackageOpen,
+    Plus,
+    Save,
+    TriangleAlert,
+    UserRound,
+    WifiOff,
+    type LucideIcon,
+} from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto, Tocable } from "../componentes";
-import { useCampo } from "../campo/contexto";
+import { useGuardarPaso, useSinGuardar } from "../campo/borradores";
+import { useCampo, useOrden } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario } from "../campo/inventario";
+import { navegacionPaso } from "../campo/pasos";
 import { useTema } from "../tema/tema";
 
 const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
@@ -66,6 +85,73 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
             {/* Se monta al abrir: cada vez empieza sin elegir (con una sola orden, ya elegida). */}
             {acciones ? <HojaAcciones alCerrar={() => setAcciones(false)} /> : null}
         </>
+    );
+}
+
+/**
+ * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» y «Siguiente»
+ * redondos y un solo botón primario «Guardar» al centro, que guarda lo escrito y todavía sin guardar
+ * de todo el paso (con su contador) y avisa qué pasó. Lo demás ya se guardó al hacerlo. Pasar de paso
+ * también guarda primero (si algo no valida, se queda y lo dice). Con la orden en pausa, «Guardar»
+ * está deshabilitado: no hay trabajo que registrar.
+ */
+export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: PasoOrden; encogida: boolean; abajo: number }) {
+    const { navegar } = useCampo();
+    const orden = useOrden(id);
+    const { campo, colores } = useTema();
+    const { guardar, guardando } = useGuardarPaso();
+    const sinGuardar = useSinGuardar();
+    if (!orden) {
+        return null;
+    }
+    const nav = navegacionPaso(orden, paso);
+    const enPausa = accionesDe(orden).enPausa;
+    const tamano = encogida ? 44 : 54;
+    const ir = async (vista: Parameters<typeof navegar>[0]) => {
+        if (await guardar({ silencioso: true })) {
+            navegar(vista);
+        }
+    };
+    return (
+        <View pointerEvents="box-none" style={[estilos.contenedor, { bottom: abajo + (encogida ? 12 : 24) }]}>
+            <View
+                accessibilityLabel="Pasos"
+                testID="barra-pasos"
+                style={[estilos.isla, { padding: encogida ? 4 : 6, gap: encogida ? 4 : 6, backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}
+            >
+                <BotonRedondo
+                    icono={ArrowLeft}
+                    etiqueta={nav.anterior.texto}
+                    tamano={tamano}
+                    fondo={campo.panel2}
+                    tinta={colores.texto}
+                    testID="paso-anterior"
+                    alPresionar={() => void ir(nav.anterior.vista)}
+                />
+                <Boton
+                    icono={Save}
+                    cargando={guardando}
+                    deshabilitado={enPausa}
+                    etiqueta={sinGuardar > 0 ? `Guardar (${sinGuardar} sin guardar)` : "Guardar"}
+                    testID="guardar-paso"
+                    alPresionar={() => void guardar()}
+                    estilo={[estilos.guardar, { minHeight: tamano }]}
+                >
+                    {sinGuardar > 0 ? `Guardar · ${sinGuardar}` : "Guardar"}
+                </Boton>
+                {nav.siguiente ? (
+                    <BotonRedondo
+                        icono={ArrowRight}
+                        etiqueta={nav.siguiente.texto}
+                        tamano={tamano}
+                        fondo={campo.panel2}
+                        tinta={colores.texto}
+                        testID="paso-siguiente"
+                        alPresionar={() => nav.siguiente && void ir(nav.siguiente.vista)}
+                    />
+                ) : null}
+            </View>
+        </View>
     );
 }
 
@@ -154,7 +240,7 @@ function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
     };
 
     return (
-        <Dialogo abierto alCerrar={alCerrar} titulo="Acciones rápidas">
+        <Dialogo abierto alCerrar={alCerrar} titulo="Acciones rápidas" cambios={plantillaId !== null && !ocupado}>
             {r.formulario ? (
                 <View testID="accion-formulario" style={[estilos.accion, { backgroundColor: campo.panel2 }]}>
                     <View style={estilos.filaAccion}>
@@ -169,7 +255,7 @@ function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
                         </View>
                     </View>
                     {ordenes.length === 0 ? (
-                        <Texto suave>Ninguna orden en camino, en sitio o pausada: empieza una para agregarle un formulario.</Texto>
+                        <Texto suave>Ninguna orden en camino o en sitio: empieza una (o reanuda la pausada) para agregarle un formulario.</Texto>
                     ) : (
                         <>
                             {ordenes.length > 1 ? (
@@ -220,9 +306,6 @@ function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
                 </View>
                 <Insignia tono="neutral" icono={CalendarClock} texto={r.tarea.motivo} />
             </View>
-            <Boton variante="fantasma" alPresionar={alCerrar}>
-                Cerrar
-            </Boton>
         </Dialogo>
     );
 }
@@ -262,4 +345,5 @@ const estilos = StyleSheet.create({
     iconoAccion: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
     tituloAccion: { fontSize: 15, fontWeight: "600" },
     redondeado: { borderRadius: 999 },
+    guardar: { borderRadius: 999, minWidth: 150, paddingHorizontal: 20 },
 });

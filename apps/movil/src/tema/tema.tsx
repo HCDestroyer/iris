@@ -12,8 +12,9 @@ const ContextoTema = createContext<Tema>(crearTema(false));
 const CONFIG_HEROUI: HeroUINativeConfig = {
     // Sin el aviso de estilos de HeroUI en la consola (es para quien empieza con la librería).
     devInfo: { stylingPrinciples: false },
-    // Avisos emergentes: los de la app (`notificacion` del marco), con su lugar sobre la barra.
-    toast: false,
+    // Avisos emergentes: el `Toast` de HeroUI Native, que entra y sale desde arriba (con su
+    // animación y deslizar para cerrarlo). El marco decide cuál se ve (`AvisoEmergente`).
+    toast: { defaultProps: { placement: "top", isSwipeable: true }, insets: { top: 8, left: 14, right: 14 }, maxVisibleToasts: 1 },
     // Textos que crecen con el tamaño de letra del teléfono, con tope para que la barra no se rompa.
     textProps: { maxFontSizeMultiplier: 1.6 },
 };

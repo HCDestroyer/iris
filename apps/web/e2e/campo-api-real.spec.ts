@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { entrar } from "./ayudas";
-import { empezarTrabajo, irAPaso } from "./ayudas-campo";
+import { empezarTrabajo, guardarPaso, irAPaso } from "./ayudas-campo";
 
 /*
  * Recorrido completo contra la API Go real (opcional, fuera de CI): IRIS_E2E_API_REAL=1 con la
@@ -64,8 +64,8 @@ test("OT de instalación de la semilla, sin conexión y de vuelta, contra la API
         ["Prueba de velocidad de bajada", "98"],
     ] as const) {
         await page.getByRole("textbox", { name: nombre, exact: true }).fill(valor);
-        await page.getByRole("button", { name: `Guardar ${nombre}`, exact: true }).click();
     }
+    await guardarPaso(page);
     await page.getByLabel("Tomar foto: Foto de la ONU instalada").setInputFiles(FOTO);
     await expect(page.getByRole("button", { name: "Cambiar foto: Foto de la ONU instalada" })).toBeVisible();
     await irAPaso(page, "Materiales y equipos");

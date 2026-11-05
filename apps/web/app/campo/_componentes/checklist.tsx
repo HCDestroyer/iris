@@ -4,9 +4,6 @@ import { formularioConRespuestas, valorDe, type FormularioOrden, type ItemCheckl
 import {
     Boton,
     Camara,
-    Dialogo,
-    DialogoContenido,
-    DialogoPie,
     Entrada,
     Etiqueta,
     GrupoSegmentado,
@@ -19,10 +16,12 @@ import {
     TarjetaTitulo,
 } from "@iris/ui";
 import { Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { esquemaNumeroItem } from "@/lib/campo/esquemas";
 import { faltantesPorFormulario, ORIGENES_FORMULARIO } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
+import { useBorrador } from "./borradores";
+import { HojaCampo } from "./hoja";
 import { EstadoAdjunto, Miniatura, useTomarFoto } from "./fotos";
 
 /** Clave de un ítem que falta para cerrar (`<formularioId>:<código>`). */
@@ -166,12 +165,12 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
         }
     };
     return (
-        <Dialogo open={abierto} onOpenChange={setAbierto}>
+        <>
             <Boton variante="secundario" tamano="lg" onClick={() => setAbierto(true)}>
                 <FilePlus2 aria-hidden />
                 Agregar formulario
             </Boton>
-            <DialogoContenido titulo="Agregar formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
+            <HojaCampo abierto={abierto} alCambiar={setAbierto} titulo="Agregar formulario" descripcion="Elige uno del catálogo. Se guarda en el teléfono y se envía al volver la señal.">
                 {disponibles.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No hay más formularios en el catálogo del teléfono.</p>
                 ) : (
@@ -191,13 +190,8 @@ function AgregarFormulario({ orden, disponibles }: { orden: OrdenVista; disponib
                         ))}
                     </ul>
                 )}
-                <DialogoPie>
-                    <Boton tamano="lg" variante="fantasma" onClick={() => setAbierto(false)}>
-                        Volver
-                    </Boton>
-                </DialogoPie>
-            </DialogoContenido>
-        </Dialogo>
+            </HojaCampo>
+        </>
     );
 }
 
@@ -232,7 +226,8 @@ function ItemFila({ orden, item, editable, falta }: { orden: OrdenVista; item: I
                     <Encabezado item={item} falta={falta} />
                     <GrupoSegmentado
                         etiqueta={item.etiqueta}
-                        className={editable ? "w-full" : "pointer-events-none w-full opacity-70"}
+                        deshabilitado={!editable}
+                        className={editable ? "w-full" : "w-full opacity-70"}
                         opciones={[
                             { valor: "si", etiqueta: "Sí", icono: Check },
                             { valor: "no", etiqueta: "No", icono: X },
@@ -343,6 +338,10 @@ function ItemSeleccion({
     );
 }
 
+/**
+ * Texto, número o medición: se guarda solo al salir del campo y con el «Guardar» de la isla (sin
+ * botón por campo). Lo escrito y todavía sin guardar es un borrador (`useBorrador`).
+ */
 function ItemValor({
     item,
     editable,
@@ -355,29 +354,52 @@ function ItemValor({
     alGuardar: (v: string | number) => Promise<boolean>;
 }) {
     const idCampo = useId();
+    const idAyuda = useId();
     const v = valorDe(item);
-    const [texto, setTexto] = useState(v === null ? "" : String(v));
+    const guardado = v === null ? "" : String(v);
+    const [texto, setTexto] = useState(guardado);
     const [error, setError] = useState<string | undefined>();
     const numerico = item.tipo === "numero" || item.tipo === "medicion";
-    const guardar = async () => {
+    // Un número escrito con coma («-18,5») es el mismo que el guardado (-18.5): no queda pendiente.
+    const leido = numerico ? esquemaNumeroItem.safeParse(texto) : null;
+    const enviado = useRef<string | number | null>(null);
+    const pendiente = editable && texto.trim() !== "" && (leido?.success ? leido.data !== v : texto.trim() !== guardado);
+    const guardar = async (): Promise<true | string> => {
+        let valor: string | number;
         if (numerico) {
             const r = esquemaNumeroItem.safeParse(texto);
             if (!r.success) {
-                setError(r.error.issues[0]?.message);
-                return;
+                const m = r.error.issues[0]?.message ?? "Escribe un número";
+                setError(m);
+                return m;
             }
-            setError(undefined);
-            await alGuardar(r.data);
-            return;
-        }
-        const t = texto.trim();
-        if (t === "" || t.length > 2000) {
-            setError(t === "" ? "Escribe el valor" : "Máximo 2000 caracteres");
-            return;
+            valor = r.data;
+        } else {
+            const t = texto.trim();
+            if (t === "" || t.length > 2000) {
+                const m = t === "" ? "Escribe el valor" : "Máximo 2000 caracteres";
+                setError(m);
+                return m;
+            }
+            valor = t;
         }
         setError(undefined);
-        await alGuardar(t);
+        // Salir del campo y tocar «Guardar» casi a la vez: el mismo valor se manda una sola vez.
+        if (enviado.current === valor) {
+            return true;
+        }
+        enviado.current = valor;
+        const ok = await alGuardar(valor);
+        if (!ok) {
+            enviado.current = null;
+        }
+        return ok ? true : "No se pudo guardar en el teléfono.";
     };
+    useBorrador(
+        `item-${item.formularioId ?? ""}-${item.itemId}`,
+        { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
+        pendiente,
+    );
     return (
         <>
             <Encabezado item={item} falta={falta} />
@@ -385,28 +407,36 @@ function ItemValor({
                 <Etiqueta htmlFor={idCampo} className="sr-only">
                     {item.etiqueta}
                 </Etiqueta>
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Entrada
-                            id={idCampo}
-                            value={texto}
-                            disabled={!editable}
-                            onChange={(e) => setTexto(e.target.value)}
-                            inputMode={numerico ? "decimal" : "text"}
-                            aria-invalid={error ? true : undefined}
-                            className={item.unidad ? "pr-14" : undefined}
-                        />
-                        {item.unidad ? (
-                            <span className="pointer-events-none absolute inset-y-0 right-3 grid place-content-center text-sm text-muted-foreground">{item.unidad}</span>
-                        ) : null}
-                    </div>
-                    {editable ? (
-                        <Boton tamano="lg" variante="secundario" onClick={() => void guardar()} aria-label={`Guardar ${item.etiqueta}`}>
-                            Guardar
-                        </Boton>
-                    ) : null}
+                <div className="relative">
+                    <Entrada
+                        id={idCampo}
+                        value={texto}
+                        disabled={!editable}
+                        onChange={(e) => {
+                            setTexto(e.target.value);
+                            setError(undefined);
+                        }}
+                        onBlur={() => {
+                            if (pendiente) {
+                                void guardar();
+                            }
+                        }}
+                        inputMode={numerico ? "decimal" : "text"}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={pendiente || error ? idAyuda : undefined}
+                        className={item.unidad ? "pr-14" : undefined}
+                    />
+                    {item.unidad ? <span className="pointer-events-none absolute inset-y-0 right-3 grid place-content-center text-sm text-muted-foreground">{item.unidad}</span> : null}
                 </div>
-                {error ? <p className="text-sm text-error">{error}</p> : null}
+                {error ? (
+                    <p id={idAyuda} className="text-sm text-error">
+                        {error}
+                    </p>
+                ) : pendiente ? (
+                    <p id={idAyuda} className="text-xs text-muted-foreground" data-slot="sin-guardar">
+                        Sin guardar: se guarda al salir del campo o con «Guardar».
+                    </p>
+                ) : null}
             </div>
         </>
     );

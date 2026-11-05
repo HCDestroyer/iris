@@ -9,6 +9,7 @@ import { obtenerPosicion, type Posicion } from "@/lib/campo/gps";
 import { useEstadoPosiciones } from "@/lib/campo/motor";
 import type { AvisoTurno, EstadoUbicacion, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import { useCampo, type Notificacion } from "./contexto";
+import { useAtrasCierraHoja } from "./hoja";
 
 /** Aviso cada vez que el turno empieza solo («En camino» / «Llegué» o el inicio de un tramo de la agenda). */
 export const AVISO_TURNO_INICIADO = "Turno iniciado: se envía tu ubicación cada minuto";
@@ -222,11 +223,14 @@ export function ProveedorUbicacion({
         [estado, envio, iniciarTurno, turnoEmpezariaSolo, iniciarTurnoSolo, terminarTurno, posicionParaAccion, posicionSiPermitida],
     );
 
+    // «Atrás» del navegador cierra la explicación como «Ahora no» (no navega debajo).
+    useAtrasCierraHoja(explicando, () => void cerrarExplicacion(false));
+
     return (
         <Contexto.Provider value={valor}>
             {children}
             <Dialogo open={explicando} onOpenChange={(abierto) => !abierto && void cerrarExplicacion(false)}>
-                <DialogoContenido titulo="¿Compartir tu ubicación?" descripcion="Antes de que el teléfono te lo pregunte, esto es para qué la usa Iris.">
+                <DialogoContenido className="campo-hoja" titulo="¿Compartir tu ubicación?" descripcion="Antes de que el teléfono te lo pregunte, esto es para qué la usa Iris.">
                     <ul className="grid list-disc gap-1.5 pl-5 text-sm">
                         <li>Registrar dónde marcas «En camino», «Llegué», las fotos y el cierre.</li>
                         <li>Mientras estás en turno y la app está abierta, enviar tu ubicación cada minuto a despacho.</li>
@@ -303,6 +307,7 @@ function PanelUbicacion({
     const r = resumenUbicacion(estado);
     const [pidiendo, setPidiendo] = useState(false);
     const esperaServidor = envio.esperaHasta;
+    useAtrasCierraHoja(abierto, () => alCambiar(false));
 
     return (
         <Dialogo open={abierto} onOpenChange={alCambiar}>

@@ -2,17 +2,17 @@
 
 import { ErrorTransporte } from "@iris/sync";
 import { DESPLAZAMIENTO_INICIAL, desplazar } from "@iris/sync/campo";
-import { Aviso, Boton, cn } from "@iris/ui";
-import { CircleCheck, Info, TriangleAlert, X } from "lucide-react";
+import { avisar, Aviso, Boton, cerrarAviso, ProveedorAvisosEmergentes } from "@iris/ui";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
 import { AgendaDia, AgendaSemana } from "./agenda";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
-import { BarraCompacta, EncabezadoCampo } from "./encabezado";
+import { BarraCompacta, EncabezadoCampo, FranjaSuperior } from "./encabezado";
 import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
-import { AvisoIsla, IslaMenu } from "./isla";
+import { ProveedorBorradores } from "./borradores";
+import { AvisoIsla, IslaMenu, IslaPasos } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
@@ -54,60 +54,37 @@ function useDesplazamiento(encabezado: RefObject<HTMLElement | null>) {
     return estado;
 }
 
-const ICONO_AVISO = { error: TriangleAlert, warning: TriangleAlert, success: CircleCheck, info: Info, neutral: Info } as const;
-
-const FONDO_ICONO_AVISO = {
-    error: "bg-[var(--campo-error-fondo)] text-error",
-    warning: "bg-[var(--campo-aviso-fondo)] text-warning",
-    success: "bg-[var(--campo-marca-suave)] text-[var(--campo-marca-suave-texto)]",
-    info: "bg-[var(--campo-info-fondo)] text-info",
-    neutral: "bg-[var(--campo-panel-2)] text-muted-foreground",
-} as const;
-
-/** Aviso que entra desde arriba, con su acción («Deshacer», «Revisar») si la tiene. */
-function NotificacionArriba() {
+/**
+ * El aviso que entra desde arriba (`notificacion` del contexto): el `Toast` de HeroUI
+ * (`avisar` de `@iris/ui`), con su animación de entrada y salida, la acción («Deshacer»,
+ * «Revisar») si la tiene y su «X». Uno a la vez: el nuevo reemplaza al anterior; el tiempo lo lleva
+ * el contexto (5 s; 8 s con acción).
+ */
+function AvisoDelMarco() {
     const { notificacion, cerrarNotificacion } = useCampo();
-    const Icono = notificacion ? ICONO_AVISO[notificacion.tono] : Info;
-    return (
-        <div aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+0.875rem)] z-50 mx-auto w-full max-w-2xl px-3.5">
-            {notificacion ? (
-                <div
-                    key={notificacion.texto}
-                    data-slot="notificacion"
-                    data-tono={notificacion.tono}
-                    className={cn(
-                        "campo-entra-arriba pointer-events-auto flex items-center gap-3 rounded-[1.375rem] border bg-[var(--campo-panel)] p-3 text-sm font-medium shadow-[var(--campo-sombra-isla)]",
-                        notificacion.tono === "error"
-                            ? "border-[var(--campo-error-borde)] text-error"
-                            : notificacion.tono === "warning"
-                              ? "border-[var(--campo-aviso-borde)] text-foreground"
-                              : "border-border text-foreground",
-                    )}
-                >
-                    <span aria-hidden className={cn("grid size-10 shrink-0 place-content-center rounded-full", FONDO_ICONO_AVISO[notificacion.tono])}>
-                        <Icono className="size-5" />
-                    </span>
-                    <span className="min-w-0 flex-1">{notificacion.texto}</span>
-                    {notificacion.accion ? (
-                        <Boton
-                            tamano="lg"
-                            className="shrink-0 rounded-full bg-[var(--campo-tinta)] px-3.5 text-[0.8125rem] text-[var(--campo-sobre-tinta)] shadow-none"
-                            onClick={() => {
-                                notificacion.accion?.alPresionar();
-                                cerrarNotificacion();
-                            }}
-                        >
-                            {notificacion.accion.texto}
-                        </Boton>
-                    ) : (
-                        <Boton variante="fantasma" tamano="icono" aria-label="Cerrar aviso" className="size-11 shrink-0 rounded-full md:size-11" onClick={cerrarNotificacion}>
-                            <X aria-hidden />
-                        </Boton>
-                    )}
-                </div>
-            ) : null}
-        </div>
-    );
+    useEffect(() => {
+        if (!notificacion) {
+            return;
+        }
+        const id = avisar({
+            tono: notificacion.tono,
+            titulo: notificacion.texto,
+            duracion: 0,
+            ...(notificacion.accion
+                ? {
+                      accion: {
+                          texto: notificacion.accion.texto,
+                          alPresionar: () => {
+                              notificacion.accion?.alPresionar();
+                              cerrarNotificacion();
+                          },
+                      },
+                  }
+                : {}),
+        });
+        return () => cerrarAviso(id);
+    }, [notificacion, cerrarNotificacion]);
+    return <ProveedorAvisosEmergentes ubicacion="top" className="campo-avisos" />;
 }
 
 /**
@@ -137,8 +114,11 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const encabezado = useRef<HTMLElement | null>(null);
     const desplazamiento = useDesplazamiento(encabezado);
     useAvisoDeRechazos();
-    // Los pasos de la orden llevan su propia barra abajo («Anterior» / «Siguiente»): sin isla.
-    const conIsla = !(vista.tipo === "orden" && vista.paso !== undefined);
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma
+    // y el cierre, su botón al pie.
+    const paso = vista.tipo === "orden" ? vista.paso : undefined;
+    const conIsla = paso === undefined;
+    const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
 
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const { envio } = useUbicacion();
@@ -248,7 +228,9 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const nombreEmpresa = sesion.empresas.find((e) => e.id === empresa)?.nombre;
 
     return (
+        <ProveedorBorradores>
         <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
+            <FranjaSuperior />
             <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} />
             <BarraCompacta visible={desplazamiento.compacto} />
             {estado.conexion === "sin_sesion" ? (
@@ -302,9 +284,11 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     <ListaOrdenes carga={carga} bajarPaquete={bajarPaquete} />
                 )}
             </main>
-            <NotificacionArriba />
-            <AvisoIsla alto={vista.tipo !== "orden" || vista.paso !== "cierre"} pedirEmpresa={pedirEmpresa} />
+            <AvisoDelMarco />
+            <AvisoIsla alto={conIsla || conIslaPasos} pedirEmpresa={pedirEmpresa} />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} /> : null}
+            {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} /> : null}
         </div>
+        </ProveedorBorradores>
     );
 }

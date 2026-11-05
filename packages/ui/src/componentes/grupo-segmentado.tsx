@@ -18,6 +18,8 @@ export type PropsGrupoSegmentado<V extends string> = {
     opciones: readonly OpcionSegmentada<V>[];
     valor: V | undefined;
     alCambiar: (valor: V) => void;
+    /** Solo lectura (p. ej. una orden en pausa): se ve la elegida, nada se puede cambiar. */
+    deshabilitado?: boolean;
     className?: string;
 };
 
@@ -28,7 +30,7 @@ const FLECHAS = new Set(["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Hom
  * selección única (`role="radiogroup"`, cada opción `role="radio"`). Como un grupo de radios, las
  * flechas mueven y eligen; siempre queda una elegida.
  */
-export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, alCambiar, className }: PropsGrupoSegmentado<V>) {
+export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, alCambiar, deshabilitado = false, className }: PropsGrupoSegmentado<V>) {
     // React Aria mueve el foco con las flechas; la opción que lo recibe así queda elegida.
     const conFlechas = useRef(false);
     return (
@@ -37,6 +39,7 @@ export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, a
             data-slot="grupo-segmentado"
             selectionMode="single"
             disallowEmptySelection
+            isDisabled={deshabilitado}
             selectedKeys={valor !== undefined ? [valor] : []}
             onSelectionChange={(claves) => {
                 const [elegida] = [...claves];
@@ -58,7 +61,7 @@ export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, a
                             evento.continuePropagation();
                         }}
                         onFocus={() => {
-                            if (conFlechas.current && opcion.valor !== valor) alCambiar(opcion.valor);
+                            if (conFlechas.current && !deshabilitado && opcion.valor !== valor) alCambiar(opcion.valor);
                             conFlechas.current = false;
                         }}
                         render={(dom) => <button {...(dom as ComponentProps<"button">)} title={opcion.soloIcono ? opcion.etiqueta : undefined} />}

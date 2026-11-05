@@ -1,13 +1,15 @@
 "use client";
 
-import { buscarOrdenes, CHIPS_DIA, chipDe, citasDelDia, esVistaDeDia, fechaEncabezado, iniciales, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, urlDeVista, type ChipDia } from "@iris/sync/campo";
-import { Boton, Campo, Dialogo, DialogoContenido, cn } from "@iris/ui";
+import { buscarOrdenes, CHIPS_DIA, chipDe, ESPERA_BUSQUEDA_MS, citasDelDia, esVistaDeDia, fechaEncabezado, iniciales, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, urlDeVista, type ChipDia } from "@iris/sync/campo";
+import { Boton, Campo, cn } from "@iris/ui";
 import { ChevronRight, Search } from "lucide-react";
 import { forwardRef, useMemo, useState, type MouseEvent } from "react";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { useAgenda } from "./agenda-datos";
 import { PuntoConexion } from "./barra-conexion";
 import { useCampo } from "./contexto";
+import { HojaCampo } from "./hoja";
+import { useDemorado } from "./teclado";
 import { InsigniaOrden } from "./insignias";
 import { IndicadorUbicacion } from "./ubicacion";
 
@@ -110,8 +112,9 @@ function ChipsDia() {
 }
 
 /**
- * Barra compacta: vuelve arriba al subir con el encabezado fuera de vista (al bajar se va). Fecha
- * con el punto de conexión, el saludo corto, buscar y la cuenta.
+ * Barra compacta: entra desde arriba al subir con el encabezado fuera de vista; al bajar se va
+ * deslizándose entera. El saludo corto, buscar y la cuenta. La franja bajo la barra de estado del
+ * teléfono (`FranjaSuperior`) es sólida: el contenido nunca se ve detrás de la hora.
  */
 export function BarraCompacta({ visible }: { visible: boolean }) {
     const { sesion } = useCampo();
@@ -120,9 +123,12 @@ export function BarraCompacta({ visible }: { visible: boolean }) {
             data-slot="barra-compacta"
             aria-hidden={!visible}
             inert={!visible}
+            data-visible={visible ? "true" : "false"}
             className={cn(
-                "campo-suave fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl border-b border-border bg-[var(--campo-panel)] px-[1.125rem] pt-[env(safe-area-inset-top)] shadow-[var(--campo-sombra)]",
-                visible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0",
+                // Sólida siempre (el panel del tema) y solo se desliza: nunca queda a medio
+                // transparentar sobre el contenido. Oculta, sube entera (con su sombra) fuera de vista.
+                "campo-desliza fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl border-b border-border bg-[var(--campo-panel)] px-[1.125rem] pt-[env(safe-area-inset-top)] shadow-[var(--campo-sombra)]",
+                visible ? "translate-y-0" : "pointer-events-none -translate-y-[calc(100%+2.5rem)]",
             )}
         >
             <div className="flex items-center justify-between gap-3 py-2">
@@ -135,28 +141,42 @@ export function BarraCompacta({ visible }: { visible: boolean }) {
     );
 }
 
-/** Busca entre las órdenes del teléfono (número, cliente o dirección); funciona sin señal. */
+/** Franja sólida bajo la barra de estado del teléfono (PWA instalada, `viewport-fit=cover`). */
+export function FranjaSuperior() {
+    return <div aria-hidden data-slot="franja-superior" className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-[var(--campo-lienzo)]" />;
+}
+
+/**
+ * Busca entre las órdenes del teléfono (número, cliente o dirección); funciona sin señal. En vivo:
+ * filtra al dejar de escribir (`ESPERA_BUSQUEDA_MS`); el campo queda fijo arriba de la hoja y la
+ * hoja queda por encima del teclado (el `Modal` de HeroUI mide la ventana visible).
+ */
 function BuscarOrden({ abierto, alCambiar }: { abierto: boolean; alCambiar: (abierto: boolean) => void }) {
     const { estado, navegar } = useCampo();
     const [texto, setTexto] = useState("");
-    const encontradas = useMemo(() => buscarOrdenes(estado.ordenes, texto), [estado.ordenes, texto]);
+    const consulta = useDemorado(texto, ESPERA_BUSQUEDA_MS);
+    const encontradas = useMemo(() => buscarOrdenes(estado.ordenes, consulta), [estado.ordenes, consulta]);
+    const cambiar = (a: boolean) => {
+        alCambiar(a);
+        if (!a) {
+            setTexto("");
+        }
+    };
     return (
-        <Dialogo
-            open={abierto}
-            onOpenChange={(a) => {
-                alCambiar(a);
-                if (!a) {
-                    setTexto("");
-                }
-            }}
-        >
-            <DialogoContenido titulo="Buscar orden" descripcion="Entre las órdenes de tu teléfono: número, cliente o dirección." className="campo-hoja rounded-t-[1.75rem]">
-                <div className="grid gap-3">
-                    <Campo etiqueta="Buscar" type="search" autoComplete="off" value={texto} onChange={(e) => setTexto(e.target.value)} />
-                    {texto.trim().length === 0 ? null : encontradas.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Ninguna orden del teléfono coincide.</p>
+        <HojaCampo abierto={abierto} alCambiar={cambiar} titulo="Buscar orden" descripcion="Entre las órdenes de tu teléfono: número, cliente o dirección." className="campo-hoja-busqueda">
+                <div className="grid min-h-0 gap-3" data-slot="buscar-orden">
+                    <div className="sticky top-0 z-10 -mx-1 bg-[var(--overlay)] px-1 pb-1">
+                        <Campo etiqueta="Buscar" type="search" autoComplete="off" enterKeyHint="search" autoFocus value={texto} onChange={(e) => setTexto(e.target.value)} />
+                    </div>
+                    {consulta.trim().length === 0 ? null : encontradas.length === 0 ? (
+                        <p className="text-sm text-muted-foreground" role="status" data-slot="sin-resultados">
+                            Ninguna orden del teléfono coincide con «{consulta.trim()}».
+                        </p>
                     ) : (
-                        <ul className="grid gap-2" aria-label="Órdenes encontradas">
+                        <ul className="grid gap-2" aria-label="Órdenes encontradas" data-slot="resultados-busqueda">
+                            <li className="text-sm text-muted-foreground" role="status">
+                                {encontradas.length === 1 ? "1 orden" : `${encontradas.length} órdenes`}
+                            </li>
                             {encontradas.map((o) => (
                                 <li key={o.id}>
                                     <Boton
@@ -184,7 +204,6 @@ function BuscarOrden({ abierto, alCambiar }: { abierto: boolean; alCambiar: (abi
                         </ul>
                     )}
                 </div>
-            </DialogoContenido>
-        </Dialogo>
+        </HojaCampo>
     );
 }
