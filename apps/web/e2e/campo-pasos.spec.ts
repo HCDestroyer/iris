@@ -198,9 +198,9 @@ test.describe("nube de sincronización del encabezado", () => {
         await abrirPorEnviar(page);
         await expect(page).toHaveURL(/vista=pendientes$/);
         await expect(nav.getByRole("link", { name: "Yo" })).not.toHaveAttribute("aria-current", "page");
-        // Zonas táctiles de 54 px (también el «+»).
+        // Zonas táctiles de 52 px (también el «+»).
         for (const boton of [...(await nav.getByRole("link").all()), nav.getByRole("button", { name: "Acciones rápidas" })]) {
-            expect((await boton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(54);
+            expect((await boton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(52);
         }
         await page.goBack();
         await page.goBack();

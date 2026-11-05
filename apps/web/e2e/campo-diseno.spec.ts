@@ -140,9 +140,9 @@ test("el encabezado se va al bajar y vuelve compacto al subir; la isla se encoge
     await expect(compacta.getByRole("button", { name: "Todo enviado, toca para ver el estado" })).toBeVisible();
     await expect(compacta.getByRole("button", { name: "Buscar orden" })).toBeVisible();
     await expect(isla(page)).not.toHaveAttribute("data-encogida", "true");
-    // Encogida o no, las zonas táctiles siguen siendo de 44 px o más.
+    // Encogida o no, las zonas táctiles siguen siendo de 48 px o más.
     for (const enlace of await isla(page).getByRole("link").all()) {
-        expect((await enlace.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        expect((await enlace.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(48);
     }
 });
 

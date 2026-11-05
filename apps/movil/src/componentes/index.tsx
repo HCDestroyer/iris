@@ -727,6 +727,7 @@ export function BotonRedondo({
     etiqueta,
     alPresionar,
     tamano = 48,
+    tamanoIcono,
     fondo,
     tinta,
     borde,
@@ -740,6 +741,8 @@ export function BotonRedondo({
     etiqueta: string;
     alPresionar: () => void;
     tamano?: number;
+    /** Lado del icono (por defecto, el 42 % del botón). */
+    tamanoIcono?: number;
     fondo: string;
     tinta: string;
     borde?: string;
@@ -763,7 +766,7 @@ export function BotonRedondo({
                 borde ? { borderWidth: 1, borderColor: borde } : null,
             ]}
         >
-            {Icono ? <Icono size={Math.round(lado * 0.42)} color={tinta} strokeWidth={seleccionado ? 2.4 : 2} /> : null}
+            {Icono ? <Icono size={tamanoIcono ?? Math.round(lado * 0.42)} color={tinta} strokeWidth={seleccionado ? 2.4 : 2} /> : null}
             {texto ? <Text style={[estilos.textoRedondo, { color: tinta }]}>{texto}</Text> : null}
             {children}
         </Tocable>

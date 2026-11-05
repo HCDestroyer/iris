@@ -197,12 +197,15 @@ export function ListaChat() {
     const sinDatos = estado.conversaciones.length === 0;
     const error = estado.lista.estado === "error" ? estado.lista.error : null;
     return (
-        <section aria-labelledby="titulo-chat" className="grid gap-4" data-slot="lista-chat">
-            <div aria-hidden className="grid place-content-center overflow-hidden text-muted-foreground transition-[height]" style={{ height: tiron > 0 || actualizando ? Math.max(tiron, actualizando ? 40 : 0) : 0 }}>
-                <RefreshCw className={cn("size-5", actualizando && "animate-spin")} />
-            </div>
+        <section aria-labelledby="titulo-chat" className="grid grid-cols-[minmax(0,1fr)] gap-4" data-slot="lista-chat">
+            {/* Solo ocupa lugar mientras se tira o se actualiza (si no, sobra un hueco bajo el encabezado). */}
+            {tiron > 0 || actualizando ? (
+                <div aria-hidden className="grid place-content-center overflow-hidden text-muted-foreground transition-[height]" style={{ height: Math.max(tiron, actualizando ? 40 : 0) }}>
+                    <RefreshCw className={cn("size-5", actualizando && "animate-spin")} />
+                </div>
+            ) : null}
             <div className="flex items-center justify-between gap-3">
-                <div className="grid gap-0.5">
+                <div className="grid min-w-0 gap-0.5">
                     <h1 id="titulo-chat" className="text-2xl font-semibold tracking-[-0.015em]">
                         Chat del equipo
                     </h1>
@@ -257,7 +260,7 @@ export function ListaChat() {
                     <EstadoVacio icono={MessageCircle} titulo="Todavía no tienes conversaciones" descripcion="Abre el chat desde una orden o escribe un «Nuevo mensaje» a alguien de tu equipo." />
                 )
             ) : (
-                <ul className="grid gap-2" aria-label="Conversaciones">
+                <ul className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Conversaciones">
                     {estado.conversaciones.map((c) => {
                         const titulo = tituloConversacion(c);
                         const etiqueta = [titulo, c.no_leidos > 0 ? `${c.no_leidos} sin leer` : null, c.fallidos > 0 ? "con mensajes no enviados" : null].filter(Boolean).join(", ");
@@ -270,7 +273,7 @@ export function ListaChat() {
                                     className="flex min-h-[4.5rem] items-center gap-3 rounded-[1.375rem] border border-border bg-[var(--campo-panel)] p-3 focus-visible:outline-2 focus-visible:outline-primary"
                                 >
                                     <Avatar c={c} />
-                                    <span className="grid min-w-0 flex-1 gap-0.5">
+                                    <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-0.5">
                                         <span className="flex items-baseline justify-between gap-2">
                                             <span className={cn("truncate", c.no_leidos > 0 ? "font-bold" : "font-semibold")}>{titulo}</span>
                                             <span className={cn("shrink-0 text-xs tabular-nums", c.no_leidos > 0 ? "font-semibold text-primary" : "text-muted-foreground")}>
@@ -328,7 +331,7 @@ export function NuevoChat() {
         }
     };
     return (
-        <section aria-labelledby="titulo-nuevo-chat" className="grid gap-4">
+        <section aria-labelledby="titulo-nuevo-chat" className="grid grid-cols-[minmax(0,1fr)] gap-4">
             <div className="flex items-center gap-3">
                 <Boton variante="secundario" aria-label="Volver al chat" className="size-12 shrink-0 rounded-full p-0 md:size-12" onClick={() => navegar({ tipo: "chat" })}>
                     <ArrowLeft aria-hidden />
@@ -341,7 +344,7 @@ export function NuevoChat() {
             {contactos.length === 0 ? (
                 <EstadoVacio icono={Users} titulo="Aún no hay personas para elegir" descripcion="Cuando alguien de despacho o de tu cuadrilla te escriba, aparecerá aquí. Mientras, usa el chat de tu cuadrilla o el de una orden." />
             ) : (
-                <ul className="grid gap-2" aria-label="Personas">
+                <ul className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Personas">
                     {contactos.map((p) => (
                         <li key={p.id}>
                             <Boton variante="secundario" tamano="lg" className="h-auto min-h-14 w-full justify-start py-2" disabled={abriendo !== null} onClick={() => void abrir(p.id)}>
@@ -802,7 +805,7 @@ export function ConversacionPantalla({ id }: { id: number }) {
                 <Boton variante="secundario" aria-label="Volver" className="size-12 shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-12" onClick={volver}>
                     <ArrowLeft aria-hidden />
                 </Boton>
-                <span className="grid min-w-0 flex-1 gap-0.5">
+                <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-0.5">
                     <h1 className="truncate text-base font-semibold">{titulo}</h1>
                     <span className="truncate text-xs text-muted-foreground">
                         {c ? subtituloConversacion(c) : ""}

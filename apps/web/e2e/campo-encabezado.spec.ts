@@ -44,6 +44,44 @@ async function quieta(page: Page) {
     await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
 }
 
+/**
+ * La isla del PM: la activa es una píldora en «tinta» con icono y nombre; las demás, solo el icono
+ * en gris; el «+» sin relleno ni borde (icono de 26 px en color de texto). Zonas de 48 px o más.
+ */
+async function revisarIsla(page: Page, activa: string) {
+    const enlaces = isla(page).getByRole("link");
+    for (const enlace of await enlaces.all()) {
+        const nombre = enlace.locator('[data-slot="nombre-pestana"]');
+        const texto = (await nombre.textContent()) ?? "";
+        const caja = await enlace.boundingBox();
+        expect(caja?.height ?? 0).toBeGreaterThanOrEqual(48);
+        expect(caja?.width ?? 0).toBeGreaterThanOrEqual(48);
+        if (texto === activa) {
+            await expect(enlace).toHaveAttribute("aria-current", "page");
+            await expect(nombre).toBeVisible();
+            await expect.poll(() => nombre.evaluate((e) => e.getBoundingClientRect().width)).toBeGreaterThan(16);
+            const colores = await enlace.evaluate((e) => ({ fondo: getComputedStyle(e).backgroundColor, texto: getComputedStyle(e).color }));
+            expect(colores.fondo).not.toBe("rgba(0, 0, 0, 0)");
+            expect(colores.fondo).not.toBe(colores.texto);
+        } else {
+            await expect(enlace).not.toHaveAttribute("aria-current", "page");
+            await expect.poll(() => nombre.evaluate((e) => e.getBoundingClientRect().width)).toBe(0);
+            expect(await enlace.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+        }
+    }
+    const mas = isla(page).getByRole("button", { name: "Acciones rápidas" });
+    const caja = await mas.boundingBox();
+    expect(caja?.height ?? 0).toBeGreaterThanOrEqual(48);
+    const estilo = await mas.evaluate((e) => {
+        const c = getComputedStyle(e);
+        const svg = e.querySelector("svg")?.getBoundingClientRect();
+        return { fondo: c.backgroundColor, borde: c.borderTopWidth, icono: Math.round(svg?.width ?? 0) };
+    });
+    expect(estilo.fondo).toBe("rgba(0, 0, 0, 0)");
+    expect(["0px", ""]).toContain(estilo.borde);
+    expect(estilo.icono).toBe(26);
+}
+
 async function abrirHoy(page: Page) {
     await page.goto("/campo");
     await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
@@ -75,6 +113,7 @@ test("arriba: fecha, «Hola», nube y GPS discretos y buscar; sin avatar ni «no
     const nombres = await isla(page).getByRole("link").evaluateAll((ls) => ls.map((l) => l.getAttribute("aria-label")));
     expect(nombres).toEqual(["Hoy", "Chat", "Agenda", `Yo · ${TECNICO.nombre}`]);
     await expect(isla(page).getByRole("button", { name: "Acciones rápidas" })).toBeVisible();
+    await revisarIsla(page, "Hoy");
     const yo = await isla(page).getByRole("link", { name: /^Yo · / }).boundingBox();
     const islaCaja = await isla(page).boundingBox();
     const fila = await indicadores(page).boundingBox();
@@ -186,6 +225,27 @@ test("la barra compacta lleva los indicadores; «Yo» de la isla abre la cuenta;
     await expect(page.getByRole("heading", { name: "Por recibir" })).toBeVisible();
 });
 
+test("isla: la activa en «tinta» con su nombre, que se mueve al cambiar; el punto teal del chat se oculta en Chat", async ({ page }) => {
+    await simularApiCampo(page, { permisos: PERMISOS });
+    await simularChat(page);
+    await abrirHoy(page);
+    const punto = isla(page).locator('[data-slot="punto-no-leidos"]');
+    await expect(punto).toHaveCount(1);
+    await revisarIsla(page, "Hoy");
+    await pestanaCampo(page, "Chat");
+    await expect(page.getByRole("heading", { level: 1, name: "Chat del equipo" })).toBeVisible();
+    await revisarIsla(page, "Chat");
+    await expect(punto).toHaveCount(0);
+    await pestanaCampo(page, "Agenda");
+    await revisarIsla(page, "Agenda");
+    await pestanaCampo(page, "Yo");
+    await revisarIsla(page, "Yo");
+    // Cabe en el teléfono sin salirse (margen a los lados).
+    const caja = await isla(page).boundingBox();
+    const ancho = await page.evaluate(() => document.documentElement.clientWidth);
+    expect(caja && caja.x >= 8 && caja.x + caja.width <= ancho - 8).toBe(true);
+});
+
 test("capturas del encabezado y la hoja de estado (390 px)", async ({ page, context }, info) => {
     const carpeta = process.env.IRIS_CAPTURAS_CHAT ?? path.join("test-results", "capturas-chat");
     const tema = info.project.name.endsWith("oscuro") ? "oscuro" : "claro";
@@ -215,5 +275,16 @@ test("capturas del encabezado y la hoja de estado (390 px)", async ({ page, cont
     await expect(page.getByRole("dialog", { name: "Ubicación" })).toBeVisible();
     await quieta(page);
     await page.screenshot({ path: nombre("13-hoja-ubicacion") });
+    await page.getByRole("dialog", { name: "Ubicación" }).getByRole("button", { name: "Cerrar" }).click();
     await context.setOffline(false);
+    // La isla en cada sección (recorte con margen).
+    for (const [seccion, archivo] of [["Hoy", "14-isla-hoy"], ["Chat", "15-isla-chat"], ["Yo", "16-isla-yo"]] as const) {
+        await pestanaCampo(page, seccion);
+        await expect(isla(page).locator('[data-activa="true"] [data-slot="nombre-pestana"]')).toHaveText(seccion);
+        await quieta(page);
+        const caja = await isla(page).boundingBox();
+        if (caja) {
+            await page.screenshot({ path: nombre(archivo), clip: { x: Math.max(0, caja.x - 12), y: caja.y - 12, width: caja.width + 24, height: caja.height + 24 } });
+        }
+    }
 });

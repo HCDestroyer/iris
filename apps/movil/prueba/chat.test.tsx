@@ -82,6 +82,10 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
         await fireEvent.press(screen.getByTestId("pestana-chat"));
         expect(await screen.findByTestId("lista-chat")).toBeTruthy();
         expect(screen.getByTestId("pestana-chat")).toBeSelected();
+        // Con el chat abierto: píldora «Chat» con su nombre y sin el punto.
+        expect(screen.getByTestId("nombre-pestana-chat")).toHaveTextContent("Chat");
+        expect(within(screen.getByTestId("pestana-chat")).queryByTestId("punto-no-leidos")).toBeNull();
+        expect(screen.queryByTestId("nombre-pestana-hoy")).toBeNull();
     });
 
     it("conversación: de otros con autor, envío propio «enviado» y luego «visto»", async () => {

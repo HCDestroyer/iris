@@ -88,10 +88,15 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
 
         expect(within(isla).getByRole("button", { name: "Acciones rápidas" })).toBeTruthy();
         expect(screen.getByRole("tab", { name: "Hoy" })).toBeSelected();
+        // La activa, píldora en «tinta» con su nombre; las demás, solo el icono. Zonas de 52.
         for (const id of ["hoy", "agenda", "yo"]) {
-            expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 54, width: 54 });
+            expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 52, minWidth: 52 });
         }
-        expect(screen.getByTestId("boton-mas")).toHaveStyle({ minHeight: 54 });
+        expect(screen.getByTestId("nombre-pestana-hoy")).toHaveTextContent("Hoy");
+        expect(screen.queryByTestId("nombre-pestana-agenda")).toBeNull();
+        expect(screen.getByTestId("pestana-agenda")).toHaveStyle({ backgroundColor: "transparent" });
+        // El «+» sin relleno: solo el icono en color de texto.
+        expect(screen.getByTestId("boton-mas")).toHaveStyle({ minHeight: 52, backgroundColor: "transparent" });
         // «Por enviar» no es pestaña: la nube del encabezado abre «Conexión y envíos», que lleva ahí.
         await fireEvent.press(nube());
         await fireEvent.press(await screen.findByRole("button", { name: "Ver «Por enviar»" }));

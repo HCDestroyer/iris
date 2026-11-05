@@ -93,11 +93,12 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         await act(async () => {
             fireEvent(within(desplazamiento).getByTestId("encabezado-campo").parent ?? desplazamiento, "layout", { nativeEvent: { layout: { height: 200 } } });
         });
-        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ width: 54 });
+        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ height: 52 });
         await act(async () => {
             fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 600 } } });
         });
-        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ width: 44 });
+        // Encogida, la zona táctil sigue siendo de 48.
+        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ height: 48, minWidth: 48 });
         expect(screen.queryByTestId("barra-compacta")).toBeNull();
         await act(async () => {
             fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 500 } } });
@@ -107,7 +108,7 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(within(screen.getByTestId("barra-compacta")).getByRole("button", { name: TODO_ENVIADO })).toBeTruthy();
         expect(within(screen.getByTestId("barra-compacta")).getByRole("button", { name: "Buscar orden" })).toBeTruthy();
         expect(within(screen.getByTestId("barra-compacta")).queryByRole("button", { name: "Tu cuenta" })).toBeNull();
-        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ width: 54 });
+        expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ height: 52 });
     });
 
     it("«+»: agregar formulario a la orden en curso con «Deshacer»; la tarea propia, «Próximamente»", async () => {

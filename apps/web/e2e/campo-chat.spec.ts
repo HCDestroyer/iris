@@ -67,6 +67,31 @@ test("«Yo» lleva al chat con los no leídos y la lista muestra vista previa, h
     await expect(page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: "Agenda" })).toBeVisible();
 });
 
+test("la lista llena no se corta: margen de 18 px a cada lado y sin hueco bajo el encabezado", async ({ page }) => {
+    await montar(page);
+    await page.goto("/campo?vista=chat");
+    await expect(page.getByRole("link", { name: /^Cuadrilla Norte/ })).toBeVisible();
+    const ancho = await page.evaluate(() => document.documentElement.clientWidth);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(ancho);
+    const cajas = [
+        page.getByRole("button", { name: "Nuevo mensaje" }),
+        page.getByRole("button", { name: "Actualizar conversaciones" }),
+        ...(await page.locator('[data-slot="fila-conversacion"]').all()),
+    ];
+    for (const caja of cajas) {
+        const c = await caja.boundingBox();
+        expect(c).not.toBeNull();
+        if (c) {
+            expect(Math.round(c.x)).toBeGreaterThanOrEqual(18);
+            expect(Math.round(ancho - (c.x + c.width))).toBeGreaterThanOrEqual(18);
+        }
+    }
+    // El título va justo bajo el encabezado (el hueco del «tirar para actualizar» no ocupa lugar).
+    const encabezado = await page.locator('[data-slot="encabezado-campo"]').boundingBox();
+    const titulo = await page.getByRole("heading", { level: 1, name: "Chat del equipo" }).boundingBox();
+    expect(encabezado && titulo ? titulo.y - (encabezado.y + encabezado.height) : 999).toBeLessThanOrEqual(24);
+});
+
 test("sin conversaciones: estado vacío con «Nuevo mensaje»", async ({ page }) => {
     await montar(page, () => undefined, { ordenes: [] });
     await page.goto("/campo?vista=chat");
