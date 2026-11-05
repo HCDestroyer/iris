@@ -320,15 +320,54 @@ export function olvidarUsuarioRecordado(): void {
     entorno().claves.borrar(CLAVE_USUARIO_RECORDADO);
 }
 
+/** «Desbloquear con huella» de «Yo»: `si`, `no` (lo apagó o dijo que no al ofrecimiento) o sin decidir. */
+const CLAVE_HUELLA = "iris-campo-huella";
+/** Se acaba de entrar con la contraseña: el primer aviso puede ofrecer la huella (una sola vez). */
+const CLAVE_ENTRO_CON_CONTRASENA = "iris-campo-entro-con-contrasena";
+
+/** ¿Está encendido «Desbloquear con huella»? Apagado por defecto: la app abre sin pedir nada. */
+export function huellaActiva(): boolean {
+    return entorno().claves.leer(CLAVE_HUELLA) === "si";
+}
+
+export function activarHuella(si: boolean): void {
+    entorno().claves.escribir(CLAVE_HUELLA, si ? "si" : "no");
+}
+
+/** ¿Tiene el teléfono biometría con algo registrado? */
+export async function biometriaDisponible(): Promise<boolean> {
+    const biometria = entorno().biometria;
+    return biometria ? biometria.disponible().catch(() => false) : false;
+}
+
+export function marcarEntradaConContrasena(): void {
+    entorno().claves.escribir(CLAVE_ENTRO_CON_CONTRASENA, "1");
+}
+
 /**
- * ¿Se pide la huella antes de abrir la sesión guardada? Solo con biometría en el teléfono, la sesión
+ * Tras entrar con la contraseña, ¿se ofrece la huella? Una sola vez: solo si nunca se decidió (ni
+ * «Usar huella» ni «no») y el teléfono tiene biometría. Consume la marca; quien la muestre guarda
+ * «no» de inmediato (si acepta, pasa a «si»), así no vuelve a salir.
+ */
+export async function debeOfrecerHuella(): Promise<boolean> {
+    const claves = entorno().claves;
+    if (claves.leer(CLAVE_ENTRO_CON_CONTRASENA) === null) {
+        return false;
+    }
+    claves.borrar(CLAVE_ENTRO_CON_CONTRASENA);
+    return claves.leer(CLAVE_HUELLA) === null && (await biometriaDisponible());
+}
+
+/**
+ * ¿Se pide la huella antes de abrir la sesión guardada? Solo con «Desbloquear con huella» encendido
+ * en «Yo», biometría en el teléfono, la sesión
  * guardada con su token en el llavero y el usuario recordado siendo su dueño (`ofrecerHuella`). La
  * huella solo desbloquea: después se verifica igual que siempre (`GET /yo` o, sin señal,
  * `usableSinSenal`). Nunca se guarda la contraseña.
  */
 export async function pedirHuella(guardada: SesionCampo | null): Promise<boolean> {
     const biometria = entorno().biometria;
-    if (!biometria || !guardada || !leerCsrf()) {
+    if (!huellaActiva() || !biometria || !guardada || !leerCsrf()) {
         return false;
     }
     const disponible = await biometria.disponible().catch(() => false);

@@ -14,7 +14,7 @@ import { ProveedorBorradores } from "../campo/borradores";
 import { useAtrasAndroid } from "../campo/atras";
 import { useCampo, useEstadoPosiciones } from "../campo/contexto";
 import type { EstadoRastreo } from "../campo/ubicacion";
-import { CODIGO_CAMBIO_CONTRASENA } from "../sesion/sesion";
+import { activarHuella, CODIGO_CAMBIO_CONTRASENA, debeOfrecerHuella } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 import { AgendaDia, AgendaSemana } from "./Agenda";
 import { BarraCompacta, Encabezado } from "./Encabezado";
@@ -33,6 +33,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     const { motor, estado, vista, atras } = useCampo();
     useAtrasAndroid(atras);
     useAvisoDeRechazos();
+    useOfertaHuella();
     const { campo } = useTema();
     const margen = useSafeAreaInsets();
     // Por vista: cada una empieza arriba, con el encabezado completo y la isla sin encoger.
@@ -178,6 +179,37 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
 function AvisoDelMarco() {
     const { notificacion, cerrarNotificacion } = useCampo();
     return <AvisoEmergente aviso={notificacion} alCerrar={cerrarNotificacion} />;
+}
+
+/**
+ * Tras entrar con la contraseña, el primer aviso ofrece la huella una sola vez: «no» queda guardado
+ * al mostrarlo (si lo ignora o lo cierra, no vuelve a salir); «Usar huella» la enciende.
+ */
+function useOfertaHuella() {
+    const { notificar } = useCampo();
+    useEffect(() => {
+        let vivo = true;
+        void debeOfrecerHuella().then((ofrecer) => {
+            if (!vivo || !ofrecer) {
+                return;
+            }
+            activarHuella(false);
+            notificar({
+                tono: "info",
+                texto: "¿Usar tu huella la próxima vez?",
+                accion: {
+                    texto: "Usar huella",
+                    alPresionar: () => {
+                        activarHuella(true);
+                        notificar({ tono: "success", texto: "Listo: Iris te pedirá la huella al abrir. Puedes apagarlo en «Yo»." });
+                    },
+                },
+            });
+        });
+        return () => {
+            vivo = false;
+        };
+    }, [notificar]);
 }
 
 /**

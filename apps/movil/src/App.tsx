@@ -24,6 +24,7 @@ import { avisoSinConexion } from "@iris/sync/campo";
 import {
     autenticarConHuella,
     cargarCsrf,
+    marcarEntradaConContrasena,
     olvidarUsuarioRecordado,
     pedirHuella,
     recordarUsuario,
@@ -204,6 +205,8 @@ function Raiz() {
                                 : null
                         }
                         alEntrar={() => {
+                            // Entró con la contraseña: el primer aviso puede ofrecer la huella (una vez).
+                            marcarEntradaConContrasena();
                             setPaso({ tipo: "cargando" });
                             // Con contraseña ya no se pide la huella; si ya estaba desbloqueada, verifica de nuevo.
                             if (desbloqueada) {

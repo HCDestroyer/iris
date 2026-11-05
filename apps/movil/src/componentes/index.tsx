@@ -22,6 +22,7 @@ import { PressableFeedback } from "heroui-native/pressable-feedback";
 import { Radio } from "heroui-native/radio";
 import { RadioGroup } from "heroui-native/radio-group";
 import { Spinner } from "heroui-native/spinner";
+import { Switch } from "heroui-native/switch";
 import { TextField } from "heroui-native/text-field";
 import { Toast, useToast } from "heroui-native/toast";
 import { CircleAlert, CircleCheck, Eye, EyeOff, Info, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
@@ -777,6 +778,23 @@ export function Pila({ children, espacio = 12 }: { children: ReactNode; espacio?
     return <View style={{ gap: espacio }}>{children}</View>;
 }
 
+/**
+ * Interruptor (HeroUI `Switch`) con su etiqueta y descripción en una fila de 48 px o más: toda la
+ * fila lo cambia; `switch` accesible con su estado.
+ */
+export function Interruptor({ etiqueta, descripcion, valor, alCambiar, testID }: { etiqueta: string; descripcion?: string; valor: boolean; alCambiar: (v: boolean) => void; testID?: string }) {
+    const { colores } = useTema();
+    return (
+        <View style={estilos.interruptor}>
+            <View style={estilos.flex}>
+                <Text style={[estilos.etiquetaInterruptor, { color: colores.texto }]}>{etiqueta}</Text>
+                {descripcion ? <Text style={{ color: colores.textoSuave, fontSize: 13 }}>{descripcion}</Text> : null}
+            </View>
+            <Switch isSelected={valor} onSelectedChange={alCambiar} accessibilityLabel={etiqueta} accessibilityState={{ checked: valor }} testID={testID} style={estilos.zonaInterruptor} />
+        </View>
+    );
+}
+
 /** Logo de Iris (`docs/marca/logo-mark.svg`): el arco teal de la marca; `tamano` en px. */
 export function LogoIris({ tamano = 48 }: { tamano?: number }) {
     return (
@@ -811,6 +829,9 @@ const estilos = StyleSheet.create({
     filaCampo: { flexDirection: "row", alignItems: "center", gap: 8 },
     entrada: { minHeight: 48 },
     encoger: { flexShrink: 1 },
+    interruptor: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12 },
+    etiquetaInterruptor: { fontSize: 15, fontWeight: "600" },
+    zonaInterruptor: { minHeight: ZONA_TACTIL, minWidth: ZONA_TACTIL, justifyContent: "center" },
     filaError: { flexDirection: "row", alignItems: "center", gap: 6 },
     textoError: { flexShrink: 1, fontSize: 13, fontWeight: "500" },
     casillas: { flexDirection: "row", gap: 8, justifyContent: "space-between" },

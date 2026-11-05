@@ -38,10 +38,13 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   técnico», usuario recordado (solo nombre y correo) con «¿No eres tú?», el ojo de la contraseña,
   errores en línea (intentos solo si la API los informa), «¿Olvidaste tu contraseña?», el código de 6
   casillas (`InputOTP` de HeroUI Native) solo con `mfaRequerido`, y el aviso «Sin conexión». **Huella**
-  (`expo-local-authentication`): con biometría en el teléfono y la sesión del usuario recordado
-  guardada (con su token en el llavero), la app pide al abrir «Usar huella» o la contraseña; la huella
-  solo desbloquea esa sesión y luego se verifica como siempre (`GET /yo` o, sin señal,
-  `usableSinSenal`). Nunca guarda la contraseña. Sin biometría o sin sesión guardada, no aparece.
+  (`expo-local-authentication`), **opcional y apagada por defecto**: sin encenderla, la app abre
+  como siempre con la sesión guardada, sin pedir nada. Se enciende en «Yo» («Desbloquear con
+  huella») o aceptando el aviso que sale una sola vez tras entrar con la contraseña («¿Usar tu huella
+  la próxima vez?»; si no la acepta, queda en «no» y no vuelve a salir). Encendida, con biometría y
+  la sesión del usuario recordado guardada (token en el llavero), la app pide al abrir «Usar huella»
+  o la contraseña; la huella solo desbloquea esa sesión y luego se verifica como siempre (`GET /yo`
+  o, sin señal, `usableSinSenal`). Nunca guarda la contraseña.
 - **La orden paso a paso:** resumen (cliente, avisos, pausa con motivo / reanudar, avance, notas,
   «No se pudo») → «Empezar trabajo» → **Llegada** (En camino y Llegué, con GPS si hay permiso) ·
   **Checklist** (formularios de todos los tipos; agregar y quitar) · **Materiales y equipos**

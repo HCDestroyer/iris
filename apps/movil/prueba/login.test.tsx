@@ -9,8 +9,25 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StyleSheet } from "react-native";
 import { configurarEntorno, entorno, type Biometria } from "../src/entorno";
 import { Entrar, type PropsEntrar } from "../src/pantallas/Entrar";
-import { autenticarConHuella, cargarCsrf, CLAVE_CSRF, guardarSesion, olvidarUsuarioRecordado, pedirHuella, recordarUsuario, sesionGuardada, usuarioRecordado, type SesionCampo } from "../src/sesion/sesion";
+import {
+    activarHuella,
+    autenticarConHuella,
+    cargarCsrf,
+    CLAVE_CSRF,
+    debeOfrecerHuella,
+    guardarSesion,
+    huellaActiva,
+    marcarEntradaConContrasena,
+    olvidarUsuarioRecordado,
+    pedirHuella,
+    recordarUsuario,
+    sesionGuardada,
+    usuarioRecordado,
+    type SesionCampo,
+} from "../src/sesion/sesion";
 import { ApiFalsa, problema, usuario } from "./api-falsa";
+import { abrirCampo, avisoArriba } from "./arnes";
+import { montar } from "@iris/sync/pruebas";
 import { TemaDePrueba } from "./raiz";
 
 const TOMAS = { nombre: "Tomás Herrera", correo: "tomas.herrera@redcom.gt" };
@@ -154,6 +171,8 @@ describe("huella: solo desbloquea la sesión guardada del usuario recordado", ()
         disponible = true;
         confirma = true;
         configurarEntorno({ ...entorno(), biometria });
+        entorno().claves.borrar("iris-campo-huella");
+        activarHuella(true);
         guardarSesion(sesion);
         recordarUsuario(TOMAS);
         await entorno().secreto.escribir(CLAVE_CSRF, "csrf-guardado");
@@ -164,6 +183,16 @@ describe("huella: solo desbloquea la sesión guardada del usuario recordado", ()
         const resto = { ...entorno() };
         delete resto.biometria;
         configurarEntorno(resto);
+    });
+
+    it("apagada por defecto: sin encender «Desbloquear con huella» la app abre como antes (no se pide)", async () => {
+        entorno().claves.borrar("iris-campo-huella");
+        expect(huellaActiva()).toBe(false);
+        expect(await pedirHuella(sesionGuardada())).toBe(false);
+        activarHuella(false);
+        expect(await pedirHuella(sesionGuardada())).toBe(false);
+        activarHuella(true);
+        expect(await pedirHuella(sesionGuardada())).toBe(true);
     });
 
     it("con biometría, la sesión y su token guardados y el mismo usuario recordado", async () => {
@@ -192,5 +221,73 @@ describe("huella: solo desbloquea la sesión guardada del usuario recordado", ()
     it("nunca guarda la contraseña: en el teléfono solo nombre y correo", () => {
         const guardados = [...(entorno().claves as unknown as { datos: Map<string, string> }).datos.values()].join(" ");
         expect(guardados).not.toMatch(/secreta|contrasena/);
+    });
+});
+
+describe.each(["light", "dark"] as const)("huella opcional en la app (%s)", (esquema) => {
+    let disponible = true;
+    const biometria: Biometria = { disponible: async () => disponible, autenticar: async () => true };
+
+    beforeEach(() => {
+        disponible = true;
+        configurarEntorno({ ...entorno(), biometria });
+        entorno().claves.borrar("iris-campo-huella");
+        entorno().claves.borrar("iris-campo-entro-con-contrasena");
+    });
+
+    afterEach(() => {
+        const resto = { ...entorno() };
+        delete resto.biometria;
+        configurarEntorno(resto);
+    });
+
+    it("tras entrar con contraseña ofrece la huella una sola vez; «Usar huella» la enciende", async () => {
+        marcarEntradaConContrasena();
+        const m = await montar();
+        await abrirCampo(m, { esquema });
+        await waitFor(() => expect(avisoArriba()).toHaveTextContent(/¿Usar tu huella la próxima vez\?/));
+        await fireEvent.press(within(avisoArriba()).getByRole("button", { name: "Usar huella" }));
+        expect(huellaActiva()).toBe(true);
+        // Ya decidido: no vuelve a ofrecerse.
+        marcarEntradaConContrasena();
+        expect(await debeOfrecerHuella()).toBe(false);
+    });
+
+    it("si no la acepta (cierra o ignora el aviso), queda en «no» y no vuelve a salir", async () => {
+        marcarEntradaConContrasena();
+        const m = await montar();
+        await abrirCampo(m, { esquema });
+        await waitFor(() => expect(avisoArriba()).toHaveTextContent(/¿Usar tu huella la próxima vez\?/));
+        expect(huellaActiva()).toBe(false);
+        expect(entorno().claves.leer("iris-campo-huella")).toBe("no");
+        marcarEntradaConContrasena();
+        expect(await debeOfrecerHuella()).toBe(false);
+    });
+
+    it("sin entrar con contraseña o sin biometría, no se ofrece", async () => {
+        expect(await debeOfrecerHuella()).toBe(false);
+        disponible = false;
+        marcarEntradaConContrasena();
+        expect(await debeOfrecerHuella()).toBe(false);
+    });
+
+    it("«Yo»: interruptor «Desbloquear con huella», apagado por defecto, que la enciende y apaga", async () => {
+        const m = await montar();
+        await abrirCampo(m, { esquema, vista: { tipo: "yo" } });
+        const interruptor = await screen.findByRole("switch", { name: "Desbloquear con huella" });
+        expect(interruptor).not.toBeChecked();
+        await fireEvent.press(interruptor);
+        await waitFor(() => expect(huellaActiva()).toBe(true));
+        expect(screen.getByRole("switch", { name: "Desbloquear con huella" })).toBeChecked();
+        await fireEvent.press(screen.getByRole("switch", { name: "Desbloquear con huella" }));
+        await waitFor(() => expect(huellaActiva()).toBe(false));
+    });
+
+    it("«Yo» sin biometría en el teléfono: no hay interruptor", async () => {
+        disponible = false;
+        const m = await montar();
+        await abrirCampo(m, { esquema, vista: { tipo: "yo" } });
+        expect(await screen.findByRole("button", { name: /Cerrar sesión/ })).toBeTruthy();
+        expect(screen.queryByRole("switch", { name: "Desbloquear con huella" })).toBeNull();
     });
 });
