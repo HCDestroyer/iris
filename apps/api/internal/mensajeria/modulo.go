@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 )
 
 // Cola de River de la mensajería: la trabaja solo el proceso de mensajería.
@@ -73,6 +75,32 @@ type Config struct {
 	Ahora func() time.Time
 	// Version de Iris (User-Agent).
 	Version string
+
+	// Chat interno del equipo (contratos/chat.md).
+	// ChatPorMinuto: mensajes por minuto por usuario (30).
+	ChatPorMinuto int
+	// ChatPlazoEliminar: hasta cuándo el autor puede eliminar un mensaje (15 min).
+	ChatPlazoEliminar time.Duration
+	// ChatLatido: comentario de SSE para que proxies y teléfonos no corten la conexión (25 s).
+	ChatLatido time.Duration
+	// ChatDuracionMax: cada flujo SSE se cierra después de esto (30 min) y el cliente se reconecta
+	// con Last-Event-ID: así se vuelven a verificar la sesión y los permisos.
+	ChatDuracionMax time.Duration
+	// ChatRetencion: días que se guarda el feed de eventos (7 días); un cursor más viejo es 410.
+	ChatRetencion time.Duration
+	// ChatSSEMax: flujos SSE abiertos en el proceso (IRIS_CHAT_SSE_MAX, 1000); el siguiente, 503.
+	ChatSSEMax int
+	// ChatSSEPorUsuario: flujos SSE por usuario en el proceso (5); el sexto, 429.
+	ChatSSEPorUsuario int
+	// ChatLecturas: lecturas del feed a la vez desde los flujos SSE (16): un NOTIFY despierta a
+	// muchos flujos y no deben tomar todo el pool.
+	ChatLecturas int
+	// ChatFotosSinEnviar: una foto del chat que ningún mensaje muestra se retira después de esto
+	// (48 h).
+	ChatFotosSinEnviar time.Duration
+	// Almacen de los adjuntos (el mismo que la API): para borrar la foto de un mensaje eliminado.
+	// nil = solo se rechaza (no se puede ver ni descargar) y queda en el log.
+	Almacen adjuntos.Almacen
 }
 
 // Modulo reúne los casos de uso.
@@ -90,6 +118,16 @@ type Modulo struct {
 	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
 	RecibirMeta             *auditoria.Caso[EntradaMeta, MetaRecibido]
 	VerificarMeta           *auditoria.Caso[EntradaVerificarMeta, string]
+
+	// Chat interno del equipo.
+	Chat casosChat
+	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
+	difusor *difusor
+	// lecturas: semáforo de las lecturas del feed de los flujos SSE (ChatLecturas).
+	lecturas chan struct{}
+	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
+	trasLeerCabeza func()
+	retirarFoto    *auditoria.Caso[uuid.UUID, string]
 
 	prepararEnvio   *auditoria.Caso[entradaPreparar, preparado]
 	registrarEnvio  *auditoria.Caso[entradaRegistrar, registrado]
@@ -132,7 +170,34 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.Ahora == nil {
 		cfg.Ahora = time.Now
 	}
-	m := &Modulo{cfg: cfg}
+	if cfg.ChatPorMinuto <= 0 {
+		cfg.ChatPorMinuto = 30
+	}
+	if cfg.ChatPlazoEliminar <= 0 {
+		cfg.ChatPlazoEliminar = 15 * time.Minute
+	}
+	if cfg.ChatLatido <= 0 {
+		cfg.ChatLatido = 25 * time.Second
+	}
+	if cfg.ChatDuracionMax <= 0 {
+		cfg.ChatDuracionMax = 30 * time.Minute
+	}
+	if cfg.ChatRetencion <= 0 {
+		cfg.ChatRetencion = 7 * 24 * time.Hour
+	}
+	if cfg.ChatSSEMax <= 0 {
+		cfg.ChatSSEMax = 1000
+	}
+	if cfg.ChatSSEPorUsuario <= 0 {
+		cfg.ChatSSEPorUsuario = 5
+	}
+	if cfg.ChatLecturas <= 0 {
+		cfg.ChatLecturas = 16
+	}
+	if cfg.ChatFotosSinEnviar <= 0 {
+		cfg.ChatFotosSinEnviar = 48 * time.Hour
+	}
+	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
@@ -149,6 +214,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.procesarMeta = nuevoProcesarMeta(m)
 	m.vencerAvisos = nuevoVencerAvisos(m)
 	m.entregarWebhook = nuevoEntregarWebhook(m)
+	m.Chat = nuevosCasosChat(m)
+	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
 	return m
 }
 
@@ -180,18 +247,23 @@ type Entorno struct {
 	MetaURL      string
 	// RedesArgos: redes internas permitidas hacia el receptor de Argos (IRIS_ARGOS_REDES_PERMITIDAS).
 	RedesArgos []netip.Prefix
+	// ChatSSEMax: flujos SSE del chat abiertos a la vez en el proceso (IRIS_CHAT_SSE_MAX, 1000).
+	ChatSSEMax int
 }
 
 // EntornoDesdeVariables lee IRIS_MENSAJERIA_*:
 //
 //	IRIS_MENSAJERIA_PUERTO (3510), IRIS_MENSAJERIA_URL (la usa la API), IRIS_MENSAJERIA_SIMULADO
 //	(false), IRIS_MENSAJERIA_LIMITE_DIARIO (3), IRIS_MENSAJERIA_POR_MINUTO (20),
-//	IRIS_MENSAJERIA_SILENCIO (21:00-07:00), IRIS_MENSAJERIA_META_URL (Graph API v21.0).
+//	IRIS_MENSAJERIA_SILENCIO (21:00-07:00), IRIS_MENSAJERIA_META_URL (Graph API v21.0),
+//	IRIS_CHAT_SSE_MAX (1000 flujos SSE del chat por proceso).
 func EntornoDesdeVariables() (Entorno, error) {
 	e := Entorno{Puerto: 3510, LimiteDiario: 3, PorMinuto: 20, Silencio: Ventana{Inicio: 21 * 60, Fin: 7 * 60}, MetaURL: MetaURLPorDefecto,
 		URL: strings.TrimSpace(os.Getenv("IRIS_MENSAJERIA_URL"))}
 	var errs []string
-	enteros := map[string]*int{"IRIS_MENSAJERIA_PUERTO": &e.Puerto, "IRIS_MENSAJERIA_LIMITE_DIARIO": &e.LimiteDiario, "IRIS_MENSAJERIA_POR_MINUTO": &e.PorMinuto}
+	e.ChatSSEMax = 1000
+	enteros := map[string]*int{"IRIS_MENSAJERIA_PUERTO": &e.Puerto, "IRIS_MENSAJERIA_LIMITE_DIARIO": &e.LimiteDiario, "IRIS_MENSAJERIA_POR_MINUTO": &e.PorMinuto,
+		"IRIS_CHAT_SSE_MAX": &e.ChatSSEMax}
 	for nombre, destino := range enteros {
 		if v := strings.TrimSpace(os.Getenv(nombre)); v != "" {
 			n, err := strconv.Atoi(v)

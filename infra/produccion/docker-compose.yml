@@ -181,7 +181,9 @@ services:
   # Messaging service (WhatsApp notices for Argos, contract §6): its own process, same image as the
   # API, schema `mensajeria` in the same database. No published port: reached through the API
   # (/api/v1/mensajeria). Never IRIS_MENSAJERIA_SIMULADO in production: an empresa without a
-  # configured WhatsApp channel gets bloqueado / canal_no_disponible.
+  # configured WhatsApp channel gets bloqueado / canal_no_disponible. Same attachment storage as the
+  # API (MinIO, through x-api-env and the .env): it deletes the photo of a deleted team-chat message.
+  # verificar.sh checks they never diverge.
   mensajeria:
     image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-api:${IRIS_VERSION:?IRIS_VERSION is required}
     entrypoint: [/usr/local/bin/mensajeria]

@@ -190,12 +190,12 @@ test.describe("en el teléfono", () => {
             await expect(page.getByRole("button", { name: nombre, exact: true })).toHaveCount(0);
         }
         // En pausa no se registra trabajo: el checklist es de solo lectura, con «Orden en pausa» y
-        // «Reanudar» arriba, y el «Guardar» de la isla deshabilitado.
+        // «Reanudar» arriba, y la isla sin nada que guardar (solo navega).
         await irAPaso(page, "Checklist");
         await expect(page.getByTestId("orden-pausada")).toContainText("Orden en pausa: Otro motivo");
         await expect(page.getByTestId("orden-pausada").getByRole("button", { name: "Reanudar" })).toBeVisible();
         await expect(page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" })).toBeDisabled();
-        await expect(page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /^Guardar/ })).toBeDisabled();
+        await expect(page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /Guardar/ })).toHaveCount(0);
         // Con la orden pausada no se cierra: el paso final lo dice.
         await irAPaso(page, "Firma del cliente y cierre");
         await expect(page.getByTestId("orden-pausada")).toBeVisible();

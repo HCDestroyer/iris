@@ -4,18 +4,21 @@
 // la barra discreta de la fase 4): sin señal con algo por enviar, un rechazo, la sesión vencida o
 // la empresa no válida. El «+» abre la hoja de acciones rápidas con lo que ya tiene API.
 import type { PlantillaFormulario } from "@iris/sync";
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, type PasoOrden, type Pestana } from "@iris/sync/campo";
+import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, estadoIslaPasos, nombreCliente, pestanaDe, PESTANAS, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
 import {
     ArrowLeft,
     ArrowRight,
     Building2,
     CalendarClock,
     CalendarDays,
+    Check,
+    CircleCheck,
     CloudUpload,
     FilePlus2,
     House,
     KeyRound,
     PackageOpen,
+    PenLine,
     Plus,
     Save,
     TriangleAlert,
@@ -26,10 +29,9 @@ import {
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto, Tocable } from "../componentes";
-import { useGuardarPaso, useSinGuardar } from "../campo/borradores";
+import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "../campo/borradores";
 import { useCampo, useOrden } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario } from "../campo/inventario";
-import { navegacionPaso } from "../campo/pasos";
 import { useTema } from "../tema/tema";
 
 const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
@@ -88,30 +90,38 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
     );
 }
 
+const ICONO_PRIMARIO: Record<PrimarioIsla["icono"], LucideIcon> = { siguiente: ArrowRight, firma: PenLine, terminar: CircleCheck, guardar: Save };
+
 /**
- * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» y «Siguiente»
- * redondos y un solo botón primario «Guardar» al centro, que guarda lo escrito y todavía sin guardar
- * de todo el paso (con su contador) y avisa qué pasó. Lo demás ya se guardó al hacerlo. Pasar de paso
- * también guarda primero (si algo no valida, se queda y lo dice). Con la orden en pausa, «Guardar»
- * está deshabilitado: no hay trabajo que registrar.
+ * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» redondo y un
+ * primario que avanza (`estadoIslaPasos` de `@iris/sync/campo`). Sin cambios por guardar no hay
+ * «Guardar»: el primario es «Siguiente» («Ir a firma» antes de la firma). Con algo escrito sin guardar
+ * es «Guardar y seguir» con el contador: guarda y avanza, o se queda y dice qué campo falló. Al
+ * guardar, «Guardado» con un check un momento en la isla (sin bloquear). Sin «Guardar» aparte: a
+ * 360 px no cabe sin apretar los botones, y cada campo ya se guarda al salir de él. Con la orden en
+ * pausa (solo lectura) nunca guarda: solo navega.
  */
 export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: PasoOrden; encogida: boolean; abajo: number }) {
     const { navegar } = useCampo();
     const orden = useOrden(id);
     const { campo, colores } = useTema();
     const { guardar, guardando } = useGuardarPaso();
+    const guardado = useRecienGuardado();
     const sinGuardar = useSinGuardar();
     if (!orden) {
         return null;
     }
-    const nav = navegacionPaso(orden, paso);
     const enPausa = accionesDe(orden).enPausa;
+    const isla = estadoIslaPasos({ paso, pendientes: sinGuardar, enPausa, recienGuardado: guardado !== null });
+    const vistaDe = (destino: PasoOrden | null): Vista => (destino ? { tipo: "orden", id, paso: destino } : { tipo: "orden", id });
     const tamano = encogida ? 44 : 54;
-    const ir = async (vista: Parameters<typeof navegar>[0]) => {
-        if (await guardar({ silencioso: true })) {
-            navegar(vista);
+    // Con la orden en pausa no se guarda nada: solo se navega.
+    const ir = async (destino: PasoOrden | null) => {
+        if (enPausa || (await guardar())) {
+            navegar(vistaDe(destino));
         }
     };
+    const { primario } = isla;
     return (
         <View pointerEvents="box-none" style={[estilos.contenedor, { bottom: abajo + (encogida ? 12 : 24) }]}>
             <View
@@ -121,35 +131,30 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
             >
                 <BotonRedondo
                     icono={ArrowLeft}
-                    etiqueta={nav.anterior.texto}
+                    etiqueta={isla.anterior.texto}
                     tamano={tamano}
                     fondo={campo.panel2}
                     tinta={colores.texto}
                     testID="paso-anterior"
-                    alPresionar={() => void ir(nav.anterior.vista)}
+                    alPresionar={() => void ir(isla.anterior.destino)}
                 />
-                <Boton
-                    icono={Save}
-                    cargando={guardando}
-                    deshabilitado={enPausa}
-                    etiqueta={sinGuardar > 0 ? `Guardar (${sinGuardar} sin guardar)` : "Guardar"}
-                    testID="guardar-paso"
-                    alPresionar={() => void guardar()}
-                    estilo={[estilos.guardar, { minHeight: tamano }]}
-                >
-                    {sinGuardar > 0 ? `Guardar · ${sinGuardar}` : "Guardar"}
-                </Boton>
-                {nav.siguiente ? (
-                    <BotonRedondo
-                        icono={ArrowRight}
-                        etiqueta={nav.siguiente.texto}
-                        tamano={tamano}
-                        fondo={campo.panel2}
-                        tinta={colores.texto}
-                        testID="paso-siguiente"
-                        alPresionar={() => nav.siguiente && void ir(nav.siguiente.vista)}
-                    />
+                {isla.guardado && guardado ? (
+                    <View testID="guardado-paso" accessible accessibilityRole="text" accessibilityLabel={guardado} accessibilityLiveRegion="polite" style={estilos.guardado}>
+                        <Check size={16} color={colores.tono.success} strokeWidth={2.6} />
+                        <Text style={[estilos.textoGuardado, { color: colores.tono.success }]}>Guardado</Text>
+                    </View>
                 ) : null}
+                <Boton
+                    icono={ICONO_PRIMARIO[primario.icono]}
+                    cargando={guardando}
+                    etiqueta={primario.etiqueta}
+                    testID={primario.accion === "guardar_y_seguir" ? "guardar-y-seguir" : "paso-siguiente"}
+                    alPresionar={() => void ir(primario.destino)}
+                    estilo={[estilos.primario, { minHeight: tamano }]}
+                >
+                    {primario.texto}
+                    {primario.cuenta !== null ? <Text style={estilos.cuenta}>{` · ${primario.cuenta}`}</Text> : null}
+                </Boton>
             </View>
         </View>
     );
@@ -345,5 +350,8 @@ const estilos = StyleSheet.create({
     iconoAccion: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
     tituloAccion: { fontSize: 15, fontWeight: "600" },
     redondeado: { borderRadius: 999 },
-    guardar: { borderRadius: 999, minWidth: 150, paddingHorizontal: 20 },
+    primario: { borderRadius: 999, minWidth: 150, paddingHorizontal: 20 },
+    cuenta: { fontSize: 13, fontWeight: "700" },
+    guardado: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 6 },
+    textoGuardado: { fontSize: 13, fontWeight: "600" },
 });

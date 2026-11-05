@@ -16,6 +16,25 @@ docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" --profile os
 docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" -f "$aqui/docker-compose.admin-ports.yml" --profile osrm config --quiet
 echo "compose de producción: ok"
 
+# La mensajería borra del almacén la foto de un mensaje del chat eliminado: debe ver el mismo
+# almacenamiento de adjuntos que la API (variables IRIS_ADJUNTOS_ALMACEN, IRIS_ADJUNTOS_DIR e
+# IRIS_S3_*, y los mismos volúmenes), en producción y en dev.
+mismo_almacen() { # <descripción> <argumentos de docker compose…>
+    local desc="$1"; shift
+    local dif
+    dif="$(docker compose "$@" config --format json | jq -r '
+        def almacen($s): {env: (.services[$s].environment // {} | with_entries(select(.key | test("^IRIS_(ADJUNTOS_ALMACEN|ADJUNTOS_DIR|S3_)")))),
+                          vol: ([.services[$s].volumes // [] | .[] | .target] | sort)};
+        . as $c | ["mensajeria", "worker"][] as $s | select(($c | almacen($s)) != ($c | almacen("api"))) | $s')"
+    if [ -n "$dif" ]; then
+        echo "$desc: estos servicios no tienen el mismo almacenamiento de adjuntos que la API: $dif" >&2
+        exit 1
+    fi
+    echo "$desc: mensajería y worker con el almacén de adjuntos de la API"
+}
+mismo_almacen "compose de producción" --env-file "$tmp/.env" -f "$aqui/docker-compose.yml"
+mismo_almacen "compose de dev" -f "$aqui/../docker-compose.yml" --env-file "$aqui/../../.env.example" --profile app
+
 "$aqui/package.sh" 0.0.0 "$tmp/dist" > /dev/null
 (cd "$tmp/dist" && sha256sum -c --quiet iris-0.0.0.tar.gz.sha256 install.sh.sha256)
 for f in docker-compose.yml docker-compose.admin-ports.yml env.example install.sh README.md VERSION MIGRATION backup/respaldar.sh backup/restaurar.sh; do

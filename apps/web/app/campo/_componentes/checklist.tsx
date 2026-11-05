@@ -216,8 +216,8 @@ function Encabezado({ item, falta }: { item: ItemChecklist; falta?: string }) {
 function ItemFila({ orden, item, editable, falta }: { orden: OrdenVista; item: ItemChecklist; editable: boolean; falta?: string }) {
     const { motor, ejecutar, estado } = useCampo();
     const v = valorDe(item);
-    const marcar = (valor: boolean | number | string) =>
-        ejecutar(() => motor.registrar("checklist.marcar", orden.id, { itemId: item.itemId, valor }), `«${item.etiqueta}» guardado`);
+    const marcar = (valor: boolean | number | string, silencioso = false) =>
+        ejecutar(() => motor.registrar("checklist.marcar", orden.id, { itemId: item.itemId, valor }), `«${item.etiqueta}» guardado`, { silencioso });
 
     switch (item.tipo) {
         case "si_no":
@@ -339,7 +339,7 @@ function ItemSeleccion({
 }
 
 /**
- * Texto, número o medición: se guarda solo al salir del campo y con el «Guardar» de la isla (sin
+ * Texto, número o medición: se guarda solo al salir del campo y con «Guardar y seguir» de la isla (sin
  * botón por campo). Lo escrito y todavía sin guardar es un borrador (`useBorrador`).
  */
 function ItemValor({
@@ -351,7 +351,7 @@ function ItemValor({
     item: ItemChecklist;
     editable: boolean;
     falta?: string;
-    alGuardar: (v: string | number) => Promise<boolean>;
+    alGuardar: (v: string | number, silencioso?: boolean) => Promise<boolean>;
 }) {
     const idCampo = useId();
     const idAyuda = useId();
@@ -364,7 +364,7 @@ function ItemValor({
     const leido = numerico ? esquemaNumeroItem.safeParse(texto) : null;
     const enviado = useRef<string | number | null>(null);
     const pendiente = editable && texto.trim() !== "" && (leido?.success ? leido.data !== v : texto.trim() !== guardado);
-    const guardar = async (): Promise<true | string> => {
+    const guardar = async ({ silencioso = false }: { silencioso?: boolean } = {}): Promise<true | string> => {
         let valor: string | number;
         if (numerico) {
             const r = esquemaNumeroItem.safeParse(texto);
@@ -384,18 +384,18 @@ function ItemValor({
             valor = t;
         }
         setError(undefined);
-        // Salir del campo y tocar «Guardar» casi a la vez: el mismo valor se manda una sola vez.
+        // Salir del campo y tocar «Guardar y seguir» casi a la vez: el mismo valor se manda una sola vez.
         if (enviado.current === valor) {
             return true;
         }
         enviado.current = valor;
-        const ok = await alGuardar(valor);
+        const ok = await alGuardar(valor, silencioso);
         if (!ok) {
             enviado.current = null;
         }
         return ok ? true : "No se pudo guardar en el teléfono.";
     };
-    useBorrador(
+    const guardarAlSalir = useBorrador(
         `item-${item.formularioId ?? ""}-${item.itemId}`,
         { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
         pendiente,
@@ -418,7 +418,7 @@ function ItemValor({
                         }}
                         onBlur={() => {
                             if (pendiente) {
-                                void guardar();
+                                void guardarAlSalir();
                             }
                         }}
                         inputMode={numerico ? "decimal" : "text"}
@@ -434,7 +434,7 @@ function ItemValor({
                     </p>
                 ) : pendiente ? (
                     <p id={idAyuda} className="text-xs text-muted-foreground" data-slot="sin-guardar">
-                        Sin guardar: se guarda al salir del campo o con «Guardar».
+                        Sin guardar: se guarda al salir del campo o con «Guardar y seguir».
                     </p>
                 ) : null}
             </div>

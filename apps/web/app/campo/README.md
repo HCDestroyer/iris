@@ -69,13 +69,17 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
   En los pasos, la **isla de pasos** (`IslaPasos` en `_componentes/isla.tsx`, la misma píldora que la
-  de menú): «Anterior» · **un solo «Guardar»** · «Siguiente». Cada cambio entra a la cola al hacerlo
-  (texto y números, al salir del campo); «Guardar» guarda lo escrito y todavía sin guardar de todo el
-  paso, con su contador, y dice qué pasó (`RegistroBorradores` y `avisoGuardado` de
-  `@iris/sync/campo`, `_componentes/borradores.tsx`). Sin botón «Guardar» por campo.
+  de menú): «Anterior» · un primario que avanza (`estadoIslaPasos` de `@iris/sync/campo`). Cada
+  cambio entra a la cola al hacerlo (texto y números, al salir del campo). **Sin cambios no hay
+  «Guardar»**: el primario es «Siguiente» («Ir a firma» antes de la firma). Con algo escrito sin
+  guardar es **«Guardar y seguir» con el contador**: guarda todo el paso y avanza; si algo no valida,
+  se queda y lo dice arriba. Al guardar, «Guardado» con un check en la isla por 1,5 s (`MS_GUARDADO`;
+  `RegistroBorradores` y `avisoGuardado`, `_componentes/borradores.tsx`). Sin «Guardar» aparte ni
+  por campo.
 - **Encabezado, avisos y hojas:** franja sólida bajo la barra de estado (`FranjaSuperior`) y barra
   compacta sólida que solo se desliza (nunca cambia de opacidad). Los avisos son el `Toast` de HeroUI
-  (`avisar` de `@iris/ui`, arriba, uno a la vez). Las hojas (`HojaCampo`, `_componentes/hoja.tsx`)
+  (`avisar` de `@iris/ui`, arriba, uno a la vez), debajo de `env(safe-area-inset-top)` (con
+  `viewport-fit=cover` la región de HeroUI quedaba a 16 px del borde, bajo la barra de estado). Las hojas (`HojaCampo`, `_componentes/hoja.tsx`)
   tienen «X» de 44 px, Escape y **«Atrás» del navegador** (`useAtrasCierraHoja`: una entrada de
   historial mientras están abiertas); con cambios preguntan «¿Descartar los cambios?». Con el teclado
   abierto quedan por encima (`interactive-widget=resizes-content` y el `Modal` de HeroUI, que mide

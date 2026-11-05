@@ -253,6 +253,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()
+	// Fotos del chat interno: la conversación es adjuntable (la API atiende POST /adjuntos; la
+	// mensajería valida la foto al recibir el mensaje).
+	mensajeria.RegistrarAdjuntos()
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola)})
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
