@@ -7,7 +7,7 @@ import { ErrorTransporte, type OrdenCampo, type PlantillaFormulario } from "@iri
 import { hoyEnGuatemala, sumarDias } from "@iris/sync/campo";
 import { itemDePrueba, montar, ordenDePrueba, paqueteDePrueba } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, InventarioFalso, sesion, tipos, trasladoDePrueba } from "./arnes";
+import { abrirCampo, avisoArriba, InventarioFalso, sesion, tipos, trasladoDePrueba } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -118,8 +118,8 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         await fireEvent.press(screen.getByRole("radio", { name: "Prueba de velocidad" }));
         await fireEvent.press(screen.getByRole("button", { name: "Agregar «Prueba de velocidad»" }));
         await waitFor(() => expect(tipos(m)).toEqual(["orden.agregar_formulario"]));
-        expect(screen.getByTestId("notificacion")).toHaveTextContent(/«Prueba de velocidad» agregado a OT-000001/);
-        await fireEvent.press(within(screen.getByTestId("notificacion")).getByRole("button", { name: "Deshacer" }));
+        expect(avisoArriba()).toHaveTextContent(/«Prueba de velocidad» agregado a OT-000001/);
+        await fireEvent.press(within(avisoArriba()).getByRole("button", { name: "Deshacer" }));
         await waitFor(() => expect(tipos(m)).toEqual(["orden.agregar_formulario", "orden.quitar_formulario"]));
         const [agregar, quitar] = m.motor.obtenerEstado().cola;
         expect(quitar?.datos).toEqual({ formularioId: agregar?.id });
@@ -183,6 +183,6 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(screen.getByLabelText("Cantidad")).toHaveProp("value", "2");
         await fireEvent.press(screen.getByRole("button", { name: "Registrar material" }));
         await waitFor(() => expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "material.usar", datos: { cantidad: 2 } }));
-        expect(screen.getByTestId("notificacion")).toHaveTextContent(/Material registrado/);
+        expect(avisoArriba()).toHaveTextContent(/Material registrado/);
     });
 });

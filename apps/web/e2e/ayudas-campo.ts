@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /*
  * Ayudas de la app de campo por pasos (fase 4): resumen → llegada · checklist · materiales y equipos
@@ -6,6 +6,19 @@ import { expect, type Page } from "@playwright/test";
  */
 
 export type Paso = "Llegada" | "Checklist" | "Materiales y equipos" | "Fotos" | "Firma del cliente y cierre";
+
+/**
+ * El aviso emergente de la app de campo (el `Toast` de HeroUI arriba): el de adelante que no se
+ * está yendo.
+ */
+export function avisoCampo(page: Page): Locator {
+    return page.locator('[data-slot="toast"][data-frontmost="true"]:not([data-exiting="true"])');
+}
+
+/** El único «Guardar» de los pasos (en la isla de pasos): guarda lo escrito del paso. */
+export async function guardarPaso(page: Page) {
+    await page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /^Guardar/ }).click();
+}
 
 /** Abre un paso desde el avance de la orden (resumen o cualquier paso). */
 export async function irAPaso(page: Page, paso: Paso) {

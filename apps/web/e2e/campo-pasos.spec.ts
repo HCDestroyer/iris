@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesionTecnico, declinarUbicacion, problema, simularApiCampo } from "./api-campo";
-import { abrirPorEnviar, alResumen, empezarTrabajo, firmarEn, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, alResumen, avisoCampo, empezarTrabajo, firmarEn, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -157,7 +157,7 @@ test.describe("barra de estado discreta", () => {
         await page.getByRole("button", { name: "Agregar nota" }).click();
         await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 rechazado", { timeout: 15_000 });
         // El rechazo entra también como aviso desde arriba, con «Revisar».
-        await expect(page.locator('[data-slot="notificacion"]')).toContainText("El servidor rechazó una acción.");
+        await expect(avisoCampo(page)).toContainText("El servidor rechazó una acción.");
         await page.getByRole("button", { name: /1 rechazado\. Ver detalle$/ }).click();
         await expect(page.getByTestId("rechazo")).toContainText("Algún dato no es válido.");
     });

@@ -29,6 +29,8 @@ export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
     "ordenes.fallar",
     "ordenes.iniciar_camino",
     "ordenes.llegar",
+    "ordenes.pausar",
+    "ordenes.reanudar",
     "ordenes.registrar",
     "ordenes.ver_propias",
 ];

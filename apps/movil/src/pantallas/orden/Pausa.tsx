@@ -3,7 +3,7 @@
 // orden pausada no cuenta como «en curso»: el GPS en segundo plano se apaga hasta reanudar.
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MOTIVOS_PAUSA as CODIGOS_PAUSA, segundosPausada, type OrdenVista } from "@iris/sync";
-import { duracionCorta, esquemaPausar, horaCorta, MOTIVOS_PAUSA, type DatosPausar } from "@iris/sync/campo";
+import { duracionCorta, esquemaPausar, horaCorta, MOTIVOS_PAUSA, TEXTO_EN_PAUSA, type DatosPausar } from "@iris/sync/campo";
 import { CirclePause, CirclePlay } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -19,11 +19,25 @@ function useAhora(cadaMs = 30_000): number {
     return ahora;
 }
 
-export function PausaOrden({ orden, pausar, reanudar }: { orden: OrdenVista; pausar: boolean; reanudar: boolean }) {
+export function PausaOrden({
+    orden,
+    pausar,
+    reanudar,
+    puedeReanudar = true,
+    enPasos = false,
+}: {
+    orden: OrdenVista;
+    pausar: boolean;
+    reanudar: boolean;
+    /** Sin `ordenes.reanudar` no se ofrece «Reanudar» (lo hace despacho). */
+    puedeReanudar?: boolean;
+    /** Arriba de un paso de trabajo: dice que el paso es de solo lectura. */
+    enPasos?: boolean;
+}) {
     const ahora = useAhora();
     const total = segundosPausada(orden, ahora);
     if (reanudar) {
-        return <OrdenPausada orden={orden} segundos={total} />;
+        return <OrdenPausada orden={orden} segundos={total} puedeReanudar={puedeReanudar} enPasos={enPasos} />;
     }
     return (
         <>
@@ -33,7 +47,8 @@ export function PausaOrden({ orden, pausar, reanudar }: { orden: OrdenVista; pau
     );
 }
 
-function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number }) {
+/** Aviso «Orden en pausa» con el motivo, el tiempo pausado y «Reanudar». */
+function OrdenPausada({ orden, segundos, puedeReanudar, enPasos }: { orden: OrdenVista; segundos: number; puedeReanudar: boolean; enPasos: boolean }) {
     const { motor, ejecutar, rastreo } = useCampo();
     const reanudar = async () => {
         if (await ejecutar(() => motor.registrar("orden.reanudar", orden.id, {}), "Orden reanudada")) {
@@ -47,12 +62,14 @@ function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number
         <Aviso
             tono="warning"
             icono={CirclePause}
-            titulo={`Orden pausada${motivo ? `: ${motivo}` : ""}`}
+            titulo={`Orden en pausa${motivo ? `: ${motivo}` : ""}`}
             testID="orden-pausada"
             accion={
-                <Boton variante="secundario" icono={CirclePlay} alPresionar={() => void reanudar()}>
-                    Reanudar
-                </Boton>
+                puedeReanudar ? (
+                    <Boton icono={CirclePlay} alPresionar={() => void reanudar()}>
+                        Reanudar
+                    </Boton>
+                ) : undefined
             }
         >
             <Texto testID="tiempo-pausado">
@@ -60,7 +77,8 @@ function OrdenPausada({ orden, segundos }: { orden: OrdenVista; segundos: number
                 {duracionCorta(segundos)} en total.
             </Texto>
             {pausa?.nota ? <Texto>{pausa.nota}</Texto> : null}
-            <Texto suave>Puedes seguir con notas, fotos, checklist, materiales y equipos. Para cerrar o salir, primero reanuda.</Texto>
+            <Texto suave>{enPasos ? TEXTO_EN_PAUSA : "En pausa no se registra trabajo: solo puedes agregar notas. Para seguir, cerrar o salir, primero reanuda."}</Texto>
+            {puedeReanudar ? null : <Texto suave>No tienes permiso para reanudarla: pídeselo a despacho.</Texto>}
         </Aviso>
     );
 }
@@ -80,7 +98,14 @@ function PausarOrden({ orden }: { orden: OrdenVista }) {
             <Boton variante="secundario" icono={CirclePause} alPresionar={() => setAbierto(true)}>
                 Pausar
             </Boton>
-            <Dialogo abierto={abierto} alCerrar={() => setAbierto(false)} titulo={`Pausar ${orden.numero}`} descripcion="La orden queda pausada hasta que la reanudes. Despacho ve el motivo.">
+            <Dialogo
+                abierto={abierto}
+                alCerrar={() => {
+                    setAbierto(false);
+                    form.reset({ nota: "" });
+                }}
+                cambios={form.formState.isDirty}
+                titulo={`Pausar ${orden.numero}`} descripcion="La orden queda pausada hasta que la reanudes. Despacho ve el motivo.">
                 <Controller
                     control={form.control}
                     name="motivo"
@@ -104,9 +129,6 @@ function PausarOrden({ orden }: { orden: OrdenVista }) {
                 />
                 <Boton cargando={form.formState.isSubmitting} alPresionar={() => void enviar()} etiqueta="Confirmar pausa">
                     Pausar
-                </Boton>
-                <Boton variante="fantasma" alPresionar={() => setAbierto(false)}>
-                    Volver
                 </Boton>
             </Dialogo>
         </>

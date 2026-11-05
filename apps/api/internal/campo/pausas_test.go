@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -81,7 +84,12 @@ func TestPausarYReanudar(t *testing.T) {
 	o = deber(e.m.AgregarNota.Ejecutar(ct, campo.EntradaAgregarNota{ID: o.ID, Texto: "Espero al proveedor"}))(t)
 	dt := detalle(t, e, o.ID)
 	it := dt.Checklist[0]
-	o = deber(e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true}))(t)
+	// El técnico ya no trabaja una pausada ni por REST (contratos/sync.md §3); despacho sí corrige.
+	problema(t, func() error {
+		_, err := e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true})
+		return err
+	}(), 422, "orden_pausada")
+	o = deber(e.m.MarcarChecklist.Ejecutar(cd, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true}))(t)
 
 	// Sigue abierta: en el paquete, en el calendario (pausada) y en la ruta, que no se marca
 	// desactualizada (la cita no se movió).
@@ -188,6 +196,77 @@ func TestPausaPorSync(t *testing.T) {
 	otro := tecnico(t)
 	deber(e.m.AsignarOrden.Ejecutar(cd, campo.EntradaAsignarOrden{ID: o2.ID, Version: o2.Version, TecnicoID: &otro}))(t)
 	esperar(t, lote(t, e, ct, op(campo.OpPausar, o2.ID, map[string]any{"motivo": "clima"})), "rechazada:orden_reasignada")
+}
+
+// En pausa no se registra trabajo desde la app de campo (contratos/sync.md §3): checklist,
+// formularios, materiales, equipos y firma por el lote se rechazan con orden_pausada (422; el
+// técnico reanuda y rehace); notas y adjuntos sí entran como evidencia. Nada se aplica en
+// silencio: el checklist queda como estaba. Despacho, desde el panel, sí corrige una pausada.
+func TestPausadaSinTrabajoPorSync(t *testing.T) {
+	e := nuevoEntorno()
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	o := programada(t, e, cd, "instalacion", tec)
+	esperar(t, lote(t, e, ct,
+		op(campo.OpLlegar, o.ID, nil),
+		op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "acometida_tendida", "valor": true}),
+		op(campo.OpPausar, o.ID, map[string]any{"motivo": "esperando_material"}),
+	), "aplicada", "aplicada", "aplicada")
+
+	trabajo := []campo.OperacionLote{
+		op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "potencia_rx", "valor": -19.8}),
+		op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "acometida_tendida", "valor": false}),
+		op(campo.OpMaterialUsar, o.ID, map[string]any{"productoId": 77, "cantidad": 2}),
+		op(campo.OpEquipoInstalar, o.ID, map[string]any{"serie": "HWTC1234"}),
+		op(campo.OpFirmaCapturar, o.ID, map[string]any{"nombre": "Ana López", "svg": "<svg><path d='M0 0'/></svg>"}),
+		op(campo.OpAgregarForm, o.ID, map[string]any{"plantillaId": 1}),
+		op(campo.OpQuitarForm, o.ID, map[string]any{"formularioId": uuid.Must(uuid.NewV7()).String()}),
+	}
+	for _, x := range trabajo {
+		r := lote(t, e, ct, x)
+		esperar(t, r, "rechazada:orden_pausada")
+		if res := r.Resultados[0]; res.Error.Status != 422 {
+			t.Fatalf("%s en pausa: %+v", x.Tipo, res)
+		}
+	}
+	// Trabajo y luego una nota en el mismo lote: el rechazo bloquea lo que sigue de esa orden.
+	esperar(t, lote(t, e, ct, op(campo.OpMaterialUsar, o.ID, map[string]any{"productoId": 77, "cantidad": 1}), op(campo.OpNotaAgregar, o.ID, map[string]any{"texto": "x"})),
+		"rechazada:orden_pausada", "rechazada:bloqueada_por_rechazo")
+	// Evidencia: nota y foto sí.
+	esperar(t, lote(t, e, ct,
+		op(campo.OpNotaAgregar, o.ID, map[string]any{"texto": "Espero el conector SC/APC"}),
+		op(campo.OpAdjuntoRegistrar, o.ID, map[string]any{"adjuntoId": uuid.Must(uuid.NewV7()).String(), "tipo": "foto"}),
+	), "aplicada", "aplicada")
+
+	dt := detalle(t, e, o.ID)
+	if dt.Estado != "pausada" {
+		t.Fatalf("estado: %s", dt.Estado)
+	}
+	for _, it := range dt.Checklist {
+		if (it.Codigo == "acometida_tendida" && it.Valor != true) || (it.Codigo == "potencia_rx" && it.Valor != nil) {
+			t.Fatalf("el checklist cambió en pausa: %s = %v", it.Codigo, it.Valor)
+		}
+	}
+	if len(dt.Materiales) != 0 || len(dt.Equipos) != 0 || dt.Firma != nil || len(dt.Notas) != 1 {
+		t.Fatalf("trabajo aplicado en pausa: materiales %d, equipos %d, firma %v, notas %d", len(dt.Materiales), len(dt.Equipos), dt.Firma, len(dt.Notas))
+	}
+
+	// Tampoco por REST: el técnico asignado no se salta la regla llamando a la API directo.
+	if _, err := e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, Codigo: ptr("potencia_rx"), Valor: -19.8}); err == nil {
+		t.Fatal("checklist por REST en pausa: el técnico no debía poder")
+	} else if p, _ := nucleo.AProblema(err); p.Status != 422 {
+		t.Fatalf("checklist por REST en pausa: %v", err)
+	}
+
+	// Despacho corrige desde el panel aunque esté pausada (no es una operación del lote ni su orden).
+	deber(e.m.MarcarChecklist.Ejecutar(cd, campo.EntradaMarcarChecklist{ID: o.ID, Codigo: ptr("potencia_rx"), Valor: -20.1}))(t)
+
+	// Reanudada, el mismo trabajo (otra operación: «Rehacer») entra.
+	esperar(t, lote(t, e, ct,
+		op(campo.OpReanudar, o.ID, nil),
+		op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "potencia_rx", "valor": -19.8}),
+		op(campo.OpMaterialUsar, o.ID, map[string]any{"productoId": 77, "cantidad": 2}),
+	), "aplicada", "aplicada", "aplicada")
 }
 
 // La migración sobre órdenes existentes: su plantilla pasa a ser el primer formulario (origen

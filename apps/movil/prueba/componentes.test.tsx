@@ -7,12 +7,12 @@ import { useState } from "react";
 import { StyleSheet } from "react-native";
 import { Aviso, Boton, BotonIcono, Campo, Cargando, Dialogo, Insignia, Opciones, Tarjeta, Tocable, ZONA_TACTIL } from "../src/componentes";
 import { ControladorFirma, LienzoFirma } from "../src/pantallas/orden/LienzoFirma";
-import { ProveedorTema } from "../src/tema/tema";
+import { TemaDePrueba } from "./raiz";
 
 const alto = (id: string) => (StyleSheet.flatten(screen.getByTestId(id).props.style) as { minHeight?: number }).minHeight ?? 0;
 
 describe.each(["light", "dark"] as const)("componentes con HeroUI Native (%s)", (esquema) => {
-    const montar = (ui: React.ReactElement) => render(<ProveedorTema esquema={esquema}>{ui}</ProveedorTema>);
+    const montar = (ui: React.ReactElement) => render(<TemaDePrueba esquema={esquema}>{ui}</TemaDePrueba>);
 
     it("Boton: 48 px, nombre accesible, deshabilitado y ocupado", async () => {
         const tocar = jest.fn();
@@ -147,9 +147,9 @@ describe.each(["light", "dark"] as const)("componentes con HeroUI Native (%s)", 
 describe("lienzo de firma (Gesture Handler 3 en la raíz)", () => {
     it("toma el trazo y no lo suelta al desplazamiento de la vista", async () => {
                 await render(
-            <ProveedorTema esquema="light">
+            <TemaDePrueba esquema="light">
                 <LienzoFirma alCambiar={() => undefined} />
-            </ProveedorTema>,
+            </TemaDePrueba>,
         );
         const lienzo = screen.getByTestId("lienzo-firma");
         const toque = (t: number) => ({ nativeEvent: { touches: [{}], changedTouches: [] }, touchHistory: { numberActiveTouches: 1, mostRecentTimeStamp: t, indexOfSingleActiveTouch: 0, touchBank: [{ touchActive: true, startPageX: 1, startPageY: 1, currentPageX: 5, currentPageY: 9, previousPageX: 1, previousPageY: 1, startTimeStamp: 0, currentTimeStamp: t, previousTimeStamp: 0 }] } });

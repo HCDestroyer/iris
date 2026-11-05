@@ -93,6 +93,24 @@ html:has(.campo-app) {
         gap 200ms ease-out;
 }
 
+/*
+ * La barra compacta solo se desliza (nunca cambia de opacidad): sólida mientras se ve y fuera de
+ * vista del todo cuando se va, sin un estado a medio transparentar sobre el contenido.
+ */
+.campo-desliza {
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/*
+ * Hojas de la app: la «X» con la zona táctil de Iris (44 px). Con el teclado abierto, el contenedor
+ * del `Modal` de HeroUI ya mide la ventana visible (`--visual-viewport-height`, de React Aria): la
+ * hoja queda encima del teclado.
+ */
+.campo-hoja button[aria-label='Cerrar'] {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+}
+
 /* La tira de pasos y la de la semana se desplazan de lado sin barra visible. */
 .campo-sin-barra {
     scrollbar-width: none;
@@ -105,7 +123,8 @@ html:has(.campo-app) {
     .campo-entra-arriba {
         animation: none;
     }
-    .campo-suave {
+    .campo-suave,
+    .campo-desliza {
         transition: none;
     }
 }

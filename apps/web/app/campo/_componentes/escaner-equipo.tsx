@@ -5,6 +5,7 @@ import { Boton, InsigniaEstado, VisorEscaner, type CodigoLeido, type GeometriaVi
 import { Barcode, CircleCheck, CircleSlash, Info, Keyboard, Package, QrCode, ScanLine, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { codigosQueCuentan, vibrarCorto } from "@/lib/campo/escaner";
+import { useAtrasCierraHoja } from "./hoja";
 
 /** Botones de la hoja: llenan su columna y el texto baja de línea antes que salirse (390 px). */
 const ANCHO_BOTON = "h-auto min-h-11 w-full py-2 whitespace-normal";
@@ -42,6 +43,8 @@ export function EscanerEquipo({
     // ni el objetivo ni los equipos de la orden cambian.
     const [sesion] = useState(() => new SesionEscaneo({ objetivo, existentes: () => existentes, alCambiar: setEstado, alPrimerCodigo: () => vibrarCorto() }));
     useEffect(() => () => sesion.liberar(), [sesion]);
+    // «Atrás» del navegador cierra el escáner (como su «X» y Escape), no la vista de debajo.
+    useAtrasCierraHoja(true, alCerrar);
 
     const alDetectar = useCallback((codigos: CodigoLeido[], g: GeometriaVisor) => sesion.detectar(codigosQueCuentan(codigos, g)), [sesion]);
     const seguirEscaneando = () => sesion.seguir();

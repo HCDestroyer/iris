@@ -7,7 +7,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-
 import type { BarcodeScanningResult } from "expo-camera";
 import { StyleSheet, Vibration } from "react-native";
 import { codigoDeExpo } from "../src/campo/escaner";
-import { abrirCampo, paqueteCon } from "./arnes";
+import { abrirCampo, avisoArriba, paqueteCon } from "./arnes";
 
 interface PropsCamara {
     onBarcodeScanned?: (r: BarcodeScanningResult) => void;
@@ -119,7 +119,7 @@ describe.each(["light", "dark"] as const)("escáner por campo (%s)", (esquema) =
         expect(valor("Número de serie")).toBe("2102311TUN10K5000123");
         expect(valor("MAC")).toBe("");
         expect(screen.getByTestId("escaneado")).toHaveTextContent("Escaneado");
-        expect(screen.getByTestId("notificacion")).toHaveTextContent("Serie: 2102311TUN10K5000123");
+        expect(avisoArriba()).toHaveTextContent("Serie: 2102311TUN10K5000123");
         // Se puede editar: la insignia se quita.
         await fireEvent.changeText(screen.getByLabelText("Número de serie"), "2102311TUN10K5000124");
         expect(screen.queryByTestId("escaneado")).toBeNull();
@@ -162,7 +162,7 @@ describe.each(["light", "dark"] as const)("escáner por campo (%s)", (esquema) =
         expect(valor("Número de serie")).toBe("ZTEGC8F1A2B3");
         expect(valor("MAC")).toBe("A0:B1:C2:D3:E4:F6");
         expect(screen.getAllByTestId("escaneado")).toHaveLength(2);
-        expect(screen.getByTestId("notificacion")).toHaveTextContent("Serie: ZTEGC8F1A2B3 · MAC: A0:B1:C2:D3:E4:F6");
+        expect(avisoArriba()).toHaveTextContent("Serie: ZTEGC8F1A2B3 · MAC: A0:B1:C2:D3:E4:F6");
     });
 
     it("sin permiso de cámara: lo explica y se escribe a mano", async () => {

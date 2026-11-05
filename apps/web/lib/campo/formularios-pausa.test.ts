@@ -18,18 +18,19 @@ const vista = (parcial: Partial<OrdenVista> = {}): OrdenVista => ({
 });
 
 describe("pausa en la app de campo", () => {
-    it("pausada: no se ofrece cerrar, fallar, llegar ni salir; sí el trabajo (evidencia) y reanudar", () => {
+    it("pausada: no se ofrece cerrar, fallar, llegar, salir ni registrar trabajo; sí notas y reanudar", () => {
         expect(accionesDe(vista({ estado: "pausada", tipo: "instalacion" }))).toMatchObject({
             cerrar: false,
             fallar: false,
             llegar: false,
             iniciarCamino: false,
-            trabajo: true,
-            instalar: true,
+            trabajo: false,
+            enPausa: true,
+            instalar: false,
             notas: true,
             pausar: false,
             reanudar: true,
-            agregarFormulario: true,
+            agregarFormulario: false,
         });
         expect(accionesDe(vista({ estado: "en_camino" }))).toMatchObject({ pausar: true, reanudar: false });
         expect(accionesDe(vista({ estado: "en_sitio" }))).toMatchObject({ pausar: true, cerrar: true });

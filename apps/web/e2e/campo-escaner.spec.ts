@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
-import { irAPaso } from "./ayudas-campo";
+import { avisoCampo, irAPaso } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -102,7 +102,7 @@ async function captura(page: Page, info: TestInfo, que: string) {
 const verCodigos = (page: Page, codigos: CodigoSimulado[]) => page.evaluate((c) => (window.__codigos = c), codigos);
 const visor = (page: Page) => page.getByRole("dialog", { name: /^Escaneando:/ });
 const hoja = (page: Page) => page.getByRole("dialog", { name: "Códigos detectados" });
-const notificacion = (page: Page) => page.locator('[data-slot="notificacion"]');
+const notificacion = (page: Page) => avisoCampo(page);
 
 /** Etiqueta de una ONU Huawei: S/N, GPON SN, MAC, EAN-13 y, fuera del recuadro, el modelo. */
 const HUAWEI: CodigoSimulado[] = [
@@ -174,11 +174,11 @@ test("varios códigos: no acepta el primero, lista lo del recuadro con lo que pa
     // Un toque elige: se llena solo la serie, con la insignia «Escaneado», y se puede editar.
     await filas.nth(0).getByRole("button").click();
     await expect(visor(page)).toBeHidden();
-    await expect(page.getByLabel("Número de serie")).toHaveValue("2102311TUN10K5000123");
-    await expect(page.getByLabel("MAC")).toHaveValue("");
+    await expect(page.getByLabel("Número de serie", { exact: true })).toHaveValue("2102311TUN10K5000123");
+    await expect(page.getByLabel("MAC", { exact: true })).toHaveValue("");
     await expect(notificacion(page)).toContainText("Serie: 2102311TUN10K5000123");
     await captura(page, info, "serie-escaneada");
-    const serie = page.getByLabel("Número de serie");
+    const serie = page.getByLabel("Número de serie", { exact: true });
     await expect(serie).toHaveAccessibleDescription(/Escaneado/);
     await serie.fill("2102311TUN10K5000124");
     await expect(serie).not.toHaveAccessibleDescription(/Escaneado/);
@@ -221,8 +221,8 @@ test("MAC: un solo candidato se confirma, lo demás es «No es una MAC»; «Segu
     await expect(hoja(page)).toContainText("S/N ZTEGC8F1A2B3");
     await captura(page, info, "qr-combinado");
     await hoja(page).getByRole("button", { name: "Usar" }).click();
-    await expect(page.getByLabel("Número de serie")).toHaveValue("ZTEGC8F1A2B3");
-    await expect(page.getByLabel("MAC")).toHaveValue("A0:B1:C2:D3:E4:F6");
+    await expect(page.getByLabel("Número de serie", { exact: true })).toHaveValue("ZTEGC8F1A2B3");
+    await expect(page.getByLabel("MAC", { exact: true })).toHaveValue("A0:B1:C2:D3:E4:F6");
     await expect(notificacion(page)).toContainText("Serie: ZTEGC8F1A2B3 · MAC: A0:B1:C2:D3:E4:F6");
 
     // Ya registrada en esta orden: se avisa antes de usarla otra vez.
@@ -236,8 +236,8 @@ test("MAC: un solo candidato se confirma, lo demás es «No es una MAC»; «Segu
     // «Escribir a mano» cierra el escáner y deja el foco en el campo.
     await hoja(page).getByRole("button", { name: "Escribir a mano" }).click();
     await expect(visor(page)).toBeHidden();
-    await expect(page.getByLabel("Número de serie")).toBeFocused();
-    await expect(page.getByLabel("Número de serie")).toHaveValue("");
+    await expect(page.getByLabel("Número de serie", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("Número de serie", { exact: true })).toHaveValue("");
 });
 
 test("sin permiso de cámara: lo explica y se escribe a mano", async ({ page }) => {
@@ -246,5 +246,5 @@ test("sin permiso de cámara: lo explica y se escribe a mano", async ({ page }) 
     await page.getByRole("button", { name: "Escanear MAC" }).click();
     await expect(visor(page)).toContainText("No diste permiso para usar la cámara. Escribe el dato a mano.");
     await visor(page).getByRole("button", { name: "Escribir a mano" }).click();
-    await expect(page.getByLabel("MAC")).toBeFocused();
+    await expect(page.getByLabel("MAC", { exact: true })).toBeFocused();
 });

@@ -22,9 +22,11 @@ import { Radio } from "heroui-native/radio";
 import { RadioGroup } from "heroui-native/radio-group";
 import { Spinner } from "heroui-native/spinner";
 import { TextField } from "heroui-native/text-field";
-import type { LucideIcon } from "lucide-react-native";
-import type { ReactNode } from "react";
-import { Modal, ScrollView, StyleSheet, Text, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { Toast, useToast } from "heroui-native/toast";
+import { CircleCheck, Info, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Keyboard, Modal, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTema } from "../tema/tema";
 
 /** Alto mínimo de cualquier zona táctil (WCAG 2.5.8 y guía de Iris: 44 px; con guante, más). */
@@ -370,34 +372,225 @@ export function Opciones<T extends string>({
 }
 
 /**
- * Hoja modal desde abajo, con título, descripción y su propio desplazamiento. Es el `Modal` de React
- * Native (no el `Dialog` de HeroUI) para que el «Atrás» de Android la cierre en vez de cambiar de
- * vista debajo; por dentro lleva la capa flotante de Horus (vidrio fuerte, `bg-overlay`).
+ * Alto del teclado del teléfono mientras está abierto (0 cerrado). Con edge-to-edge (Android 15+)
+ * la ventana ya no se encoge sola: quien tenga un campo abajo lo usa para quedar por encima.
  */
-export function Dialogo({ abierto, alCerrar, titulo, descripcion, children }: { abierto: boolean; alCerrar: () => void; titulo: string; descripcion?: string; children: ReactNode }) {
+export function useAltoTeclado(): number {
+    const [alto, setAlto] = useState(0);
+    useEffect(() => {
+        const abrir = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => setAlto(e.endCoordinates.height));
+        const cerrar = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setAlto(0));
+        return () => {
+            abrir.remove();
+            cerrar.remove();
+        };
+    }, []);
+    return alto;
+}
+
+export interface PropsDialogo {
+    abierto: boolean;
+    alCerrar: () => void;
+    titulo: string;
+    descripcion?: string;
+    children: ReactNode;
+    /** Hay algo escrito o elegido sin guardar: cerrar (X, «Atrás») pregunta antes. */
+    cambios?: boolean;
+    /** Algo fijo arriba del desplazamiento (el campo de búsqueda): nunca se va con la lista. */
+    fijo?: ReactNode;
+    testID?: string;
+}
+
+/**
+ * Hoja modal desde abajo, con título, «X» para cerrar, descripción y su propio desplazamiento. Es el
+ * `Modal` de React Native (no el `Dialog` de HeroUI) para que el «Atrás» de Android la cierre en vez
+ * de cambiar de vista debajo; por dentro lleva la capa flotante de Horus (sólida, `bg-overlay`).
+ * Con el teclado abierto la hoja sube por encima de él. Con `cambios`, la «X» y «Atrás» preguntan
+ * «¿Descartar los cambios?» antes de cerrar (y un segundo «Atrás» sigue editando).
+ */
+export function Dialogo({ abierto, alCerrar, titulo, descripcion, children, cambios = false, fijo, testID = "dialogo" }: PropsDialogo) {
     const { colores, radioTarjeta } = useTema();
+    const teclado = useAltoTeclado();
+    const { height } = useWindowDimensions();
+    const margen = useSafeAreaInsets();
+    const [confirmando, setConfirmando] = useState(false);
+    const intentarCerrar = () => {
+        if (confirmando) {
+            // Segundo «Atrás» con la pregunta abierta: sigue editando.
+            setConfirmando(false);
+        } else if (cambios) {
+            setConfirmando(true);
+        } else {
+            setConfirmando(false);
+            alCerrar();
+        }
+    };
+    // Sobre el teclado (si está abierto) y nunca debajo de la barra de estado.
+    const altoMaximo = Math.max(240, (height - teclado - margen.top - 12) * (teclado > 0 ? 1 : 0.9));
     return (
-        <Modal visible={abierto} transparent animationType="slide" onRequestClose={alCerrar} testID="dialogo">
-            <View className="flex-1 justify-end bg-backdrop" style={estilos.velo}>
+        <Modal visible={abierto} transparent animationType="slide" onRequestClose={intentarCerrar} testID={testID}>
+            <View className="flex-1 justify-end bg-backdrop" testID={`${testID}-velo`} style={[estilos.velo, { paddingBottom: teclado }]}>
                 <View
                     accessibilityViewIsModal
                     className="border border-border bg-overlay"
-                    style={[estilos.hoja, { backgroundColor: colores.fondo, borderColor: colores.borde, borderTopLeftRadius: radioTarjeta, borderTopRightRadius: radioTarjeta }]}
+                    style={[estilos.hoja, { maxHeight: altoMaximo, backgroundColor: colores.fondo, borderColor: colores.borde, borderTopLeftRadius: radioTarjeta, borderTopRightRadius: radioTarjeta }]}
                 >
-                    <ScrollView contentContainerStyle={estilos.contenidoHoja} keyboardShouldPersistTaps="handled">
-                        <Text accessibilityRole="header" className="text-lg font-semibold text-foreground" style={{ color: colores.texto }}>
-                            {titulo}
-                        </Text>
-                        {descripcion ? (
-                            <Text className="text-[13px] text-muted" style={{ color: colores.textoSuave }}>
-                                {descripcion}
+                    <View style={estilos.cabezaHoja}>
+                        <View style={estilos.flex}>
+                            <Text accessibilityRole="header" className="text-lg font-semibold text-foreground" style={[estilos.tituloHoja, { color: colores.texto }]}>
+                                {titulo}
                             </Text>
-                        ) : null}
+                            {descripcion ? (
+                                <Text className="text-[13px] text-muted" style={{ color: colores.textoSuave }}>
+                                    {descripcion}
+                                </Text>
+                            ) : null}
+                        </View>
+                        <BotonIcono variante="fantasma" icono={X} etiqueta="Cerrar" colorIcono={colores.textoSuave} alPresionar={intentarCerrar} testID={`${testID}-cerrar`} />
+                    </View>
+                    {confirmando ? (
+                        <View style={estilos.confirmar}>
+                            <Aviso
+                                tono="warning"
+                                titulo="¿Descartar los cambios?"
+                                testID={`${testID}-confirmar`}
+                                accion={
+                                    <>
+                                        <Boton
+                                            variante="peligro"
+                                            alPresionar={() => {
+                                                setConfirmando(false);
+                                                alCerrar();
+                                            }}
+                                        >
+                                            Descartar
+                                        </Boton>
+                                        <Boton variante="secundario" alPresionar={() => setConfirmando(false)}>
+                                            Seguir editando
+                                        </Boton>
+                                    </>
+                                }
+                            >
+                                Lo que escribiste aquí no se guardó.
+                            </Aviso>
+                        </View>
+                    ) : null}
+                    {fijo ? <View style={estilos.fijoHoja}>{fijo}</View> : null}
+                    <ScrollView contentContainerStyle={[estilos.contenidoHoja, { paddingBottom: (teclado > 0 ? 16 : 32) + (teclado > 0 ? 0 : margen.bottom) }]} keyboardShouldPersistTaps="handled">
                         {children}
                     </ScrollView>
                 </View>
             </View>
         </Modal>
+    );
+}
+
+/** Un aviso emergente: tono, texto y, si la tiene, una acción («Deshacer», «Revisar»). */
+export type ContenidoAvisoEmergente = { tono: TonoEstado; texto: string; accion?: { texto: string; alPresionar: () => void } };
+
+const ICONO_AVISO: Record<TonoEstado, LucideIcon> = { error: TriangleAlert, warning: TriangleAlert, success: CircleCheck, info: Info, neutral: Info };
+
+/** Variante del `Toast` de HeroUI Native para cada tono (HeroUI no tiene «info»: va en «default»). */
+const VARIANTE_TOAST = { error: "danger", warning: "warning", success: "success", info: "default", neutral: "default" } as const;
+
+/**
+ * Aviso emergente: el `Toast` de HeroUI Native, que entra y sale desde arriba con su animación (y se
+ * desliza para cerrarlo), con la acción si la tiene o «Cerrar aviso». Uno a la vez: uno nuevo
+ * reemplaza al anterior; `aviso` en `null` lo cierra (el tiempo lo lleva quien avisa).
+ */
+export function AvisoEmergente({ aviso, alCerrar }: { aviso: ContenidoAvisoEmergente | null; alCerrar: () => void }) {
+    const { toast } = useToast();
+    const tema = useTema();
+    const actual = useRef<{ id: string; aviso: ContenidoAvisoEmergente } | null>(null);
+    const cuenta = useRef(0);
+    useEffect(() => {
+        const previo = actual.current;
+        if (previo && previo.aviso !== aviso) {
+            actual.current = null;
+            // «all» y no su id: el `hide` de un render anterior puede no conocerlo todavía. Solo hay
+            // avisos de este componente (uno a la vez).
+            toast.hide("all");
+        }
+        if (!aviso || actual.current) {
+            return;
+        }
+        cuenta.current += 1;
+        const id = `aviso-${cuenta.current}`;
+        actual.current = { id, aviso };
+        toast.show({
+            id,
+            duration: "persistent",
+            // Deslizado fuera: quien avisó también lo olvida.
+            onHide: () => {
+                if (actual.current?.id === id) {
+                    actual.current = null;
+                    alCerrar();
+                }
+            },
+            component: ({ id: _id, ...props }) => (
+                <Toast
+                    {...props}
+                    id={_id}
+                    variant={VARIANTE_TOAST[aviso.tono]}
+                    placement="top"
+                    accessibilityLiveRegion="polite"
+                    style={[estilos.aviso, estilos.avisoEmergente, { backgroundColor: tema.campo.panel, borderColor: bordeAviso(aviso.tono, tema), shadowColor: tema.campo.sombra }]}
+                >
+                    <ContenidoToast aviso={aviso} alCerrar={alCerrar} />
+                </Toast>
+            ),
+        });
+    }, [aviso, toast, tema, alCerrar]);
+    // Al desmontarse (cerrar sesión, cambiar de empresa) no queda un aviso huérfano.
+    const ocultar = useRef(toast.hide);
+    useEffect(() => {
+        ocultar.current = toast.hide;
+    });
+    useEffect(
+        () => () => {
+            if (actual.current) {
+                actual.current = null;
+                ocultar.current("all");
+            }
+        },
+        [],
+    );
+    return null;
+}
+
+function bordeAviso(t: TonoEstado, { campo, colores }: ReturnType<typeof useTema>): string {
+    return t === "error" ? campo.errorBorde : t === "warning" ? campo.avisoBorde : colores.borde;
+}
+
+function ContenidoToast({ aviso, alCerrar }: { aviso: ContenidoAvisoEmergente; alCerrar: () => void }) {
+    const { campo, colores } = useTema();
+    const t = aviso.tono;
+    const Icono = ICONO_AVISO[t];
+    const fondoIcono = t === "error" ? campo.errorFondo : t === "warning" ? campo.avisoFondo : t === "success" ? campo.marcaSuave : t === "info" ? campo.infoFondo : campo.panel2;
+    const tintaIcono = t === "success" ? campo.marcaSuaveTexto : colores.tono[t];
+    return (
+        <View testID="notificacion" style={estilos.filaAviso}>
+            <View style={[estilos.iconoAviso, { backgroundColor: fondoIcono }]}>
+                <Icono size={20} color={tintaIcono} />
+            </View>
+            <Toast.Title accessibilityRole={t === "error" ? "alert" : "text"} className="flex-1 text-sm font-medium" style={[estilos.textoAviso, { color: t === "error" ? colores.error : colores.texto }]}>
+                {aviso.texto}
+            </Toast.Title>
+            {aviso.accion ? (
+                <Tocable
+                    etiqueta={aviso.accion.texto}
+                    alPresionar={() => {
+                        aviso.accion?.alPresionar();
+                        alCerrar();
+                    }}
+                    estilo={[estilos.accionToast, { backgroundColor: campo.tinta }]}
+                >
+                    <Text style={[estilos.textoAccionToast, { color: campo.sobreTinta }]}>{aviso.accion.texto}</Text>
+                </Tocable>
+            ) : (
+                <BotonRedondo icono={X} etiqueta="Cerrar aviso" tamano={ZONA_TACTIL} fondo="transparent" tinta={colores.textoSuave} alPresionar={alCerrar} />
+            )}
+        </View>
     );
 }
 
@@ -532,8 +725,29 @@ const estilos = StyleSheet.create({
     opcion: { minHeight: 48, borderWidth: 1, borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
     velo: { backgroundColor: "rgba(0,0,0,0.45)" },
     hoja: { maxHeight: "90%", borderWidth: 1 },
-    contenidoHoja: { padding: 16, gap: 12, paddingBottom: 32 },
+    contenidoHoja: { paddingHorizontal: 16, paddingTop: 4, gap: 12 },
+    cabezaHoja: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingLeft: 16, paddingRight: 8, paddingTop: 12, paddingBottom: 4 },
+    tituloHoja: { paddingTop: 10 },
+    confirmar: { paddingHorizontal: 16, paddingBottom: 8 },
+    fijoHoja: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
     tocable: { minHeight: ZONA_TACTIL },
+    avisoEmergente: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 12,
+        borderRadius: 22,
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 10,
+    },
+    filaAviso: { flexDirection: "row", alignItems: "center", gap: 12 },
+    iconoAviso: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+    textoAviso: { flex: 1, fontSize: 14, fontWeight: "500" },
+    accionToast: { minHeight: ZONA_TACTIL, borderRadius: 999, paddingHorizontal: 14, justifyContent: "center" },
+    textoAccionToast: { fontWeight: "600", fontSize: 13 },
+    cerrarToast: { minWidth: ZONA_TACTIL, minHeight: ZONA_TACTIL, borderRadius: 22 },
     redondo: { alignItems: "center", justifyContent: "center" },
     textoRedondo: { fontSize: 15, fontWeight: "600" },
 });

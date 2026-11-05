@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { entorno } from "../src/entorno";
 import { Entrar } from "../src/pantallas/Entrar";
 import { cargarCsrf, cerrarSesion, CLAVE_CSRF, guardarSesion, hayCierrePendiente, iniciarSesion, leerCsrf, reintentarCierrePendiente, sesionGuardada, verificarDueno } from "../src/sesion/sesion";
-import { ProveedorTema } from "../src/tema/tema";
+import { TemaDePrueba } from "./raiz";
 import { ApiFalsa, problema, usuario, yo } from "./api-falsa";
 
 const sesion = (csrfToken: string, mfaRequerido: boolean): Schema<"SesionIniciada"> => ({
@@ -17,9 +17,9 @@ const sesion = (csrfToken: string, mfaRequerido: boolean): Schema<"SesionIniciad
 
 async function pantalla(alEntrar = jest.fn()) {
     await render(
-        <ProveedorTema esquema="dark">
+        <TemaDePrueba esquema="dark">
             <Entrar alEntrar={alEntrar} />
-        </ProveedorTema>,
+        </TemaDePrueba>,
     );
     return alEntrar;
 }
