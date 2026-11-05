@@ -27,14 +27,19 @@ describe("campos de formulario", () => {
         expect(html).not.toContain('aria-invalid="true"');
     });
 
-    it("Casilla: checkbox dentro de su etiqueta, con ayuda", () => {
+    it("Casilla: el Checkbox de HeroUI con un checkbox real dentro de su etiqueta, con ayuda", () => {
         const html = renderToStaticMarkup(<Casilla id="s" etiqueta="Responder por correo" ayuda="Usa SMTP" defaultChecked />);
-        expect(html).toMatch(/<label[^>]*for="s"[^>]*><input type="checkbox"/);
-        expect(html).toMatch(/<input[^>]*aria-describedby="s-ayuda"/);
+        expect(html).toContain('class="checkbox ');
+        expect(html).toMatch(/<label[^>]*checkbox__content[^>]*>[\s\S]*<input id="s"[^>]*type="checkbox"[^>]*checked=""/);
+        expect(html).toMatch(/<input[^>]*aria-describedby="[^"]*s-ayuda"/);
+        expect(html).toContain("Responder por correo");
         expect(html).toContain("Usa SMTP");
+        // La marca se dibuja desde el input (`:checked`): sigue a `register`, `reset` y `setValue`.
+        expect(html).toContain("group-has-[input:checked]:bg-primary");
+        expect(html).toContain("lucide-check");
     });
 
-    it("GrupoOpciones: radios nativos en un fieldset, con texto en cada opción y error enlazado", () => {
+    it("GrupoOpciones: el RadioGroup de HeroUI con radios reales, texto en cada opción y error enlazado", () => {
         const html = renderToStaticMarkup(
             <GrupoOpciones
                 leyenda="¿Cómo te atendimos?"
@@ -48,10 +53,11 @@ describe("campos de formulario", () => {
                 error="Elige una calificación"
             />,
         );
-        expect(html).toMatch(/<fieldset[^>]*aria-invalid="true"/);
-        expect(html).toContain("<legend");
+        expect(html).toMatch(/class="radio-group[^"]*"[^>]*role="radiogroup"[^>]*aria-invalid="true"/);
+        expect(html).toMatch(/aria-labelledby="([^"]+)"[\s\S]*id="\1"[^>]*>¿Cómo te atendimos\?/);
         expect(html.match(/type="radio"/g)).toHaveLength(2);
-        expect(html).toMatch(/<input type="radio"[^>]*name="calificacion" checked="" value="5"/);
+        expect(html).toMatch(/<input[^>]*type="radio"[^>]*name="calificacion" checked="" value="5"/);
+        expect(html).toMatch(/aria-describedby="[^"]*-error"[^>]*role="radiogroup"/);
         expect(html).toContain("Muy mal");
         expect(html).toContain("Elige una calificación");
     });

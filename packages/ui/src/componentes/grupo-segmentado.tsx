@@ -1,7 +1,8 @@
 "use client";
 
+import { ToggleButton, ToggleButtonGroup } from "@heroui/react";
 import type { LucideIcon } from "lucide-react";
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, type ComponentProps } from "react";
 import { cn } from "../utilidades";
 
 export type OpcionSegmentada<V extends string> = {
@@ -20,71 +21,60 @@ export type PropsGrupoSegmentado<V extends string> = {
     className?: string;
 };
 
-/** Grupo de opciones excluyentes (radiogroup) con flechas para moverse, como el selector de tema. */
-export function GrupoSegmentado<V extends string>({
-    etiqueta,
-    opciones,
-    valor,
-    alCambiar,
-    className,
-}: PropsGrupoSegmentado<V>) {
-    const refs = useRef<(HTMLButtonElement | null)[]>([]);
-    const indiceActual = Math.max(
-        0,
-        opciones.findIndex((o) => o.valor === valor),
-    );
+const FLECHAS = new Set(["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"]);
 
-    function alTeclear(evento: KeyboardEvent<HTMLDivElement>) {
-        const paso = evento.key === "ArrowRight" || evento.key === "ArrowDown" ? 1 : evento.key === "ArrowLeft" || evento.key === "ArrowUp" ? -1 : 0;
-        if (paso === 0) {
-            return;
-        }
-        evento.preventDefault();
-        const siguiente = (indiceActual + paso + opciones.length) % opciones.length;
-        const opcion = opciones[siguiente];
-        if (opcion) {
-            alCambiar(opcion.valor);
-            refs.current[siguiente]?.focus();
-        }
-    }
-
+/**
+ * Grupo de opciones excluyentes, como el selector de tema: el `ToggleButtonGroup` de HeroUI con
+ * selección única (`role="radiogroup"`, cada opción `role="radio"`). Como un grupo de radios, las
+ * flechas mueven y eligen; siempre queda una elegida.
+ */
+export function GrupoSegmentado<V extends string>({ etiqueta, opciones, valor, alCambiar, className }: PropsGrupoSegmentado<V>) {
+    // React Aria mueve el foco con las flechas; la opción que lo recibe así queda elegida.
+    const conFlechas = useRef(false);
     return (
-        <div
-            role="radiogroup"
+        <ToggleButtonGroup
             aria-label={etiqueta}
             data-slot="grupo-segmentado"
-            onKeyDown={alTeclear}
-            className={cn("inline-flex items-center gap-0.5 rounded-md bg-elevated p-0.5", className)}
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={valor !== undefined ? [valor] : []}
+            onSelectionChange={(claves) => {
+                const [elegida] = [...claves];
+                if (elegida !== undefined) alCambiar(String(elegida) as V);
+            }}
+            className={cn("inline-flex max-w-full flex-wrap items-center justify-start gap-0.5 rounded-md bg-elevated p-0.5", className)}
         >
-            {opciones.map((opcion, i) => {
-                const marcado = opcion.valor === valor;
+            {opciones.map((opcion) => {
                 const Icono = opcion.icono;
                 return (
-                    <button
+                    <ToggleButton
                         key={opcion.valor}
-                        ref={(el) => {
-                            refs.current[i] = el;
+                        id={opcion.valor}
+                        size="sm"
+                        variant="ghost"
+                        {...(opcion.soloIcono ? { "aria-label": opcion.etiqueta } : {})}
+                        onKeyDown={(evento) => {
+                            conFlechas.current = FLECHAS.has(evento.key);
+                            evento.continuePropagation();
                         }}
-                        type="button"
-                        role="radio"
-                        aria-checked={marcado}
-                        aria-label={opcion.soloIcono ? opcion.etiqueta : undefined}
-                        title={opcion.soloIcono ? opcion.etiqueta : undefined}
-                        tabIndex={i === indiceActual ? 0 : -1}
-                        onClick={() => alCambiar(opcion.valor)}
+                        onFocus={() => {
+                            if (conFlechas.current && opcion.valor !== valor) alCambiar(opcion.valor);
+                            conFlechas.current = false;
+                        }}
+                        render={(dom) => <button {...(dom as ComponentProps<"button">)} title={opcion.soloIcono ? opcion.etiqueta : undefined} />}
                         className={cn(
-                            "inline-flex h-7 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium",
+                            "inline-flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium",
                             "text-muted-foreground transition-colors duration-150 hover:text-foreground",
                             // Opción elegida inconfundible en claro y oscuro: color de marca (selección) en texto y borde.
-                            "aria-checked:bg-background aria-checked:font-semibold aria-checked:text-primary aria-checked:shadow-[0_0_0_1px_var(--hx-primary)]",
+                            "data-selected:bg-background data-selected:font-semibold data-selected:text-primary data-selected:shadow-[0_0_0_1px_var(--hx-primary)]",
                             "[&_svg]:size-4",
                         )}
                     >
                         {Icono ? <Icono aria-hidden /> : null}
                         {opcion.soloIcono ? null : opcion.etiqueta}
-                    </button>
+                    </ToggleButton>
                 );
             })}
-        </div>
+        </ToggleButtonGroup>
     );
 }

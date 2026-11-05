@@ -1,17 +1,18 @@
 "use client";
 
-import { drawerVariants } from "@heroui/styles";
+import { Drawer } from "@heroui/react";
 import { X } from "lucide-react";
 import { createContext, use, useId, type ComponentProps, type ReactNode } from "react";
-import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { cn } from "../utilidades";
 import { Boton } from "./boton";
-import { animacionPanel, useEstadoApertura, type PropsDialogo } from "./dialogo";
+import { useEstadoApertura, type PropsDialogo } from "./dialogo";
 import { Ranura } from "./ranura";
 
 /*
- * Panel lateral sobre HeroUI `Drawer` (React Aria `ModalOverlay` + `Modal` + `Dialog`) en vidrio
- * fuerte. Para el menú en teléfono.
+ * Panel lateral: el `Drawer` de HeroUI (`Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` +
+ * `Drawer.Heading`, sobre React Aria). Panel de color sólido (la capa flotante del tema) con borde
+ * y sombra, siempre sobre un telón que oscurece lo de atrás. Para el menú «Más» del teléfono y las
+ * acciones de una ficha (`PanelProtegido`). Se puede cerrar arrastrándolo hacia su lado.
  */
 
 type ContextoHoja = ReturnType<typeof useEstadoApertura>;
@@ -67,35 +68,37 @@ export type PropsHojaContenido = Omit<ComponentProps<"div">, "title" | "role"> &
     /** Texto del botón de cerrar para lectores de pantalla. */
     etiquetaCerrar?: string;
     lado?: "izquierda" | "derecha";
-    /** `transparente`: lo de atrás se ve tal cual (p. ej. la ficha mientras se hace una acción). */
+    /**
+     * Se acepta por compatibilidad y ya no cambia nada: toda hoja lleva su telón oscurecido (sin
+     * telón, el panel se confundía con la página de atrás).
+     */
     fondo?: "opaco" | "transparente";
 };
 
-export function HojaContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", lado = "izquierda", fondo = "opaco", className, children, ...props }: PropsHojaContenido) {
+export function HojaContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", lado = "izquierda", fondo, className, children, ...props }: PropsHojaContenido) {
+    void fondo; // ya no cambia nada: ver `PropsHojaContenido.fondo`.
     const { abierto, cambiar } = useHoja();
-    const piezas = drawerVariants({ placement: lado === "izquierda" ? "left" : "right", variant: "opaque" });
     const idDescripcion = useId();
+    const izquierda = lado === "izquierda";
     return (
-        <ModalOverlay
-            isOpen={abierto}
-            onOpenChange={cambiar}
-            isDismissable
-            className={piezas.backdrop({ className: cn("data-exiting:animate-none", fondo === "transparente" && "bg-transparent backdrop-blur-none") })}
-        >
-            <Modal
-                className={cn(
-                    "glass-strong fixed inset-y-0 z-(--z-index-overlay) flex w-[min(20rem,85vw)] flex-col shadow-xl",
-                    lado === "izquierda" ? "left-0 rounded-l-none data-entering:slide-in-from-left-8" : "right-0 rounded-r-none data-entering:slide-in-from-right-8",
-                    animacionPanel,
-                    className,
-                )}
-            >
-                <Dialog className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4 outline-none" {...(descripcion ? { "aria-describedby": idDescripcion } : {})} {...props}>
+        // Sin animación de salida (como `Dialogo`): la capa se desmonta en el acto al cerrar.
+        <Drawer.Backdrop isOpen={abierto} onOpenChange={cambiar} isDismissable variant="opaque" className="data-exiting:transition-none">
+            <Drawer.Content placement={izquierda ? "left" : "right"}>
+                <Drawer.Dialog
+                    className={cn(
+                        "flex min-h-0 w-[min(20rem,85vw)] flex-col gap-2 overflow-y-auto p-4 sm:w-[min(20rem,85vw)]",
+                        "rounded-[var(--hx-radius-card)]",
+                        izquierda ? "rounded-l-none" : "rounded-r-none",
+                        className,
+                    )}
+                    // El arrastre para cerrar es horizontal: el contenido sigue desplazándose en vertical.
+                    style={{ touchAction: "pan-y" }}
+                    {...(descripcion ? { "aria-describedby": idDescripcion } : {})}
+                    {...props}
+                >
                     <div className="flex items-start justify-between gap-2">
                         <div className="grid min-w-0 gap-0.5">
-                            <Heading slot="title" className="text-base font-semibold">
-                                {titulo}
-                            </Heading>
+                            <Drawer.Heading className="text-base font-semibold">{titulo}</Drawer.Heading>
                             {descripcion ? (
                                 <p id={idDescripcion} className="text-sm break-words text-muted-foreground">
                                     {descripcion}
@@ -107,8 +110,8 @@ export function HojaContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar", 
                         </Boton>
                     </div>
                     {children}
-                </Dialog>
-            </Modal>
-        </ModalOverlay>
+                </Drawer.Dialog>
+            </Drawer.Content>
+        </Drawer.Backdrop>
     );
 }

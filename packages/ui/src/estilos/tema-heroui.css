@@ -53,10 +53,18 @@
     --surface-tertiary-foreground: var(--hx-text);
     --surface-shadow: 0 0 0 1px var(--hx-border), inset 0 1px 0 var(--hx-glass-edge);
 
-    /* Capa flotante (menús, popovers, modales, avisos): vidrio fuerte. */
-    --overlay: var(--hx-glass-strong);
+    /*
+     * Capa flotante (modales, hojas, popovers, menús, listas, globos y avisos emergentes): color
+     * SÓLIDO de superficie, con borde y sombra. Nada de vidrio translúcido en lo flotante: sobre un
+     * contenido cargado (o donde el desenfoque no se aplica) se confundiría con lo de atrás. En claro
+     * es la tarjeta (`--hx-card`, blanca y opaca); en oscuro, la superficie elevada de Horus
+     * (`--hx-bg-elevated`, opaca y más clara que el lienzo y las tarjetas). Ver el bloque oscuro abajo.
+     */
+    --overlay: var(--hx-card);
     --overlay-foreground: var(--hx-text);
-    --overlay-shadow: 0 0 0 1px var(--hx-border), inset 0 1px 0 var(--hx-glass-edge), 0 16px 40px rgb(0 0 0 / 0.18);
+    --overlay-hover: var(--hx-bg-elevated);
+    --overlay-shadow: 0 0 0 1px var(--hx-border), 0 16px 40px rgb(0 0 0 / 0.16);
+    /* Telón de toda capa modal (modal, hoja y confirmación): oscurece lo de atrás. */
     --backdrop: rgb(0 0 0 / 0.45);
 
     /* Estados: verde, ámbar y rojo de Horus (tonos que pasan 4,5:1 en cada tema). El texto sobre
@@ -102,35 +110,104 @@
     --tooltip-close-delay: 200ms;
 }
 
-/* Vidrio fuerte en toda la capa flotante de HeroUI; nunca vidrio sobre vidrio. */
-.modal__dialog,
-.alert-dialog__dialog,
-.drawer__dialog,
-.popover,
-.tooltip,
-.dropdown__popover,
-.select__popover,
-.combo-box__popover,
-.autocomplete__popover,
-.date-picker__popover,
-.date-range-picker__popover,
-.color-picker__popover,
-.toast {
-    -webkit-backdrop-filter: blur(40px) saturate(150%);
-    backdrop-filter: blur(40px) saturate(150%);
+/* Oscuro: la capa flotante es la superficie elevada (opaca); el telón oscurece más. */
+.dark,
+[data-theme="dark"] {
+    --overlay: var(--hx-bg-elevated);
+    --overlay-hover: color-mix(in oklab, var(--hx-bg-elevated) 86%, var(--hx-text) 14%);
+    --overlay-shadow: 0 0 0 1px var(--hx-border), 0 18px 48px rgb(0 0 0 / 0.55);
+    --backdrop: rgb(0 0 0 / 0.62);
 }
 
-.modal__dialog,
-.alert-dialog__dialog,
-.popover,
-.dropdown__popover,
-.select__popover,
-.combo-box__popover,
-.autocomplete__popover,
-.date-picker__popover,
-.date-range-picker__popover,
-.toast {
-    border-radius: var(--hx-radius-card);
+/*
+ * Reglas de componentes en la capa `components` (después de las de HeroUI): ganan a HeroUI y
+ * dejan que las utilidades de cada envoltorio (p. ej. la hoja inferior del teléfono) manden.
+ */
+@layer components {
+    /*
+     * Toda la capa flotante de HeroUI, sólida: sin desenfoque (lo de atrás no se transparenta), con su
+     * borde y su sombra. Los avisos emergentes usan `surface` en HeroUI (en oscuro, la tarjeta es
+     * translúcida): aquí van también a la capa flotante.
+     */
+    .modal__dialog,
+    .alert-dialog__dialog,
+    .drawer__dialog,
+    .popover,
+    .tooltip,
+    .dropdown__popover,
+    .select__popover,
+    .combo-box__popover,
+    .autocomplete__popover,
+    .date-picker__popover,
+    .date-range-picker__popover,
+    .color-picker__popover,
+    .toast {
+        background-color: var(--overlay);
+        color: var(--overlay-foreground);
+        box-shadow: var(--overlay-shadow);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+
+    .modal__dialog,
+    .alert-dialog__dialog,
+    .popover,
+    .dropdown__popover,
+    .select__popover,
+    .combo-box__popover,
+    .autocomplete__popover,
+    .date-picker__popover,
+    .date-range-picker__popover,
+    .toast {
+        border-radius: var(--hx-radius-card);
+    }
+
+    /*
+     * Casillas y radios de HeroUI (`Casilla`, `GrupoOpciones`): React Aria esconde el `<input>`
+     * real (1 px, recortado) dentro de la etiqueta. Aquí cubre toda la etiqueta, invisible: el clic
+     * o el toque en cualquier parte cae en el propio control (como un radio o una casilla nativos)
+     * y las pruebas pueden marcarlo. El foco y la marca se siguen dibujando con las piezas de HeroUI.
+     */
+    .iris-entrada-cubierta {
+        position: relative;
+    }
+
+    .iris-entrada-cubierta > span:has(> input) {
+        position: absolute !important;
+        inset: 0 !important;
+        z-index: 1;
+        width: 100% !important;
+        height: 100% !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        clip: auto !important;
+        clip-path: none !important;
+        white-space: normal !important;
+    }
+
+    .iris-entrada-cubierta > span > input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        appearance: none;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .iris-entrada-cubierta > span > input:disabled {
+        cursor: not-allowed;
+    }
+
+    /* El telón de las capas modales nunca es transparente ni desenfocado: oscurece. */
+    .modal__backdrop,
+    .alert-dialog__backdrop,
+    .drawer__backdrop {
+        background-color: var(--backdrop);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
 }
 
 /* Botones de HeroUI con el radio de Horus (no píldora); el primario lleva el halo (solo oscuro). */
@@ -166,32 +243,4 @@
     outline-offset: 0;
     --tw-ring-shadow: 0 0 transparent;
     --tw-ring-offset-shadow: 0 0 transparent;
-}
-
-/* Sin transparencias ni blur cuando el sistema lo pide (horus-tokens hace lo mismo con el vidrio). */
-@media (prefers-reduced-transparency: reduce) {
-    :root,
-    .light,
-    .dark,
-    [data-theme="light"],
-    [data-theme="dark"] {
-        --overlay: var(--hx-bg);
-    }
-
-    .modal__dialog,
-    .alert-dialog__dialog,
-    .drawer__dialog,
-    .popover,
-    .tooltip,
-    .dropdown__popover,
-    .select__popover,
-    .combo-box__popover,
-    .autocomplete__popover,
-    .date-picker__popover,
-    .date-range-picker__popover,
-    .color-picker__popover,
-    .toast {
-        -webkit-backdrop-filter: none;
-        backdrop-filter: none;
-    }
 }

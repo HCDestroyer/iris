@@ -1,9 +1,10 @@
 "use client";
 
-import { popoverVariants } from "@heroui/styles";
+import { Popover } from "@heroui/react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { Dialog, DialogTrigger, Heading, Popover, Pressable } from "react-aria-components";
+import { Pressable } from "react-aria-components";
 import { cn } from "../utilidades";
+import { esBotonAria } from "./boton";
 
 export type PropsPanelEmergente = {
     /** El disparador (p. ej. un `Boton`): recibe `aria-expanded` y abre/cierra el panel. */
@@ -20,32 +21,29 @@ export type PropsPanelEmergente = {
 };
 
 /**
- * Panel emergente (Popover de HeroUI sobre React Aria) en vidrio fuerte, junto a su disparador:
- * filtros rápidos, detalle de un dato, ayuda con enlaces. Es un diálogo no modal: Escape o tocar
- * fuera lo cierran y el foco vuelve al disparador. Para formularios de más de 3 campos, una
- * pantalla propia.
+ * Panel emergente: el `Popover` de HeroUI (`Popover`, `Popover.Content`, `Popover.Dialog`,
+ * `Popover.Heading`) junto a su disparador, en la capa flotante sólida del tema (con borde y
+ * sombra): filtros rápidos, detalle de un dato, ayuda con enlaces. Es un diálogo no modal: Escape
+ * o tocar fuera lo cierran y el foco vuelve al disparador. Para formularios de más de 3 campos,
+ * una pantalla propia.
  */
 export function PanelEmergente({ disparador, titulo, tituloVisible = false, children, lado = "bottom", abierto, alCambiar, className }: PropsPanelEmergente) {
-    const piezas = popoverVariants();
     return (
-        <DialogTrigger {...(abierto !== undefined ? { isOpen: abierto } : {})} {...(alCambiar ? { onOpenChange: alCambiar } : {})}>
-            <Pressable>{disparador as ComponentProps<typeof Pressable>["children"]}</Pressable>
-            <Popover
+        <Popover {...(abierto !== undefined ? { isOpen: abierto } : {})} {...(alCambiar ? { onOpenChange: alCambiar } : {})}>
+            {/* Un `Boton` (Button de React Aria) se conecta solo; otro elemento, con `Pressable`. */}
+            {esBotonAria(disparador) ? disparador : <Pressable>{disparador as ComponentProps<typeof Pressable>["children"]}</Pressable>}
+            <Popover.Content
                 offset={8}
                 placement={lado}
                 containerPadding={8}
                 data-slot="panel-emergente"
-                className={piezas.base({ className: cn("glass-strong max-w-[min(24rem,calc(100vw-1rem))] p-0 shadow-xl", className) })}
+                className={cn("max-w-[min(24rem,calc(100vw-1rem))] border border-border p-0", className)}
             >
-                <Dialog aria-label={tituloVisible ? undefined : titulo} className={piezas.dialog({ className: "grid gap-3 p-4 outline-none" })}>
-                    {tituloVisible ? (
-                        <Heading slot="title" className={piezas.heading({ className: "text-sm font-semibold" })}>
-                            {titulo}
-                        </Heading>
-                    ) : null}
+                <Popover.Dialog aria-label={tituloVisible ? undefined : titulo} className="grid gap-3 p-4 outline-none">
+                    {tituloVisible ? <Popover.Heading className="text-sm font-semibold">{titulo}</Popover.Heading> : null}
                     {children}
-                </Dialog>
-            </Popover>
-        </DialogTrigger>
+                </Popover.Dialog>
+            </Popover.Content>
+        </Popover>
     );
 }

@@ -1,15 +1,17 @@
 "use client";
 
-import { dropdownVariants, menuItemVariants } from "@heroui/styles";
+import { Dropdown, Menu, Separator } from "@heroui/react";
 import type { LucideIcon } from "lucide-react";
 import { Children, Fragment, isValidElement, type ComponentProps, type ReactElement, type ReactNode } from "react";
-import { Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover, Pressable, Separator } from "react-aria-components";
+import { Header, Pressable } from "react-aria-components";
 import { cn } from "../utilidades";
+import { esBotonAria } from "./boton";
 
 /*
- * Menú desplegable sobre HeroUI `Dropdown` (React Aria `MenuTrigger` + `Popover` + `Menu`) en
- * vidrio fuerte: menú del usuario y acciones de una fila. Teclado y foco los resuelve React Aria
- * (flechas, letras, Esc, vuelve al disparador).
+ * Menú desplegable: el `Dropdown` de HeroUI (`Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`,
+ * `Dropdown.Section`, `Dropdown.Item` y `Separator`, sobre React Aria) en la capa flotante sólida
+ * del tema, con borde y sombra: menú del usuario y acciones de una fila. Teclado y foco los
+ * resuelve React Aria (flechas, letras, Esc, vuelve al disparador).
  */
 
 export type PropsMenuDesplegable = {
@@ -21,21 +23,21 @@ export type PropsMenuDesplegable = {
 
 export function MenuDesplegable({ open, defaultOpen, onOpenChange, children }: PropsMenuDesplegable) {
     return (
-        <MenuTrigger {...(open !== undefined ? { isOpen: open } : {})} {...(defaultOpen !== undefined ? { defaultOpen } : {})} {...(onOpenChange ? { onOpenChange } : {})}>
+        <Dropdown {...(open !== undefined ? { isOpen: open } : {})} {...(defaultOpen !== undefined ? { defaultOpen } : {})} {...(onOpenChange ? { onOpenChange } : {})}>
             {children}
-        </MenuTrigger>
+        </Dropdown>
     );
 }
 
 /**
- * Disparador: el hijo (un `Boton`) recibe por `Pressable` las props del menú (`aria-expanded`,
- * `aria-haspopup`, teclado). `asChild` se acepta por compatibilidad; siempre usa al hijo.
+ * Disparador: el hijo recibe las props del menú (`aria-expanded`, `aria-haspopup`, teclado). Un
+ * `Boton` (Button de React Aria) se conecta solo; otro elemento, por `Pressable`. `asChild` se
+ * acepta por compatibilidad; siempre usa al hijo.
  */
 export function MenuDesplegableDisparador({ children }: { asChild?: boolean; children: ReactElement }) {
+    if (esBotonAria(children)) return children;
     return <Pressable>{children as ComponentProps<typeof Pressable>["children"]}</Pressable>;
 }
-
-const piezasMenu = dropdownVariants();
 
 export type PropsMenuDesplegableContenido = {
     className?: string;
@@ -62,25 +64,23 @@ export function MenuDesplegableContenido({ className, sideOffset = 6, align = "e
     const opciones = nodos.filter((n) => !(isValidElement(n) && n.type === MenuDesplegableEtiqueta));
     const ubicacion = align === "start" ? "bottom start" : align === "center" ? "bottom" : "bottom end";
     return (
-        <Popover
+        <Dropdown.Popover
             offset={sideOffset}
             placement={ubicacion}
             containerPadding={8}
-            className={piezasMenu.popover({
-                className: cn("glass-strong grid max-w-[calc(100vw-1rem)] min-w-56 gap-0.5 rounded-lg border p-1 shadow-xl outline-none", className),
-            })}
+            className={cn("grid max-w-[calc(100vw-1rem)] min-w-56 gap-0.5 border border-border p-1 outline-none", className)}
         >
-            <Menu className="grid gap-0.5 outline-none">
+            <Dropdown.Menu className="grid gap-0.5 p-0 outline-none">
                 {etiquetas.length > 0 ? (
-                    <MenuSection className="grid gap-0.5">
+                    <Dropdown.Section className="grid gap-0.5">
                         <Header>{etiquetas}</Header>
                         {opciones}
-                    </MenuSection>
+                    </Dropdown.Section>
                 ) : (
                     opciones
                 )}
-            </Menu>
-        </Popover>
+            </Dropdown.Menu>
+        </Dropdown.Popover>
     );
 }
 
@@ -100,12 +100,12 @@ export function MenuEnLinea({ etiqueta, className, children }: PropsMenuEnLinea)
     const etiquetas = nodos.filter((n) => isValidElement(n) && n.type === MenuDesplegableEtiqueta);
     const opciones = nodos.filter((n) => !(isValidElement(n) && n.type === MenuDesplegableEtiqueta));
     return (
-        <Menu aria-label={etiqueta} className={cn("grid gap-0.5 outline-none", className)}>
+        <Menu aria-label={etiqueta} className={cn("grid gap-0.5 p-0 outline-none", className)}>
             {etiquetas.length > 0 ? (
-                <MenuSection className="grid gap-0.5">
+                <Dropdown.Section className="grid gap-0.5">
                     <Header>{etiquetas}</Header>
                     {opciones}
-                </MenuSection>
+                </Dropdown.Section>
             ) : (
                 opciones
             )}
@@ -124,26 +124,22 @@ export type PropsMenuDesplegableElemento = {
     children?: ReactNode;
 };
 
-const piezasElemento = menuItemVariants();
-
 export function MenuDesplegableElemento({ icono: Icono, onSelect, disabled, className, textValue, children }: PropsMenuDesplegableElemento) {
     const texto = textValue ?? (typeof children === "string" ? children : undefined);
     return (
-        <MenuItem
+        <Dropdown.Item
             {...(onSelect ? { onAction: onSelect } : {})}
             isDisabled={disabled ?? false}
             {...(texto ? { textValue: texto } : {})}
-            className={piezasElemento.item({
-                className: cn(
-                    "flex min-h-9 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm outline-none select-none",
-                    "data-focused:bg-elevated data-hovered:bg-elevated data-disabled:pointer-events-none data-disabled:opacity-55",
-                    className,
-                ),
-            })}
+            className={cn(
+                "flex min-h-9 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm outline-none select-none",
+                "data-focused:bg-[var(--overlay-hover)] data-hovered:bg-[var(--overlay-hover)] data-disabled:pointer-events-none data-disabled:opacity-55",
+                className,
+            )}
         >
             {Icono ? <Icono aria-hidden className="size-4 shrink-0 text-muted-foreground" /> : null}
             {children}
-        </MenuItem>
+        </Dropdown.Item>
     );
 }
 
@@ -152,5 +148,5 @@ export function MenuDesplegableEtiqueta({ className, ...props }: ComponentProps<
 }
 
 export function MenuDesplegableSeparador({ className }: { className?: string }) {
-    return <Separator className={cn("my-1 h-px border-0 bg-border", className)} />;
+    return <Separator className={cn("my-1", className)} />;
 }
