@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/HCDestroyer/iris/compare/v0.10.0...v0.11.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **ui:** componentes reales de HeroUI v3 en @iris/ui y fondos sólidos en todo lo flotante ([#97](https://github.com/HCDestroyer/iris/issues/97)) ([ce4d87d](https://github.com/HCDestroyer/iris/commit/ce4d87d494fa93ff16ce67e9234566b3f15c306b))
+
 ## [0.10.0](https://github.com/HCDestroyer/iris/compare/v0.9.0...v0.10.0) (2026-11-05)
 
 
