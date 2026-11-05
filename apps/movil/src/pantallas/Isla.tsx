@@ -1,50 +1,44 @@
-// Isla de menú flotante (diseño «combinada», como la PWA): píldora centrada abajo con Hoy, Por
-// recibir (con su contador), «+» en teal al centro, Agenda y Yo, zonas de 54 px (44 encogida). Al
-// bajar se encoge y al subir vuelve. Encima, la píldora de estado (`avisoIsla` de `@iris/sync/campo`,
-// la barra discreta de la fase 4): sin señal con algo por enviar, un rechazo, la sesión vencida o
-// la empresa no válida. El «+» abre la hoja de acciones rápidas con lo que ya tiene API.
+// Isla de menú flotante (opción elegida por el PM, nov 2026, como la PWA): píldora centrada abajo
+// con Hoy, Chat (punto de no leídos), «+» en teal al centro, Agenda y Yo (icono de usuario), zonas
+// de 54 px (44 encogida). Al bajar se encoge y al subir vuelve. «Por recibir» es el mosaico de Hoy;
+// el estado (sincronización y GPS) va en el encabezado. Sobre la isla no flota nada. El «+» abre la
+// hoja de acciones rápidas con lo que ya tiene API.
 import type { PlantillaFormulario } from "@iris/sync";
-import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, type PasoOrden, type Pestana } from "@iris/sync/campo";
+import { accionesDe, accionesRapidas, contadoresPestanas, nombreCliente, pestanaDe, pestanasIsla, type PasoOrden, type Pestana } from "@iris/sync/campo";
 import {
     ArrowLeft,
     ArrowRight,
-    Building2,
     CalendarClock,
     CalendarDays,
-    CloudUpload,
     FilePlus2,
     House,
-    KeyRound,
-    PackageOpen,
+    User,
+    MessageCircle,
     Plus,
     Save,
-    TriangleAlert,
-    UserRound,
-    WifiOff,
     type LucideIcon,
 } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto, Tocable } from "../componentes";
+import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto } from "../componentes";
 import { useGuardarPaso, useSinGuardar } from "../campo/borradores";
+import { useChatOpcional } from "../campo/chat";
 import { useCampo, useOrden } from "../campo/contexto";
-import { useCargarAlAbrir, useInventario } from "../campo/inventario";
 import { navegacionPaso } from "../campo/pasos";
 import { useTema } from "../tema/tema";
 
-const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
+const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, chat: MessageCircle, agenda: CalendarDays, yo: User };
 
 export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number }) {
-    const { vista, navegar, estado } = useCampo();
-    const { traslados, cargarTraslados } = useInventario();
-    // El contador de «Por recibir» se lee al abrir la app (y al volver la señal).
-    useCargarAlAbrir(cargarTraslados);
+    const { vista, navegar, sesion } = useCampo();
+    const chat = useChatOpcional();
     const { campo, colores } = useTema();
     const [acciones, setAcciones] = useState(false);
     const actual = pestanaDe(vista);
-    const cuentas = contadoresPestanas(estado, traslados.datos);
+    const cuentas = contadoresPestanas(chat?.estado.noLeidos ?? 0);
+    const pestanas = pestanasIsla(chat !== null);
     const tamano = encogida ? 44 : 54;
-    const boton = (p: (typeof PESTANAS)[number]) => {
+    const boton = (p: (typeof pestanas)[number]) => {
         const activa = actual === p.id;
         const cuenta = cuentas[p.id];
         return (
@@ -52,7 +46,7 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
                 key={p.id}
                 rol="tab"
                 icono={ICONOS[p.id]}
-                etiqueta={cuenta > 0 ? `${p.texto} (${cuenta})` : p.texto}
+                etiqueta={p.id === "yo" ? `Yo · ${sesion.nombre}` : cuenta > 0 ? `${p.texto} (${cuenta} sin leer)` : p.texto}
                 seleccionado={activa}
                 tamano={tamano}
                 fondo={activa ? campo.tinta : "transparent"}
@@ -60,11 +54,8 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
                 testID={`pestana-${p.id}`}
                 alPresionar={() => navegar(p.vista)}
             >
-                {cuenta > 0 ? (
-                    <View style={[estilos.contador, { backgroundColor: colores.primario }]}>
-                        <Text style={[estilos.textoContador, { color: colores.sobrePrimario }]}>{cuenta > 99 ? "99+" : String(cuenta)}</Text>
-                    </View>
-                ) : null}
+                {/* El chat: un punto (discreto) cuando hay mensajes sin leer. */}
+                {cuenta > 0 ? <View testID="punto-no-leidos" style={[estilos.punto, { backgroundColor: colores.primario, borderColor: campo.isla }]} /> : null}
             </BotonRedondo>
         );
     };
@@ -77,9 +68,9 @@ export function IslaMenu({ encogida, abajo }: { encogida: boolean; abajo: number
                     testID="navegacion-inferior"
                     style={[estilos.isla, { padding: encogida ? 4 : 6, gap: encogida ? 2 : 4, backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}
                 >
-                    {PESTANAS.slice(0, 2).map(boton)}
+                    {pestanas.filter((p) => p.id === "hoy" || p.id === "chat").map(boton)}
                     <BotonRedondo icono={Plus} etiqueta="Acciones rápidas" tamano={tamano} fondo={colores.primario} tinta={colores.sobrePrimario} testID="boton-mas" alPresionar={() => setAcciones(true)} />
-                    {PESTANAS.slice(2).map(boton)}
+                    {pestanas.filter((p) => p.id === "agenda" || p.id === "yo").map(boton)}
                 </View>
             </View>
             {/* Se monta al abrir: cada vez empieza sin elegir (con una sola orden, ya elegida). */}
@@ -151,52 +142,6 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
                     />
                 ) : null}
             </View>
-        </View>
-    );
-}
-
-/** Píldora de estado encima de la isla (o al pie, en los pasos sin isla). */
-export function AvisoIsla({ abajo, alEntrar, alElegirEmpresa }: { abajo: number; alEntrar: () => void; alElegirEmpresa?: (() => void) | undefined }) {
-    const { estado, navegar } = useCampo();
-    const { campo, colores } = useTema();
-    const a = avisoIsla(estado);
-    if (!a) {
-        return null;
-    }
-    const Icono = a.rechazo ? TriangleAlert : estado.conexion === "sin_sesion" ? KeyRound : estado.conexion === "sin_empresa" ? Building2 : estado.conexion === "sin_conexion" ? WifiOff : CloudUpload;
-    const fondo = a.tono === "error" ? campo.errorFondo : a.tono === "warning" ? campo.avisoFondo : a.tono === "info" ? campo.infoFondo : campo.panel;
-    const borde = a.tono === "error" ? campo.errorBorde : a.tono === "warning" ? campo.avisoBorde : a.tono === "info" ? campo.infoBorde : colores.borde;
-    const tinta = colores.tono[a.tono];
-    const tocar = () => {
-        if (a.accion === "pendientes") {
-            navegar({ tipo: "pendientes" });
-        } else if (a.accion === "entrar") {
-            alEntrar();
-        } else if (a.accion === "empresa") {
-            alElegirEmpresa?.();
-        }
-    };
-    return (
-        <View pointerEvents="box-none" style={[estilos.contenedor, { bottom: abajo }]}>
-            <Tocable
-                etiqueta={a.etiqueta}
-                alPresionar={tocar}
-                testID="barra-conexion"
-                estilo={[estilos.pildora, { backgroundColor: fondo, borderColor: borde, shadowColor: campo.sombra }]}
-            >
-                <Icono size={16} color={tinta} />
-                <Text testID="estado-conexion" style={[estilos.textoPildora, { color: tinta }]}>
-                    {a.estado}
-                </Text>
-                {a.detalle ? (
-                    <>
-                        <Text style={[estilos.textoPildora, { color: tinta }]}>·</Text>
-                        <Text testID="pendientes-por-enviar" style={[estilos.textoPildora, estilos.encoger, { color: tinta }]}>
-                            {a.detalle}
-                        </Text>
-                    </>
-                ) : null}
-            </Tocable>
         </View>
     );
 }
@@ -311,6 +256,7 @@ function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
 }
 
 const estilos = StyleSheet.create({
+    punto: { position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 5, borderWidth: 2 },
     flex: { flex: 1 },
     contenedor: { position: "absolute", left: 0, right: 0, alignItems: "center" },
     isla: {

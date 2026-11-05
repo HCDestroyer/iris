@@ -57,7 +57,7 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         expect(s.backgroundColor).toBe(campo.panel);
         expect(String(s.backgroundColor)).toMatch(HEX);
         expect(s.opacity).toBeUndefined();
-        expect(within(barra()).getByRole("button", { name: "Tu cuenta" })).toBeTruthy();
+        expect(within(barra()).getByRole("button", { name: "Buscar orden" })).toBeTruthy();
     });
 
     it("orden en pausa: pasos de solo lectura con «Orden en pausa» y «Reanudar»; al reanudar se puede trabajar", async () => {

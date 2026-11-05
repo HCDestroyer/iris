@@ -153,3 +153,7 @@ export const avisoArriba = () => {
 };
 
 export const tipos = (m: Montaje) => m.motor.obtenerEstado().cola.map((op) => op.tipo);
+
+/** La nube de sincronización del encabezado (conexión y envíos): su nombre accesible dice el estado. */
+export const nube = () => screen.getByTestId("indicador-sincronizacion");
+export const TODO_ENVIADO = "Todo enviado, toca para ver el estado";

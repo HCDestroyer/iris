@@ -7,7 +7,7 @@ import { ErrorTransporte, type OrdenCampo, type PlantillaFormulario } from "@iri
 import { hoyEnGuatemala, sumarDias } from "@iris/sync/campo";
 import { itemDePrueba, montar, ordenDePrueba, paqueteDePrueba } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, avisoArriba, InventarioFalso, sesion, tipos, trasladoDePrueba } from "./arnes";
+import { abrirCampo, avisoArriba, InventarioFalso, sesion, tipos, trasladoDePrueba, TODO_ENVIADO } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -69,7 +69,8 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
         expect(within(siguiente).getByRole("button", { name: "Llamar al cliente" })).toBeTruthy();
         expect(screen.getByTestId("mosaico-ruta")).toHaveTextContent(/2 órdenes/);
         await waitFor(() => expect(screen.getByTestId("mosaico-recibir")).toHaveTextContent(/1 traslado/));
-        expect(screen.getByRole("tab", { name: "Por recibir (1)" })).toBeTruthy();
+        // «Por recibir» ya no está en la isla: el mosaico de Hoy lleva su contador.
+        expect(screen.queryByRole("tab", { name: /Por recibir/ })).toBeNull();
         expect(screen.getByLabelText("Después")).toHaveTextContent(/Ana Pérez/);
 
         await fireEvent.press(within(siguiente).getByRole("button", { name: /Continuar trabajo/ }));
@@ -102,7 +103,10 @@ describe.each(["light", "dark"] as const)("diseño «combinada» (%s)", (esquema
             fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 500 } } });
         });
         expect(screen.getByTestId("barra-compacta")).toBeTruthy();
-        expect(within(screen.getByTestId("barra-compacta")).getByRole("button", { name: "Tu cuenta" })).toBeTruthy();
+        // La barra compacta lleva los indicadores (sin avatar) y buscar.
+        expect(within(screen.getByTestId("barra-compacta")).getByRole("button", { name: TODO_ENVIADO })).toBeTruthy();
+        expect(within(screen.getByTestId("barra-compacta")).getByRole("button", { name: "Buscar orden" })).toBeTruthy();
+        expect(within(screen.getByTestId("barra-compacta")).queryByRole("button", { name: "Tu cuenta" })).toBeNull();
         expect(screen.getByTestId("pestana-hoy")).toHaveStyle({ width: 54 });
     });
 

@@ -70,6 +70,20 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
         expect(await screen.findByLabelText("OT-000001")).toBeTruthy();
     });
 
+    it("isla: Hoy · Chat (punto de no leídos) · «+» · Agenda · Yo; «Chat» abre la lista", async () => {
+        const { m, chat } = await conChat();
+        await abrirCampo(m, { esquema, chat });
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        const isla = screen.getByTestId("navegacion-inferior");
+        await waitFor(() => expect(within(isla).getAllByRole("tab").map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Chat (1 sin leer)", "Agenda", `Yo · ${sesion.nombre}`]));
+        expect(within(screen.getByTestId("pestana-chat")).getByTestId("punto-no-leidos")).toBeTruthy();
+        await fireEvent.press(screen.getByTestId("pestana-chat"));
+        expect(await screen.findByTestId("lista-chat")).toBeTruthy();
+        expect(screen.getByTestId("pestana-chat")).toBeSelected();
+    });
+
     it("conversación: de otros con autor, envío propio «enviado» y luego «visto»", async () => {
         const { m, chat, servidor } = await conChat();
         await abrirConversacion(chat, m, esquema);

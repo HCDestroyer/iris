@@ -1,6 +1,6 @@
 // Ciclo de vida de la sesión de campo y el GPS en segundo plano (revisión de seguridad de la PR #39):
 // toda salida apaga el GPS y borra la marca (sesión vencida, sesión ajena, cambiar de empresa) y el
-// técnico puede «Dejar de compartir ubicación».
+// técnico puede apagar «Compartir mi ubicación» (hoja del GPS).
 import { ColaPosiciones, ErrorTransporte } from "@iris/sync";
 import { MotorChat } from "@iris/sync/chat";
 import { AlmacenChatMemoria, montar, ordenDePrueba, paqueteDePrueba, ServidorChatFalso, TransportePosicionesFalso } from "@iris/sync/pruebas";
@@ -115,7 +115,15 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
     return { m, gps, claves, salidas, deps, posiciones, transportePosiciones, ajena: () => sesionAjena?.() };
 }
 
+/** El estado del rastreo está en la hoja «Ubicación» (el indicador de GPS del encabezado la abre). */
+async function verUbicacion() {
+    if (!screen.queryByTestId("estado-ubicacion")) {
+        await fireEvent.press(screen.getByTestId("indicador-ubicacion"));
+    }
+}
+
 async function esperarEncendido(gps: GpsFalso) {
+    await verUbicacion();
     await waitFor(() => expect(screen.getByTestId("estado-ubicacion")).toHaveTextContent(/Ubicación activa/));
     expect(gps.corriendo).toBe(true);
 }
@@ -131,14 +139,19 @@ describe("GPS y salidas de la sesión de campo", () => {
         expect(leerMarca(claves)).toMatchObject({ usuarioId: 5, empresaId: 1, base: "iris-campo-5-1.db" });
     });
 
-    it("«Dejar de compartir ubicación» apaga el GPS y borra la marca", async () => {
+    it("«Compartir mi ubicación» apagado (desde la hoja del GPS) apaga el GPS y borra la marca; encenderlo lo vuelve", async () => {
         const { gps, claves } = await preparar();
         await esperarEncendido(gps);
-        await fireEvent.press(screen.getByRole("button", { name: /Dejar de compartir ubicación/ }));
+        expect(screen.getByRole("switch", { name: "Compartir mi ubicación" })).toBeChecked();
+        await fireEvent.press(screen.getByRole("switch", { name: "Compartir mi ubicación" }));
         await waitFor(() => expect(gps.corriendo).toBe(false));
         expect(claves.leer(CLAVE_RASTREO)).toBeNull();
         expect(screen.getByTestId("estado-ubicacion")).toHaveTextContent(/Dejaste de compartir la ubicación/);
         expect(claves.leer(clavePausaManual(5, 1))).toBe("1");
+        expect(screen.getByRole("switch", { name: "Compartir mi ubicación" })).not.toBeChecked();
+        await fireEvent.press(screen.getByRole("switch", { name: "Compartir mi ubicación" }));
+        await waitFor(() => expect(gps.corriendo).toBe(true));
+        expect(claves.leer(clavePausaManual(5, 1))).toBeNull();
     });
 
     it("sesión vencida (401): apaga el GPS aunque la orden siga en curso, y al salir sigue apagado", async () => {
@@ -163,8 +176,9 @@ describe("GPS y salidas de la sesión de campo", () => {
     it("cambiar de empresa: apaga el GPS y borra la marca", async () => {
         const { gps, claves, salidas } = await preparar();
         await esperarEncendido(gps);
+        await fireEvent.press(screen.getByLabelText("Cerrar"));
         // «Cambiar de empresa» está en «Yo».
-        await fireEvent.press(screen.getByRole("tab", { name: "Yo" }));
+        await fireEvent.press(screen.getByRole("tab", { name: /^Yo/ }));
         await fireEvent.press(await screen.findByRole("button", { name: "Cambiar de empresa" }));
         expect(salidas).toEqual(["empresa"]);
         await waitFor(() => expect(gps.corriendo).toBe(false));
@@ -185,6 +199,7 @@ describe("GPS y salidas de la sesión de campo", () => {
 
     it("abrir sin señal y sin marca: no enciende hasta que el servidor responda en esta sesión", async () => {
         const { m, gps } = await preparar(false, true);
+        await verUbicacion();
         await waitFor(() => expect(screen.getByTestId("estado-ubicacion")).toHaveTextContent(/se enciende al conectar con el servidor/));
         expect(gps.corriendo).toBe(false);
         m.transporte.sinRed = false;

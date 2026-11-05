@@ -5,11 +5,12 @@
 import { PASOS_ORDEN, type PasoOrden } from "./pasos";
 
 /**
- * Botones de la isla de menú (diseño «combinada», nov 2026): Hoy · Por recibir · «+» · Agenda · Yo.
- * «Pendientes» ya no es una pestaña: se abre desde la píldora de estado encima de la isla (cuando
- * hay algo por enviar o un rechazo) y desde «Yo».
+ * Botones de la isla de menú (diseño «combinada», opción elegida por el PM en nov 2026):
+ * Hoy · Chat · «+» · Agenda · Yo (con las iniciales). «Por recibir» es el mosaico de Hoy (con su
+ * contador) y «Por enviar» se abre desde la hoja de estado y desde «Yo». Sin chat (sin `chat.ver`)
+ * la isla no lleva «Chat».
  */
-export type Pestana = "hoy" | "recibir" | "agenda" | "yo";
+export type Pestana = "hoy" | "chat" | "agenda" | "yo";
 
 /** Chips del encabezado: Hoy · Mañana · Semana. */
 export type ChipDia = "hoy" | "manana" | "semana";
@@ -36,13 +37,18 @@ export type Vista =
     /** Una conversación del chat. */
     | { tipo: "conversacion"; id: number };
 
-/** Botones de la isla en orden (el «+» va al centro, entre «Por recibir» y «Agenda»). */
+/** Botones de la isla en orden (el «+» va al centro, entre «Chat» y «Agenda»). */
 export const PESTANAS: readonly { id: Pestana; texto: string; vista: Vista }[] = [
     { id: "hoy", texto: "Hoy", vista: { tipo: "lista" } },
-    { id: "recibir", texto: "Por recibir", vista: { tipo: "recibir" } },
+    { id: "chat", texto: "Chat", vista: { tipo: "chat" } },
     { id: "agenda", texto: "Agenda", vista: { tipo: "agenda" } },
     { id: "yo", texto: "Yo", vista: { tipo: "yo" } },
 ];
+
+/** Los botones de la isla para esta sesión: sin chat, sin «Chat». */
+export function pestanasIsla(conChat: boolean): readonly { id: Pestana; texto: string; vista: Vista }[] {
+    return conChat ? PESTANAS : PESTANAS.filter((p) => p.id !== "chat");
+}
 
 /** Chips del encabezado, con la vista que abren. */
 export const CHIPS_DIA: readonly { id: ChipDia; texto: string; vista: Vista }[] = [
@@ -120,7 +126,10 @@ export function urlDeVista(v: Vista): string {
     }
 }
 
-/** Botón de la isla al que pertenece una vista (`null`: «Por enviar», que no está en la isla). */
+/**
+ * Botón de la isla al que pertenece una vista (`null`: «Por enviar», que no está en la isla). «Por
+ * recibir» y sus traslados se abren desde el mosaico de Hoy.
+ */
 export function pestanaDe(v: Vista): Pestana | null {
     switch (v.tipo) {
         case "lista":
@@ -128,7 +137,7 @@ export function pestanaDe(v: Vista): Pestana | null {
             return "hoy";
         case "recibir":
         case "traslado":
-            return "recibir";
+            return "hoy";
         case "pendientes":
             return null;
         case "agenda":
@@ -136,11 +145,11 @@ export function pestanaDe(v: Vista): Pestana | null {
             return "agenda";
         case "yo":
         case "bodega":
-        // El chat se abre desde «Yo» (y desde la orden) mientras el PM decide su lugar en la isla.
+            return "yo";
         case "chat":
         case "chat_nuevo":
         case "conversacion":
-            return "yo";
+            return "chat";
     }
 }
 

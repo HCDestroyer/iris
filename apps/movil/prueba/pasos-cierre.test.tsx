@@ -6,7 +6,7 @@ import { montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 import { BackHandler, StyleSheet } from "react-native";
 import { irA, MAXIMO_PILA, pilaInicial, retroceder } from "../src/campo/navegacion";
-import { abrirCampo, paqueteCon, tipos } from "./arnes";
+import { abrirCampo, nube, paqueteCon, tipos, TODO_ENVIADO } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 jest.mock("../src/pantallas/orden/LienzoFirma", () => jest.requireActual("./firma-falsa"));
@@ -32,6 +32,25 @@ afterEach(() => {
     jest.restoreAllMocks();
 });
 
+describe.each(["light", "dark"] as const)("hoja «Conexión y envíos» (%s)", (esquema) => {
+    it("con señal y algo pendiente ofrece «Enviar ahora», que sincroniza", async () => {
+        const m = await montar();
+        m.transporte.paquete = paqueteCon({ estado: "en_sitio" });
+        await m.motor.cargarPaquete("2026-10-28");
+        // El servidor falla (503): lo escrito queda pendiente aunque haya señal.
+        m.transporte.fallar(1, new ErrorTransporte("http", "No disponible", 503));
+        await m.motor.registrar("nota.agregar", 1, { texto: "Queda pendiente" });
+        await m.motor.sincronizar().catch(() => undefined);
+        await abrirCampo(m, { esquema });
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", "En línea, 1 por enviar, toca para ver el estado"));
+        await fireEvent.press(nube());
+        const lotes = m.transporte.lotes.length;
+        await fireEvent.press(screen.getByTestId("enviar-ahora"));
+        await waitFor(() => expect(m.transporte.lotes.length).toBeGreaterThan(lotes));
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", TODO_ENVIADO));
+    });
+});
+
 describe("pila de «Atrás»", () => {
     it("apila vistas, una pestaña empieza de nuevo con «Hoy» debajo y en «Hoy» sale de la app", () => {
         let p = pilaInicial();
@@ -41,8 +60,10 @@ describe("pila de «Atrás»", () => {
         expect(p.atras).toHaveLength(2);
         const r = retroceder(p);
         expect(r?.actual).toEqual({ tipo: "orden", id: 1 });
-        p = irA(p, { tipo: "recibir" });
-        expect(p).toEqual({ actual: { tipo: "recibir" }, atras: [{ tipo: "lista" }] });
+        p = irA(p, { tipo: "agenda" });
+        expect(p).toEqual({ actual: { tipo: "agenda" }, atras: [{ tipo: "lista" }] });
+        // «Por recibir» ya no es botón de la isla: se abre desde el mosaico de Hoy y se apila.
+        expect(irA(p, { tipo: "recibir" }).atras).toEqual([{ tipo: "lista" }, { tipo: "agenda" }]);
         expect(retroceder(retroceder(p) ?? pilaInicial())).toBeNull();
         for (let i = 1; i <= MAXIMO_PILA + 5; i += 1) {
             p = irA(p, { tipo: "traslado", id: i });
@@ -52,7 +73,7 @@ describe("pila de «Atrás»", () => {
 });
 
 describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
-    it("isla de menú: Hoy · Por recibir · «+» · Agenda · Yo de 54 px, con contadores y navegación", async () => {
+    it("isla de menú: Hoy · «+» · Agenda · Yo de 54 px y navegación; sin chat no hay «Chat»", async () => {
         const atras = atrasAndroid();
         const m = await montar();
         m.transporte.paquete = paqueteCon({ estado: "en_sitio" });
@@ -63,17 +84,19 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
 
         const isla = screen.getByTestId("navegacion-inferior");
         const pestanas = within(isla).getAllByRole("tab");
-        expect(pestanas.map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Por recibir", "Agenda", "Yo"]);
+        expect(pestanas.map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Agenda", "Yo · Téc. Ana"]);
+
         expect(within(isla).getByRole("button", { name: "Acciones rápidas" })).toBeTruthy();
         expect(screen.getByRole("tab", { name: "Hoy" })).toBeSelected();
-        for (const id of ["hoy", "recibir", "agenda", "yo"]) {
+        for (const id of ["hoy", "agenda", "yo"]) {
             expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 54, width: 54 });
         }
         expect(screen.getByTestId("boton-mas")).toHaveStyle({ minHeight: 54 });
-        // «Por enviar» ya no es pestaña: la píldora de estado lleva ahí.
-        await fireEvent.press(screen.getByRole("button", { name: "Sin conexión: 1 pendiente por enviar. Ver detalle" }));
+        // «Por enviar» no es pestaña: la nube del encabezado abre «Conexión y envíos», que lleva ahí.
+        await fireEvent.press(nube());
+        await fireEvent.press(await screen.findByRole("button", { name: "Ver «Por enviar»" }));
         expect(await screen.findByText("Por enviar")).toBeTruthy();
-        await fireEvent.press(screen.getByRole("tab", { name: "Yo" }));
+        await fireEvent.press(screen.getByRole("tab", { name: /^Yo/ }));
         expect(await screen.findByRole("button", { name: "Mi bodega" })).toBeTruthy();
         // «Atrás» desde una pestaña vuelve a «Hoy»; en «Hoy» deja salir de la app.
         expect(await atras()).toBe(true);
@@ -168,32 +191,45 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         expect(await screen.findByTestId("orden-cerrada")).toHaveTextContent(/Firmó Juan Pérez/);
     });
 
-    it("barra de estado discreta: punto con todo enviado; crece con pendientes sin señal o con la sesión vencida", async () => {
+    it("indicadores del encabezado: discretos con todo enviado; la nube crece sin señal con pendientes o con la sesión vencida; cada uno abre solo su hoja", async () => {
         const m = await montar();
         m.transporte.paquete = paqueteCon({ estado: "en_sitio" });
         await m.motor.cargarPaquete("2026-10-28");
         await abrirCampo(m, { esquema });
 
-        expect(screen.queryByTestId("barra-conexion")).toBeNull();
-        // Solo un punto (sin texto visible); el estado completo va en su nombre accesible.
-        expect(screen.getByTestId("punto-conexion").props.accessibilityLabel).toBe("En línea, todo enviado");
-        expect(within(screen.getByTestId("punto-conexion")).queryByText(/./)).toBeNull();
+        // Discretos: sin número ni texto visible; el estado va en su nombre accesible (zona de 44 px).
+        expect(nube()).toHaveProp("accessibilityLabel", TODO_ENVIADO);
+        expect(within(nube()).queryByText(/./)).toBeNull();
+        expect(nube()).toHaveStyle({ width: 44, height: 44 });
+        expect(screen.getByTestId("indicador-ubicacion")).toHaveProp("accessibilityLabel", "GPS apagado, toca para ver el estado");
+        // El GPS abre solo «Ubicación» (con el interruptor); la X la cierra.
+        await fireEvent.press(screen.getByTestId("indicador-ubicacion"));
+        expect(screen.getByText("Ubicación")).toBeTruthy();
+        expect(screen.getByRole("switch", { name: "Compartir mi ubicación" })).toBeTruthy();
+        expect(screen.queryByTestId("seccion-sincronizacion")).toBeNull();
+        await fireEvent.press(screen.getByLabelText("Cerrar"));
+        await waitFor(() => expect(screen.queryByTestId("seccion-ubicacion")).toBeNull());
 
         m.transporte.sinRed = true;
         await act(async () => {
             await m.motor.registrar("nota.agregar", 1, { texto: "Sin señal" });
             await m.motor.sincronizar().catch(() => undefined);
         });
-        expect(await screen.findByTestId("barra-conexion")).toBeTruthy();
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", "Sin señal, 1 por enviar, toca para ver el estado"));
+        expect(within(nube()).getByText("1")).toBeTruthy();
+        // La nube abre solo «Conexión y envíos».
+        await fireEvent.press(nube());
+        expect(screen.getByText("Conexión y envíos")).toBeTruthy();
+        expect(screen.queryByTestId("seccion-ubicacion")).toBeNull();
         expect(screen.getByTestId("estado-conexion")).toHaveTextContent("Sin conexión");
         expect(screen.getByTestId("pendientes-por-enviar")).toHaveTextContent("1 pendiente por enviar");
-        await fireEvent.press(screen.getByTestId("pendientes-por-enviar"));
+        await fireEvent.press(screen.getByRole("button", { name: "Ver «Por enviar»" }));
         expect(await screen.findByTestId("cola")).toHaveTextContent(/Nota · OT-000001/);
 
         m.transporte.sinRed = false;
         m.transporte.fallar(5, new ErrorTransporte("http", "No autenticado", 401, { type: "urn:iris:problema:no_autenticado", title: "No autenticado", status: 401 }));
         await act(() => m.motor.sincronizar().catch(() => undefined));
-        await waitFor(() => expect(screen.getByTestId("estado-conexion")).toHaveTextContent("Sesión vencida"));
+        await waitFor(() => expect(nube()).toHaveProp("accessibilityLabel", "Sesión vencida, 1 por enviar, toca para ver el estado"));
         expect(screen.getByText("Tu sesión venció")).toBeTruthy();
     });
 });

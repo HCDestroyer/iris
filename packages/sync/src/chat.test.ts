@@ -13,6 +13,7 @@ import { AlmacenChatMemoria } from "./chat/almacen-memoria";
 import { ErrorChatLocal, MotorChat, type OpcionesMotorChat } from "./chat/motor";
 import type { AlmacenChat, MensajeChat, SalidaChat } from "./chat/tipos";
 import { elementosHilo, estadoEnvio, etiquetaDia, horaChat, horaLista, puedeEliminar, segmentosTexto, textoValido, vistaPrevia } from "./chat/vista";
+import { pestanaDe, urlDeVista, vistaDeUrl } from "./campo/vista";
 import { errorHttp, errorRed, ServidorChatFalso } from "./pruebas/chat-falso";
 import { RelojManual, vaciarPromesas } from "./pruebas/reloj-manual";
 import { RE_UUID7 } from "./uuid7";
@@ -573,6 +574,13 @@ describe("caché y cierre de sesión", () => {
 });
 
 describe("lógica de pantalla", () => {
+    it("vistas del chat en la URL, del botón «Chat» de la isla", () => {
+        for (const v of [{ tipo: "chat" as const }, { tipo: "chat_nuevo" as const }, { tipo: "conversacion" as const, id: 12 }]) {
+            expect(vistaDeUrl(urlDeVista(v).slice("/campo".length))).toEqual(v);
+            expect(pestanaDe(v)).toBe("chat");
+        }
+    });
+
     const ahora = Date.parse("2026-11-05T17:00:00Z");
 
     it("horas y días en America/Guatemala", () => {

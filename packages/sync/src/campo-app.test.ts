@@ -4,6 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
     contadoresPestanas,
+    cuentaPorRecibir,
+    estadoGps,
+    estadoSincronizacion,
+    indicadoresEstado,
+    pestanasIsla,
     encolarFirmaYCierre,
     etiquetaPunto,
     fechaHoraCorta,
@@ -58,7 +63,10 @@ describe("vista de la app de campo", () => {
         expect(vistaDeUrl("?orden=7&paso=otro")).toEqual({ tipo: "orden", id: 7 });
         expect(vistaDeUrl("?traslado=-3")).toEqual({ tipo: "lista" });
         expect(pestanaDe({ tipo: "orden", id: 7, paso: "fotos" })).toBe("hoy");
-        expect(pestanaDe({ tipo: "traslado", id: 31 })).toBe("recibir");
+        // «Por recibir» se abre desde el mosaico de Hoy.
+        expect(pestanaDe({ tipo: "traslado", id: 31 })).toBe("hoy");
+        expect(pestanaDe({ tipo: "recibir" })).toBe("hoy");
+        expect(pestanaDe({ tipo: "conversacion", id: 12 })).toBe("chat");
         expect(pestanaDe({ tipo: "bodega" })).toBe("yo");
         expect(pestanaDe({ tipo: "semana" })).toBe("agenda");
         // «Por enviar» no está en la isla: se abre desde la píldora de estado y desde «Yo».
@@ -66,7 +74,8 @@ describe("vista de la app de campo", () => {
     });
 
     it("pestañas en orden y cada una abre una vista de su pestaña", () => {
-        expect(PESTANAS.map((p) => p.texto)).toEqual(["Hoy", "Por recibir", "Agenda", "Yo"]);
+        expect(PESTANAS.map((p) => p.texto)).toEqual(["Hoy", "Chat", "Agenda", "Yo"]);
+        expect(pestanasIsla(false).map((p) => p.texto)).toEqual(["Hoy", "Agenda", "Yo"]);
         for (const p of PESTANAS) {
             expect(pestanaDe(p.vista)).toBe(p.id);
         }
@@ -118,15 +127,43 @@ describe("barra de estado discreta", () => {
         expect(etiquetaPunto("en_linea", resumenEnvio(estado({ pendientes: 1 })))).toBe("En línea");
     });
 
-    it("contadores de la isla: lo que falta por recibir (0 si no se leyó); lo pendiente va en la píldora", () => {
+    it("contadores: el chat en la isla, lo que falta por recibir en el mosaico (0 si no se leyó)", () => {
         const traslados: Traslado[] = [
             { id: 1, estado: "enviado", lineas: [] },
             { id: 2, estado: "enviado", lineas: [], recepcion: { estado: "recibida", trasladoId: 2, pendienteId: 9, actualizadoEn: "2026-10-28T15:00:00Z" } },
         ];
         const e = estado({ pendientes: 1, subidas: { pendientes: 2, bytesPendientes: 0, conError: 0, rechazadas: 1 } });
-        expect(contadoresPestanas(e, null)).toEqual({ hoy: 0, recibir: 0, agenda: 0, yo: 0 });
-        expect(contadoresPestanas(e, traslados).recibir).toBe(1);
+        expect(contadoresPestanas(3)).toEqual({ hoy: 0, chat: 3, agenda: 0, yo: 0 });
+        expect(cuentaPorRecibir(e, null)).toBe(0);
+        expect(cuentaPorRecibir(e, traslados)).toBe(1);
         expect(totalPorEnviar(e)).toBe(3);
+    });
+
+    it("nube de sincronización: los 4 estados (en línea al día, en línea con pendientes, sin señal, sin señal con pendientes)", () => {
+        const pick = (i: ReturnType<typeof estadoSincronizacion>) => [i.forma, i.tono, i.marca, i.actuar, i.texto];
+        expect(pick(estadoSincronizacion(estado({})))).toEqual(["al_dia", "success", null, false, "Todo enviado"]);
+        expect(pick(estadoSincronizacion(estado({ pendientes: 2 })))).toEqual(["pendientes", "marca", 2, true, "En línea · 2 por enviar"]);
+        expect(pick(estadoSincronizacion(estado({ conexion: "sin_conexion" })))).toEqual(["sin_senal", "warning", null, true, "Sin señal"]);
+        expect(pick(estadoSincronizacion(estado({ conexion: "sin_conexion", pendientes: 1, subidas: { pendientes: 1, bytesPendientes: 0, conError: 0, rechazadas: 0 } })))).toEqual([
+            "sin_senal_pendientes",
+            "warning",
+            2,
+            true,
+            "Sin señal · 2 por enviar",
+        ]);
+        expect(estadoSincronizacion(estado({ conexion: "sin_conexion", pendientes: 2 })).etiqueta).toBe("Sin señal, 2 por enviar, toca para ver el estado");
+        expect(estadoSincronizacion(estado({})).etiqueta).toBe("Todo enviado, toca para ver el estado");
+    });
+
+    it("nube: un rechazo es error; la sesión vencida bloquea; el GPS no cambia", () => {
+        expect(estadoSincronizacion(estado({ subidas: { pendientes: 1, bytesPendientes: 0, conError: 0, rechazadas: 1 } }))).toMatchObject({ forma: "pendientes", tono: "error", marca: 1 });
+        expect(estadoSincronizacion(estado({ conexion: "sin_sesion" }))).toMatchObject({ forma: "bloqueada", tono: "error", marca: "punto", texto: "Sesión vencida" });
+        expect(indicadoresEstado(estado({}), "activa").map((i) => [i.id, i.tono, i.marca])).toEqual([
+            ["sincronizacion", "success", null],
+            ["ubicacion", "marca", null],
+        ]);
+        expect(estadoGps("apagada_en_turno")).toMatchObject({ tono: "warning", marca: "punto", actuar: true, etiqueta: "GPS apagado en turno, toca para ver el estado" });
+        expect(estadoGps("apagada")).toMatchObject({ tono: "neutral", marca: null, actuar: false });
     });
 });
 
