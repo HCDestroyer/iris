@@ -67,6 +67,10 @@ type argosFalso struct {
 	contratos int // PUT /integraciones/iris/contrato recibidos
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
+	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
+	sinWebhook bool
+	// receptores: receptor_argos de cada PUT …/contrato (0.6.2; nil = no vino).
+	receptores []any
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -110,8 +114,16 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/integraciones/iris/contrato", solo16(func(w http.ResponseWriter, r *http.Request) {
 		var p map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&p)
+		// 0.6.2: receptor_argos?: boolean; otro tipo es 400 como en Argos.
+		if v, ok := p["receptor_argos"]; ok {
+			if _, esBool := v.(bool); !esBool {
+				problema(w, 400, "urn:argosisp:problema:validacion", "receptor_argos debe ser boolean")
+				return
+			}
+		}
 		a.contrato, _ = p["contrato"].(string)
 		a.contratos++
+		a.receptores = append(a.receptores, p["receptor_argos"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
 	}))
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {
@@ -206,6 +218,9 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := map[string]any{"token": a.token, "webhook": map[string]any{"url": receptor, "secreto": "secreto-de-argos-para-iris"},
 		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}}
+	if a.sinWebhook {
+		delete(resp, "webhook")
+	}
 	if a.empresasCanje != nil {
 		resp["empresas"] = a.empresasCanje
 	}
@@ -437,5 +452,11 @@ func canjeCanonico(p map[string]any) bool {
 	wh, _ := p["webhook"].(map[string]any)
 	url, _ := wh["url"].(string)
 	secreto, _ := wh["secreto"].(string)
+	// 0.6.2: receptor_argos?: boolean (si viene, debe ser boolean).
+	if v, ok := p["receptor_argos"]; ok {
+		if _, esBool := v.(bool); !esBool {
+			return false
+		}
+	}
 	return p["sistema"] == "iris" && base != "" && strings.HasPrefix(token, "iris_pat_") && url != "" && len(secreto) >= 16
 }

@@ -353,6 +353,14 @@ func TestConectarHorusConEnlace(t *testing.T) {
 		t.Fatalf("canje en Horus: %v", canje)
 	}
 	e.sinSecretos(tokenHorus, secretoCanje, tokenIris)
+	// Contrato Iris ↔ ArgosISP 0.6.2 es solo de Argos: el canje de Horus no lleva receptor_argos y,
+	// sin receptor en la respuesta, el conector se guarda igual (sin webhook de salida).
+	if _, ok := canje["receptor_argos"]; ok {
+		t.Fatalf("el canje de Horus no lleva receptor_argos: %v", canje)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND webhook_salida_url IS NULL`, id) != 1 {
+		t.Fatal("el conector Horus sin receptor debía guardarse")
+	}
 	if e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.creado' AND payload->>'sistema' = 'horus' AND (payload->>'conector_id')::bigint = $1`, id) != 1 {
 		t.Fatal("falta conector.creado")
 	}

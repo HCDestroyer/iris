@@ -91,7 +91,7 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 				return struct{}{}, err
 			}
 			return struct{}{}, mensajeriabd.New(t).InsertarWebhookSalida(ctx, mensajeriabd.InsertarWebhookSalidaParams{
-				ID: e.ID, Evento: e.Evento, EmpresaID: e.EmpresaID, Payload: crudo, OcurridoEn: e.OcurridoEn})
+				ID: e.ID, Evento: e.Evento, EmpresaID: e.EmpresaID, Payload: crudo, OcurridoEn: e.OcurridoEn, ProximoIntento: m.ahora()})
 		},
 	})
 	for _, ev := range EventosWebhook {
@@ -175,7 +175,7 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		if w, err = q.WebhookParaEnviar(ctx, id); err != nil {
 			return err
 		}
-		return q.ReservarWebhook(ctx, id)
+		return q.ReservarWebhook(ctx, mensajeriabd.ReservarWebhookParams{ID: id, Hasta: m.ahora().Add(5 * time.Minute)})
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // otro despacho lo tomó o ya no está pendiente

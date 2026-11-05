@@ -74,8 +74,9 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		_, _ = fmt.Fprintf(w, `{"type":%q,"title":"x","status":%d}`, tipo, status)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
-		json200(w, `{"token":"atk_prueba_comercial","empresas":[1,2]}`)
+	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
+		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
+		json200(w, `{"token":"atk_prueba_comercial","webhook":{"url":"http://`+r.Host+`/api/v1/integraciones/iris/webhook","secreto":"secreto-de-argos-para-iris"},"empresas":[1,2]}`)
 	})
 	mux.HandleFunc("GET /api/v1/zonas", func(w http.ResponseWriter, _ *http.Request) {
 		json200(w, `{"data":[{"id":7001,"empresa_id":1,"nombre":"Centro"},{"id":7002,"empresa_id":2,"nombre":"Otra"}],"nextCursor":null}`)

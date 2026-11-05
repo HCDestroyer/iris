@@ -12,9 +12,14 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Enlace de conexión (§1.3), en los dos sentidos.** `POST /integraciones/argosisp/conectar
   { enlace }` canjea un enlace de Argos (Iris llama a `POST /api/v1/integraciones/iris/conexion/canjear`
   de Argos con el cuerpo de Horus §1.4: `{ codigo, sistema: "iris", base_url, token, webhook: { url,
-  secreto } }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
+  secreto }, contrato, receptor_argos: true }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
   `identidad.EmitirTokenCanje`, 15 min hasta activar, solo a orígenes de `IRIS_ARGOS_ORIGENES`; ver `conector/README.md`); Argos responde `{ token: "atk_…",
-  webhook, conector_id }`). `POST
+  webhook, conector_id }`). El receptor `webhook: { url, secreto }` de Argos es obligatorio desde
+  el contrato 0.6.2: se guarda (`webhook_salida_url` y el secreto cifrado) para los webhooks de la
+  mensajería (§6.6); si falta, su host no es el de la base del canje (el `<base>` del enlace o
+  `api=` del botón, nunca el panel) o es inválido, el canje es `422 webhook_invalido` y el conector
+  no se guarda. `receptor_argos` va siempre `true` en el canje: la petición sale antes de conocer
+  el receptor (llega en la respuesta), pero esta versión de Iris lo exige. `POST
   /integraciones/argosisp/conexion/enlaces` genera un enlace de Iris (15 min, un solo uso) que Argos
   canjea en `POST /integraciones/argosisp/conexion/canjear` (sin credenciales, autoriza el código).
   El token `atk_…` y el secreto del webhook se guardan cifrados (AES-256-GCM con
@@ -253,6 +258,10 @@ partes (ficha, ticket, orden, comercial y app de campo).
   activo: es el job «de una vez» de los conectores ya activos y detecta una actualización o una
   vuelta atrás de Argos. `Conector.capacidades` trae
   `inventario_por_tecnico` con Argos ≥ 1.6.0; `InventarioPorTecnico` lo consulta la cola.
+- **Contrato 0.6.2.** `ContratoIris = "0.6.2"`. El PUT manda `{ contrato, receptor_argos }`, con
+  `receptor_argos: true` si el conector tiene guardados la URL y el secreto del receptor de Argos y
+  `false` si no (conectores canjeados antes de B1: Argos marca `requiere_reconectar` y la mensajería
+  deja sus webhooks `omitido`).
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
   del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)

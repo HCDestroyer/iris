@@ -23,10 +23,12 @@ import (
 //     PUT /integraciones/iris/contrato { contrato } (job al activar o reconectar, y uno periódico
 //     que relee la versión en cada periodo: detecta una actualización o una vuelta atrás de Argos);
 //   - Argos devuelve `version_argos` y `contrato` en el canje y en GET /integraciones/iris/estado;
-//     Iris los guarda en el conector y elige `tecnico` (Argos ≥ 1.6.0) o `bodega_id`.
+//     Iris los guarda en el conector y elige `tecnico` (Argos ≥ 1.6.0) o `bodega_id`;
+//   - 0.6.2: el canje y el PUT llevan además `receptor_argos` (en el canje siempre true; en el PUT,
+//     si el conector tiene guardado el receptor de §6.6).
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
-const ContratoIris = "0.6.0"
+const ContratoIris = "0.6.2"
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».
@@ -183,7 +185,10 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	cli := k.m.clienteDe(c)
 	in := entradaGuardarContrato{ConectorID: conectorID}
 	var puesto EstadoIris
-	err = cli.Pedir(ctx, http.MethodPut, "/integraciones/iris/contrato", nil, map[string]string{"contrato": ContratoIris}, true,
+	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
+	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
+	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
+	err = cli.Pedir(ctx, http.MethodPut, "/integraciones/iris/contrato", nil, map[string]any{"contrato": ContratoIris, "receptor_argos": receptor}, true,
 		&conector.Recurso{Destino: &puesto})
 	switch {
 	case err == nil:

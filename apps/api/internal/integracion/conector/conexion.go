@@ -402,11 +402,18 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	}()
 	g.secreto, g.tokenEntregado = secreto, tokenID
 	cli := c.clienteHacia(g.Base, "")
+	// receptor_argos (0.6.2): la petición sale antes de conocer el receptor del otro sistema (llega
+	// en la respuesta), pero esta versión de Iris lo exige y lo guarda o rechaza el canje: true.
+	var receptor *bool
+	if c.s.ExigirReceptor {
+		si := true
+		receptor = &si
+	}
 	// Sin reintentos (el código es de un solo uso) y sin token.
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, c.s.RutaCanje, nil, PeticionCanje{
 		Codigo: codigo, Sistema: "iris", BaseURL: c.n.cfg.BaseURL, Token: valor,
 		Webhook:      WebhookCanje{URL: c.n.URLWebhook(c.s.Nombre, g.ConectorID), Secreto: secreto},
-		CodeVerifier: verificador, Contrato: c.s.Contrato,
+		CodeVerifier: verificador, Contrato: c.s.Contrato, ReceptorArgos: receptor,
 	}, false, &Recurso{Destino: &g.respuesta})
 	if g.errRemoto != nil && mapear != nil {
 		g.errRemoto = mapear(g.errRemoto)

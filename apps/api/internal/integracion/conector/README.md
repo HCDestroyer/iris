@@ -9,7 +9,10 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
 
 - **Enlace de conexión en los dos sentidos** (`conexion.go`) bajo `/api/v1/integraciones/<sistema>/`:
   `conectar` (enlace del otro sistema: Iris canjea en `Sistema.RutaCanje` con el cuerpo de Horus §1.4,
-  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`; el `iris_pat_` lo emite
+  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`, más `contrato` y, con
+  `Sistema.ExigirReceptor` (Argos, contrato 0.6.2), `receptor_argos: true`; con `ExigirReceptor`, un
+  canje cuya respuesta no trae `webhook` es 422 `webhook_invalido` (Horus no entrega receptor y sigue
+  igual); el `iris_pat_` lo emite
   `Tokens` (identidad, fijado con `Nucleo.FijarTokens`; sin él, 422 `emisor_token_no_configurado`)),
   `conexion/previsualizar` (origen del enlace y si está permitido, sin llamar afuera), `conexion/enlaces`
   (enlace de Iris, 15 min, un solo uso) y `conexion/canjear` (lo llama el otro sistema; 401

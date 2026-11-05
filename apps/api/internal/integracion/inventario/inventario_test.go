@@ -80,9 +80,10 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 			_, _ = w.Write([]byte(cuerpo))
 		}
 	})
-	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
+		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"token":"` + tokenArgos + `","empresas":[1],"version_argos":"1.6.0","contrato":"0.5.0"}`))
+		_, _ = w.Write([]byte(`{"token":"` + tokenArgos + `","webhook":{"url":"http://` + r.Host + `/api/v1/integraciones/iris/webhook","secreto":"secreto-de-argos-para-iris"},"empresas":[1],"version_argos":"1.6.0","contrato":"0.5.0"}`))
 	})
 	mux.HandleFunc("GET /api/v1/inventario/mi-bodega", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
