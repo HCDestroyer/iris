@@ -168,7 +168,7 @@ test("pasos: sin cambios no hay «Guardar»; con cambios, «Guardar y seguir» c
     await expect(page.getByRole("button", { name: /Guardar/ })).toHaveCount(0);
     await expect(isla.getByRole("button", { name: "Siguiente: fotos" })).toBeVisible();
     await expect(avisoCampo(page)).toHaveCount(0);
-    await captura(page, "06-recien-guardado", info.project.name);
+    await captura(page, "08-recien-guardado", info.project.name);
     // Es breve: se va solo (~1,5 s).
     await expect(guardado).not.toContainText("Guardado", { timeout: 4000 });
 
@@ -203,7 +203,7 @@ test("avisos: el `Toast` de HeroUI queda bajo el margen seguro (la barra de esta
     const region = page.locator(".campo-avisos");
     await expect.poll(async () => (await region.boundingBox())?.y).toBe(47 + 16);
     await expect.poll(async () => (await avisoCampo(page).boundingBox())?.y ?? 0).toBeGreaterThanOrEqual(47 + 16);
-    await captura(page, "07-aviso-arriba", info.project.name);
+    await captura(page, "09-aviso-arriba", info.project.name);
 });
 
 test("hojas: «X», Escape y «Atrás» del navegador las cierran; con cambios, preguntan antes", async ({ page }, info) => {
