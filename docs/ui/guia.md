@@ -140,8 +140,9 @@ lectores de pantalla.
 - **`Casilla`, `GrupoOpciones` y `GrupoSegmentado`** siguen nativos (checkbox, radios y
   `radiogroup`). Los `Checkbox` y `RadioGroup` de HeroUI entregan un booleano y no el evento que
   espera `register`.
-- **`Camara`, `Escaner`, `LienzoFirma`, `LogoIris` y `MarcaIris`** no tienen equivalente en HeroUI.
-  Siguen como estaban, con los tokens del tema.
+- **`Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris` y `MarcaIris`** no tienen equivalente en
+  HeroUI. Siguen como estaban, con los tokens del tema. `VisorEscaner` reemplazó a `Escaner`: el
+  escáner de serie y MAC va por campo (ver «Escáner de serie y MAC» abajo).
 - **`Boton` no usa el `Button` de React Aria**, porque ese filtra `title`, frena la propagación del
   clic y cambia `onClick` por `onPress`. Usa sus clases. Dentro de un disparador de React Aria (menú,
   popover, tooltip) recibe las props por `Pressable` o `Focusable`.
@@ -297,6 +298,35 @@ lectores de pantalla.
 - **«Mi bodega»** dentro de «Yo»: existencias con modalidad, equipos con serie y movimientos
   recientes, solo lectura, con «Reintentar» si no se pudo leer.
 - **Botones de 44 px o más** en toda la app de campo (`tamano="lg"`; `Casilla tamano="lg"`).
+
+## Escáner de serie y MAC (igual en la web y en la app nativa)
+
+Las etiquetas de ONU, routers y antenas traen varios códigos (S/N, MAC, GPON SN, modelo, EAN, a
+veces un QR). El escáner nunca acepta en silencio el primero que ve:
+
+- **Por campo:** «Número de serie» y «MAC» llevan cada uno su botón (`ScanLine`, «Escanear número
+  de serie» / «Escanear MAC», 44 px o más). El visor abre con su objetivo: «Escaneando: **Número de
+  serie**» y «Apunta solo al código junto a S/N» (o «junto a MAC»).
+- **Visor:** la cámara se oscurece salvo un recuadro al centro con esquinas teal; solo cuentan los
+  códigos cuyo centro cae dentro (`bounds`/`cornerPoints` de expo-camera, `boundingBox` de
+  `BarcodeDetector`; con ZXing, sin posición, cuentan todos). Debajo, «Detectados: N». Linterna si
+  la cámara la tiene. Vibración corta con el primer código (`Vibration` en nativa,
+  `navigator.vibrate` en la web).
+- **Ventana de ~800 ms** desde el primer código; sin códigos sigue esperando. Luego, una hoja
+  inferior con lo detectado: tipo («QR» o «Código de barras» con su formato), valor en monoespaciada
+  y lo que parece («Parece serie», «Parece MAC», «QR con serie y MAC», «Parece código de producto
+  (EAN/UPC)», «No parece serie»; para la MAC, lo demás es «No es una MAC» y no se elige). Primero lo
+  que encaja; un EAN/UPC nunca va primero para la serie.
+- **Un solo candidato que encaja** se muestra como confirmación («¿Usar ABC123 como número de
+  serie?», «Usar» y «Seguir escaneando»), con los demás debajo. Un QR con serie y MAC llena los dos.
+  Siempre hay «Seguir escaneando» y «Escribir a mano».
+- **Después de elegir:** aviso emergente («Serie: ABC123»), el campo con la insignia «Escaneado»
+  (se quita al editarlo). Si la serie o la MAC ya están en otro equipo de la orden, la hoja lo
+  avisa antes de usarla.
+- **Lógica compartida:** `@iris/sync/campo` (`escaneo.ts`: `clasificarCodigo`, `candidatosPara`,
+  `dentroDelRecuadro`, `recuadroEnFuente`, `SesionEscaneo`). La web dibuja con `VisorEscaner` de
+  `@iris/ui` (`app/campo/_componentes/escaner-equipo.tsx`); la nativa con expo-camera
+  (`src/pantallas/orden/Escaner.tsx`, lógica en `src/campo/escaner.ts`).
 
 ## Plan por fases
 
