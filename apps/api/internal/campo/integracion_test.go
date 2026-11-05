@@ -181,7 +181,7 @@ func (e *entornoI1) conectar() {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	a, err := e.am.ActivarConector.Ejecutar(sistema(e.t), argos.EntradaCambioConector{ID: c.ID, Version: c.Version})
+	a, err := e.am.ActivarConector.Ejecutar(sistema(e.t), argos.EntradaActivarConector{ID: c.ID, Version: c.Version})
 	if err != nil {
 		e.t.Fatal(err)
 	}

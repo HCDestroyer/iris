@@ -95,7 +95,7 @@ SET estado       = $1,
     version      = version + 1,
     updated_at   = now()
 WHERE id = $3 AND version = $4
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id
 `
 
 type CambiarEstadoConectorParams struct {
@@ -140,6 +140,8 @@ func (q *Queries) CambiarEstadoConector(ctx context.Context, arg CambiarEstadoCo
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
@@ -148,7 +150,7 @@ const cambiarURLPublicaConector = `-- name: CambiarURLPublicaConector :one
 UPDATE integracion.conectores
 SET url_publica = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id
 `
 
 type CambiarURLPublicaConectorParams struct {
@@ -187,6 +189,8 @@ func (q *Queries) CambiarURLPublicaConector(ctx context.Context, arg CambiarURLP
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
@@ -223,7 +227,7 @@ func (q *Queries) CompletarEmpresaCanje(ctx context.Context, arg CompletarEmpres
 }
 
 const conectorActivo = `-- name: ConectorActivo :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 `
 
 func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (IntegracionConectore, error) {
@@ -256,12 +260,14 @@ func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (Integraci
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
 
 const conectorPorID = `-- name: ConectorPorID :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores WHERE id = $1
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores WHERE id = $1
 `
 
 func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -294,12 +300,14 @@ func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConec
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
 
 const conectorPorIDParaActualizar = `-- name: ConectorPorIDParaActualizar :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores WHERE id = $1 FOR UPDATE
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -332,12 +340,61 @@ func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (In
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
+	)
+	return i, err
+}
+
+const conectorQueReemplaza = `-- name: ConectorQueReemplaza :one
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo' AND reemplaza_conector_id = $2
+`
+
+type ConectorQueReemplazaParams struct {
+	Sistema string
+	ID      *int64
+}
+
+// El conector activo del sistema que reemplaza a ese y todavía no está confirmado (sus webhooks
+// firmados con el secreto anterior se aceptan en el activo).
+func (q *Queries) ConectorQueReemplaza(ctx context.Context, arg ConectorQueReemplazaParams) (IntegracionConectore, error) {
+	row := q.db.QueryRow(ctx, conectorQueReemplaza, arg.Sistema, arg.ID)
+	var i IntegracionConectore
+	err := row.Scan(
+		&i.ID,
+		&i.Sistema,
+		&i.BaseUrl,
+		&i.Origen,
+		&i.TokenCifrado,
+		&i.SecretoWebhookCifrado,
+		&i.RemotoID,
+		&i.Empresas,
+		&i.Estado,
+		&i.CreadoPor,
+		&i.ActivadoEn,
+		&i.ActivadoPor,
+		&i.UltimoWebhookEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UrlPublica,
+		&i.TokenEntregadoID,
+		&i.AlcanceGlobal,
+		&i.PanelUrl,
+		&i.VersionRemota,
+		&i.ContratoRemoto,
+		&i.ContratoInformado,
+		&i.VersionConsultadaEn,
+		&i.WebhookSalidaUrl,
+		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
 
 const conectoresActivos = `-- name: ConectoresActivos :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
 `
 
 func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore, error) {
@@ -376,6 +433,8 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 			&i.VersionConsultadaEn,
 			&i.WebhookSalidaUrl,
 			&i.WebhookSalidaSecretoCifrado,
+			&i.ReemplazaConectorID,
+			&i.ReemplazaTokenID,
 		); err != nil {
 			return nil, err
 		}
@@ -417,6 +476,33 @@ func (q *Queries) ConectoresSinContrato(ctx context.Context, arg ConectoresSinCo
 		return nil, err
 	}
 	return items, nil
+}
+
+const confirmarReemplazo = `-- name: ConfirmarReemplazo :one
+WITH antes AS (
+    SELECT x.id, x.reemplaza_conector_id, x.reemplaza_token_id FROM integracion.conectores x
+    WHERE x.id = $1 AND x.estado = 'activo' AND x.reemplaza_conector_id IS NOT NULL
+    FOR UPDATE
+)
+UPDATE integracion.conectores c
+SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+FROM antes
+WHERE c.id = antes.id
+RETURNING antes.reemplaza_conector_id::bigint AS conector_viejo_id, antes.reemplaza_token_id AS token_id
+`
+
+type ConfirmarReemplazoRow struct {
+	ConectorViejoID int64
+	TokenID         *int64
+}
+
+// La primera llamada con el token del conector activo respondió 2xx: el reemplazo queda confirmado.
+// Sin fila si no estaba pendiente (o el conector ya no está activo).
+func (q *Queries) ConfirmarReemplazo(ctx context.Context, conectorID int64) (ConfirmarReemplazoRow, error) {
+	row := q.db.QueryRow(ctx, confirmarReemplazo, conectorID)
+	var i ConfirmarReemplazoRow
+	err := row.Scan(&i.ConectorViejoID, &i.TokenID)
+	return i, err
 }
 
 const crearEmpresaCanje = `-- name: CrearEmpresaCanje :one
@@ -575,6 +661,25 @@ func (q *Queries) ExisteConectorConBase(ctx context.Context, arg ExisteConectorC
 	return existe, err
 }
 
+const fijarReemplazo = `-- name: FijarReemplazo :exec
+UPDATE integracion.conectores
+SET reemplaza_conector_id = $1, reemplaza_token_id = $2, updated_at = now()
+WHERE id = $3
+`
+
+type FijarReemplazoParams struct {
+	ReemplazaConectorID *int64
+	ReemplazaTokenID    *int64
+	ID                  int64
+}
+
+// Reconexión sin corte (0.6.3): el conector recién activado reemplaza a otro, cuyo iris_pat_ sigue
+// vivo hasta que el otro sistema confirme el token nuevo (o 24 h). No sube la versión.
+func (q *Queries) FijarReemplazo(ctx context.Context, arg FijarReemplazoParams) error {
+	_, err := q.db.Exec(ctx, fijarReemplazo, arg.ReemplazaConectorID, arg.ReemplazaTokenID, arg.ID)
+	return err
+}
+
 const fijarVersionConector = `-- name: FijarVersionConector :one
 UPDATE integracion.conectores
 SET version_remota = CASE WHEN $1::boolean THEN NULL ELSE coalesce($2, version_remota) END,
@@ -582,7 +687,7 @@ SET version_remota = CASE WHEN $1::boolean THEN NULL ELSE coalesce($2, version_r
     contrato_informado = CASE WHEN $4::boolean THEN NULL ELSE coalesce($5, contrato_informado) END,
     version_consultada_en = now(), updated_at = now()
 WHERE id = $6
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id
 `
 
 type FijarVersionConectorParams struct {
@@ -636,6 +741,8 @@ func (q *Queries) FijarVersionConector(ctx context.Context, arg FijarVersionCone
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
@@ -752,7 +859,7 @@ INSERT INTO integracion.conectores (
     $14, $15,
     CASE WHEN $13::text IS NULL AND $14::text IS NULL THEN NULL ELSE now() END
 )
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id
 `
 
 type InsertarConectorParams struct {
@@ -819,6 +926,8 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		&i.VersionConsultadaEn,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.ReemplazaConectorID,
+		&i.ReemplazaTokenID,
 	)
 	return i, err
 }
@@ -875,7 +984,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 }
 
 const listarConectores = `-- name: ListarConectores :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id FROM integracion.conectores
 WHERE id > $1
 ORDER BY id
 LIMIT $2
@@ -922,6 +1031,8 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 			&i.VersionConsultadaEn,
 			&i.WebhookSalidaUrl,
 			&i.WebhookSalidaSecretoCifrado,
+			&i.ReemplazaConectorID,
+			&i.ReemplazaTokenID,
 		); err != nil {
 			return nil, err
 		}
@@ -991,6 +1102,16 @@ func (q *Queries) OlvidarVerificadoresVencidos(ctx context.Context) (int64, erro
 	return result.RowsAffected(), nil
 }
 
+const quitarReemplazo = `-- name: QuitarReemplazo :exec
+UPDATE integracion.conectores SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+WHERE id = $1 AND reemplaza_conector_id IS NOT NULL
+`
+
+func (q *Queries) QuitarReemplazo(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, quitarReemplazo, id)
+	return err
+}
+
 const siguienteIDAutorizacion = `-- name: SiguienteIDAutorizacion :one
 
 SELECT nextval(pg_get_serial_sequence('integracion.autorizaciones', 'id'))::bigint AS id
@@ -1029,8 +1150,9 @@ func (q *Queries) TocarWebhookConector(ctx context.Context, id int64) error {
 }
 
 const tokensEntregadosDeInactivos = `-- name: TokensEntregadosDeInactivos :many
-SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
-WHERE sistema = $1 AND id <> $2 AND estado <> 'activo' AND token_entregado_id IS NOT NULL
+SELECT c.token_entregado_id::bigint AS token_id FROM integracion.conectores c
+WHERE c.sistema = $1 AND c.id <> $2 AND c.estado <> 'activo' AND c.token_entregado_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores a WHERE a.estado = 'activo' AND a.reemplaza_token_id = c.token_entregado_id)
 `
 
 type TokensEntregadosDeInactivosParams struct {
@@ -1038,7 +1160,8 @@ type TokensEntregadosDeInactivosParams struct {
 	Excepto int64
 }
 
-// Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores).
+// Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores). No
+// el de un conector reemplazado cuya reconexión no se confirmó (0.6.3): el otro sistema lo sigue usando.
 func (q *Queries) TokensEntregadosDeInactivos(ctx context.Context, arg TokensEntregadosDeInactivosParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, tokensEntregadosDeInactivos, arg.Sistema, arg.Excepto)
 	if err != nil {
@@ -1130,6 +1253,39 @@ WHERE id = $1
 func (q *Queries) UsarAutorizacion(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, usarAutorizacion, id)
 	return err
+}
+
+const vencerReemplazo = `-- name: VencerReemplazo :one
+WITH antes AS (
+    SELECT x.id, x.reemplaza_token_id FROM integracion.conectores x
+    WHERE x.id = $2 AND x.reemplaza_conector_id = $1
+    FOR UPDATE
+)
+UPDATE integracion.conectores c
+SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+FROM antes
+WHERE c.id = antes.id
+RETURNING antes.reemplaza_token_id AS token_id,
+    (SELECT v.estado = 'activo' FROM integracion.conectores v WHERE v.id = $1)::boolean AS viejo_activo
+`
+
+type VencerReemplazoParams struct {
+	ConectorViejoID int64
+	ConectorID      int64
+}
+
+type VencerReemplazoRow struct {
+	TokenID     *int64
+	ViejoActivo bool
+}
+
+// 24 h sin confirmar: el reemplazo se da por cerrado. Devuelve el token a revocar y si el conector
+// anterior volvió a estar activo (entonces no se revoca). Sin fila si ya se confirmó o se quitó.
+func (q *Queries) VencerReemplazo(ctx context.Context, arg VencerReemplazoParams) (VencerReemplazoRow, error) {
+	row := q.db.QueryRow(ctx, vencerReemplazo, arg.ConectorViejoID, arg.ConectorID)
+	var i VencerReemplazoRow
+	err := row.Scan(&i.TokenID, &i.ViejoActivo)
+	return i, err
 }
 
 const vincularAutorizacion = `-- name: VincularAutorizacion :exec

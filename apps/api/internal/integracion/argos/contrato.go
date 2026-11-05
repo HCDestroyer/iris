@@ -25,10 +25,12 @@ import (
 //   - Argos devuelve `version_argos` y `contrato` en el canje y en GET /integraciones/iris/estado;
 //     Iris los guarda en el conector y elige `tecnico` (Argos ≥ 1.6.0) o `bodega_id`;
 //   - 0.6.2: el canje y el PUT llevan además `receptor_argos` (en el canje siempre true; en el PUT,
-//     si el conector tiene guardado el receptor de §6.6).
+//     si el conector tiene guardado el receptor de §6.6);
+//   - 0.6.3: el PUT (o cualquier llamada autenticada) con el atk_ de una reconexión la confirma en
+//     Argos; Iris solo lo usa con el conector nuevo ya activo (la activación encola este job).
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
-const ContratoIris = "0.6.2"
+const ContratoIris = "0.6.3"
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».

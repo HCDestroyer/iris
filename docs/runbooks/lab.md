@@ -70,13 +70,20 @@ Al conectar con el enlace que genera Argos (`https://<argos>/conectar#<código>`
 
 - Solo se acepta un enlace cuyo origen esté en `IRIS_ARGOS_ORIGENES` / `IRIS_HORUS_ORIGENES` (o el
   del conector activo). Reconectar no corta la integración: el conector activo sigue hasta que actives
-  el nuevo, que lo reemplaza y revoca su token. `POST /api/v1/integraciones/argosisp/conexion/previsualizar
+  el nuevo, que lo reemplaza. Con Horus, su token se revoca al activar. Con Argos (contrato 0.6.3), Argos
+  sigue usando el token anterior hasta que Iris lo llama con el nuevo (normalmente segundos después de
+  activar), y entonces Iris lo revoca. Si eso no pasa en 24 h, se revoca igual. `POST /api/v1/integraciones/argosisp/conexion/previsualizar
   { enlace }` muestra el origen sin llamar afuera: confírmalo antes de conectar.
 - Conecta un administrador con `empresas.todas` sin límite de alcance (el `admin`).
 - El token nace con **15 min** de vida: activa el conector en ese plazo. Si vence, activar responde
   422 `token_entregado_vencido` y hay que generar otro enlace en Argos.
 - Desactivar el conector, o conectar otro del mismo sistema, revoca el token anterior. Para volver
   a activar uno desactivado, conecta de nuevo.
+- **Si crees que el token anterior se filtró**, no esperes la confirmación: al activar el conector
+  nuevo, marca en el diálogo «Cortar ya el acceso anterior (si crees que se filtró)». Por API es
+  `POST /api/v1/integraciones/conectores/{id}/activar { version, revocarAnterior: true }`. El token del
+  conector reemplazado se revoca en ese mismo paso. Argos recibirá 401 con él hasta que use el token
+  nuevo, y sus webhooks al conector anterior responderán 503 y se reintentarán.
 
 ## 3. Levantar
 
