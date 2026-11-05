@@ -52,8 +52,16 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   (Descartar / Rehacer / Descartar todo de esta orden), con «Reintentar».
 - **Cámara:** `expo-image-picker` (cámara del sistema, con EXIF) → `expo-image-manipulator` a lado
   ≤ 1600 px y ~300 KB en JPEG; la hora y el GPS del EXIF (o la posición actual) van en el alta.
-- **Escáner:** `expo-camera` (`CameraView` con lector nativo: QR, Code 128/39/93, EAN, UPC, Data
-  Matrix…); lo leído pasa por `interpretarCodigo` (serie, MAC o QR con ambos).
+- **Escáner por campo:** cada campo (serie y MAC) lleva su botón y el visor abre con su objetivo
+  («Escaneando: Número de serie»). `expo-camera` (`CameraView` con lector nativo: QR, Code
+  128/39/93, EAN, UPC, Data Matrix…) a pantalla completa, oscurecida salvo el recuadro con esquinas
+  teal: solo cuentan los códigos cuyo `bounds`/`cornerPoints` cae dentro. Junta los distintos
+  durante ~800 ms (`SesionEscaneo` de `@iris/sync/campo`, con `Vibration` de React Native al primero)
+  y muestra la hoja con lo detectado (tipo, valor, «Parece serie», «Parece MAC», «QR con serie y
+  MAC», «Parece código de producto (EAN/UPC)», «No es una MAC»…); un solo candidato que encaja se
+  confirma. Linterna (`enableTorch`), «Seguir escaneando» y «Escribir a mano». Al elegir, aviso
+  («Serie: ABC123») e insignia «Escaneado»; si ya está en otro equipo de la orden, se avisa antes.
+  Lógica en `src/campo/escaner.ts` (`useEscaneo`, `codigoDeExpo`).
 - **GPS en segundo plano:** `expo-location` + `expo-task-manager`, encendido **solo** mientras hay una
   orden en curso (`en_camino` o `en_sitio`; una pausada no cuenta) y con explicación antes de que el
   sistema pida el permiso. Un punto por minuto a la `ColaPosiciones` de `@iris/sync` (misma base) y de
@@ -144,7 +152,10 @@ recibir» (lo que faltó, firma del técnico, doble toque, firma en 404 que espe
 pausada, explicación, permisos, topes, «Dejar de compartir», tarea en segundo plano con marca
 vencida, sesión no vigente o de otro usuario); salidas de la sesión (vencida, ajena, cambiar de
 empresa, orden cancelada al sincronizar) apagan el GPS; cierre de sesión pendiente; EXIF de Android e
-iOS; compresión y temporales de la cámara; HTTPS obligatorio; base64.
+iOS; compresión y temporales de la cámara; HTTPS obligatorio; base64; escáner por campo
+(`prueba/escaner.test.tsx`: abre con su objetivo, no acepta con un cuadro, solo cuenta lo del
+recuadro, lista varios códigos y llena el campo correcto, «Seguir escaneando», QR con serie y MAC,
+aviso de repetido, linterna y sin permiso, con `onBarcodeScanned` simulado).
 El adaptador SQLite se prueba en `packages/sync` con `node:sqlite`.
 
 ## APK
@@ -158,6 +169,7 @@ a mano con la URL de la API o solo en cada versión. La versión y el `versionCo
 ## Lo que necesita un dispositivo
 
 La lógica está probada; lo nativo (permisos reales, la tarea de GPS con la app en segundo plano o
-cerrada, la cámara, el lector de códigos, el trazo y el PNG de la firma con `toDataURL`, y cómo se
+cerrada, la cámara, el lector de códigos con varios códigos en la etiqueta (`bounds` reales del
+recuadro, linterna, vibración), el trazo y el PNG de la firma con `toDataURL`, y cómo se
 ven los componentes de HeroUI con el tema compilado por Uniwind, en claro y oscuro) se valida en un
 teléfono con un dev build (`npx expo run:android`), que no se hace en CI.

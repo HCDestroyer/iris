@@ -43,7 +43,7 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 - **Detalle:** cliente, llamar, «Cómo llegar» (app de mapas con las coordenadas), servicio,
   comodato, notas; «En camino» / «Llegué» con GPS si se permite; en sitio: checklist (sí/no,
   texto, número, medición, foto), fotos (≤ 1600 px, ~300 KB, hora y GPS del EXIF), materiales
-  de la bodega de la orden, equipos (instalar/retirar según el tipo, escáner o a mano), firma
+  de la bodega de la orden, equipos (instalar/retirar según el tipo, escáner por campo o a mano), firma
   (SVG a la API y PNG como adjunto), cerrar o «No se pudo» con motivo. Lo que no vale para el
   estado o el tipo no se muestra (`lib/campo/reglas.ts`).
 - **Ubicación en vivo** (`lib/campo/ubicacion.ts`, `_componentes/ubicacion.tsx`): en turno y con
@@ -94,6 +94,13 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   cerrar, fallar, llegar ni salir; sí notas, fotos, checklist, materiales, equipos y firma. Una
   orden pausada no cuenta como «en curso»: no mantiene encendida la ubicación (reanudar la vuelve a
   encender como «En camino»).
+- **Escáner de serie y MAC** (`_componentes/escaner-equipo.tsx`, `lib/campo/escaner.ts`): un botón
+  por campo («Escanear número de serie», «Escanear MAC») abre `VisorEscaner` de `@iris/ui` con su
+  objetivo. Solo cuentan los códigos dentro del recuadro (`boundingBox` de `BarcodeDetector` pasado
+  a la vista con `object-fit: cover`; con ZXing cuentan todos), se juntan ~800 ms (`SesionEscaneo`
+  de `@iris/sync/campo`, con `navigator.vibrate` si existe) y la hoja muestra lo detectado con lo
+  que parece; un solo candidato se confirma, un QR con serie y MAC llena los dos, la serie o MAC ya
+  registrada en la orden se avisa antes de usarla. Linterna con `torch` si la pista lo admite.
 - **Avisos del servidor** (`version_anterior`, `pausa_ajustada`) en el detalle de la orden hasta
   «Entendido»: ningún ajuste pasa en silencio.
 - **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
@@ -121,5 +128,7 @@ sesión con y sin pendientes, abrir sin señal; `e2e/campo-ubicacion.spec.ts`: e
 permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta, 429 con
 `Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-turno.spec.ts`:
 turno de la agenda con el reloj de Playwright; `e2e/campo-formularios.spec.ts`: formularios y pausa
-sin señal, rechazos y cierre incompleto por formulario; `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
+sin señal, rechazos y cierre incompleto por formulario; `e2e/campo-escaner.spec.ts`: escáner por campo
+con cámara y `BarcodeDetector` simulados, en escritorio y teléfono, claro y oscuro (con
+`IRIS_CAPTURAS=<carpeta>` deja capturas); `e2e/capturas-campo.spec.ts`; `e2e/campo-api-real.spec.ts` contra la API Go
 con `IRIS_E2E_API_REAL=1 IRIS_E2E_TECNICO=<correo>:<contraseña>`).

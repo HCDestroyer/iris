@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Camara } from "./componentes/camara";
-import { abrirEscaner, Escaner, lectorNativo, type Lector } from "./componentes/escaner";
+import { abrirEscaner, admiteLinterna, lectorNativo, VisorEscaner, type Lector } from "./componentes/escaner";
 import { hayFirma, MAX_SVG_FIRMA, simplificar, trazosASvg, type Trazo } from "./componentes/firma";
 import { LienzoFirma } from "./componentes/lienzo-firma";
 
@@ -85,16 +85,50 @@ describe("Camara", () => {
     });
 });
 
-describe("Escaner", () => {
-    it("muestra la vista de la cámara mientras abre y permite cerrar", () => {
-        const html = renderToStaticMarkup(<Escaner alLeer={() => undefined} alCerrar={() => undefined} />);
-        expect(html).toContain("<video");
-        expect(html).toContain("Abriendo la cámara…");
-        expect(html).toContain("Cerrar escáner");
+describe("VisorEscaner", () => {
+    it("en el servidor no dibuja nada (va en un portal al body al montarse)", () => {
+        const html = renderToStaticMarkup(
+            <VisorEscaner objetivo="Número de serie" ayuda="Apunta solo al código junto a S/N" detectados={0} alDetectar={() => undefined} alCerrar={() => undefined} alEscribirAMano={() => undefined} />,
+        );
+        expect(html).toBe("");
     });
 
     it("sin BarcodeDetector no hay lector nativo (se usa ZXing)", () => {
         expect(lectorNativo()).toBeNull();
+    });
+
+    it("con BarcodeDetector entrega todos los códigos del cuadro con su formato y posición", async () => {
+        const global = globalThis as { BarcodeDetector?: unknown };
+        global.BarcodeDetector = class {
+            detect() {
+                return Promise.resolve([
+                    { rawValue: "ZTEGC8F1A2B3", format: "code_128", boundingBox: { x: 10, y: 20, width: 200, height: 40 } },
+                    { rawValue: "6972632140024", format: "ean_13" },
+                ]);
+            }
+        };
+        try {
+            const lector = lectorNativo();
+            expect(await lector?.leer({} as HTMLVideoElement)).toEqual([
+                { valor: "ZTEGC8F1A2B3", formato: "code_128", caja: { x: 10, y: 20, ancho: 200, alto: 40 } },
+                { valor: "6972632140024", formato: "ean_13", caja: null },
+            ]);
+        } finally {
+            delete global.BarcodeDetector;
+        }
+    });
+
+    it("la linterna solo se ofrece si la pista la admite", () => {
+        expect(admiteLinterna(undefined)).toBe(false);
+        expect(admiteLinterna({ getCapabilities: () => ({ torch: true }) } as unknown as MediaStreamTrack)).toBe(true);
+        expect(admiteLinterna({ getCapabilities: () => ({}) } as unknown as MediaStreamTrack)).toBe(false);
+        expect(
+            admiteLinterna({
+                getCapabilities: () => {
+                    throw new Error("no");
+                },
+            } as unknown as MediaStreamTrack),
+        ).toBe(false);
     });
 
     describe("abrirEscaner: la cámara nunca queda encendida", () => {
@@ -103,7 +137,7 @@ describe("Escaner", () => {
             return { flujo: { getTracks: () => pistas } as unknown as MediaStream, pistas };
         }
         const lector = (): Lector & { liberado: boolean } => {
-            const l = { liberado: false, leer: () => Promise.resolve(null), liberar: () => { l.liberado = true; } };
+            const l = { liberado: false, leer: () => Promise.resolve([]), liberar: () => { l.liberado = true; } };
             return l;
         };
 

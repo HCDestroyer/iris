@@ -1,10 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { OrdenVista } from "@iris/sync";
-import { CONDICIONES, esquemaEquipo, interpretarCodigo, normalizarMac, type DatosEquipo } from "@iris/sync/campo";
+import { CONDICIONES, esquemaEquipo, normalizarMac, textoElegido, textosEscaneo, type DatosEquipo, type ObjetivoEscaneo, type UsoCodigo } from "@iris/sync/campo";
 import { ArrowDownToLine, ArrowUpFromLine, ScanLine, ShieldCheck, ShieldQuestion } from "lucide-react-native";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
-import { Boton, Campo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
+import { StyleSheet, View } from "react-native";
+import { Boton, BotonIcono, Campo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
 import { useCampo } from "../../campo/contexto";
 import { Escaner } from "./Escaner";
 
@@ -45,10 +46,14 @@ export function Equipos({ orden, instalar, retirar }: { orden: OrdenVista; insta
 
 export function FormularioEquipo({ orden, accion, comodato }: { orden: OrdenVista; accion: "instalar" | "retirar"; comodato: NonNullable<OrdenVista["comodato"]["equipos"]> }) {
     const { motor, ejecutar, notificar } = useCampo();
-    const [escaneando, setEscaneando] = useState(false);
+    // Campo que se está escaneando (el escáner sabe su objetivo) y lo último que se llenó escaneando.
+    const [escaneando, setEscaneando] = useState<ObjetivoEscaneo | null>(null);
+    const [escaneado, setEscaneado] = useState<UsoCodigo>({});
     const vacio: DatosEquipo = { accion, serie: "", mac: "", modelo: "", unidadId: "", condicion: "" };
     const form = useForm<DatosEquipo>({ resolver: zodResolver(esquemaEquipo), defaultValues: vacio });
     const unidadId = useWatch({ control: form.control, name: "unidadId" });
+    const serie = useWatch({ control: form.control, name: "serie" });
+    const mac = useWatch({ control: form.control, name: "mac" });
     const errores = form.formState.errors;
 
     const enviar = form.handleSubmit(async (d) => {
@@ -62,20 +67,31 @@ export function FormularioEquipo({ orden, accion, comodato }: { orden: OrdenVist
         const tipo = d.accion === "instalar" ? "equipo.instalar" : "equipo.retirar";
         if (await ejecutar(() => motor.registrar(tipo, orden.id, datos), d.accion === "instalar" ? "Equipo instalado registrado" : "Equipo retirado registrado")) {
             form.reset(vacio);
+            setEscaneado({});
         }
     });
 
-    const alLeer = (texto: string) => {
-        setEscaneando(false);
-        const leido = interpretarCodigo(texto);
-        if (leido.serie) {
-            form.setValue("serie", leido.serie, { shouldValidate: true });
+    const alElegir = (uso: UsoCodigo) => {
+        setEscaneando(null);
+        if (uso.serie) {
+            form.setValue("serie", uso.serie, { shouldValidate: true, shouldDirty: true });
         }
-        if (leido.mac) {
-            form.setValue("mac", leido.mac, { shouldValidate: true });
+        if (uso.mac) {
+            form.setValue("mac", uso.mac, { shouldValidate: true, shouldDirty: true });
         }
-        notificar({ tono: "success", texto: leido.mac && !leido.serie ? `MAC leída: ${leido.mac}` : `Leído: ${leido.serie ?? ""}${leido.mac ? ` · ${leido.mac}` : ""}` });
+        setEscaneado((e) => ({ ...e, ...uso }));
+        notificar({ tono: "success", texto: textoElegido(uso) });
     };
+
+    /** Botón de escanear de un campo (icono con nombre accesible, 48 px). */
+    const botonEscanear = (objetivo: ObjetivoEscaneo) => (
+        <View style={estilos.botonCampo}>
+            <BotonIcono icono={ScanLine} etiqueta={textosEscaneo(objetivo).botonCampo} alPresionar={() => setEscaneando(objetivo)} testID={`escanear-${objetivo}`} />
+        </View>
+    );
+    /** Insignia discreta «Escaneado» mientras el valor es el que se leyó (al editarlo, se quita). */
+    const insigniaEscaneado = (valor: string, leido: string | undefined): ReactNode =>
+        leido && valor === leido ? <Insignia tono="info" icono={ScanLine} texto="Escaneado" testID="escaneado" /> : null;
 
     return (
         <>
@@ -94,22 +110,31 @@ export function FormularioEquipo({ orden, accion, comodato }: { orden: OrdenVist
                     }}
                 />
             ) : null}
-            <Boton variante="secundario" icono={ScanLine} alPresionar={() => setEscaneando(true)}>
-                Escanear serie o MAC
-            </Boton>
-            <Escaner abierto={escaneando} alLeer={alLeer} alCerrar={() => setEscaneando(false)} />
-            <Controller
-                control={form.control}
-                name="serie"
-                render={({ field }) => <Campo etiqueta="Número de serie" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} autoCapitalize="characters" autoCorrect={false} error={errores.serie?.message} />}
-            />
-            <Controller
-                control={form.control}
-                name="mac"
-                render={({ field }) => (
-                    <Campo etiqueta="MAC" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} autoCapitalize="characters" autoCorrect={false} placeholder="AA:BB:CC:DD:EE:FF" error={errores.mac?.message} />
-                )}
-            />
+            <Escaner objetivo={escaneando} existentes={orden.equipos ?? []} alElegir={alElegir} alEscribirAMano={() => setEscaneando(null)} alCerrar={() => setEscaneando(null)} />
+            <View style={estilos.filaCampo}>
+                <View style={estilos.campo}>
+                    <Controller
+                        control={form.control}
+                        name="serie"
+                        render={({ field }) => <Campo etiqueta="Número de serie" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} autoCapitalize="characters" autoCorrect={false} error={errores.serie?.message} />}
+                    />
+                </View>
+                {botonEscanear("serie")}
+            </View>
+            {insigniaEscaneado(serie, escaneado.serie)}
+            <View style={estilos.filaCampo}>
+                <View style={estilos.campo}>
+                    <Controller
+                        control={form.control}
+                        name="mac"
+                        render={({ field }) => (
+                            <Campo etiqueta="MAC" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} autoCapitalize="characters" autoCorrect={false} placeholder="AA:BB:CC:DD:EE:FF" error={errores.mac?.message} />
+                        )}
+                    />
+                </View>
+                {botonEscanear("mac")}
+            </View>
+            {insigniaEscaneado(mac, escaneado.mac)}
             {accion === "instalar" ? (
                 <Controller
                     control={form.control}
@@ -145,3 +170,10 @@ export function FormularioEquipo({ orden, accion, comodato }: { orden: OrdenVist
         </>
     );
 }
+
+const estilos = StyleSheet.create({
+    filaCampo: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    campo: { flex: 1 },
+    // Alineado con la entrada (bajo la etiqueta del campo).
+    botonCampo: { paddingTop: 26 },
+});
