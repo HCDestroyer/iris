@@ -140,8 +140,9 @@ func correr() error {
 	// Adjuntos: purga de subidas abandonadas (IRIS_ADJUNTOS_ABANDONO) cada hora. No necesita el
 	// almacenamiento: solo marca y borra las partes en la base.
 	adj := adjuntos.Nuevo(adjuntos.Config{Abandono: cfg.AdjuntosAbandono})
-	// La orden como entidad adjuntable (mismo registro que la API).
+	// La orden y la conversación del chat como entidades adjuntables (mismo registro que la API).
 	campo.RegistrarAdjuntos()
+	mensajeria.RegistrarAdjuntos()
 	// Campo: orden de retiro automática desde argos.servicio_retirado (si el servicio tiene equipos
 	// en comodato según Argos) y mantenimiento de las particiones de posiciones (retención). Su
 	// agenda refresca el espejo de zonas desde el catálogo de Argos.

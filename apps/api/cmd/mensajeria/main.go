@@ -1,7 +1,8 @@
 // Comando mensajeria: el servicio de mensajería de Iris (contrato Iris ↔ ArgosISP 0.6.0 §6), en su
 // propio proceso. Atiende /api/v1/mensajeria (la API se lo reenvía con IRIS_MENSAJERIA_URL) y corre
 // sus jobs de River en la cola `mensajeria`: envío de avisos (con horario de silencio y límite por
-// minuto), webhooks de Meta, webhooks de entrega hacia Argos y mantenimiento.
+// minuto), webhooks de Meta, webhooks de entrega hacia Argos y mantenimiento. También el chat
+// interno del equipo (/api/v1/mensajeria/chat, con su flujo SSE).
 //
 //	mensajeria              servidor HTTP en IRIS_MENSAJERIA_PUERTO (3510) y sus workers
 //	mensajeria salud        GET a /api/v1/salud local; sale 0 o 1 (healthcheck de la imagen)
@@ -125,6 +126,8 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		return err
 	}
 	go mensajeria.Reloj(ctx, cliente, log)
+	// Chat: LISTEN iris_chat despierta los flujos SSE (GET /chat/eventos) de este proceso.
+	go m.EscucharChat(ctx, pool, log)
 
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 	if err != nil {

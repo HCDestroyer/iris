@@ -91,5 +91,22 @@ func ProxyHacia(destino string, nombre string, log *slog.Logger) (http.Handler, 
 			noDisponible(w, http.StatusBadGateway)
 		},
 	}
-	return p, nil
+	// Server-Sent Events (GET /mensajeria/chat/eventos): ReverseProxy ya copia cada evento sin
+	// esperar (con text/event-stream vacía el búfer en cada escritura), pero el WriteTimeout y el
+	// ReadTimeout del servidor (60 s) cortarían el flujo, y el ReadTimeout al vencer cancela el
+	// contexto de la petición. Solo para GET con Accept: text/event-stream (EventSource lo manda
+	// siempre); el destino decide si la ruta es un flujo y cuánto dura.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if EsFlujoSSE(r) {
+			rc := http.NewResponseController(w)
+			_ = rc.SetWriteDeadline(time.Time{})
+			_ = rc.SetReadDeadline(time.Time{})
+		}
+		p.ServeHTTP(w, r)
+	}), nil
+}
+
+// EsFlujoSSE: la petición pide un flujo de Server-Sent Events (GET con Accept: text/event-stream).
+func EsFlujoSSE(r *http.Request) bool {
+	return r.Method == http.MethodGet && strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 }

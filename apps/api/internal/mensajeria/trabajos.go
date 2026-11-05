@@ -26,7 +26,8 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorMantenimiento{m: m, bd: bd})
 }
 
-// ArgsMantenimiento: avisos sin acuse (agotado) y webhooks de Meta que quedaron sin procesar.
+// ArgsMantenimiento: avisos sin acuse (agotado), webhooks de Meta que quedaron sin procesar y la
+// purga del feed del chat (ChatRetencion).
 type ArgsMantenimiento struct{}
 
 // Kind implementa river.JobArgs.
@@ -46,6 +47,9 @@ type trabajadorMantenimiento struct {
 func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMantenimiento]) error {
 	ctx = ctxSistema(ctx, w.bd)
 	if _, err := w.m.vencerAvisos.Ejecutar(ctx, struct{}{}); err != nil {
+		return err
+	}
+	if err := w.m.purgarFeedChat(ctx, w.bd); err != nil {
 		return err
 	}
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))

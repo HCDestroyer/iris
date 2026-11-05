@@ -60,3 +60,41 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 `{ id, evento, ocurrido_en, payload }`, `X-Webhook-Id` = `id` (el del evento del outbox), firma v1 con
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
+
+## Chat interno del equipo (fase 1)
+
+Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
+`.claude/integration/contratos/chat.md`. Código en `chat_*.go` y `chat.sql`; rutas bajo
+`/api/v1/mensajeria/chat`, permisos `chat.ver`, `chat.enviar` y `chat.supervisar`.
+
+- **Conversaciones** (`mensajeria.chat_conversaciones`, con `empresa_id`): `directa` (una por par y
+  empresa), `cuadrilla` (una por cuadrilla y empresa) y `orden` (una por orden). Los miembros de
+  cuadrilla y orden **no se copian**: la función `mensajeria.chat_visibles` los deriva al leer de
+  `agenda.tecnicos`, `agenda.cuadrilla_zonas` y `campo.ordenes` (técnico asignado), más el alcance de
+  `chat.supervisar` del actor (global, zona o cuadrilla). `chat_miembros` guarda solo los explícitos:
+  los dos de una directa y el despacho que se une a un hilo de orden (`ordenes.ver` con alcance).
+  Las directas nunca se ven por alcance. Lo que no se ve es 404.
+- **Mensajes** (`chat_mensajes`): id uuid v7 del cliente (mismo id y contenido → 200, otro contenido
+  → 409; también `Idempotency-Key`), texto plano ≤ 4000, una foto (`nucleo/adjuntos`, entidad
+  `chat_conversacion`, registrada con `RegistrarAdjuntos` en cmd/iris y cmd/worker) y/o ubicación.
+  `seq` por conversación en orden de llegada. Nunca se editan; el autor los elimina en 15 min
+  (lápida, sin contenido). 30 por minuto por usuario (429), con el reloj del módulo.
+- **Lecturas** (`chat_lecturas`): puntero por usuario que solo avanza; no leídos = mensajes de otros,
+  sin eliminar, después del puntero.
+- **Tiempo real:** `chat_eventos` es el feed (`mensaje_nuevo`, `mensaje_eliminado`, `leido`,
+  `conversacion_actualizada`). Cada escritura toma el candado de su empresa hasta el COMMIT y hace
+  `NOTIFY iris_chat '<empresa>'`: dentro de una empresa los ids quedan en orden de COMMIT y el cursor
+  nunca salta un evento. `EscucharChat` (cmd/mensajeria) despierta los flujos SSE de esa empresa;
+  cada flujo relee el feed con la misma consulta que `GET /chat/cambios` (sondeo), filtrada por lo
+  que el usuario ve. Latido cada 25 s, cierre a los 30 min (reconexión con Last-Event-ID) y purga a
+  los 7 días en el mantenimiento (cursor más viejo → 410). El flujo quita los plazos de escritura y
+  lectura del servidor; el proxy de la API (`servidor.ProxyHacia`) también, para GET con
+  `Accept: text/event-stream`, y ReverseProxy copia cada evento sin búfer.
+- **Auditoría:** abrir una conversación nueva, enviar y eliminar, con el id del mensaje y nunca el
+  texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
+- `Config`: `ChatPorMinuto` (30), `ChatPlazoEliminar` (15 min), `ChatLatido` (25 s),
+  `ChatDuracionMax` (30 min), `ChatRetencion` (7 días).
+
+Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el futuro emisor
+de push) y `chat.mensaje_eliminado`. No emite `chat.leido` (ver `contratos/eventos.md`). No consume
+eventos.

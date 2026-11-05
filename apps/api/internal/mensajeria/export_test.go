@@ -29,3 +29,7 @@ func (m *Modulo) VencerAvisos(ctx context.Context) (int, error) {
 }
 
 var ErrReintentar = errReintentar
+
+func (m *Modulo) PurgarFeedChat(ctx context.Context, bd nucleo.BD) error {
+	return m.purgarFeedChat(ctx, bd)
+}

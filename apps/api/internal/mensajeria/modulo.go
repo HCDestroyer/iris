@@ -73,6 +73,19 @@ type Config struct {
 	Ahora func() time.Time
 	// Version de Iris (User-Agent).
 	Version string
+
+	// Chat interno del equipo (contratos/chat.md).
+	// ChatPorMinuto: mensajes por minuto por usuario (30).
+	ChatPorMinuto int
+	// ChatPlazoEliminar: hasta cuándo el autor puede eliminar un mensaje (15 min).
+	ChatPlazoEliminar time.Duration
+	// ChatLatido: comentario de SSE para que proxies y teléfonos no corten la conexión (25 s).
+	ChatLatido time.Duration
+	// ChatDuracionMax: cada flujo SSE se cierra después de esto (30 min) y el cliente se reconecta
+	// con Last-Event-ID: así se vuelven a verificar la sesión y los permisos.
+	ChatDuracionMax time.Duration
+	// ChatRetencion: días que se guarda el feed de eventos (7 días); un cursor más viejo es 410.
+	ChatRetencion time.Duration
 }
 
 // Modulo reúne los casos de uso.
@@ -90,6 +103,11 @@ type Modulo struct {
 	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
 	RecibirMeta             *auditoria.Caso[EntradaMeta, MetaRecibido]
 	VerificarMeta           *auditoria.Caso[EntradaVerificarMeta, string]
+
+	// Chat interno del equipo.
+	Chat casosChat
+	// difusor despierta los flujos SSE con el NOTIFY iris_chat (EscucharChat).
+	difusor *difusor
 
 	prepararEnvio   *auditoria.Caso[entradaPreparar, preparado]
 	registrarEnvio  *auditoria.Caso[entradaRegistrar, registrado]
@@ -132,7 +150,22 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.Ahora == nil {
 		cfg.Ahora = time.Now
 	}
-	m := &Modulo{cfg: cfg}
+	if cfg.ChatPorMinuto <= 0 {
+		cfg.ChatPorMinuto = 30
+	}
+	if cfg.ChatPlazoEliminar <= 0 {
+		cfg.ChatPlazoEliminar = 15 * time.Minute
+	}
+	if cfg.ChatLatido <= 0 {
+		cfg.ChatLatido = 25 * time.Second
+	}
+	if cfg.ChatDuracionMax <= 0 {
+		cfg.ChatDuracionMax = 30 * time.Minute
+	}
+	if cfg.ChatRetencion <= 0 {
+		cfg.ChatRetencion = 7 * 24 * time.Hour
+	}
+	m := &Modulo{cfg: cfg, difusor: nuevoDifusor()}
 	m.EnviarAviso = nuevoEnviarAviso(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
@@ -149,6 +182,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.procesarMeta = nuevoProcesarMeta(m)
 	m.vencerAvisos = nuevoVencerAvisos(m)
 	m.entregarWebhook = nuevoEntregarWebhook(m)
+	m.Chat = nuevosCasosChat(m)
 	return m
 }
 

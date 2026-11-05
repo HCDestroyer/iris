@@ -210,6 +210,9 @@ Una tarea está terminada solo si:
 | `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |
 | `consentimiento.registrado` | mensajeria | consentimiento_id, empresa_id, cliente_id, canal, estado (acepta \| baja), origen, ocurrido_en, estado_vigente |
 | `contacto.baja` | mensajeria (chat) | cliente_id, empresa_id, canal, ocurrido_en, origen (cliente \| agente), consentimiento_id; va a Argos (§6.6) |
+| `chat.conversacion_creada` | mensajeria (chat) | conversacion_id, empresa_id, tipo (directa \| cuadrilla \| orden), cuadrilla_id (o null), orden_id (o null), creada_por, miembros[] |
+| `chat.mensaje_enviado` | mensajeria (chat) | conversacion_id, mensaje_id, empresa_id, tipo, cuadrilla_id, orden_id, autor_id, seq, contenido (texto, foto, ubicacion), enviado_en, destinatarios[]; nunca el texto |
+| `chat.mensaje_eliminado` | mensajeria (chat) | conversacion_id, mensaje_id, empresa_id, autor_id, eliminado_en |
 | `canal_mensajeria.creado` / `canal_mensajeria.actualizado` / `canal_mensajeria.activado` / `canal_mensajeria.desactivado` / `canal_mensajeria.calidad` | mensajeria | canal_id, empresa_id; tipo, canal (creado); campos[] (actualizado); evento, pausado_hasta (calidad) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.

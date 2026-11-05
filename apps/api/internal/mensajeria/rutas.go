@@ -197,4 +197,6 @@ func (m *Modulo) Registrar(api huma.API) {
 		}
 		return &salidaTexto{ContentType: "text/plain; charset=utf-8", Body: []byte(c)}, nil
 	})
+
+	m.registrarChat(api)
 }

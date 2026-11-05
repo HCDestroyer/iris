@@ -1,12 +1,15 @@
 package servidor_test
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
 )
@@ -77,5 +80,82 @@ func TestDelegadosReenvianAlOtroProceso(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mensajeria/plantillas", nil))
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("destino caído: %d", w.Code)
+	}
+}
+
+// El flujo SSE del chat (GET /api/v1/mensajeria/chat/eventos) pasa por el proxy sin búfer (cada
+// evento llega al escribirse) y sobrevive el WriteTimeout y el ReadTimeout de la API (aquí 1 s).
+func TestProxyFlujoSSESinBuferNiPlazo(t *testing.T) {
+	siguiente := make(chan struct{})
+	destino := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		rc := http.NewResponseController(w)
+		_ = rc.Flush() // como el chat: las cabeceras salen enseguida (retry: …)
+		for i := 1; i <= 3; i++ {
+			select {
+			case <-siguiente:
+			case <-r.Context().Done():
+				t.Logf("destino: contexto cancelado en %d: %v", i, r.Context().Err())
+				return
+			}
+			_, _ = fmt.Fprintf(w, "id: %d\nevent: mensaje_nuevo\ndata: {}\n\n", i)
+			_ = rc.Flush()
+		}
+	}))
+	defer destino.Close()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	proxy, err := servidor.ProxyHacia(destino.URL, "Mensajería", log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, _ := servidor.Nuevo(servidor.Deps{Log: log, Delegados: map[string]http.Handler{"/api/v1/mensajeria": proxy}})
+	api := httptest.NewUnstartedServer(h)
+	api.Config.WriteTimeout, api.Config.ReadTimeout = time.Second, time.Second
+	api.Start()
+	defer api.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, api.URL+"/api/v1/mensajeria/chat/eventos", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	lineas := make(chan string, 20)
+	go func() {
+		s := bufio.NewScanner(res.Body)
+		for s.Scan() {
+			if strings.HasPrefix(s.Text(), "id: ") {
+				lineas <- s.Text()
+			}
+		}
+		close(lineas)
+	}()
+	for i := 1; i <= 3; i++ {
+		if i == 3 {
+			time.Sleep(1500 * time.Millisecond) // pasa el WriteTimeout y el ReadTimeout de la API
+		}
+		select {
+		case siguiente <- struct{}{}:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("el destino ya no espera el evento %d: se cortó el flujo", i)
+		}
+		select {
+		case l, ok := <-lineas:
+			if !ok || l != fmt.Sprintf("id: %d", i) {
+				t.Fatalf("evento %d: %q (abierto %v)", i, l, ok)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("el evento %d no llegó: el proxy lo retuvo en un búfer", i)
+		}
+	}
+	if !servidor.EsFlujoSSE(req) {
+		t.Fatal("EsFlujoSSE")
+	}
+	post, _ := http.NewRequest(http.MethodPost, api.URL, nil)
+	post.Header.Set("Accept", "text/event-stream")
+	if servidor.EsFlujoSSE(post) {
+		t.Fatal("un POST no es un flujo")
 	}
 }
