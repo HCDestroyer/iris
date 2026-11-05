@@ -31,7 +31,8 @@ siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y po
 | `background`, `foreground`, `muted` | `--hx-bg`, `--hx-text`, `--hx-text-muted` |
 | `default`, `background-secondary` | `--hx-bg-elevated`, `--hx-bg-muted` |
 | `surface` (tarjetas) | `--hx-card`: casi sólida, radio 14 px |
-| `overlay` (menús, popovers, modales, avisos) | `--hx-glass-strong`: vidrio fuerte con desenfoque de 40 px |
+| `overlay` (todo lo flotante: modales, hojas, popovers, menús, listas, globos y avisos emergentes) | **sólido**: `--hx-card` en claro (blanco opaco) y `--hx-bg-elevated` en oscuro (opaco, más claro que el lienzo y las tarjetas), con borde de 1 px `--hx-border` y sombra; sin desenfoque |
+| `backdrop` (telón de modal, hoja y confirmación) | negro al 45 % en claro y al 62 % en oscuro: lo de atrás siempre se oscurece |
 | `field-*` | fondo del tema, borde de 1 px `--hx-border`, radio 6 px, foco teal |
 | `radius` | `--hx-radius` (6 px): botones con esquina de Horus, no píldora |
 
@@ -41,8 +42,14 @@ siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y po
   Iris reemplaza la de HeroUI, que además seguía `prefers-color-scheme` aunque se eligiera «Claro».
 - `muted` en HeroUI es texto atenuado. El fondo tenue de Iris es `bg-background-secondary`, antes
   `bg-muted`.
-- Con `prefers-reduced-transparency` no hay vidrio, y con `prefers-reduced-motion` no hay
-  animaciones.
+- **Nada de vidrio en lo flotante** (pedido del PM: «alertas o sidebars sin fondo se notan como
+  parte del primer plano»). El vidrio (`glass-material`) queda solo en la barra lateral y la
+  superior del panel, como pide la identidad Horus. Todo panel flotante es de color sólido con
+  borde y sombra, y toda capa modal lleva su telón oscurecido; lo verifica
+  `e2e/capas-flotantes.spec.ts` (estilo computado del panel y del telón, en los 4 proyectos).
+- Los `Aviso` de la página tienen fondo tintado **opaco** por tono: el 10 % del color del tono
+  mezclado con el lienzo del tema (`color-mix(… var(--hx-bg))`), con borde al 30 %.
+- Con `prefers-reduced-motion` no hay animaciones.
 
 ## Reglas de experiencia
 
@@ -90,64 +97,59 @@ Además se mantienen las reglas de siempre:
 ## Mapa de componentes
 
 Los nombres y las props de `@iris/ui` no cambiaron: las pantallas siguen igual y por dentro usan
-HeroUI. Las «piezas de HeroUI» son sus clases (`button`, `card__title`, `chip--danger`…, de
-`@heroui/styles`), que dan el aspecto. React Aria da el comportamiento: teclado, foco y
-lectores de pantalla.
+**los componentes de HeroUI v3** (`@heroui/react` 3.2.6, sus piezas compuestas: `Modal.Backdrop`,
+`Card.Header`…), con los tokens de Horus. React Aria da el comportamiento: teclado, foco y lectores
+de pantalla. Los envoltorios que reciben un icono de Lucide como componente (`Aviso`,
+`InsigniaEstado`, `EstadoVacio`) siguen sirviendo desde un componente de servidor: el icono se
+dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`aviso-alerta.tsx`,
+`chip-estado.tsx`, `raiz-vacio.tsx`), porque `@heroui/react` solo corre en el cliente.
 
-| `@iris/ui` | Antes | Ahora |
+| `@iris/ui` | Componente de HeroUI | Notas |
 | --- | --- | --- |
-| `Boton`, `BotonEnviar` | `<button>` + cva | `<button>` nativo con `buttonVariants` de HeroUI (`primary`, `tertiary`, `outline`, `ghost`) y el radio y halo de Horus; `asChild` con `Ranura` |
-| `Entrada`, `Campo` | `<input>` | HeroUI `Input` (un `<input>` nativo de React Aria): sirve con `register` |
-| `AreaTexto`, `CampoArea` | `<textarea>` | HeroUI `TextArea` |
-| `Etiqueta` | Radix `Label` | HeroUI `Label` |
-| `Selector`, `CampoSelector` | `<select>` | `<select>` nativo con el estilo de campo de HeroUI (`input`), ver «Lo que no cambió» |
-| `Dialogo*`, `DialogoProtegido` | Radix `Dialog` | HeroUI `Modal` (`ModalOverlay` + `Modal` + `Dialog` de React Aria), fondo `modal__backdrop`, vidrio fuerte, hoja inferior en el teléfono |
-| `DialogoConfirmar` | Radix `AlertDialog` | HeroUI `AlertDialog` (`role="alertdialog"`), foco inicial en «Cancelar», no se cierra tocando fuera |
-| `Hoja*` | Radix `Dialog` | HeroUI `Drawer` (fondo `drawer__backdrop`) |
-| `MenuDesplegable*` | Radix `DropdownMenu` | HeroUI `Dropdown` (`MenuTrigger` + `Popover` + `Menu`); `onSelect` → `onAction` |
-| `Tarjeta*` | `div.surface-card` | piezas de HeroUI `Card` + `surface-card` |
-| `Aviso`, `ErrorFormulario` | `div` | piezas de HeroUI `Alert` con el fondo tintado de Horus |
-| `InsigniaEstado` | `span` | HeroUI `Chip` suave (`chip--success`, `--warning`, `--danger`; `info` y `neutral` con color de Iris) |
-| `Tabla*` | `<table>` | `<table>` nativa con las piezas de HeroUI `Table` |
-| `Cargando` | Lucide | estilo de HeroUI `Spinner` + icono de Lucide, `role="status"` |
-| `Esqueleto` | `div` | HeroUI `Skeleton` (pulso) |
-| `EstadoVacio` | `div` | HeroUI `EmptyState` |
-
-### Componentes nuevos
-
-| `@iris/ui` | HeroUI | Para |
-| --- | --- | --- |
-| `Pestanas` | `Tabs` | Fichas con pestañas (fase 3); con `href`, cada pestaña tiene URL |
-| `ProveedorAvisosEmergentes`, `avisar`, `useAvisoEmergente`, `cerrarAviso` | `Toast` | Aviso breve tras una acción, con «Deshacer» opcional |
-| `Migas` | `Breadcrumbs` | Ruta en cada pantalla del panel |
-| `ProveedorRutas` | `RouterProvider` de React Aria | Que migas, pestañas y menús naveguen con `router.push`, sin recargar |
-| `SelectorFecha`, `SelectorRangoFechas`, `hoyEnGuatemala` | `DatePicker`, `DateRangePicker` | Fechas `AAAA-MM-DD` en formato `es-GT`; «hoy» es el de `America/Guatemala` |
-| `Autocompletar` | `ComboBox` | Listas largas o búsqueda en el servidor (`alBuscar`) |
-| `Globo` | `Tooltip` | Ayuda al pasar el puntero o al enfocar; no reemplaza `aria-label` |
-| `PanelEmergente` | `Popover` | Filtros rápidos o detalle junto a un botón (no modal) |
-| `BarraGuardar` | — | Pie fijo con «Cancelar» y «Guardar», con el área segura del teléfono |
-| `FormularioPagina`, `SeccionFormulario`, `useProteccionSalida` | — | Formulario en pantalla propia: migas, título, secciones, barra y aviso al salir con cambios |
+| `Boton`, `BotonEnviar` | `Button` | Variantes de Iris → `primary`, `tertiary`, `outline`, `ghost`; medidas y radio de Horus. `disabled` → `isDisabled`; `onClick`, `type="submit"`, `data-*` y `aria-*` como siempre. Lo que el `Button` de React Aria filtra (`title`, `role`, `tabIndex`, `aria-invalid`, `aria-keyshortcuts`, el arrastre nativo `draggable`/`onDrag*` del calendario de despacho) va directo al `<button>` por `render`. Como todo `Button` de React Aria, el clic no sigue subiendo a los padres. `asChild` (un `<Link>` con aspecto de botón) usa `Ranura` con las mismas clases |
+| `Tarjeta*` | `Card`, `Card.Header`, `Card.Title` (como `<h2>`), `Card.Description`, `Card.Content`, `Card.Footer` | Acomodo neutro: cada pantalla manda con sus clases; material `surface-card` |
+| `Aviso`, `ErrorFormulario` | `Alert`, `Alert.Indicator`, `Alert.Content`, `Alert.Title` y la pieza `alert__description` | Fondo tintado opaco por tono, borde, icono de Lucide + título + texto; `role="alert"` en `error`. La descripción es un `<div>` (`Alert.Description` es un `<span>` y aquí caben párrafos y listas) |
+| `Dialogo*`, `DialogoProtegido` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` + `Modal.Heading` | Panel sólido sobre telón; en el teléfono es una hoja inferior a lo ancho. La «X» es un `Boton` con el icono `X` de Lucide (no el `CloseButton` de HeroUI, que trae su propio icono) |
+| `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
+| `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
+| `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
+| `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
+| `Globo` | `Tooltip`, `Tooltip.Content` | Un `Boton` se conecta solo; otro elemento, por `Focusable` |
+| `GrupoSegmentado` | `ToggleButtonGroup` + `ToggleButton` (selección única) | `role="radiogroup"` y `role="radio"`; como un grupo de radios, las flechas mueven y eligen |
+| `GrupoOpciones` | `RadioGroup`, `Label`, `Radio`, `Radio.Content`, `Radio.Indicator` | Radios reales; tarjetas grandes con la marca `CircleCheck` de Lucide |
+| `Casilla` | `Checkbox`, `Checkbox.Content`, `Checkbox.Control`, `Checkbox.Indicator` | Sirve con `register` y controlada: el `ref` llega al `<input>` (`inputRef`), `onChange` recibe un evento con `target` = ese input, y la marca (`Check` de Lucide) se dibuja desde `:checked`, porque react-hook-form escribe `checked` directo en el input (valores iniciales, `reset`, `setValue`) |
+| `Tabla*` | `Table` (variante `secondary`) + `Table.ScrollContainer`, con una `<table>` semántica y las piezas `table__row`, `table__cell`… | Ver «Lo que no se usa» (`Table.Content`) |
+| `Esqueleto` | `Skeleton` (pulso) | |
+| `Cargando` | `Spinner` | Es un indicador animado, no un icono; `role="status"` con su texto |
+| `EstadoVacio` | `EmptyState` | |
+| `InsigniaEstado` | `Chip` suave + `Chip.Label` | `chip--success`, `--warning`, `--danger`; `info` y `neutral` con el color de Iris |
+| `PaletaBusqueda` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` y `Kbd` en la ayuda de teclas | El buscador por dentro sigue siendo el `Autocomplete` de React Aria (ver abajo) |
+| `Pestanas` | `Tabs` | Fichas con pestañas; con `href`, cada pestaña tiene URL |
+| `ProveedorAvisosEmergentes`, `avisar`, `useAvisoEmergente`, `cerrarAviso` | `Toast` | Panel sólido (HeroUI usa `surface`, translúcida en oscuro) |
+| `Migas` | `Breadcrumbs` | |
+| `SelectorFecha`, `SelectorRangoFechas` | `DatePicker`, `DateRangePicker` | |
+| `Autocompletar` | `ComboBox` | |
+| `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
+| `AreaTexto`, `CampoArea` | `TextArea` | |
+| `Etiqueta` | `Label` | |
+| `ProveedorRutas` | `RouterProvider` de React Aria | |
+| `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton` |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
 `FormularioPagina`.
 
-### Lo que no cambió (y por qué)
+### Lo que no se usa de HeroUI (y por qué)
 
-- **`Selector`** sigue siendo un `<select>` nativo en la fase 0. En el teléfono abre el selector del
-  sistema, `register` de react-hook-form lo usa tal cual y unas 80 pruebas usan `selectOption`. Se
-  revisa pantalla por pantalla en la fase 2: `Autocompletar` para listas largas y el `Select` de
-  HeroUI donde haga falta.
-- **`Casilla`, `GrupoOpciones` y `GrupoSegmentado`** siguen nativos (checkbox, radios y
-  `radiogroup`). Los `Checkbox` y `RadioGroup` de HeroUI entregan un booleano y no el evento que
-  espera `register`.
-- **`Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris` y `MarcaIris`** no tienen equivalente en
-  HeroUI. Siguen como estaban, con los tokens del tema. `VisorEscaner` reemplazó a `Escaner`: el
-  escáner de serie y MAC va por campo (ver «Escáner de serie y MAC» abajo).
-- **`Boton` no usa el `Button` de React Aria**, porque ese filtra `title`, frena la propagación del
-  clic y cambia `onClick` por `onPress`. Usa sus clases. Dentro de un disparador de React Aria (menú,
-  popover, tooltip) recibe las props por `Pressable` o `Focusable`.
-- **Sin animación de salida en diálogos y hojas:** se desmontan en el acto, como antes. Con salida
-  animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo.
+| Envoltorio o componente | Por qué |
+| --- | --- |
+| `Selector` y `CampoSelector` siguen siendo un `<select>` nativo (con el estilo de campo de HeroUI), no el `Select` | El `Select` de HeroUI dibuja un botón y una lista propia y deja un `<select>` oculto: `register` de react-hook-form dejaría de recibir el evento nativo y `reset` no movería la opción elegida; unas 80 pruebas usan `selectOption` sobre el control nativo; y en el teléfono el `<select>` nativo abre el selector del sistema, que es más cómodo para el técnico. Para listas largas o búsqueda está `Autocompletar` (`ComboBox`) |
+| `Table.Content`, `Table.Header`, `Table.Row`, `Table.Cell` (la rejilla de React Aria) | Es una colección con `role="grid"` y teclado propio: las filas de Iris llevan enlaces y botones libres y se arman con condiciones. Se usan `Table` y `Table.ScrollContainer` y las piezas de estilo; la rejilla queda para cuando una pantalla necesite orden o selección |
+| `CloseButton` y los íconos por defecto de `Alert`, `Checkbox`, `Toast`… | Traen sus propios SVG; la identidad pide solo íconos de Lucide. Se pasan los de Lucide (`X`, `Check`, `CircleCheck`, los del tono) |
+| `Pagination` | Las listas de Iris paginan por cursor (`?cursor=&limit=`, regla 7): no hay número de páginas. Sigue «Cargar más» (`PieLista`) |
+| `SearchField` de HeroUI en el buscador global | El buscador es un `Autocomplete` de React Aria con foco virtual; usa el `SearchField` de React Aria que conecta con él. Cambiarlo no mejora nada visible |
+| `Switch`, `Avatar`, `ProgressBar`, `Accordion`, `Slider`, `NumberField`, `InputOTP`… | Hoy ninguna pantalla del panel tiene esa pieza (no hay interruptores, fotos de perfil, barras de progreso ni acordeones): usarlos sería rediseñar pantallas. Están disponibles para agregarlos a `packages/ui` con nombre en español cuando una pantalla los pida |
+| `Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris`, `MarcaIris` | No tienen equivalente en HeroUI (cámara con `<input capture>`, escáner con `BarcodeDetector`/ZXing, firma con pointer events, logo). Siguen como estaban, con los tokens del tema y `Boton` por dentro |
+| Animación de salida de modal, hoja y confirmación | Se desmontan en el acto: con salida animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo |
 
 ## Navegación del panel (fase 1, hecha)
 
@@ -250,8 +252,9 @@ lectores de pantalla.
 
   Volver de un formulario lleva a la pestaña de donde salió (cotización → «Cotización»; ausencia →
   «Ausencias»).
-- **Acciones del ticket y de la orden en un panel lateral** (`PanelProtegido`): a la derecha, sin
-  velo, con la ficha a la vista; en el teléfono ocupa el ancho. Misma validación, «Falta…»,
+- **Acciones del ticket y de la orden en un panel lateral** (`PanelProtegido`): a la derecha,
+  panel sólido sobre un telón que oscurece la ficha (antes iba sin velo y se confundía con la
+  página); en el teléfono ocupa el ancho. Misma validación, «Falta…»,
   protección de cambios (Escape, tocar fuera, la X y «Cancelar» preguntan) y aviso al guardar.
 - **Argos 0.5.0 (#81):**
     - técnico: «Vincular con Argos» (`agenda.vincular_argos`, selector de
