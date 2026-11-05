@@ -255,7 +255,7 @@ function HojaAcciones({ alCerrar }: { alCerrar: () => void }) {
                         </View>
                     </View>
                     {ordenes.length === 0 ? (
-                        <Texto suave>Ninguna orden en camino, en sitio o pausada: empieza una para agregarle un formulario.</Texto>
+                        <Texto suave>Ninguna orden en camino o en sitio: empieza una (o reanuda la pausada) para agregarle un formulario.</Texto>
                     ) : (
                         <>
                             {ordenes.length > 1 ? (

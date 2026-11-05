@@ -4,7 +4,7 @@
 import { formularioConRespuestas, valorDe, type FormularioOrden, type ItemChecklist, type OrdenVista, type PlantillaFormulario } from "@iris/sync";
 import { esquemaNumeroItem, faltantesPorFormulario, ORIGENES_FORMULARIO } from "@iris/sync/campo";
 import { Camera, Check, CircleAlert, CircleDashed, FilePlus2, Trash2, X } from "lucide-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Boton, Campo, Dialogo, Insignia, Opciones, Tarjeta, Texto } from "../../componentes";
 import { useBorrador } from "../../campo/borradores";
@@ -241,7 +241,10 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
     const [texto, setTexto] = useState(guardado);
     const [error, setError] = useState<string | undefined>();
     const numerico = item.tipo === "numero" || item.tipo === "medicion";
-    const pendiente = editable && texto.trim() !== guardado && !(texto.trim() === "" && guardado === "");
+    // Un número escrito con coma («-18,5») es el mismo que el guardado (-18.5): no queda pendiente.
+    const leido = numerico ? esquemaNumeroItem.safeParse(texto) : null;
+    const enviado = useRef<string | number | null>(null);
+    const pendiente = editable && texto.trim() !== "" && (leido?.success ? leido.data !== v : texto.trim() !== guardado);
     const guardar = async (): Promise<true | string> => {
         let valor: string | number;
         if (numerico) {
@@ -262,9 +265,22 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
             valor = t;
         }
         setError(undefined);
-        return (await alGuardar(valor)) ? true : "No se pudo guardar en el teléfono.";
+        // Salir del campo y tocar «Guardar» casi a la vez: el mismo valor se manda una sola vez.
+        if (enviado.current === valor) {
+            return true;
+        }
+        enviado.current = valor;
+        const ok = await alGuardar(valor);
+        if (!ok) {
+            enviado.current = null;
+        }
+        return ok ? true : "No se pudo guardar en el teléfono.";
     };
-    useBorrador(`item-${item.formularioId ?? ""}-${item.itemId}`, { etiqueta: item.etiqueta, pendiente: () => pendiente, guardar }, pendiente);
+    useBorrador(
+        `item-${item.formularioId ?? ""}-${item.itemId}`,
+        { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
+        pendiente,
+    );
     return (
         <>
             <Encabezado item={item} falta={falta} />

@@ -233,8 +233,8 @@ func TestPausadaSinTrabajoPorSync(t *testing.T) {
 	), "aplicada", "aplicada")
 
 	dt := detalle(t, e, o.ID)
-	if dt.Orden.Estado != "pausada" {
-		t.Fatalf("estado: %s", dt.Orden.Estado)
+	if dt.Estado != "pausada" {
+		t.Fatalf("estado: %s", dt.Estado)
 	}
 	for _, it := range dt.Checklist {
 		if (it.Codigo == "acometida_tendida" && it.Valor != true) || (it.Codigo == "potencia_rx" && it.Valor != nil) {
