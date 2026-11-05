@@ -3,12 +3,13 @@
 // el contenido). Lleva la fecha con el punto de conexión, buscar y la cuenta; en Hoy, Mañana y Semana
 // además «Hola, <nombre>» y los chips con su contador (solo con datos leídos). La ubicación en vivo
 // va siempre. Las reglas son de `@iris/sync/campo`.
-import { buscarOrdenes, CHIPS_DIA, chipDe, citasDelDia, esVistaDeDia, fechaEncabezado, iniciales, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, TIPOS_ORDEN, type ChipDia } from "@iris/sync/campo";
+import { buscarOrdenes, CHIPS_DIA, ESPERA_BUSQUEDA_MS, chipDe, citasDelDia, esVistaDeDia, fechaEncabezado, iniciales, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, TIPOS_ORDEN, type ChipDia } from "@iris/sync/campo";
 import { ChevronRight, Search } from "lucide-react-native";
-import { useState, type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { BotonRedondo, Campo, Dialogo, Pila, Texto, Tocable } from "../componentes";
 import { useAgenda } from "../campo/agenda";
+import { useDemorado } from "../campo/demora";
 import { useCampo } from "../campo/contexto";
 import { useTema } from "../tema/tema";
 import { InsigniaOrden } from "./ListaOrdenes";
@@ -94,62 +95,96 @@ function ChipsDia() {
     );
 }
 
-/** Barra compacta: vuelve arriba al subir con el encabezado fuera de vista; al bajar se va. */
+/**
+ * Barra compacta: entra desde arriba al subir con el encabezado fuera de vista; al bajar se va
+ * deslizándose entera hacia arriba. Siempre sólida (el panel del tema, claro u oscuro): nunca queda
+ * a medio transparentar sobre el contenido (no se anima la opacidad, solo la posición). Oculta, no se
+ * toca ni la leen los lectores de pantalla.
+ */
 export function BarraCompacta({ visible, arriba }: { visible: boolean; arriba: number }) {
     const { sesion } = useCampo();
     const { campo, colores } = useTema();
-    if (!visible) {
-        return null;
-    }
+    const [alto, setAlto] = useState(arriba + 64);
+    const [posicion] = useState(() => new Animated.Value(visible ? 0 : 1));
+    useEffect(() => {
+        const animacion = Animated.timing(posicion, { toValue: visible ? 0 : 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+        animacion.start();
+        return () => animacion.stop();
+    }, [visible, posicion]);
+    // Fuera de vista del todo: su alto más la sombra.
+    const translateY = posicion.interpolate({ inputRange: [0, 1], outputRange: [0, -(alto + 24)] });
     return (
-        <View testID="barra-compacta" style={[estilos.compacta, { paddingTop: arriba + 6, backgroundColor: campo.panel, borderColor: colores.borde, shadowColor: campo.sombra }]}>
+        <Animated.View
+            testID="barra-compacta"
+            pointerEvents={visible ? "auto" : "none"}
+            accessibilityElementsHidden={!visible}
+            importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+            onLayout={(e) => setAlto(e.nativeEvent.layout.height)}
+            style={[estilos.compacta, { paddingTop: arriba + 6, backgroundColor: campo.panel, borderColor: colores.borde, shadowColor: campo.sombra, transform: [{ translateY }] }]}
+        >
             <Text numberOfLines={1} style={[estilos.flex, estilos.textoCompacta, { color: colores.texto }]}>
                 Hola, {primerNombre(sesion.nombre)}
             </Text>
             <BotonesCuenta />
-        </View>
+        </Animated.View>
     );
 }
 
-/** Busca entre las órdenes del teléfono (número, cliente o dirección); funciona sin señal. */
+/**
+ * Busca entre las órdenes del teléfono (número, cliente o dirección); funciona sin señal. En vivo:
+ * filtra al dejar de escribir (`ESPERA_BUSQUEDA_MS`) y el campo queda fijo arriba de la hoja, que
+ * sube por encima del teclado (`Dialogo`); los resultados se desplazan debajo.
+ */
 function BuscarOrden({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void }) {
     const { estado, navegar } = useCampo();
     const { campo, colores } = useTema();
     const [texto, setTexto] = useState("");
-    const encontradas = buscarOrdenes(estado.ordenes, texto);
+    const consulta = useDemorado(texto, ESPERA_BUSQUEDA_MS);
+    const encontradas = useMemo(() => buscarOrdenes(estado.ordenes, consulta), [estado.ordenes, consulta]);
     const cerrar = () => {
         setTexto("");
         alCerrar();
     };
     return (
-        <Dialogo abierto={abierto} alCerrar={cerrar} titulo="Buscar orden" descripcion="Entre las órdenes de tu teléfono: número, cliente o dirección.">
-            <Campo etiqueta="Buscar" valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="none" />
-            {texto.trim().length === 0 ? null : encontradas.length === 0 ? (
-                <Texto suave>Ninguna orden del teléfono coincide.</Texto>
+        <Dialogo
+            abierto={abierto}
+            alCerrar={cerrar}
+            titulo="Buscar orden"
+            descripcion="Entre las órdenes de tu teléfono: número, cliente o dirección."
+            testID="buscar-orden"
+            fijo={<Campo etiqueta="Buscar" valor={texto} alCambiar={setTexto} autoCorrect={false} autoCapitalize="none" autoFocus returnKeyType="search" />}
+        >
+            {consulta.trim().length === 0 ? null : encontradas.length === 0 ? (
+                <Texto suave testID="sin-resultados">
+                    Ninguna orden del teléfono coincide con «{consulta.trim()}».
+                </Texto>
             ) : (
-                <Pila espacio={8}>
-                    {encontradas.map((o) => (
-                        <Tocable
-                            key={o.id}
-                            etiqueta={`${o.numero}, ${nombreCliente(o)}`}
-                            alPresionar={() => {
-                                cerrar();
-                                navegar({ tipo: "orden", id: o.id });
-                            }}
-                            estilo={[estilos.resultado, { backgroundColor: campo.panel2 }]}
-                        >
-                            <View style={[estilos.flex, estilos.titulos]}>
-                                <View style={estilos.fecha}>
-                                    <Texto mono>{o.numero}</Texto>
-                                    <InsigniaOrden estado={o.estado} />
+                <View accessibilityLabel="Órdenes encontradas" accessibilityLiveRegion="polite" testID="resultados-busqueda">
+                    <Pila espacio={8}>
+                        <Texto suave>{encontradas.length === 1 ? "1 orden" : `${encontradas.length} órdenes`}</Texto>
+                        {encontradas.map((o) => (
+                            <Tocable
+                                key={o.id}
+                                etiqueta={`${o.numero}, ${nombreCliente(o)}`}
+                                alPresionar={() => {
+                                    cerrar();
+                                    navegar({ tipo: "orden", id: o.id });
+                                }}
+                                estilo={[estilos.resultado, { backgroundColor: campo.panel2 }]}
+                            >
+                                <View style={[estilos.flex, estilos.titulos]}>
+                                    <View style={estilos.fecha}>
+                                        <Texto mono>{o.numero}</Texto>
+                                        <InsigniaOrden estado={o.estado} />
+                                    </View>
+                                    <Texto negrita>{nombreCliente(o)}</Texto>
+                                    <Texto suave>{TIPOS_ORDEN[o.tipo]}</Texto>
                                 </View>
-                                <Texto negrita>{nombreCliente(o)}</Texto>
-                                <Texto suave>{TIPOS_ORDEN[o.tipo]}</Texto>
-                            </View>
-                            <ChevronRight size={20} color={colores.textoSuave} />
-                        </Tocable>
-                    ))}
-                </Pila>
+                                <ChevronRight size={20} color={colores.textoSuave} />
+                            </Tocable>
+                        ))}
+                    </Pila>
+                </View>
             )}
         </Dialogo>
     );

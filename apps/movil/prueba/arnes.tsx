@@ -4,13 +4,13 @@
 // dedo y su PNG se validan en un teléfono.
 import type { InventarioCampo, MiBodega, OrdenCampo, Paquete, Traslado } from "@iris/sync";
 import { itemDePrueba, ordenDePrueba, paqueteDePrueba, type Montaje } from "@iris/sync/pruebas";
-import { render } from "@testing-library/react-native";
+import { render, screen } from "@testing-library/react-native";
 import { ProveedorCampo, type ServiciosNativos, type Vista } from "../src/campo/contexto";
 import { ProveedorAgenda } from "../src/campo/agenda";
 import { ProveedorInventario } from "../src/campo/inventario";
 import { Marco } from "../src/pantallas/Marco";
 import type { SesionCampo } from "../src/sesion/sesion";
-import { ProveedorTema } from "../src/tema/tema";
+import { TemaDePrueba } from "./raiz";
 
 export const sesion: SesionCampo = {
     usuarioId: 5,
@@ -20,7 +20,7 @@ export const sesion: SesionCampo = {
     modoEmpresa: "sin_conector",
     empresaActiva: null,
     verificadoEn: Date.now(),
-    permisos: ["campo.sincronizar", "ordenes.registrar", "ordenes.llegar", "ordenes.cerrar"],
+    permisos: ["campo.sincronizar", "ordenes.registrar", "ordenes.llegar", "ordenes.cerrar", "ordenes.pausar", "ordenes.reanudar"],
 };
 
 /** Paquete sin ruta con una orden de visita y un ítem obligatorio. */
@@ -117,7 +117,7 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const inventario = o.inventario ?? new InventarioFalso();
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
     await render(
-        <ProveedorTema esquema={o.esquema ?? "light"}>
+        <TemaDePrueba esquema={o.esquema ?? "light"}>
             <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>
@@ -125,9 +125,21 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>
-        </ProveedorTema>,
+        </TemaDePrueba>,
     );
     return { inventario };
 }
+
+/**
+ * El aviso emergente visible (el `Toast` de HeroUI Native dibuja además una copia invisible para
+ * medir su alto: la primera es la de verdad).
+ */
+export const avisoArriba = () => {
+    const [visible] = screen.getAllByTestId("notificacion");
+    if (!visible) {
+        throw new Error("No hay aviso emergente");
+    }
+    return visible;
+};
 
 export const tipos = (m: Montaje) => m.motor.obtenerEstado().cola.map((op) => op.tipo);

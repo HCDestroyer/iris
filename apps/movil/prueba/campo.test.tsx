@@ -3,7 +3,7 @@
 // la cola con un rechazo (conflicto) y la pausa con motivo. Claro y oscuro.
 import { montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
-import { abrirCampo, paqueteCon, tipos } from "./arnes";
+import { abrirCampo, avisoArriba, paqueteCon, tipos } from "./arnes";
 
 jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: () => [null, jest.fn()] }));
 
@@ -27,7 +27,7 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         await fireEvent.press(screen.getByRole("button", { name: /OT-000001/ }));
         await fireEvent.press(await screen.findByRole("button", { name: /Empezar trabajo/ }));
         await fireEvent.press(await screen.findByRole("button", { name: /En camino/ }));
-        expect(await screen.findByText("En camino, sin ubicación. Se enviará al volver la señal.")).toBeTruthy();
+        await waitFor(() => expect(avisoArriba()).toHaveTextContent("En camino, sin ubicación. Se enviará al volver la señal."));
         await fireEvent.press(await screen.findByRole("button", { name: /Llegué/ }));
         await fireEvent.press(await screen.findByRole("button", { name: /Siguiente: checklist/ }));
         await fireEvent.press(await screen.findByRole("radio", { name: "Sí" }));
@@ -128,7 +128,7 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
 
         await fireEvent.press(screen.getByRole("radio", { name: "Mal clima" }));
         await fireEvent.press(screen.getByRole("button", { name: "Confirmar pausa" }));
-        expect(await screen.findByTestId("orden-pausada")).toHaveTextContent(/Orden pausada: Mal clima/);
+        expect(await screen.findByTestId("orden-pausada")).toHaveTextContent(/Orden en pausa: Mal clima/);
         expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ tipo: "orden.pausar", datos: { motivo: "clima" } });
         expect(screen.queryByRole("button", { name: /Cerrar orden/ })).toBeNull();
         expect(screen.queryByRole("button", { name: /Llegué/ })).toBeNull();

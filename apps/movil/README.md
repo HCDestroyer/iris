@@ -38,9 +38,15 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   «No se pudo») → «Empezar trabajo» → **Llegada** (En camino y Llegué, con GPS si hay permiso) ·
   **Checklist** (formularios de todos los tipos; agregar y quitar) · **Materiales y equipos**
   (bodega, serie/MAC escaneadas, comodato) · **Fotos**, cada
-  paso en su vista, guardado en el teléfono al tocar, con «N de 4 pasos listos», «Anterior» /
-  «Siguiente» y «Atrás». Reglas de `@iris/sync/campo` (`estadoPasos`, `accionesDe`); los textos del
-  avance en `src/campo/pasos.ts`.
+  paso en su vista, guardado en el teléfono al tocar (texto y números, al salir del campo), con
+  «N de 4 pasos listos» y la **isla de pasos** (`IslaPasos`, la misma píldora que la de menú):
+  «Anterior» · **un solo «Guardar»** (guarda lo escrito y todavía sin guardar de todo el paso, con
+  su contador, y avisa qué pasó: `RegistroBorradores` y `avisoGuardado` de `@iris/sync/campo`,
+  `src/campo/borradores.tsx`) · «Siguiente» (que guarda antes de pasar). Sin botón «Guardar» por
+  campo. Con la orden **en pausa** los pasos son de solo lectura, con «Orden en pausa» y
+  «Reanudar» arriba (con `ordenes.reanudar`): ni el motor ni la API registran trabajo en pausa.
+  Reglas de `@iris/sync/campo` (`estadoPasos`, `accionesDe`); los textos del avance en
+  `src/campo/pasos.ts`.
 - **«Firma del cliente y cierre», paso final y único** (`src/campo/cierre.ts`): solo se abre con lo
   obligatorio listo (si no, dice qué falta y lleva ahí), muestra el resumen del trabajo, el
   cliente firma y «Firmar y cerrar orden» encola la firma y el cierre juntos
@@ -112,7 +118,16 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   | `Dialogo` | `Modal` de React Native con la capa flotante de Horus (ver abajo) |
 
   - **`Dialogo` no es el `Dialog` de HeroUI:** ese no atiende el «Atrás» de Android, que entonces
-    cambiaría de vista debajo de la hoja abierta. El `Modal` lo cierra (`onRequestClose`).
+    cambiaría de vista debajo de la hoja abierta. El `Modal` lo cierra (`onRequestClose`). Toda hoja
+    lleva su «X» («Cerrar»); con `cambios`, la «X» y «Atrás» preguntan «¿Descartar los cambios?».
+    Con el teclado abierto la hoja sube por encima (`useAltoTeclado`: con edge-to-edge la ventana
+    ya no se encoge sola) y `fijo` deja arriba lo que no se desplaza (el campo de «Buscar orden»,
+    que filtra en vivo con `ESPERA_BUSQUEDA_MS`).
+  - **Avisos emergentes:** el `Toast` de HeroUI Native (`AvisoEmergente`; `toast` en
+    `src/tema/tema.tsx`), arriba, con su animación de entrada y salida, uno a la vez. En las
+    pruebas, `avisoArriba()`: HeroUI dibuja además una copia invisible para medir su alto.
+  - **Encabezado:** una franja sólida (el lienzo) bajo la barra de estado y la barra compacta, sólida,
+    que entra y se va deslizándose (solo `translateY`, nunca la opacidad).
   - **El lienzo de firma sigue con `PanResponder`** y no va dentro de ningún detector de Gesture
     Handler 3; una vez que el dedo empieza a firmar, el desplazamiento de la vista no se lleva el
     trazo (`onPanResponderTerminationRequest: false`).

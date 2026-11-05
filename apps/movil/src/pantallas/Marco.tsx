@@ -5,11 +5,12 @@
 // paquete del día al abrir y al cambiar el día, con espera exponencial tras un error (como la PWA).
 import { ErrorTransporte } from "@iris/sync";
 import { CONEXION_TEXTO, DESPLAZAMIENTO_INICIAL, desplazar, etiquetaPunto, hoyEnGuatemala, horaCorta, resumenEnvio, urlDeVista, type TonoEstado } from "@iris/sync/campo";
-import { Building2, CircleCheck, Info, KeyRound, LocateFixed, LocateOff, RefreshCw, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
+import { Building2, KeyRound, LocateFixed, LocateOff, RefreshCw, type LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Aviso, Boton, BotonRedondo, Insignia, Texto, Tocable } from "../componentes";
+import { Aviso, AvisoEmergente, Boton, Insignia, Texto } from "../componentes";
+import { ProveedorBorradores } from "../campo/borradores";
 import { useAtrasAndroid } from "../campo/atras";
 import { useCampo, useEstadoPosiciones } from "../campo/contexto";
 import type { EstadoRastreo } from "../campo/ubicacion";
@@ -17,7 +18,7 @@ import { CODIGO_CAMBIO_CONTRASENA } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 import { AgendaDia, AgendaSemana } from "./Agenda";
 import { BarraCompacta, Encabezado } from "./Encabezado";
-import { AvisoIsla, IslaMenu } from "./Isla";
+import { AvisoIsla, IslaMenu, IslaPasos } from "./Isla";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
 import { MiBodega } from "./MiBodega";
 import { DetalleOrden } from "./orden/DetalleOrden";
@@ -46,8 +47,11 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
         },
         [url],
     );
-    // Los pasos de la orden llevan su propia barra («Anterior» / «Siguiente»): sin isla.
-    const conIsla = !(vista.tipo === "orden" && vista.paso !== undefined);
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma y
+    // el cierre, su botón al pie.
+    const paso = vista.tipo === "orden" ? vista.paso : undefined;
+    const conIsla = paso === undefined;
+    const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const descargando = useRef(false);
     const espera = useRef({ fallos: 0, hasta: 0 });
@@ -100,6 +104,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
     }, [bajarPaquete]);
 
     return (
+        <ProveedorBorradores>
         <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: campo.lienzo }]}>
             {/* Cada vista empieza arriba (como la PWA al navegar). */}
             <ScrollView
@@ -153,56 +158,26 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                     <ListaOrdenes carga={carga} bajarPaquete={() => bajarPaquete(true)} />
                 )}
             </ScrollView>
+            {/* Franja sólida bajo la barra de estado: el contenido que sube nunca se ve detrás de la hora. */}
+            <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
             <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} />
-            <AvisoIsla abajo={margen.bottom + (conIsla ? (desplazamiento.islaEncogida ? 72 : 100) : 24)} alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />
+            <AvisoIsla
+                abajo={margen.bottom + (conIsla || conIslaPasos ? (desplazamiento.islaEncogida ? 72 : 100) : 24)}
+                alEntrar={alSesionVencida}
+                alElegirEmpresa={cambiarEmpresa}
+            />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
-            <NotificacionArriba arriba={margen.top + 12} />
+            {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
+            <AvisoDelMarco />
         </View>
+        </ProveedorBorradores>
     );
 }
 
-const ICONO_AVISO: Record<TonoEstado, LucideIcon> = { error: TriangleAlert, warning: TriangleAlert, success: CircleCheck, info: Info, neutral: Info };
-
-/** Aviso que entra desde arriba, con su acción («Deshacer», «Revisar») si la tiene. */
-function NotificacionArriba({ arriba }: { arriba: number }) {
+/** El aviso que entra desde arriba (`notificacion` del contexto): el `Toast` de HeroUI Native. */
+function AvisoDelMarco() {
     const { notificacion, cerrarNotificacion } = useCampo();
-    const { campo, colores } = useTema();
-    if (!notificacion) {
-        return null;
-    }
-    const t = notificacion.tono;
-    const Icono = ICONO_AVISO[t];
-    const fondoIcono = t === "error" ? campo.errorFondo : t === "warning" ? campo.avisoFondo : t === "success" ? campo.marcaSuave : t === "info" ? campo.infoFondo : campo.panel2;
-    const tintaIcono = t === "success" ? campo.marcaSuaveTexto : colores.tono[t];
-    const borde = t === "error" ? campo.errorBorde : t === "warning" ? campo.avisoBorde : colores.borde;
-    return (
-        <View
-            testID="notificacion"
-            accessibilityLiveRegion="polite"
-            style={[estilos.notificacion, { top: arriba, backgroundColor: campo.panel, borderColor: borde, shadowColor: campo.sombra }]}
-        >
-            <View style={[estilos.iconoNotificacion, { backgroundColor: fondoIcono }]}>
-                <Icono size={20} color={tintaIcono} />
-            </View>
-            <Text accessibilityRole={t === "error" ? "alert" : "text"} style={[estilos.textoNotificacion, { color: t === "error" ? colores.error : colores.texto }]}>
-                {notificacion.texto}
-            </Text>
-            {notificacion.accion ? (
-                <Tocable
-                    etiqueta={notificacion.accion.texto}
-                    alPresionar={() => {
-                        notificacion.accion?.alPresionar();
-                        cerrarNotificacion();
-                    }}
-                    estilo={[estilos.accionNotificacion, { backgroundColor: campo.tinta, justifyContent: "center" }]}
-                >
-                    <Text style={{ color: campo.sobreTinta, fontWeight: "600", fontSize: 13 }}>{notificacion.accion.texto}</Text>
-                </Tocable>
-            ) : (
-                <BotonRedondo icono={X} etiqueta="Cerrar aviso" tamano={44} fondo="transparent" tinta={colores.textoSuave} alPresionar={cerrarNotificacion} />
-            )}
-        </View>
-    );
+    return <AvisoEmergente aviso={notificacion} alCerrar={cerrarNotificacion} />;
 }
 
 /**
@@ -347,22 +322,5 @@ const estilos = StyleSheet.create({
     punto: { width: 8, height: 8, borderRadius: 4 },
     filaBarra: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
     contenido: { paddingHorizontal: 18, gap: 16 },
-    notificacion: {
-        position: "absolute",
-        left: 14,
-        right: 14,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        padding: 12,
-        borderRadius: 22,
-        borderWidth: 1,
-        shadowOpacity: 0.14,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 10,
-    },
-    iconoNotificacion: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-    textoNotificacion: { flex: 1, fontSize: 14, fontWeight: "500" },
-    accionNotificacion: { minHeight: 44, borderRadius: 999, paddingHorizontal: 14 },
+    franja: { position: "absolute", top: 0, left: 0, right: 0 },
 });

@@ -2,6 +2,17 @@
 // apps/api/internal/campo), y qué falta para cerrar. Las no válidas no se muestran.
 import { ESTADOS_TERMINALES, valorDe, type OrdenVista, type TipoOrden } from "../index";
 
+/** Permiso con el que la API acepta `orden.reanudar` (el técnico lo tiene en su rol base). */
+export const PERMISO_REANUDAR = "ordenes.reanudar";
+
+/**
+ * ¿Ve el técnico «Reanudar»? Con el permiso; `undefined` (sesión guardada de antes de que el teléfono
+ * conociera los permisos) cuenta como sí: sin señal no se le traba la orden y la API decide.
+ */
+export function puedeReanudar(permisos: readonly string[] | undefined): boolean {
+    return permisos === undefined || permisos.includes(PERMISO_REANUDAR);
+}
+
 export interface AccionesOrden {
     iniciarCamino: boolean;
     llegar: boolean;

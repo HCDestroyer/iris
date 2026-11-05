@@ -3,10 +3,9 @@
 // con avance, «Anterior» / «Siguiente» y «Atrás» de Android) → «Firma del cliente y cierre», el
 // paso final y único. Las reglas vienen de `@iris/sync/campo` y de `campo/pasos.ts`.
 import type { OrdenVista } from "@iris/sync";
-import { accionesDe, AVISOS_SERVIDOR, horaCorta, llego, OPERACIONES, TIPOS_ORDEN, TITULOS_PASO, ventanaCita, type PasoOrden } from "@iris/sync/campo";
+import { accionesDe, AVISOS_SERVIDOR, horaCorta, llego, OPERACIONES, puedeReanudar, TIPOS_ORDEN, TITULOS_PASO, ventanaCita, type PasoOrden } from "@iris/sync/campo";
 import {
     ArrowLeft,
-    ArrowRight,
     CircleCheck,
     CircleDashed,
     FileQuestion,
@@ -68,7 +67,7 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
 
 /** Resumen: cliente, avisos, pausa, avance, notas, «No se pudo» y «Empezar trabajo» (o «Continuar»). */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {
-    const { navegar } = useCampo();
+    const { navegar, sesion } = useCampo();
     const acciones = accionesDe(orden);
     const inicio = orden.cita?.inicio ?? orden.programadaInicio;
     const fin = orden.cita?.fin ?? orden.programadaFin;
@@ -103,7 +102,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
                     {trabajo.texto}
                 </Boton>
             ) : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} puedeReanudar={puedeReanudar(sesion.permisos)} />
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} />
@@ -112,10 +111,13 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
     );
 }
 
-/** Un paso de trabajo: su contenido, el avance y «Anterior» / «Siguiente». Todo se guarda solo. */
+/**
+ * Un paso de trabajo: su contenido y el avance. «Anterior», «Guardar» y «Siguiente» van en la isla
+ * de pasos (`IslaPasos`, fuera del desplazamiento). Con la orden en pausa, todo de solo lectura con
+ * el aviso «Orden en pausa» y «Reanudar» arriba.
+ */
 function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
     const { navegar } = useCampo();
-    const { campo, colores } = useTema();
     const acciones = accionesDe(orden);
     const nav = navegacionPaso(orden, paso);
     const estadoPaso = avanceOrden(orden).pasos.find((p) => p.paso === paso);
@@ -159,6 +161,7 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
                     />
                 ) : null}
             </View>
+            {acciones.enPausa ? <AvisoEnPausa orden={orden} /> : null}
             <ProgresoOrden orden={orden} actual={paso} compacto />
             <AvisosOrden orden={orden} />
 
@@ -175,13 +178,13 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
                         </Aviso>
                     ) : null}
                     {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
-                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={false} />
                 </>
             ) : null}
             {paso === "checklist" ? (
                 <>
                     {irALlegada}
-                    {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
+                    {acciones.trabajo || acciones.enPausa || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
                         <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
                     ) : null}
                 </>
@@ -189,30 +192,22 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
             {paso === "materiales" ? (
                 <>
                     {irALlegada}
-                    {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
+                    {acciones.trabajo || acciones.enPausa || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
                     <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
                     <Comodato orden={orden} />
                 </>
             ) : null}
-            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} /> : <Texto suave>Esta orden ya no admite fotos.</Texto> : null}
+            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} editable={!acciones.enPausa} /> : <Texto suave>Esta orden ya no admite fotos.</Texto> : null}
             {paso === "cierre" ? <PasoCierre orden={orden} /> : null}
 
-            {paso !== "cierre" ? (
-                <View accessibilityLabel="Pasos" testID="barra-pasos" style={[estilos.pie, { backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}>
-                    <Boton variante="secundario" icono={ArrowLeft} alPresionar={() => navegar(nav.anterior.vista)} estilo={estilos.pildora}>
-                        {nav.anterior.texto}
-                    </Boton>
-                    {nav.siguiente ? (
-                        <View style={estilos.flex}>
-                            <Boton icono={ArrowRight} alPresionar={() => nav.siguiente && navegar(nav.siguiente.vista)} estilo={estilos.pildora}>
-                                {nav.siguiente.texto}
-                            </Boton>
-                        </View>
-                    ) : null}
-                </View>
-            ) : null}
         </Pila>
     );
+}
+
+/** Aviso arriba de cada paso con la orden en pausa: nada se registra hasta reanudar. */
+function AvisoEnPausa({ orden }: { orden: OrdenVista }) {
+    const { sesion } = useCampo();
+    return <PausaOrden orden={orden} pausar={false} reanudar puedeReanudar={puedeReanudar(sesion.permisos)} enPasos />;
 }
 
 const ICONO_MARCA: Record<MarcaPaso, LucideIcon> = {
@@ -504,18 +499,6 @@ const estilos = StyleSheet.create({
     encabezadoPaso: { flexDirection: "row", alignItems: "center", gap: 12 },
     titulosPaso: { gap: 2 },
     fila: { flexDirection: "row", alignItems: "center", gap: 8 },
-    pie: {
-        flexDirection: "row",
-        gap: 8,
-        padding: 6,
-        marginTop: 8,
-        borderRadius: 999,
-        borderWidth: 1,
-        shadowOpacity: 0.14,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 6,
-    },
     pildora: { minHeight: 54, borderRadius: 999 },
     progreso: { gap: 10 },
     barra: { flexDirection: "row", gap: 6 },
