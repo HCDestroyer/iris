@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -27,8 +29,9 @@ import (
 //     river.river_job ni en el log;
 //   - único por sistema y conector (cada canje reserva su id);
 //   - 204 o 401 (el token ya no autentica) terminan; 403 u otro 4xx quedan cancelados en el log,
-//     sin reintento; solo 5xx y timeouts (sin respuesta) se reintentan, con la espera de River y
-//     un máximo de IntentosRevocarCanje.
+//     sin reintento; 5xx, 429 y timeouts (sin respuesta) se reintentan, con un máximo de
+//     IntentosRevocarCanje: el 429 respeta Retry-After si viene (hasta MaxRetryAfter) y si no, como
+//     los demás, la espera de River.
 //
 // Iris no repite el canje para recuperar un token perdido en un timeout: el atk_ de un canje que
 // nadie usa vence solo a las 24 h (0.6.3, «Canje sin uso»).
@@ -39,6 +42,9 @@ const CampoTokenCanje = "token_canje_revocar" //nolint:gosec // nombre del dato 
 // IntentosRevocarCanje: intentos del job (la espera de River crece como intento⁴ segundos: ~4 h en
 // total, dentro de las 24 h en que el atk_ vence solo).
 const IntentosRevocarCanje = 10
+
+// MaxRetryAfter: el Retry-After de un 429 más largo se recorta a esto.
+const MaxRetryAfter = 6 * time.Hour
 
 // ArgsRevocarCanje revoca en el otro sistema el token de un canje que Iris no completó.
 type ArgsRevocarCanje struct {
@@ -89,7 +95,8 @@ func (c *Conexion) encolarRevocarCanje(ctx context.Context, g entradaGuardarCone
 
 // RevocarCanje llama a la revocación del otro sistema con el token del canje. nil: revocado (204) o
 // ya no autenticaba (401). river.JobCancel: rechazo definitivo (403, otro 4xx, destino bloqueado o
-// token ilegible), sin reintento. Otro error: 5xx o sin respuesta, River reintenta.
+// token ilegible), sin reintento. Otro error: 5xx, 429 o sin respuesta, River reintenta (el 429 con su
+// Retry-After, ErrorRemoto.ReintentarEn).
 func (n *Nucleo) RevocarCanje(ctx context.Context, a ArgsRevocarCanje) error {
 	attrs := []any{"sistema", a.Sistema, "conector_id", a.ConectorID}
 	c := n.sistema(a.Sistema)
@@ -122,7 +129,7 @@ func (n *Nucleo) RevocarCanje(ctx context.Context, a ArgsRevocarCanje) error {
 	case er.Status == http.StatusUnauthorized:
 		slog.InfoContext(ctx, "conector: el token del canje no completado ya no autenticaba", attrs...)
 		return nil
-	case er.Status >= http.StatusInternalServerError, er.Status == 0 && !er.Bloqueado():
+	case er.Status >= http.StatusInternalServerError, er.Status == http.StatusTooManyRequests, er.Status == 0 && !er.Bloqueado():
 		slog.WarnContext(ctx, "conector: revocar el token del canje falló; se reintenta", append(attrs, "status", er.Status)...)
 		return err
 	default:
@@ -134,10 +141,34 @@ func (n *Nucleo) RevocarCanje(ctx context.Context, a ArgsRevocarCanje) error {
 type trabajadorRevocarCanje struct {
 	river.WorkerDefaults[ArgsRevocarCanje]
 	n *Nucleo
+	// esperas: Retry-After del último 429 de cada job (id → duración), lo lee NextRetry.
+	esperas sync.Map
 }
 
 func (w *trabajadorRevocarCanje) Work(ctx context.Context, j *river.Job[ArgsRevocarCanje]) error {
-	return w.n.RevocarCanje(ctx, j.Args)
+	err := w.n.RevocarCanje(ctx, j.Args)
+	if d := EsperaDe429(err); d > 0 {
+		w.esperas.Store(j.ID, d)
+	}
+	return err
+}
+
+// NextRetry: tras un 429 con Retry-After, ese plazo; si no, la espera de River (tiempo cero).
+func (w *trabajadorRevocarCanje) NextRetry(j *river.Job[ArgsRevocarCanje]) time.Time {
+	if d, ok := w.esperas.LoadAndDelete(j.ID); ok {
+		return time.Now().Add(d.(time.Duration)) //nolint:forcetypeassert // solo se guardan duraciones
+	}
+	return time.Time{}
+}
+
+// EsperaDe429 es el Retry-After de un 429 del otro sistema (recortado a MaxRetryAfter); 0 si err no es
+// un 429 o no lo trajo.
+func EsperaDe429(err error) time.Duration {
+	var er *ErrorRemoto
+	if !errors.As(err, &er) || er.Status != http.StatusTooManyRequests {
+		return 0
+	}
+	return min(er.ReintentarEn(), MaxRetryAfter)
 }
 
 // RegistrarRevocarCanje agrega el job de revocación de canjes al worker (lo llama el conector

@@ -155,7 +155,9 @@ func Nuevo(cfg Config) *Modulo {
 		ExigirReceptor: true,
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
 		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
-		TrabajoEntrante:  func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
+		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
+		ConfirmarReconexion: true,
+		TrabajoEntrante:     func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar
 	m.Previsualizar = m.conexion.Previsualizar

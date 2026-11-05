@@ -98,13 +98,18 @@ func (b *bufferSeguro) String() string {
 // §1.3 «Canje rechazado o incompleto»: Argos responde 200 al canje pero Iris lo rechaza (422
 // webhook_invalido): Iris encola la revocación y el worker de River llama a POST
 // /integraciones/iris/conexion/revocar con ese atk_ como Bearer y sin cuerpo. 503 se reintenta
-// (una vez, y el 204 lo termina); 401 termina sin reintento; 403 queda cancelado sin reintento. El
+// (una vez, y el 204 lo termina), igual que 429 (con su Retry-After); 401 termina sin reintento; 403
+// queda cancelado sin reintento. El
 // token nunca queda en claro en el job, la auditoría ni el log.
 func TestCanjeRechazadoRevocaElAtkEnArgos(t *testing.T) {
 	e := nuevoEntorno(t)
 	admin := e.usuario("admin")
 	u := pruebas.Unico()
 	tok204, tok503, tok401, tok403 := "atk_063_ok_"+u, "atk_063_caido_"+u, "atk_063_revocado_"+u, "atk_063_otro_"+u
+	// 429: con Retry-After corto (1 s) y luego 204; sin Retry-After (espera de River) y luego 204; con
+	// Retry-After largo (120 s): queda programado para entonces.
+	tok429, tok429sin, tok429largo := "atk_063_429_"+u, "atk_063_429sin_"+u, "atk_063_429largo_"+u
+	todos := []string{tok204, tok503, tok401, tok403, tok429, tok429sin, tok429largo}
 	e.argos.con(func() {
 		// Cada canje reemplaza al pendiente anterior (en Argos, su atk_ ya no autentica): las
 		// respuestas van fijas por token.
@@ -112,9 +117,12 @@ func TestCanjeRechazadoRevocaElAtkEnArgos(t *testing.T) {
 		e.argos.respuestasRevocar[tok503] = []int{503, 204}
 		e.argos.respuestasRevocar[tok401] = []int{401}
 		e.argos.respuestasRevocar[tok403] = []int{403}
+		e.argos.respuestasRevocar[tok429], e.argos.retryAfter[tok429] = []int{429, 204}, "1"
+		e.argos.respuestasRevocar[tok429sin] = []int{429, 204}
+		e.argos.respuestasRevocar[tok429largo], e.argos.retryAfter[tok429largo] = []int{429}, "120"
 	})
 	ids := map[string]int64{}
-	for _, tok := range []string{tok204, tok503, tok401, tok403} {
+	for _, tok := range todos {
 		ids[tok] = e.canjeRechazado(admin, tok)
 		e.sinTokenEnJobs(tok)
 		e.sinSecretos(tok)
@@ -156,7 +164,8 @@ func TestCanjeRechazadoRevocaElAtkEnArgos(t *testing.T) {
 		defer c()
 		_ = cliente.Stop(parar)
 	}()
-	esperado := map[string]string{tok204: "completed", tok503: "completed", tok401: "completed", tok403: "cancelled"}
+	esperado := map[string]string{tok204: "completed", tok503: "completed", tok401: "completed", tok403: "cancelled",
+		tok429: "completed", tok429sin: "completed", tok429largo: "retryable"}
 	limite := time.Now().Add(45 * time.Second)
 	for time.Now().Before(limite) {
 		listos := 0
@@ -186,6 +195,9 @@ func TestCanjeRechazadoRevocaElAtkEnArgos(t *testing.T) {
 		{tok503, []int{503, 204}}, // un reintento y listo
 		{tok401, []int{401}},      // ya no autenticaba: listo, sin reintento
 		{tok403, []int{403}},      // otra credencial: cancelado, sin reintento
+		{tok429, []int{429, 204}}, // Retry-After 1 s, un reintento
+		{tok429sin, []int{429, 204}},
+		{tok429largo, []int{429}}, // esperando sus 120 s
 	}
 	for _, c := range casos {
 		rs := e.argos.revocacionesDe(c.token)
@@ -198,10 +210,15 @@ func TestCanjeRechazadoRevocaElAtkEnArgos(t *testing.T) {
 			}
 		}
 	}
+	// El 429 con Retry-After 120 queda programado para entonces (no con la espera de River, ~1 s).
+	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = $1 AND (args->>'conector_id')::bigint = $2
+		AND scheduled_at > now() + interval '100 seconds'`, kindRevocarCanje, ids[tok429largo]); n != 1 {
+		t.Fatal("el 429 debía respetar Retry-After")
+	}
 	if s := log.String(); !strings.Contains(s, "token del canje no completado revocado") {
 		t.Fatalf("el worker no dejó rastro en el log: %s", s)
 	}
-	for _, tok := range []string{tok204, tok503, tok401, tok403} {
+	for _, tok := range todos {
 		if strings.Contains(log.String(), tok) {
 			t.Fatal("el token del canje quedó en claro en el log")
 		}
@@ -218,7 +235,7 @@ func TestRevocarCanjeRespuestas(t *testing.T) {
 	id := e.canjeRechazado(admin, tok)
 	a, _ := e.argsRevocar(id)
 	ctx := context.Background()
-	e.argos.con(func() { e.argos.respuestasRevocar[tok] = []int{503, 500, 429, 403, 401, 204} })
+	e.argos.con(func() { e.argos.respuestasRevocar[tok] = []int{503, 500, 429, 429, 400, 403, 401, 204} })
 	esCancelado := func(err error) bool {
 		var c *river.JobCancelError
 		return err != nil && errors.As(err, &c)
@@ -230,8 +247,18 @@ func TestRevocarCanjeRespuestas(t *testing.T) {
 	if err := n.RevocarCanje(ctx, a); err == nil || esCancelado(err) {
 		t.Fatalf("500: debía reintentarse: %v", err)
 	}
+	// 429: se reintenta; con Retry-After, ese plazo (EsperaDe429, lo usa NextRetry del worker).
+	e.argos.con(func() { e.argos.retryAfter[tok] = "30" })
+	err429 := n.RevocarCanje(ctx, a)
+	if err429 == nil || esCancelado(err429) || conector.EsperaDe429(err429) != 30*time.Second {
+		t.Fatalf("429 con Retry-After: debía reintentarse a los 30 s: %v (%v)", err429, conector.EsperaDe429(err429))
+	}
+	e.argos.con(func() { e.argos.retryAfter[tok] = "" })
+	if err := n.RevocarCanje(ctx, a); err == nil || esCancelado(err) || conector.EsperaDe429(err) != 0 {
+		t.Fatalf("429 sin Retry-After: debía reintentarse con la espera de River: %v", err)
+	}
 	if err := n.RevocarCanje(ctx, a); !esCancelado(err) {
-		t.Fatalf("429 (otro 4xx): debía cancelarse: %v", err)
+		t.Fatalf("400 (otro 4xx): debía cancelarse: %v", err)
 	}
 	if err := n.RevocarCanje(ctx, a); !esCancelado(err) {
 		t.Fatalf("403: debía cancelarse: %v", err)
@@ -254,7 +281,7 @@ func TestRevocarCanjeRespuestas(t *testing.T) {
 	if err := n.RevocarCanje(ctx, otro); !esCancelado(err) {
 		t.Fatalf("token de otro conector: debía cancelarse: %v", err)
 	}
-	if got := len(e.argos.revocacionesDe(tok)); got != 6 {
+	if got := len(e.argos.revocacionesDe(tok)); got != 8 {
 		t.Fatalf("revocaciones: %d", got)
 	}
 	if (conector.ArgsRevocarCanje{}).InsertOpts().MaxAttempts != conector.IntentosRevocarCanje || conector.IntentosRevocarCanje > 15 {
@@ -281,7 +308,8 @@ func TestCanjeFallidoSinTokenNoRevoca(t *testing.T) {
 func TestReconexionSinCorte(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos.con(func() { e.argos.version = "1.6.0" })
-	admin, viejo, _ := e.conectado()
+	admin, viejo, secretoViejo := e.conectado()
+	patViejo := e.patDelUltimoCanje()
 	ctx := pruebas.ContextoSistema(e.pool)
 	if _, err := e.mod.InformarContrato.Ejecutar(ctx, viejo); err != nil {
 		t.Fatal(err)
@@ -342,6 +370,31 @@ func TestReconexionSinCorte(t *testing.T) {
 		t.Fatalf("activar no llama a Argos con el atk_ nuevo: %v", u)
 	}
 
+	// Ventana entre la activación y la confirmación: el conector viejo ya no llama a Argos, pero
+	// Argos sigue leyendo de Iris con su iris_pat_ y sus webhooks firmados con el secreto viejo se
+	// aceptan (se guardan en el conector nuevo).
+	if r := e.leerConPat(patViejo); r.status != 200 {
+		t.Fatalf("Argos debía seguir leyendo de Iris con el iris_pat_ anterior: %d %s", r.status, r.crudo)
+	}
+	if _, err := e.mod.InformarContrato.Ejecutar(ctx, viejo); !esProblema(err, "conector_apagado") {
+		t.Fatalf("el conector viejo no llama a Argos: %v", err)
+	}
+	wh := e.enviar(viejo, secretoViejo, "wh-063-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"empresa_id": 1, "cliente_id": 71}, time.Now())
+	if wh.status >= 300 {
+		t.Fatalf("el webhook firmado con el secreto viejo debía aceptarse: %d %s", wh.status, wh.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND conector_id = $2`, e.entranteDe(wh), nuevo); n != 1 {
+		t.Fatal("el webhook del conector reemplazado se guarda en el activo")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND reemplaza_conector_id = $2 AND reemplaza_token_id IS NOT NULL`, nuevo, viejo) != 1 {
+		t.Fatal("el conector nuevo debía guardar el reemplazo pendiente")
+	}
+	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.vencer_reemplazo_conector'
+		AND (args->>'conector_viejo_id')::bigint = $1 AND (args->>'conector_nuevo_id')::bigint = $2
+		AND scheduled_at BETWEEN now() + interval '23 hours 59 minutes' AND now() + interval '24 hours 1 minute'`, viejo, nuevo); n != 1 {
+		t.Fatalf("la activación debía encolar el vencimiento a las 24 h: %d", n)
+	}
+
 	// El job: la primera llamada con el atk_ nuevo es el PUT del contrato, con el conector nuevo ya
 	// activo; Argos aplica la reconexión y el atk_ anterior deja de autenticar.
 	if _, err := e.mod.InformarContrato.Ejecutar(ctx, nuevo); err != nil {
@@ -355,7 +408,109 @@ func TestReconexionSinCorte(t *testing.T) {
 			t.Fatal("Argos debía aplicar la reconexión en la primera llamada del atk_ nuevo")
 		}
 	})
+	// Confirmada: el iris_pat_ anterior se revoca y los webhooks del conector viejo vuelven a 503.
+	if r := e.leerConPat(patViejo); r.status != 401 {
+		t.Fatalf("tras confirmar, el iris_pat_ anterior debía dar 401: %d", r.status)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND reemplaza_conector_id IS NULL AND reemplaza_token_id IS NULL`, nuevo) != 1 {
+		t.Fatal("la confirmación debía cerrar el reemplazo")
+	}
+	if e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.confirmar_reconexion' AND resultado = 'ok' AND entidad_id = $1`, fmt.Sprint(nuevo)) != 1 {
+		t.Fatal("la confirmación se audita")
+	}
+	e.enviar(viejo, secretoViejo, "wh-063-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"empresa_id": 1, "cliente_id": 71}, time.Now()).
+		problema(t, 503, "conector_apagado")
 	if e.contar(`SELECT count(*) FROM river.river_job WHERE kind = $1 AND (args->>'conector_id')::bigint IN ($2, $3)`, kindRevocarCanje, viejo, nuevo) != 0 {
 		t.Fatal("una reconexión completa no revoca ningún atk_")
+	}
+}
+
+// patDelUltimoCanje: el iris_pat_ que Iris entregó a Argos en el último canje.
+func (e *entorno) patDelUltimoCanje() string {
+	e.t.Helper()
+	var pat string
+	e.argos.con(func() { pat, _ = e.argos.canjes[len(e.argos.canjes)-1]["token"].(string) })
+	if !strings.HasPrefix(pat, "iris_pat_") {
+		e.t.Fatalf("iris_pat_ del canje: %q", pat)
+	}
+	return pat
+}
+
+// leerConPat lee de Iris como Argos (GET /yo con el iris_pat_).
+func (e *entorno) leerConPat(pat string) respuesta {
+	e.t.Helper()
+	return e.anonimo().pedir(http.MethodGet, "/api/v1/yo", nil, "Authorization", "Bearer "+pat)
+}
+
+// reconectado: conexión activa con Argos 1.6.0, otro canje (atk_ nuevo) y su activación, sin
+// ninguna llamada con el atk_ nuevo. Devuelve el admin, los dos conectores y el iris_pat_ anterior.
+func (e *entorno) reconectado() (admin *clienteHTTP, viejo, nuevo int64, patViejo string) {
+	e.t.Helper()
+	e.argos.con(func() { e.argos.version = "1.6.0" })
+	admin, viejo, _ = e.conectado()
+	patViejo = e.patDelUltimoCanje()
+	e.argos.con(func() {
+		e.argos.codigo = "codigo-reconexion-" + pruebas.Unico() + "-0123456789"
+		e.argos.tokenCanje = "atk_063_reconexion_" + pruebas.Unico()
+	})
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.enlace()})
+	if r.status != 201 {
+		e.t.Fatalf("reconectar: %d %s", r.status, r.crudo)
+	}
+	nuevo = int64(r.cuerpo["id"].(float64))
+	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", nuevo), map[string]any{"version": 1}); a.status != 200 {
+		e.t.Fatalf("activar: %d %s", a.status, a.crudo)
+	}
+	return admin, viejo, nuevo, patViejo
+}
+
+// Sin confirmación (Argos nunca recibe una llamada del atk_ nuevo), el job de las 24 h revoca el
+// iris_pat_ anterior; una confirmación tardía ya no hace nada.
+func TestReconexionSinConfirmarVenceA24h(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, viejo, nuevo, patViejo := e.reconectado()
+	if r := e.leerConPat(patViejo); r.status != 200 {
+		t.Fatalf("antes del vencimiento el iris_pat_ anterior sigue valiendo: %d", r.status)
+	}
+	var crudo []byte
+	if err := e.pool.QueryRow(context.Background(), `SELECT args FROM river.river_job WHERE kind = 'integracion.vencer_reemplazo_conector'
+		AND (args->>'conector_nuevo_id')::bigint = $1 AND scheduled_at > now() + interval '23 hours'`, nuevo).Scan(&crudo); err != nil {
+		t.Fatal(err)
+	}
+	var args conector.ArgsVencerReemplazo
+	if err := json.Unmarshal(crudo, &args); err != nil || args.ConectorViejoID != viejo {
+		t.Fatalf("args: %s %v", crudo, err)
+	}
+	// Lo que corre el worker a las 24 h.
+	ctx := pruebas.ContextoSistema(e.pool)
+	r, err := e.mod.Nucleo().VencerReemplazo.Ejecutar(ctx, args)
+	if err != nil || !r.Cerrado || r.TokenRevocado == 0 {
+		t.Fatalf("vencer: %+v %v", r, err)
+	}
+	if r := e.leerConPat(patViejo); r.status != 401 {
+		t.Fatalf("a las 24 h el iris_pat_ anterior debía quedar revocado: %d", r.status)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND reemplaza_conector_id IS NULL`, nuevo) != 1 {
+		t.Fatal("el vencimiento cierra el reemplazo")
+	}
+	// Repetirlo, o una confirmación tardía, no hace nada.
+	if r, err := e.mod.Nucleo().VencerReemplazo.Ejecutar(ctx, args); err != nil || r.Cerrado {
+		t.Fatalf("vencer otra vez: %+v %v", r, err)
+	}
+	if r, err := e.mod.Nucleo().ConfirmarReemplazo.Ejecutar(ctx, nuevo); err != nil || r.Cerrado {
+		t.Fatalf("confirmar tarde: %+v %v", r, err)
+	}
+}
+
+// Desactivar el conector nuevo antes de confirmar revoca también el iris_pat_ anterior (nadie más
+// lo cierra a tiempo y la integración queda apagada).
+func TestReconexionDesactivadaRevocaElAnterior(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin, _, nuevo, patViejo := e.reconectado()
+	if d := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/desactivar", nuevo), map[string]any{"version": 2, "motivo": "prueba"}); d.status != 200 {
+		t.Fatalf("desactivar: %d %s", d.status, d.crudo)
+	}
+	if r := e.leerConPat(patViejo); r.status != 401 {
+		t.Fatalf("desactivar debía revocar el iris_pat_ anterior: %d", r.status)
 	}
 }

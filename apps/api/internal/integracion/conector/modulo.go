@@ -104,6 +104,10 @@ type Sistema struct {
 	// 200, revoca allí el token recibido (contrato Iris ↔ ArgosISP 0.6.3 §1.3,
 	// /integraciones/iris/conexion/revocar). Vacía = el sistema no la ofrece (Horus).
 	RutaRevocarCanje string
+	// ConfirmarReconexion: al reemplazar el conector activo, el iris_pat_ del anterior sigue vivo (y sus
+	// webhooks se aceptan) hasta que una llamada con el token nuevo responde 2xx, o 24 h (contrato Iris ↔
+	// ArgosISP 0.6.3 §1.3, reconexion.go). false = se revoca al activar (Horus).
+	ConfirmarReconexion bool
 	// Capacidades del conector según la versión que informó el otro sistema (p. ej.
 	// inventario_por_tecnico con Argos ≥ 1.6.0). Opcional.
 	Capacidades func(version, contrato *string) []string
@@ -126,6 +130,9 @@ type Nucleo struct {
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
 	CambiarURLPublica  *auditoria.Caso[EntradaURLPublica, Conector]
 	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]
+	// Reconexión sin corte (0.6.3, reconexion.go).
+	ConfirmarReemplazo *auditoria.Caso[int64, ReemplazoCerrado]
+	VencerReemplazo    *auditoria.Caso[ArgsVencerReemplazo, ReemplazoCerrado]
 }
 
 // Tokens emite, confirma y revoca el iris_pat_ que Iris entrega al otro sistema en el canje
@@ -171,6 +178,8 @@ func Nuevo(cfg Config) *Nucleo {
 	n.DesactivarConector = nuevoDesactivarConector(n)
 	n.CambiarURLPublica = nuevoCambiarURLPublica(n)
 	n.ObtenerEnlaces = nuevoObtenerEnlaces(n)
+	n.ConfirmarReemplazo = nuevoConfirmarReemplazo(n)
+	n.VencerReemplazo = nuevoVencerReemplazo(n)
 	return n
 }
 
@@ -251,7 +260,12 @@ func (c *Conexion) Nucleo() *Nucleo { return c.n }
 
 // Cliente arma el cliente HTTP del conector leído (descifrado), con la protección contra SSRF.
 func (c *Conexion) Cliente(l Leido) *Cliente {
-	return c.clienteHacia(l.BaseUrl, l.token)
+	cli := c.clienteHacia(l.BaseUrl, l.token)
+	if l.ReemplazaConectorID != nil && l.Estado == "activo" {
+		// Reconexión pendiente (0.6.3): la primera respuesta 2xx con este token la confirma.
+		cli.al2xx, cli.avisado = c.n.confirmadorDe(l.ID), &atomic.Bool{}
+	}
+	return cli
 }
 
 func (c *Conexion) clienteHacia(base, token string) *Cliente {

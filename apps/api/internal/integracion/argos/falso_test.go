@@ -84,6 +84,8 @@ type argosFalso struct {
 	// token autentica (y lo revoca) y 401 si no.
 	revocaciones      []revocacion
 	respuestasRevocar map[string][]int
+	// retryAfter: Retry-After que acompaña a un 429 de revocar, por token (vacío = sin cabecera).
+	retryAfter map[string]string
 }
 
 type usoToken struct {
@@ -104,7 +106,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		clientes: map[int64]map[string]any{}, servicios: map[int64][]map[string]any{},
 		estados: map[int64]map[string]any{}, ips: map[string]map[string]any{}, llamadas: map[string]int{},
 		proxy404: map[string]bool{}, fueraDeAlcance: map[string]bool{}, sinGet: map[int64]bool{},
-		respuestasRevocar: map[string][]int{},
+		respuestasRevocar: map[string][]int{}, retryAfter: map[string]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", a.canjear)
@@ -365,6 +367,11 @@ func (a *argosFalso) revocar(w http.ResponseWriter, r *http.Request) {
 		problema(w, status, "urn:argosisp:problema:no_autenticado", "Token inválido")
 	case http.StatusForbidden:
 		problema(w, status, "urn:argosisp:problema:prohibido", "Otra credencial")
+	case http.StatusTooManyRequests:
+		if v := a.retryAfter[token]; v != "" {
+			w.Header().Set("Retry-After", v)
+		}
+		problema(w, status, "urn:argosisp:problema:demasiadas_peticiones", "Demasiadas peticiones")
 	default:
 		problema(w, status, "urn:argosisp:problema:no_disponible", "Mantenimiento")
 	}

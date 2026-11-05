@@ -273,6 +273,10 @@ partes (ficha, ticket, orden, comercial y app de campo).
     conector nuevo ya activo (`TestReconexionSinCorte`). Esa primera llamada es el PUT del contrato o la
     carga de catálogos, porque la activación encola los dos, o una llamada que ya estaba en curso
     (pendientes, panel). El contrato acepta cualquiera.
+  - **El `iris_pat_` anterior no se corta:** al activar no se revoca. Argos sigue leyendo de Iris con
+    él y sus webhooks firmados con el secreto anterior se aceptan (se guardan en el conector nuevo).
+    Se revoca con la primera respuesta 2xx de una llamada con el `atk_` nuevo, o a las 24 h (job), o
+    al desactivar el nuevo (`conector/README.md`, `reconexion.go`).
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
   del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)
