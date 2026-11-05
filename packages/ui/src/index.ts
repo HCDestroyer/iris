@@ -30,7 +30,19 @@ export {
     type PropsDisparador,
 } from "./componentes/dialogo";
 export { Entrada } from "./componentes/entrada";
-export { abrirEscaner, Escaner, FORMATOS_CODIGO, lectorNativo, lectorZxing, type DependenciasEscaner, type Lector, type PropsEscaner } from "./componentes/escaner";
+export {
+    abrirEscaner,
+    admiteLinterna,
+    FORMATOS_CODIGO,
+    lectorNativo,
+    lectorZxing,
+    VisorEscaner,
+    type CodigoLeido,
+    type DependenciasEscaner,
+    type GeometriaVisor,
+    type Lector,
+    type PropsVisorEscaner,
+} from "./componentes/escaner";
 export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazosASvg, type Punto, type Trazo } from "./componentes/firma";
 export {
     asignarErrores,

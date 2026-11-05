@@ -108,9 +108,13 @@ Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos
 App de campo: `Camara` (botón que abre la cámara del teléfono con `<input type="file"
 capture>`, oculto pero enfocable), `LienzoFirma` (firma con el dedo por pointer events, tinta del
 tema en pantalla) con `trazosASvg` (≤ 200 000 caracteres, el tope de la API) y `trazosAPng`
-(negro sobre transparente), y `Escaner` (cámara trasera + `BarcodeDetector` nativo; si no
-existe, ZXing cargado bajo demanda; sin cámara o sin permiso explica y deja escribir a mano). No
-tienen equivalente en HeroUI: siguen igual, con los tokens del tema. Tonos: `neutral | info |
+(negro sobre transparente), y `VisorEscaner` (cámara trasera a pantalla completa, oscurecida
+salvo un recuadro con esquinas teal; encabezado «Escaneando: …» con su ayuda, «Detectados: N»,
+linterna si la pista la admite (`torch`), «Escribir a mano» y «Cerrar»). El visor entrega cada
+cuadro con todos sus códigos y su geometría (`BarcodeDetector` nativo con `boundingBox`; si no
+existe, ZXing cargado bajo demanda, sin posición) y no decide nada: qué cuenta, la ventana y la
+lista de candidatos son de `@iris/sync/campo` (`SesionEscaneo`). Sin cámara o sin permiso explica
+y deja escribir a mano. No tienen equivalente en HeroUI: siguen igual, con los tokens del tema. Tonos: `neutral | info |
 success | warning | error` (nunca `primary` como estado). Íconos solo de Lucide.
 
 ## Formularios en modales (`formulario-modal.tsx`)
