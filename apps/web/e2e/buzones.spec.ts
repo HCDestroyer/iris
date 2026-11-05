@@ -122,6 +122,8 @@ test.describe("buzones de correo", () => {
         await tarjeta(page, "soporte@isp.gt").getByRole("link", { name: "Editar" }).click();
         await expect(page).toHaveURL(/\/administracion\/buzones\/1\/editar$/);
         const d = page.getByRole("form", { name: /^Editar / });
+        // Primero que el formulario lea el buzón; después alguien más lo cambia.
+        await expect(d.getByLabel("Nombre")).not.toHaveValue("");
         api.cambiarVersionBuzon(1);
         await d.getByLabel("Nombre").fill("Soporte técnico");
         await d.getByRole("button", { name: "Guardar cambios" }).click();

@@ -194,7 +194,7 @@ test.describe("Argos 0.5.0 en la orden", () => {
         await dialogo.getByRole("button", { name: "Resolver a mano" }).click();
 
         // 422 decision_cargo_requerida: la pregunta del cargo.
-        const pregunta = dialogo.getByRole("group", { name: "¿Argos ya cobró el cargo?" });
+        const pregunta = dialogo.getByRole("radiogroup", { name: "¿Argos ya cobró el cargo?" });
         await expect(pregunta).toBeVisible();
         await expect(dialogo.getByRole("button", { name: "Resolver a mano" })).toHaveAccessibleDescription("Falta elegir si Argos ya cobró el cargo para guardar.");
         await pregunta.getByRole("radio", { name: /^Sí/ }).check();
@@ -223,7 +223,7 @@ test.describe("Argos 0.5.0 en la orden", () => {
         const dialogo = page.getByRole("dialog", { name: "Resolver a mano" });
         await dialogo.getByLabel("Qué se hizo en Argos").fill("Se registró el consumo directo en Argos");
         await dialogo.getByRole("button", { name: "Resolver a mano" }).click();
-        await dialogo.getByRole("group", { name: "¿Argos ya cobró el cargo?" }).getByRole("radio", { name: /^No/ }).check();
+        await dialogo.getByRole("radiogroup", { name: "¿Argos ya cobró el cargo?" }).getByRole("radio", { name: /^No/ }).check();
         await dialogo.getByRole("button", { name: "Resolver a mano" }).click();
         await expect(dialogo).toHaveCount(0);
         await expect(tarjeta.locator('[data-pendiente="cargo"]')).toHaveAttribute("data-estado", "pendiente");
