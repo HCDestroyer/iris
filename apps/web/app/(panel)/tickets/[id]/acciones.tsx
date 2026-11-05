@@ -10,9 +10,17 @@ import {
     CampoArea,
     CampoSelector,
     DialogoCerrar,
+    DialogoConfirmar,
+    DialogoContenido,
     DialogoPie,
-    PanelProtegido,
+    DialogoProtegido,
+    GrupoSegmentado,
+    MenuDesplegable,
+    MenuDesplegableContenido,
+    MenuDesplegableDisparador,
+    MenuDesplegableElemento,
     useCambiosSinGuardar,
+    useProteccionSalida,
 } from "@iris/ui";
 import {
     Archive,
@@ -20,6 +28,8 @@ import {
     CircleCheck,
     CirclePause,
     CirclePlay,
+    ClipboardPlus,
+    Ellipsis,
     GitMerge,
     Lock,
     MessageSquareReply,
@@ -28,7 +38,9 @@ import {
     UserRoundPlus,
     type LucideIcon,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm, useWatch, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import type { Usuario } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
@@ -53,17 +65,7 @@ import { ORDEN_PRIORIDADES, PRIORIDADES, prioridadMayor } from "@/lib/tickets/pr
 import type { Ticket } from "@/lib/tickets/sla";
 import { avisoTicket } from "@/lib/avisos";
 
-export type Accion =
-    | "responder"
-    | "nota_interna"
-    | "asignar"
-    | "escalar"
-    | "poner_en_espera"
-    | "reanudar"
-    | "resolver"
-    | "reabrir"
-    | "cerrar"
-    | "fusionar";
+export type Accion = "responder" | "nota_interna" | "asignar" | "escalar" | "poner_en_espera" | "reanudar" | "resolver" | "reabrir" | "cerrar" | "fusionar";
 
 type DefAccion = {
     etiqueta: string;
@@ -77,19 +79,48 @@ const abiertoOEspera = (t: Ticket) => t.estado === "nuevo" || t.estado === "abie
 
 /** Acciones explícitas (nunca PATCH de estado): permiso del mismo nombre y estados en que aplican. */
 export const ACCIONES: Record<Accion, DefAccion> = {
-    responder: { etiqueta: "Responder", icono: MessageSquareReply, permiso: "tickets.responder", disponible: (t) => t.estado !== "cerrado", titulo: "Responder al cliente" },
+    responder: {
+        etiqueta: "Responder",
+        icono: MessageSquareReply,
+        permiso: "tickets.responder",
+        disponible: (t) => t.estado !== "cerrado",
+        titulo: "Responder al cliente",
+    },
     nota_interna: { etiqueta: "Nota interna", icono: Lock, permiso: "tickets.nota_interna", disponible: () => true, titulo: "Nota interna" },
     asignar: { etiqueta: "Asignar", icono: UserRoundPlus, permiso: "tickets.asignar", disponible: (t) => t.estado !== "cerrado", titulo: "Asignar ticket" },
     escalar: { etiqueta: "Escalar", icono: ArrowUpCircle, permiso: "tickets.escalar", disponible: abiertoOEspera, titulo: "Escalar ticket" },
-    poner_en_espera: { etiqueta: "Poner en espera", icono: CirclePause, permiso: "tickets.poner_en_espera", disponible: (t) => t.estado === "abierto", titulo: "Poner en espera" },
+    poner_en_espera: {
+        etiqueta: "Poner en espera",
+        icono: CirclePause,
+        permiso: "tickets.poner_en_espera",
+        disponible: (t) => t.estado === "abierto",
+        titulo: "Poner en espera",
+    },
     reanudar: { etiqueta: "Reanudar", icono: CirclePlay, permiso: "tickets.reanudar", disponible: (t) => t.estado === "en_espera", titulo: "Reanudar ticket" },
     resolver: { etiqueta: "Resolver", icono: CircleCheck, permiso: "tickets.resolver", disponible: abiertoOEspera, titulo: "Resolver ticket" },
     reabrir: { etiqueta: "Reabrir", icono: RotateCcw, permiso: "tickets.reabrir", disponible: (t) => t.estado === "resuelto", titulo: "Reabrir ticket" },
     cerrar: { etiqueta: "Cerrar", icono: Archive, permiso: "tickets.cerrar", disponible: (t) => t.estado !== "cerrado", titulo: "Cerrar ticket" },
-    fusionar: { etiqueta: "Fusionar", icono: GitMerge, permiso: "tickets.fusionar", disponible: (t) => t.estado !== "cerrado", titulo: "Fusionar con otro ticket" },
+    fusionar: {
+        etiqueta: "Fusionar",
+        icono: GitMerge,
+        permiso: "tickets.fusionar",
+        disponible: (t) => t.estado !== "cerrado",
+        titulo: "Fusionar con otro ticket",
+    },
 };
 
-const ORDEN: readonly Accion[] = ["responder", "nota_interna", "asignar", "escalar", "poner_en_espera", "reanudar", "resolver", "reabrir", "cerrar", "fusionar"];
+const ORDEN: readonly Accion[] = [
+    "responder",
+    "nota_interna",
+    "asignar",
+    "escalar",
+    "poner_en_espera",
+    "reanudar",
+    "resolver",
+    "reabrir",
+    "cerrar",
+    "fusionar",
+];
 
 /** Acciones que el usuario puede hacer ahora sobre el ticket (permiso + estado). */
 export function accionesDisponibles(ticket: Ticket, puede: (p: readonly Permiso[]) => boolean): Accion[] {
@@ -103,28 +134,81 @@ type PropsBarra = {
     alHecho: (ticket: Ticket) => void;
     /** Relee el ticket (tras un 409). */
     recargar: () => Promise<void>;
+    /** Acción pedida por la URL (`?accion=asignar`, desde Inicio): se abre al entrar si está disponible. */
+    inicial?: Accion | null;
 };
 
-export function BarraAcciones({ ticket, usuarios, alHecho, recargar }: PropsBarra) {
+/** Acciones con botón propio en la barra (en este orden); el resto va en «⋯». Responder y la nota interna van en la conversación. */
+const EN_BARRA: readonly Accion[] = ["asignar", "escalar"];
+const EN_CONVERSACION: readonly Accion[] = ["responder", "nota_interna"];
+
+/**
+ * Barra de acciones de la ficha (nuevo diseño): Asignar, Escalar, Crear orden, Resolver como
+ * botón principal y «⋯» para el resto (poner en espera, reanudar, reabrir, fusionar, cerrar). Cada
+ * acción se abre en un diálogo corto con telón (1 a 3 campos, §10).
+ */
+export function BarraAcciones({ ticket, usuarios, alHecho, recargar, inicial }: PropsBarra) {
     const { puede } = useSesion();
-    const [abierta, setAbierta] = useState<Accion | null>(null);
     const disponibles = accionesDisponibles(ticket, puede);
-    if (disponibles.length === 0) {
+    const [abierta, setAbierta] = useState<Accion | null>(null);
+    const pedida = useRef(inicial ?? null);
+    useEffect(() => {
+        const a = pedida.current;
+        pedida.current = null;
+        if (a && disponibles.includes(a) && !EN_CONVERSACION.includes(a)) setAbierta(a);
+        // Solo al entrar: la acción de la URL se ofrece una vez.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const enBarra = EN_BARRA.filter((a) => disponibles.includes(a));
+    const puedeResolver = disponibles.includes("resolver");
+    const resto = disponibles.filter((a) => !EN_BARRA.includes(a) && !EN_CONVERSACION.includes(a) && a !== "resolver");
+    const crearOrden = ticket.estado !== "cerrado" && puede(["ordenes.crear"]);
+    if (enBarra.length === 0 && !puedeResolver && resto.length === 0 && !crearOrden) {
         return null;
     }
     return (
         <>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Acciones del ticket">
-                {disponibles.map((a, i) => {
+            <div className="flex flex-wrap gap-2" role="toolbar" aria-label="Acciones del ticket">
+                {enBarra.map((a) => {
                     const def = ACCIONES[a];
                     const Icono = def.icono;
                     return (
-                        <Boton key={a} variante={i === 0 && a === "responder" ? "primario" : "secundario"} tamano="sm" onClick={() => setAbierta(a)}>
+                        <Boton key={a} variante="secundario" tamano="sm" className="h-9 rounded-lg" onClick={() => setAbierta(a)}>
                             <Icono />
                             {def.etiqueta}
                         </Boton>
                     );
                 })}
+                {crearOrden ? (
+                    <Boton asChild variante="secundario" tamano="sm" className="h-9 rounded-lg">
+                        <Link href={`/ordenes/nueva?ticket=${ticket.id}`}>
+                            <ClipboardPlus />
+                            {puede(["tickets.crear_orden"]) ? "Crear orden y asignar" : "Crear orden"}
+                        </Link>
+                    </Boton>
+                ) : null}
+                {puedeResolver ? (
+                    <Boton tamano="sm" className="h-9 rounded-lg" onClick={() => setAbierta("resolver")}>
+                        <CircleCheck />
+                        Resolver
+                    </Boton>
+                ) : null}
+                {resto.length > 0 ? (
+                    <MenuDesplegable>
+                        <MenuDesplegableDisparador>
+                            <Boton variante="secundario" tamano="icono-sm" className="size-9 rounded-lg" aria-label="Más acciones" title="Más acciones">
+                                <Ellipsis />
+                            </Boton>
+                        </MenuDesplegableDisparador>
+                        <MenuDesplegableContenido align="end">
+                            {resto.map((a) => (
+                                <MenuDesplegableElemento key={a} icono={ACCIONES[a].icono} onSelect={() => setAbierta(a)}>
+                                    {ACCIONES[a].etiqueta}
+                                </MenuDesplegableElemento>
+                            ))}
+                        </MenuDesplegableContenido>
+                    </MenuDesplegable>
+                ) : null}
             </div>
             {abierta ? (
                 <DialogoAccion
@@ -144,11 +228,7 @@ export function BarraAcciones({ ticket, usuarios, alHecho, recargar }: PropsBarr
     );
 }
 
-type Envio = <T extends FieldValues>(
-    peticion: (clave: string) => Promise<Ticket>,
-    campos: readonly Path<T>[],
-    setError: UseFormSetError<T>,
-) => Promise<void>;
+type Envio = <T extends FieldValues>(peticion: (clave: string) => Promise<Ticket>, campos: readonly Path<T>[], setError: UseFormSetError<T>) => Promise<void>;
 
 type PropsFormulario = { ticket: Ticket; enviar: Envio; pie: (etiqueta: string, enviando: boolean, faltan?: readonly string[]) => ReactNode };
 
@@ -234,22 +314,137 @@ function DialogoAccion({
 
     const props: PropsFormulario = { ticket, enviar, pie };
     return (
-        <PanelProtegido open onOpenChange={(a) => !a && alCerrar()} titulo={def.titulo} descripcion={`${ticket.numero} · ${ticket.asunto}`}>
-            {accion === "responder" ? <FormResponder {...props} /> : null}
-            {accion === "nota_interna" ? <FormNota {...props} /> : null}
-            {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
-            {accion === "escalar" ? <FormEscalar {...props} /> : null}
-            {accion === "poner_en_espera" ? <FormMotivo {...props} accion="poner_en_espera" /> : null}
-            {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
-            {accion === "reanudar" ? <FormReanudar {...props} /> : null}
-            {accion === "resolver" ? <FormResolver {...props} /> : null}
-            {accion === "cerrar" ? <FormCerrar {...props} /> : null}
-            {accion === "fusionar" ? <FormFusionar {...props} /> : null}
-        </PanelProtegido>
+        <DialogoProtegido open onOpenChange={(a) => !a && alCerrar()}>
+            <DialogoContenido titulo={def.titulo} descripcion={`${ticket.numero} · ${ticket.asunto}`} data-accion={accion}>
+                {accion === "responder" ? <FormResponder {...props} /> : null}
+                {accion === "nota_interna" ? <FormNota {...props} /> : null}
+                {accion === "asignar" ? <FormAsignar {...props} usuarios={usuarios} /> : null}
+                {accion === "escalar" ? <FormEscalar {...props} /> : null}
+                {accion === "poner_en_espera" ? <FormMotivo {...props} accion="poner_en_espera" /> : null}
+                {accion === "reabrir" ? <FormMotivo {...props} accion="reabrir" /> : null}
+                {accion === "reanudar" ? <FormReanudar {...props} /> : null}
+                {accion === "resolver" ? <FormResolver {...props} /> : null}
+                {accion === "cerrar" ? <FormCerrar {...props} /> : null}
+                {accion === "fusionar" ? <FormFusionar {...props} /> : null}
+            </DialogoContenido>
+        </DialogoProtegido>
     );
 }
 
 const cabecera = (clave: string) => ({ "Idempotency-Key": clave });
+
+/**
+ * Redactor al pie de la conversación (nuevo diseño): «Responder al cliente» o «Nota interna»
+ * según los permisos, un campo y «Enviar». Es la misma acción explícita de siempre
+ * (`POST /tickets/{id}/responder` o `/nota-interna`, con `version` e `Idempotency-Key`). Si hay
+ * texto sin enviar, salir de la ficha pregunta antes.
+ */
+export function Redactor({ ticket, usuarios, alHecho, recargar }: Omit<PropsBarra, "inicial">) {
+    const { puede } = useSesion();
+    const router = useRouter();
+    const modos = (["responder", "nota_interna"] as const).filter((a) => puede([ACCIONES[a].permiso]) && ACCIONES[a].disponible(ticket));
+    const [modo, setModo] = useState<"responder" | "nota_interna">(modos[0] ?? "responder");
+    // La clave de la próxima petición: la misma si se reintenta tras un corte de red (claveTrasError).
+    const [clave, setClave] = useState(nuevaClaveIdempotencia);
+    const [error, setError] = useState<unknown>(null);
+    const form = useForm({ resolver: zodResolver(modo === "responder" ? esquemaResponder : esquemaNotaInterna), defaultValues: { cuerpo: "" } });
+    const sucio = form.formState.isDirty && !form.formState.isSubmitting;
+    const proteccion = useProteccionSalida(sucio, router.push);
+    if (modos.length === 0) return null;
+    const actual = modos.includes(modo) ? modo : (modos[0] ?? "responder");
+    const conflicto = error instanceof ErrorApi && error.estado === 409 && error.codigo !== "idempotencia_en_proceso";
+
+    async function enviarMensaje(cuerpo: string) {
+        setError(null);
+        try {
+            const opciones = { params: ruta(ticket, clave), body: { cuerpo, version: ticket.version } };
+            const r =
+                actual === "responder"
+                    ? await resolver(api().POST("/api/v1/tickets/{id}/responder", opciones))
+                    : await resolver(api().POST("/api/v1/tickets/{id}/nota-interna", opciones));
+            setClave(nuevaClaveIdempotencia());
+            form.reset({ cuerpo: "" });
+            avisar({ titulo: avisoTicket(actual, r.ticket, usuarios) });
+            alHecho(r.ticket);
+        } catch (e) {
+            setClave(claveTrasError(e, clave));
+            if (!erroresACampos(e, ["cuerpo"], form.setError)) setError(e);
+        }
+    }
+
+    return (
+        <form
+            noValidate
+            aria-label="Redactar"
+            className="grid gap-2 border-t border-border px-4 pt-3 pb-3.5"
+            onSubmit={form.handleSubmit((d) => enviarMensaje(d.cuerpo))}
+        >
+            {modos.length > 1 ? (
+                <GrupoSegmentado
+                    etiqueta="Tipo de mensaje"
+                    className="justify-self-start"
+                    valor={actual}
+                    alCambiar={(v) => {
+                        setModo(v);
+                        form.clearErrors();
+                    }}
+                    opciones={[
+                        { valor: "responder", etiqueta: "Responder al cliente", icono: MessageSquareReply },
+                        { valor: "nota_interna", etiqueta: "Nota interna", icono: Lock },
+                    ]}
+                />
+            ) : null}
+            <CampoArea
+                etiqueta={actual === "responder" ? "Respuesta" : "Nota interna"}
+                ayuda={actual === "responder" ? "La verá el cliente." : "Solo la ve el equipo; el cliente no."}
+                rows={3}
+                maxLength={20000}
+                error={form.formState.errors.cuerpo?.message}
+                {...form.register("cuerpo")}
+            />
+            {conflicto ? (
+                <Aviso
+                    tono="warning"
+                    titulo="Alguien más cambió este ticket"
+                    accion={
+                        <Boton
+                            variante="secundario"
+                            tamano="sm"
+                            onClick={async () => {
+                                await recargar();
+                                setError(null);
+                            }}
+                        >
+                            <RotateCw />
+                            Recargar
+                        </Boton>
+                    }
+                >
+                    Recarga para ver el cambio y vuelve a intentarlo; lo que escribiste se conserva.
+                </Aviso>
+            ) : error ? (
+                <Aviso tono="error" titulo="No se pudo enviar">
+                    {[mensajeDeError(error).titulo, mensajeDeError(error).detalle].filter(Boolean).join(". ")}
+                </Aviso>
+            ) : null}
+            <div className="flex justify-end">
+                <BotonEnviar enviando={form.formState.isSubmitting} textoEnviando="Enviando…" disabled={conflicto} className="rounded-lg">
+                    {actual === "responder" ? "Enviar respuesta" : "Guardar nota"}
+                </BotonEnviar>
+            </div>
+            <DialogoConfirmar
+                open={proteccion.pendiente !== null}
+                onOpenChange={(abierto) => !abierto && proteccion.seguir()}
+                titulo="¿Descartar el mensaje?"
+                descripcion="Escribiste un mensaje que no se envió. Si sales ahora, se pierde."
+                textoCancelar="Seguir escribiendo"
+                textoConfirmar="Descartar mensaje"
+                peligro
+                alConfirmar={() => proteccion.confirmar()}
+            />
+        </form>
+    );
+}
 const ruta = (t: Ticket, clave: string) => ({ path: { id: t.id }, header: cabecera(clave) });
 
 function FormResponder({ ticket, enviar, pie }: PropsFormulario) {
@@ -262,13 +457,28 @@ function FormResponder({ ticket, enviar, pie }: PropsFormulario) {
             onSubmit={form.handleSubmit((d) =>
                 enviar(
                     async (clave) =>
-                        (await resolver(api().POST("/api/v1/tickets/{id}/responder", { params: ruta(ticket, clave), body: { cuerpo: d.cuerpo, version: ticket.version } }))).ticket,
+                        (
+                            await resolver(
+                                api().POST("/api/v1/tickets/{id}/responder", {
+                                    params: ruta(ticket, clave),
+                                    body: { cuerpo: d.cuerpo, version: ticket.version },
+                                }),
+                            )
+                        ).ticket,
                     ["cuerpo"],
                     form.setError,
                 ),
             )}
         >
-            <CampoArea etiqueta="Respuesta" ayuda="La verá el cliente." rows={5} maxLength={20000} autoFocus error={form.formState.errors.cuerpo?.message} {...form.register("cuerpo")} />
+            <CampoArea
+                etiqueta="Respuesta"
+                ayuda="La verá el cliente."
+                rows={5}
+                maxLength={20000}
+                autoFocus
+                error={form.formState.errors.cuerpo?.message}
+                {...form.register("cuerpo")}
+            />
             {pie("Enviar respuesta", form.formState.isSubmitting)}
         </form>
     );
@@ -284,13 +494,28 @@ function FormNota({ ticket, enviar, pie }: PropsFormulario) {
             onSubmit={form.handleSubmit((d) =>
                 enviar(
                     async (clave) =>
-                        (await resolver(api().POST("/api/v1/tickets/{id}/nota-interna", { params: ruta(ticket, clave), body: { cuerpo: d.cuerpo, version: ticket.version } }))).ticket,
+                        (
+                            await resolver(
+                                api().POST("/api/v1/tickets/{id}/nota-interna", {
+                                    params: ruta(ticket, clave),
+                                    body: { cuerpo: d.cuerpo, version: ticket.version },
+                                }),
+                            )
+                        ).ticket,
                     ["cuerpo"],
                     form.setError,
                 ),
             )}
         >
-            <CampoArea etiqueta="Nota interna" ayuda="Solo la ve el equipo; el cliente no." rows={5} maxLength={20000} autoFocus error={form.formState.errors.cuerpo?.message} {...form.register("cuerpo")} />
+            <CampoArea
+                etiqueta="Nota interna"
+                ayuda="Solo la ve el equipo; el cliente no."
+                rows={5}
+                maxLength={20000}
+                autoFocus
+                error={form.formState.errors.cuerpo?.message}
+                {...form.register("cuerpo")}
+            />
             {pie("Guardar nota", form.formState.isSubmitting)}
         </form>
     );
@@ -325,7 +550,11 @@ function FormAsignar({ ticket, enviar, pie, usuarios }: PropsFormulario & { usua
             <CampoSelector
                 etiqueta="Responsable"
                 autoFocus
-                ayuda={usuarios === null ? "No tienes acceso a la lista de usuarios: puedes asignártelo o dejarlo sin asignar." : "Debe poder ver el ticket y operar en esta empresa."}
+                ayuda={
+                    usuarios === null
+                        ? "No tienes acceso a la lista de usuarios: puedes asignártelo o dejarlo sin asignar."
+                        : "Debe poder ver el ticket y operar en esta empresa."
+                }
                 error={form.formState.errors.usuarioId?.message}
                 {...form.register("usuarioId")}
             >
@@ -439,7 +668,14 @@ function FormReanudar({ ticket, enviar, pie }: PropsFormulario) {
                 ),
             )}
         >
-            <CampoArea etiqueta="Motivo (opcional)" rows={3} maxLength={500} autoFocus error={form.formState.errors.motivo?.message} {...form.register("motivo")} />
+            <CampoArea
+                etiqueta="Motivo (opcional)"
+                rows={3}
+                maxLength={500}
+                autoFocus
+                error={form.formState.errors.motivo?.message}
+                {...form.register("motivo")}
+            />
             {pie("Reanudar", form.formState.isSubmitting)}
         </form>
     );
@@ -455,13 +691,26 @@ function FormResolver({ ticket, enviar, pie }: PropsFormulario) {
             onSubmit={form.handleSubmit((d) =>
                 enviar(
                     async (clave) =>
-                        resolver(api().POST("/api/v1/tickets/{id}/resolver", { params: ruta(ticket, clave), body: { version: ticket.version, solucion: d.solucion } })),
+                        resolver(
+                            api().POST("/api/v1/tickets/{id}/resolver", {
+                                params: ruta(ticket, clave),
+                                body: { version: ticket.version, solucion: d.solucion },
+                            }),
+                        ),
                     ["solucion"],
                     form.setError,
                 ),
             )}
         >
-            <CampoArea etiqueta="Solución" ayuda="Qué se hizo; la verá el cliente." rows={4} maxLength={20000} autoFocus error={form.formState.errors.solucion?.message} {...form.register("solucion")} />
+            <CampoArea
+                etiqueta="Solución"
+                ayuda="Qué se hizo; la verá el cliente."
+                rows={4}
+                maxLength={20000}
+                autoFocus
+                error={form.formState.errors.solucion?.message}
+                {...form.register("solucion")}
+            />
             {pie("Resolver", form.formState.isSubmitting)}
         </form>
     );

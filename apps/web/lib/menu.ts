@@ -7,6 +7,7 @@ import {
     Handshake,
     LayoutDashboard,
     LifeBuoy,
+    Map as IconoMapa,
     MessageSquareHeart,
     Route,
     Settings,
@@ -16,14 +17,16 @@ import {
 
 export type Permiso = Schema<"Permiso">;
 
-/** Grupos de la barra lateral (propuesta aprobada, §2), en este orden. */
-export type GrupoMenu = "operacion" | "equipo" | "ventas" | "analisis" | "administracion";
+/**
+ * Grupos de la barra lateral (nuevo diseño del panel, nov. 2026), en este orden: la operación
+ * diaria arriba (sin título visible), después Negocio y Administración. «Mis vistas» (las vistas
+ * guardadas de la bandeja) no es un grupo del menú: la arma la barra lateral.
+ */
+export type GrupoMenu = "operacion" | "negocio" | "administracion";
 
-export const GRUPOS: readonly { id: GrupoMenu; etiqueta: string }[] = [
-    { id: "operacion", etiqueta: "Operación" },
-    { id: "equipo", etiqueta: "Equipo" },
-    { id: "ventas", etiqueta: "Ventas" },
-    { id: "analisis", etiqueta: "Análisis" },
+export const GRUPOS: readonly { id: GrupoMenu; etiqueta: string; tituloOculto?: boolean }[] = [
+    { id: "operacion", etiqueta: "Operación", tituloOculto: true },
+    { id: "negocio", etiqueta: "Negocio" },
     { id: "administracion", etiqueta: "Administración" },
 ];
 
@@ -39,6 +42,13 @@ export type EntradaMenu = {
     permisos: readonly Permiso[] | null;
     /** Aún sin pantalla: muestra «Próximamente». */
     proximamente?: boolean;
+    /** Texto corto para la barra inferior del teléfono («Órdenes»). */
+    etiquetaCorta?: string;
+    /**
+     * Pantalla que se abre desde otra (Despacho, desde el Mapa) y se encuentra con el buscador
+     * global, pero sin entrada propia en la barra lateral.
+     */
+    fueraDelMenu?: boolean;
 };
 
 /*
@@ -59,15 +69,17 @@ export const MENU: readonly EntradaMenu[] = [
     {
         href: "/ordenes",
         grupo: "operacion",
-        etiqueta: "Órdenes",
+        etiqueta: "Órdenes y tareas",
+        etiquetaCorta: "Órdenes",
         icono: ClipboardList,
         permisos: ["ordenes.ver", "ordenes.ver_propias"],
     },
     { href: "/agenda", grupo: "operacion", etiqueta: "Agenda", icono: CalendarDays, permisos: ["agenda.ver"] },
-    { href: "/despacho", grupo: "operacion", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"] },
+    // Mapa: técnicos en vivo (campo.ver_posiciones) y órdenes del día (agenda.ver).
+    { href: "/mapa", grupo: "operacion", etiqueta: "Mapa", icono: IconoMapa, permisos: ["agenda.ver", "campo.ver_posiciones"] },
     {
         href: "/tecnicos",
-        grupo: "equipo",
+        grupo: "operacion",
         etiqueta: "Técnicos",
         icono: HardHat,
         // Quien administra fichas (alta, edición, estado, turnos o ausencias); ver la agenda no basta.
@@ -81,10 +93,11 @@ export const MENU: readonly EntradaMenu[] = [
             "agenda.anular_ausencia",
         ],
     },
-    { href: "/usuarios", grupo: "equipo", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
-    { href: "/comercial", grupo: "ventas", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
-    { href: "/encuestas", grupo: "ventas", etiqueta: "Encuestas", icono: MessageSquareHeart, permisos: ["encuestas.ver"] },
-    { href: "/reportes", grupo: "analisis", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
+    { href: "/despacho", grupo: "operacion", etiqueta: "Despacho", icono: Route, permisos: ["agenda.ver"], fueraDelMenu: true },
+    { href: "/comercial", grupo: "negocio", etiqueta: "Comercial", icono: Handshake, permisos: ["prospectos.ver"] },
+    { href: "/encuestas", grupo: "negocio", etiqueta: "Encuestas", icono: MessageSquareHeart, permisos: ["encuestas.ver"] },
+    { href: "/reportes", grupo: "negocio", etiqueta: "Reportes", icono: ChartColumn, permisos: ["reportes.ver"] },
+    { href: "/usuarios", grupo: "administracion", etiqueta: "Usuarios", icono: Users, permisos: ["usuarios.ver"] },
     {
         href: "/administracion",
         grupo: "administracion",
@@ -129,11 +142,11 @@ export function entradaActiva(ruta: string): EntradaMenu | undefined {
         .find((e) => (e.href === "/" ? ruta === "/" : ruta === e.href || ruta.startsWith(`${e.href}/`)));
 }
 
-export type GrupoVisible = { id: GrupoMenu; etiqueta: string; entradas: EntradaMenu[] };
+export type GrupoVisible = { id: GrupoMenu; etiqueta: string; tituloOculto?: boolean; entradas: EntradaMenu[] };
 
-/** Entradas visibles agrupadas (los grupos sin entradas no aparecen). */
+/** Entradas visibles agrupadas para la barra lateral (los grupos sin entradas no aparecen). */
 export function menuAgrupado(permisos: readonly Permiso[] | null | undefined): GrupoVisible[] {
-    const visibles = menuVisible(permisos);
+    const visibles = menuVisible(permisos).filter((e) => !e.fueraDelMenu);
     return GRUPOS.map((g) => ({ ...g, entradas: visibles.filter((e) => e.grupo === g.id) })).filter((g) => g.entradas.length > 0);
 }
 

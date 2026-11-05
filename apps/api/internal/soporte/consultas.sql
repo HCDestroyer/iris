@@ -215,3 +215,73 @@ LIMIT @limite;
 INSERT INTO soporte.ticket_sla_alertas (ticket_id, sla, umbral, vence_en)
 VALUES (@ticket_id, @sla, @umbral, @vence_en)
 ON CONFLICT DO NOTHING;
+
+-- Resumen de la bandeja (Inicio del panel y contadores de las vistas) -------------
+-- Mismo filtro de empresa y alcance que ListarTickets. Solo lectura.
+
+-- name: ResumenTickets :one
+-- Conteos de los tickets vivos (nuevo, abierto, en espera). El SLA de resolución se pausa en
+-- espera, así que «en riesgo», «vencido» y «vence hoy» solo cuentan nuevo y abierto.
+SELECT
+  count(*)::bigint AS activos,
+  count(*) FILTER (WHERE sqlc.narg(actor_id)::bigint IS NOT NULL AND asignado_a = sqlc.narg(actor_id))::bigint AS mios,
+  count(*) FILTER (WHERE asignado_a IS NULL)::bigint AS sin_asignar,
+  count(*) FILTER (WHERE estado = 'en_espera')::bigint AS en_espera,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion > @ahora::timestamptz
+                   AND riesgo_resolucion IS NOT NULL AND riesgo_resolucion <= @ahora::timestamptz)::bigint AS sla_en_riesgo,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion <= @ahora::timestamptz)::bigint AS sla_vencidos,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion > @ahora::timestamptz
+                   AND vence_resolucion < @fin_hoy::timestamptz)::bigint AS sla_vence_hoy
+FROM soporte.tickets
+WHERE estado IN ('nuevo', 'abierto', 'en_espera')
+  AND (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = sqlc.narg(empresa_id))
+  AND (@alcance_global::boolean
+       OR zona_id = ANY(@zonas::bigint[])
+       OR cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR (sqlc.narg(actor_id)::bigint IS NOT NULL AND asignado_a = sqlc.narg(actor_id)));
+
+-- name: TicketsUrgentes :many
+-- Tickets nuevos o abiertos con el SLA de resolución en riesgo o vencido: el que vence antes primero.
+SELECT * FROM soporte.tickets
+WHERE estado IN ('nuevo', 'abierto')
+  AND vence_resolucion IS NOT NULL
+  AND (vence_resolucion <= @ahora::timestamptz OR (riesgo_resolucion IS NOT NULL AND riesgo_resolucion <= @ahora::timestamptz))
+  AND (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = sqlc.narg(empresa_id))
+  AND (@alcance_global::boolean
+       OR zona_id = ANY(@zonas::bigint[])
+       OR cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR (sqlc.narg(actor_id)::bigint IS NOT NULL AND asignado_a = sqlc.narg(actor_id)))
+ORDER BY vence_resolucion, id
+LIMIT @limite;
+
+-- name: SerieTicketsPorDia :many
+-- Por día local (America/Guatemala), de @primer_dia a @ultimo_dia: creados, resueltos (sin los
+-- fusionados, como el reporte de SLA), resueltos con SLA y dentro de él, y vencidos (el plazo de
+-- resolución cayó ese día, ya pasó y el ticket no se resolvió a tiempo; los en espera no cuentan:
+-- su plazo está en pausa).
+SELECT d.dia::date AS dia,
+  count(t.id) FILTER (WHERE (t.created_at AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS creados,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.vence_resolucion IS NOT NULL
+                      AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos_con_sla,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.vence_resolucion IS NOT NULL AND t.resuelto_en <= t.vence_resolucion
+                      AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos_en_sla,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.estado <> 'en_espera' AND t.vence_resolucion <= @ahora::timestamptz
+                      AND (t.resuelto_en IS NULL OR t.resuelto_en > t.vence_resolucion)
+                      AND (t.vence_resolucion AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS vencidos
+FROM generate_series(@primer_dia::date, @ultimo_dia::date, interval '1 day') AS d(dia)
+LEFT JOIN soporte.tickets t
+  ON (t.created_at >= @desde::timestamptz OR t.resuelto_en >= @desde::timestamptz OR t.vence_resolucion >= @desde::timestamptz)
+  AND (@todas_empresas::boolean
+       OR (sqlc.narg(empresa_id)::bigint IS NULL AND t.empresa_id IS NULL)
+       OR t.empresa_id = sqlc.narg(empresa_id))
+  AND (@alcance_global::boolean
+       OR t.zona_id = ANY(@zonas::bigint[])
+       OR t.cuadrilla_id = ANY(@cuadrillas::bigint[])
+       OR (sqlc.narg(actor_id)::bigint IS NOT NULL AND t.asignado_a = sqlc.narg(actor_id)))
+GROUP BY d.dia
+ORDER BY d.dia;

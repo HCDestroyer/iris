@@ -90,7 +90,9 @@ test.describe("detalle del ticket", () => {
         const nota = page.locator('[data-publico="false"]');
         await expect(nota).toContainText("Nota interna");
         await expect(nota).toContainText("Revisar la ONT antes de mandar cuadrilla.");
-        await expect(page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Responder" })).toBeVisible();
+        // Responder y la nota interna van en el redactor, al pie de la conversación.
+        await expect(page.getByRole("form", { name: "Redactar" }).getByRole("button", { name: "Enviar respuesta" })).toBeVisible();
+        await expect(page.getByRole("toolbar", { name: "Acciones del ticket" }).getByRole("button", { name: "Resolver" })).toBeVisible();
         await expect(page.getByTestId("ficha-cliente")).toContainText("María Castillo");
         await expect(page.getByTestId("ficha-cliente")).toContainText("GTQ 150.00");
     });
@@ -103,7 +105,8 @@ test.describe("detalle del ticket", () => {
         await expect(page.getByText("Sin acceso a notas internas")).toBeVisible();
         await expect(page.getByText("Hola, sin internet desde la mañana.")).toBeVisible();
         await expect(page.getByText("Revisar la ONT antes de mandar cuadrilla.")).toHaveCount(0);
-        await expect(page.getByRole("group", { name: "Acciones del ticket" })).toHaveCount(0);
+        await expect(page.getByRole("toolbar", { name: "Acciones del ticket" })).toHaveCount(0);
+        await expect(page.getByRole("form", { name: "Redactar" })).toHaveCount(0);
         const lectura = api.peticiones.find((p) => p.ruta === "/api/v1/tickets/1/mensajes");
         expect(lectura?.query.get("soloPublicos")).toBe("true");
     });
@@ -112,13 +115,13 @@ test.describe("detalle del ticket", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
-        await page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Responder" }).click();
-        const dialogo = page.getByRole("dialog");
-        await dialogo.getByRole("button", { name: "Enviar respuesta" }).click();
-        await expect(dialogo.getByText("Escribe la respuesta")).toBeVisible();
-        await dialogo.getByLabel("Respuesta").fill("Ya revisamos la línea, ¿puede reiniciar el equipo?");
-        await dialogo.getByRole("button", { name: "Enviar respuesta" }).click();
-        await expect(dialogo).toHaveCount(0);
+        // El redactor al pie de la conversación (pestaña por defecto).
+        const redactor = page.getByRole("form", { name: "Redactar" });
+        await redactor.getByRole("button", { name: "Enviar respuesta" }).click();
+        await expect(redactor.getByText("Escribe la respuesta")).toBeVisible();
+        await redactor.getByLabel("Respuesta").fill("Ya revisamos la línea, ¿puede reiniciar el equipo?");
+        await redactor.getByRole("button", { name: "Enviar respuesta" }).click();
+        await expect(redactor.getByLabel("Respuesta")).toHaveValue("");
         await expect(page.locator("header [data-estado]")).toContainText("Abierto");
         await expect(page.locator('[data-reloj="respuesta"]')).toContainText("Cumplido");
         await pestana(page, "Conversación");
@@ -134,7 +137,7 @@ test.describe("detalle del ticket", () => {
         await page.goto("/tickets/5");
         await expect(page.getByRole("heading", { name: "Router reinicia solo" })).toBeVisible();
         api.cambiarVersion(5);
-        await page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Escalar" }).click();
+        await page.getByRole("toolbar", { name: "Acciones del ticket" }).getByRole("button", { name: "Escalar" }).click();
         const dialogo = page.getByRole("dialog");
         await dialogo.getByLabel("Motivo").fill("El cliente reporta pérdidas");
         await dialogo.getByRole("button", { name: "Escalar" }).click();
@@ -289,7 +292,7 @@ test.describe("«Ver en Argos/Horus» y contacto sin verificar", () => {
         const insignia = page.getByTestId("contacto-sin-verificar");
         await expect(insignia).toContainText("Contacto sin verificar");
         await expect(insignia.locator("svg")).toBeVisible();
-        await expect(page.getByRole("complementary", { name: "Cliente" })).toContainText("no se pudo autenticar (DMARC/DKIM)");
+        await expect(page.getByRole("complementary", { name: "Datos del ticket" })).toContainText("no se pudo autenticar (DMARC/DKIM)");
         await pestana(page, "Conversación");
         const retenido = page.locator('[data-correo-retenido="remitente_no_verificado"]');
         await expect(retenido).toContainText("Correo sin verificar");

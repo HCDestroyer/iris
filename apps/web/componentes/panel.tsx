@@ -4,7 +4,7 @@ import { Aviso, Boton, cn, Esqueleto, Globo, LogoIris, MarcaIris, ProveedorAviso
 import { PanelLeftClose, PanelLeftOpen, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { limpiarClientesRecientes } from "@/lib/clientes/selector";
@@ -12,12 +12,14 @@ import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from 
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
 import { menuAgrupado, repartoTelefono } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
+import { contadorDe, ProveedorResumenTickets, useResumenTickets } from "@/lib/tickets/resumen";
 import { BarraInferior } from "./barra-inferior";
 import { BuscadorGlobal } from "./buscador-global";
-import { MenuCuentaLista, MenuUsuario, ProveedorCuenta } from "./cuenta/menu-usuario";
+import { MenuCuentaLista, MenuUsuarioLateral, ProveedorCuenta } from "./cuenta/menu-usuario";
+import { BotonAvisos, BotonCrear } from "./barra-superior";
 import { MigasPanel, ProveedorMigas } from "./migas-panel";
 import { ErrorLectura, SinEmpresa } from "./error-lectura";
-import { Navegacion } from "./navegacion";
+import { MisVistas, Navegacion } from "./navegacion";
 import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector-empresa";
 import { SelectorTema } from "./selector-tema";
 import { DialogoReautenticar } from "@/componentes/cuenta/dialogo-reautenticar";
@@ -92,15 +94,20 @@ export function Panel({ children }: { children: ReactNode }) {
         return (
             <ProveedorSesion yo={datos} elegirEmpresa={elegirEmpresa} pedirEmpresa={pedirEmpresa} refrescarSesion={refrescarSesion}>
                 <DialogoReautenticar />
-                <Estructura>
-                    {datos.modoEmpresa === "sin_empresa" && !administrativa ? (
-                        <SinEmpresa />
-                    ) : elegir ? (
-                        <ElegirEmpresa motivo={noPermitida ? "no_permitida" : undefined} />
-                    ) : (
-                        <div key={clave}>{children}</div>
-                    )}
-                </Estructura>
+                <ProveedorResumenTickets
+                    activo={(datos.permisos ?? []).includes("tickets.ver") && !elegir && (datos.modoEmpresa === "sin_conector" || datos.empresaActiva !== undefined)}
+                    clave={clave}
+                >
+                    <Estructura>
+                        {datos.modoEmpresa === "sin_empresa" && !administrativa ? (
+                            <SinEmpresa />
+                        ) : elegir ? (
+                            <ElegirEmpresa motivo={noPermitida ? "no_permitida" : undefined} />
+                        ) : (
+                            <div key={clave}>{children}</div>
+                        )}
+                    </Estructura>
+                </ProveedorResumenTickets>
             </ProveedorSesion>
         );
     }
@@ -177,10 +184,10 @@ const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
 
 /**
  * Región de avisos en el teléfono: dentro de la barra superior (56 px), desde el borde izquierdo
- * hasta antes del buscador; el texto en letra pequeña y hasta dos líneas para que quepa.
+ * hasta antes del buscador (y de «Avisos» y «Crear», a su derecha); el texto en letra pequeña y hasta dos líneas para que quepa.
  */
 const CLASES_AVISOS_TELEFONO = [
-    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-14 w-auto translate-x-0 sm:w-auto",
+    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-[9.5rem] w-auto translate-x-0 sm:w-auto",
     "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-12 [&_[data-slot=toast]]:py-1.5",
     "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
 ].join(" ");
@@ -249,60 +256,71 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
         router.refresh();
     }
 
+    const resumen = useResumenTickets();
+    const contadores = { "/tickets": contadorDe(resumen, "activos") };
+
     return (
-        <div className={cn("min-h-dvh", contraida ? "lg:pl-16" : "lg:pl-60")}>
+        <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>
             <aside
                 id={idBarra}
                 aria-label="Barra lateral"
                 data-contraida={contraida || undefined}
                 className={cn(
-                    "glass-material fixed inset-y-0 left-0 z-30 hidden flex-col gap-6 overflow-y-auto border-r py-4 lg:flex",
-                    contraida ? "w-16 px-2" : "w-60 px-4",
+                    "glass-material fixed inset-y-0 left-0 z-30 hidden flex-col gap-4 overflow-y-auto border-r py-3.5 lg:flex",
+                    contraida ? "w-16 px-2" : "w-60 px-3",
                 )}
             >
-                <Link href="/" className="rounded-md px-1" aria-label="Iris, inicio">
-                    {contraida ? <LogoIris className="mx-auto" /> : <MarcaIris />}
-                </Link>
-                <Navegacion grupos={grupos} contraida={contraida} />
-                <div className={cn("mt-auto grid gap-2", contraida ? "justify-items-center" : "px-1")}>
-                    {contraida ? null : (
-                        <>
-                            <span className="text-xs text-muted-foreground">Tema</span>
-                            <SelectorTema className="justify-self-start" />
-                        </>
-                    )}
-                    <Globo texto={contraida ? "Expandir menú" : "Contraer menú"} lado="end">
-                        <Boton
-                            variante="fantasma"
-                            tamano={contraida ? "icono" : "sm"}
-                            className={contraida ? undefined : "justify-self-start px-2 text-muted-foreground"}
-                            aria-label={contraida ? "Expandir menú" : "Contraer menú"}
-                            aria-expanded={!contraida}
-                            aria-controls={idBarra}
-                            onClick={alternarContraida}
-                        >
-                            {contraida ? <PanelLeftOpen /> : <PanelLeftClose />}
-                            {contraida ? null : "Contraer menú"}
-                        </Boton>
-                    </Globo>
+                <div className={cn("grid gap-2", contraida ? "justify-items-center" : "px-1")}>
+                    <Link href="/" className="rounded-md" aria-label="Iris, inicio">
+                        {contraida ? <LogoIris className="mx-auto" /> : <MarcaIris />}
+                    </Link>
+                    {contraida ? null : <SelectorEmpresa />}
+                </div>
+                <Navegacion grupos={grupos} contraida={contraida} contadores={contadores} />
+                {contraida ? null : (
+                    <Suspense>
+                        <MisVistas />
+                    </Suspense>
+                )}
+                <div className={cn("mt-auto grid gap-2 border-t pt-2", contraida ? "justify-items-center" : "")}>
+                    <MenuUsuarioLateral cerrando={cerrando} cerrarSesion={cerrarSesion} contraida={contraida} />
+                    <div className={cn("flex items-center gap-2", contraida ? "flex-col" : "justify-between px-1")}>
+                        {contraida ? null : <SelectorTema />}
+                        <Globo texto={contraida ? "Expandir menú" : "Contraer menú"} lado="end">
+                            <Boton
+                                variante="fantasma"
+                                tamano="icono-sm"
+                                className="text-muted-foreground"
+                                aria-label={contraida ? "Expandir menú" : "Contraer menú"}
+                                aria-expanded={!contraida}
+                                aria-controls={idBarra}
+                                onClick={alternarContraida}
+                            >
+                                {contraida ? <PanelLeftOpen /> : <PanelLeftClose />}
+                            </Boton>
+                        </Globo>
+                    </div>
                 </div>
             </aside>
 
-            <header className="glass-material sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-3 sm:px-4 lg:px-6">
+            <header className="glass-material sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-3 sm:px-4 lg:gap-3 lg:px-6">
                 <Link href="/" className="rounded-md lg:hidden" aria-label="Iris, inicio">
                     <MarcaIris />
                 </Link>
-                <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-                    <BuscadorGlobal />
-                    <div className="hidden min-w-0 items-center gap-3 lg:flex">
-                        <SelectorEmpresa />
-                        <MenuUsuario cerrando={cerrando} cerrarSesion={cerrarSesion} />
-                    </div>
+                <div className="hidden min-w-0 flex-1 lg:block">
+                    <MigasPanel className="mb-0" />
                 </div>
+                <div className="ml-auto flex min-w-0 items-center justify-end gap-2 lg:ml-0 lg:flex-[0_1_21.25rem]">
+                    <BuscadorGlobal />
+                </div>
+                <BotonAvisos />
+                <BotonCrear />
             </header>
 
-            <main id="contenido" className="mx-auto max-w-6xl p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-6">
-                <MigasPanel />
+            <main id="contenido" className="mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7">
+                <div className="lg:hidden">
+                    <MigasPanel />
+                </div>
                 {errorCerrar ? (
                     <Aviso
                         tono="error"
@@ -322,9 +340,13 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 {children}
             </main>
 
+            {/* Teléfono: la barra lateral entera va en la hoja «Más». */}
             <BarraInferior entradas={telefono.barra} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
                 <div className="mt-2 flex flex-1 flex-col gap-6">
-                    {telefono.resto.length > 0 ? <Navegacion grupos={telefono.resto} alNavegar={() => setMasAbierto(false)} /> : null}
+                    <Navegacion grupos={grupos} contadores={contadores} alNavegar={() => setMasAbierto(false)} />
+                    <Suspense>
+                        <MisVistas alNavegar={() => setMasAbierto(false)} />
+                    </Suspense>
                     {conEmpresa ? (
                         <div className="grid gap-2">
                             <span className="text-xs font-medium text-dimmed">Empresa</span>

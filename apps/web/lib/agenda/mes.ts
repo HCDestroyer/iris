@@ -123,6 +123,21 @@ export function resumenPorDia(dias: readonly Dia[], citas: readonly CitaAgenda[]
     return salida;
 }
 
+/**
+ * Órdenes programadas sin técnico por día (por `programadaInicio`, día de Guatemala). Solo los
+ * días con alguna; una orden sin fecha no cae en ningún día.
+ */
+export function sinTecnicoPorDia(ordenes: readonly { programadaInicio: string | null; tecnicoId: number | null }[], dias: readonly Dia[]): Map<Dia, number> {
+    const salida = new Map<Dia, number>();
+    const visibles = new Set(dias);
+    for (const o of ordenes) {
+        if (o.tecnicoId !== null || !o.programadaInicio) continue;
+        const d = diaDesdeIso(o.programadaInicio);
+        if (d && visibles.has(d)) salida.set(d, (salida.get(d) ?? 0) + 1);
+    }
+    return salida;
+}
+
 /** «1 orden», «3 órdenes». */
 export function textoOrdenes(n: number): string {
     return n === 1 ? "1 orden" : `${n} órdenes`;

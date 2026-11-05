@@ -11,6 +11,14 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
   `tickets.ver`: `GET /tickets` (cursor y filtros), `/tickets/{id}`, `/tickets/{id}/mensajes`,
   `/tickets/{id}/eventos`, `/categorias`, `/slas`. Las notas internas (y el motivo de una fusión
   en el historial) solo salen con `tickets.ver_notas` y nunca por el canal `portal`.
+- **Resumen de la bandeja** (`GET /tickets/resumen`, `tickets.ver`, caso `resumir_tickets.go`):
+  para el Inicio del panel, las pestañas de vistas y la barra lateral. Con el mismo alcance y
+  empresa que `GET /tickets`: contadores de los vivos (`activos`, `mios`, `sinAsignar`,
+  `enEspera`, y de nuevo/abierto `slaEnRiesgo`, `slaVencidos`, `slaVenceHoy` antes del fin del
+  día en Guatemala), hasta 5 `urgentes` (SLA de resolución en riesgo o vencido, el que vence
+  antes primero) y `dias`: hoy y los 6 anteriores (días de Guatemala) con creados, resueltos (sin
+  fusionados), resueltos con SLA y dentro de él, y vencidos (sin los en espera). Solo lectura: no
+  audita al terminar bien ni emite eventos.
 - **Estados:** `nuevo → abierto` (asignar o responder) `⇄ en_espera` (poner en espera / reanudar)
   `→ resuelto` (desde nuevo, abierto o en espera) `→ abierto` (reabrir) `→ cerrado` (desde
   resuelto; desde nuevo, abierto o en espera con motivo; fusionar). Cerrado es final. Una acción

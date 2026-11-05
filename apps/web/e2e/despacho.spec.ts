@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { ADMIN, ASIGNADOR, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
-import { avisoError, enlaceMenu, irA } from "./ayudas";
+import { avisoError, enlaceMenu } from "./ayudas";
 import { JORGE, LUCIA, ROSA } from "./datos-agenda";
 import { simularTeselas } from "./teselas";
 
@@ -62,10 +62,11 @@ test.describe("agenda", () => {
         await expect(page).toHaveURL(/\/agenda$/);
         await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
 
-        // Abre en el mes; tocar hoy abre el detalle del día.
+        // Abre en el mes; tocar hoy muestra su resumen y «Abrir el día» abre el detalle.
         const hoy = hoyGt();
         await expect(page.getByRole("radio", { name: "Mes" })).toBeChecked();
         await page.locator(`[data-dia="${hoy}"]`).filter({ visible: true }).click();
+        await page.getByTestId("resumen-dia").filter({ visible: true }).getByRole("button", { name: "Abrir el día" }).click();
         await expect(page).toHaveURL(/vista=dia/);
         await expect(cita(page, "OT-000003")).toBeVisible();
         const consulta = ultima(api, "/api/v1/agenda")?.query;
@@ -347,8 +348,9 @@ test.describe("despacho", () => {
         const api = await simularApi(page, { despacho: true });
         const teselas = await simularTeselas(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
-        await page.goto("/");
-        await irA(page, /^Despacho/);
+        // Despacho ya no tiene entrada propia en la barra lateral: se abre desde el Mapa («Rutas y despacho»).
+        await page.goto("/mapa");
+        await page.getByRole("link", { name: "Rutas y despacho" }).click();
         await expect(page).toHaveURL(/\/despacho$/);
 
         await expect(page.getByTestId("mapa")).toHaveAttribute("data-listo", "si", { timeout: 20_000 });

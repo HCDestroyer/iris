@@ -1,22 +1,10 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import {
-    Aviso,
-    Boton,
-    cn,
-    Pestanas,
-    Esqueleto,
-    EstadoVacio,
-    InsigniaEstado,
-    Tarjeta,
-    TarjetaContenido,
-    TarjetaEncabezado,
-    TarjetaTitulo,
-} from "@iris/ui";
-import { ClipboardPlus, GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, Tag, TrendingUp } from "lucide-react";
+import { Aviso, Boton, cn, Pestanas, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { GitMerge, Lock, MailWarning, MessageSquare, Network, SearchX, ShieldAlert, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { FichaCliente } from "@/componentes/clientes/ficha-cliente";
 import { BotonVerEn, useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
@@ -37,14 +25,14 @@ import { PieLista } from "@/componentes/pie-lista";
 import { useSesion } from "@/lib/sesion";
 import { ESTADOS, ORIGENES, PRIORIDADES, type EstadoTicket, type Prioridad } from "@/lib/tickets/presentacion";
 import { correoRetenido } from "@/lib/tickets/mensajes";
-import type { Ticket } from "@/lib/tickets/sla";
-import { BarraAcciones } from "./acciones";
+import { describirSla, relojPrincipal, type Ticket } from "@/lib/tickets/sla";
+import type { ReactNode } from "react";
+import { BarraAcciones, Redactor } from "./acciones";
 
 type Mensaje = Schema<"Mensaje">;
 type Evento = Schema<"EventoTicket">;
 
 const PAGINA = 100;
-
 
 export function DetalleTicket() {
     const params = useParams<{ id: string }>();
@@ -74,8 +62,8 @@ function NoEncontrado() {
     );
 }
 
-/** Pestañas de la ficha del ticket (`?pestana=`). */
-const PESTANAS_TICKET = ["resumen", "conversacion", "ordenes", "historial"] as const;
+/** Pestañas de la ficha del ticket (`?pestana=`): el resumen va a la derecha, siempre a la vista. */
+const PESTANAS_TICKET = ["conversacion", "ordenes", "historial"] as const;
 type PestanaTicket = (typeof PESTANAS_TICKET)[number];
 
 function Detalle({ id }: { id: number }) {
@@ -103,7 +91,8 @@ function Detalle({ id }: { id: number }) {
     const categorias = useCategorias();
     const usuarios = useUsuarios();
     const enlaces = useEnlacesExternos();
-    const [pestana, setPestana] = usePestanaUrl(PESTANAS_TICKET, "resumen");
+    const [pestana, setPestana] = usePestanaUrl(PESTANAS_TICKET, "conversacion");
+    const accionUrl = useSearchParams().get("accion");
 
     if (ticket.estado === "cargando") {
         return (
@@ -137,30 +126,54 @@ function Detalle({ id }: { id: number }) {
     const asignado = nombreUsuario(listaUsuarios, t.asignadoA, { id: yo.usuario.id, nombre: yo.usuario.nombre });
     const verHorus = enlaceHorusTicket(enlaces, t.origen);
 
+    const alHecho = (nuevo: Ticket) => {
+        ticket.reemplazar(nuevo);
+        void mensajes.refrescar();
+        void eventos.refrescar();
+    };
+    const principal = relojPrincipal(t);
+    const sla = describirSla(principal.reloj, ahora);
+
     return (
-        <>
-            <header className="mb-4 grid gap-3">
-                <div className="grid gap-1">
-                    <span className="font-mono text-sm text-muted-foreground">{t.numero}</span>
-                    <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{t.asunto}</h1>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <InsigniaEstadoTicket estado={t.estado} />
-                    <InsigniaPrioridad prioridad={t.prioridad} />
-                    {categoria ? <InsigniaEstado tono="neutral" icono={Tag} texto={categoria} /> : null}
-                    {t.nivelEscalamiento > 0 ? (
-                        <InsigniaEstado tono="neutral" icono={TrendingUp} texto={`Escalado ${t.nivelEscalamiento === 1 ? "1 vez" : `${t.nivelEscalamiento} veces`}`} />
-                    ) : null}
-                    {t.contacto.verificado ? null : (
-                        <InsigniaEstado
-                            tono="warning"
-                            icono={ShieldAlert}
-                            texto="Contacto sin verificar"
-                            title="El correo que abrió el ticket no se pudo autenticar (DMARC/DKIM)"
-                            data-testid="contacto-sin-verificar"
-                        />
-                    )}
-                    {verHorus ? <BotonVerEn enlace={verHorus} /> : null}
+        <div className="grid gap-4 [&>*]:min-w-0">
+            <header className="grid gap-3">
+                <div className="flex flex-wrap items-start gap-4">
+                    <div className="grid min-w-0 flex-[1_1_26rem] gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="mr-1 font-mono text-xs text-muted-foreground">{t.numero}</span>
+                            <InsigniaEstadoTicket estado={t.estado} />
+                            <InsigniaPrioridad prioridad={t.prioridad} />
+                            <InsigniaEstado tono={sla.tono} icono={sla.icono} texto={`SLA · ${sla.detalle ?? sla.texto}`} data-sla-cabecera={sla.estado} />
+                            {t.nivelEscalamiento > 0 ? (
+                                <InsigniaEstado
+                                    tono="neutral"
+                                    icono={TrendingUp}
+                                    texto={`Escalado ${t.nivelEscalamiento === 1 ? "1 vez" : `${t.nivelEscalamiento} veces`}`}
+                                />
+                            ) : null}
+                            {t.contacto.verificado ? null : (
+                                <InsigniaEstado
+                                    tono="warning"
+                                    icono={ShieldAlert}
+                                    texto="Contacto sin verificar"
+                                    title="El correo que abrió el ticket no se pudo autenticar (DMARC/DKIM)"
+                                    data-testid="contacto-sin-verificar"
+                                />
+                            )}
+                            {verHorus ? <BotonVerEn enlace={verHorus} /> : null}
+                        </div>
+                        <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em] break-words">{t.asunto}</h1>
+                        <p className="text-sm text-muted-foreground">
+                            {[t.contacto.nombre, categoria, `llegó por ${ORIGENES[t.origen].toLowerCase()}`].filter(Boolean).join(" · ")}
+                        </p>
+                    </div>
+                    <BarraAcciones
+                        ticket={t}
+                        usuarios={listaUsuarios}
+                        alHecho={alHecho}
+                        recargar={refrescarTodo}
+                        inicial={accionUrl === "asignar" ? "asignar" : null}
+                    />
                 </div>
                 {t.ticketPadreId !== null ? (
                     <Aviso tono="info" titulo="Parte de un incidente" icono={Network}>
@@ -179,29 +192,9 @@ function Detalle({ id }: { id: number }) {
                         </Link>
                     </Aviso>
                 ) : null}
-                <div className="flex flex-wrap items-start gap-2">
-                    <BarraAcciones
-                        ticket={t}
-                        usuarios={listaUsuarios}
-                        alHecho={(nuevo) => {
-                            ticket.reemplazar(nuevo);
-                            void mensajes.refrescar();
-                            void eventos.refrescar();
-                        }}
-                        recargar={refrescarTodo}
-                    />
-                    {t.estado === "cerrado" ? null : puede(["ordenes.crear"]) ? (
-                        <Boton asChild variante="secundario" tamano="sm">
-                            <Link href={`/ordenes/nueva?ticket=${t.id}`}>
-                                <ClipboardPlus />
-                                {puede(["tickets.crear_orden"]) ? "Crear orden y asignar" : "Crear orden"}
-                            </Link>
-                        </Boton>
-                    ) : null}
-                </div>
             </header>
 
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="grid min-w-0 content-start gap-4">
                     <Pestanas<PestanaTicket>
                         etiqueta="Secciones del ticket"
@@ -209,37 +202,14 @@ function Detalle({ id }: { id: number }) {
                         alCambiar={setPestana}
                         pestanas={[
                             {
-                                id: "resumen",
-                                etiqueta: "Resumen",
+                                id: "conversacion",
+                                etiqueta: "Conversación",
                                 contenido: (
-                                    <div className="grid gap-4">
-                                        <Tarjeta>
-                                            <TarjetaContenido className="grid gap-4 pt-5 sm:grid-cols-2">
-                                                <div className="grid gap-1.5">
-                                                    <span className="text-xs font-medium text-muted-foreground">SLA de primera respuesta</span>
-                                                    <SlaVisible reloj={t.slaRespuesta} tipo="respuesta" ahora={ahora} />
-                                                </div>
-                                                <div className="grid gap-1.5">
-                                                    <span className="text-xs font-medium text-muted-foreground">SLA de resolución</span>
-                                                    <SlaVisible reloj={t.slaResolucion} tipo="resolucion" ahora={ahora} />
-                                                </div>
-                                                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm sm:col-span-2">
-                                                    <dt className="text-muted-foreground">Asignado</dt>
-                                                    <dd data-testid="asignado">{asignado ?? "Sin asignar"}</dd>
-                                                    <dt className="text-muted-foreground">Origen</dt>
-                                                    <dd>{ORIGENES[t.origen]}</dd>
-                                                    <dt className="text-muted-foreground">Creado</dt>
-                                                    <dd className="tabular-nums">{formatearFecha(t.creadoEn)}</dd>
-                                                    <dt className="text-muted-foreground">Actualizado</dt>
-                                                    <dd className="tabular-nums">{formatearFecha(t.actualizadoEn)}</dd>
-                                                </dl>
-                                            </TarjetaContenido>
-                                        </Tarjeta>
-                                        <TicketsHijos ticketId={t.id} />
-                                    </div>
+                                    <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora}>
+                                        <Redactor ticket={t} usuarios={listaUsuarios} alHecho={alHecho} recargar={refrescarTodo} />
+                                    </Conversacion>
                                 ),
                             },
-                            { id: "conversacion", etiqueta: "Conversación", contenido: <Conversacion paginado={mensajes} veNotas={veNotas} ahora={ahora} /> },
                             ...(puede(["ordenes.ver", "ordenes.ver_propias"])
                                 ? [
                                       {
@@ -262,22 +232,64 @@ function Detalle({ id }: { id: number }) {
                         ]}
                     />
                 </div>
-                <aside className="grid content-start gap-4" aria-label="Cliente">
+                <aside className="grid content-start gap-3" aria-label="Datos del ticket">
+                    <section className="grid gap-3 rounded-xl border border-border bg-card px-4 py-3.5" aria-label="Detalle">
+                        <h2 className="text-xs font-semibold tracking-[0.05em] text-muted-foreground uppercase">Detalle</h2>
+                        <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-[0.8125rem]">
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Responsable</dt>
+                                <dd className="font-semibold" data-testid="asignado">
+                                    {asignado ?? "Sin asignar"}
+                                </dd>
+                            </div>
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Categoría</dt>
+                                <dd className="font-semibold">{categoria ?? "Sin categoría"}</dd>
+                            </div>
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Abierto</dt>
+                                <dd className="font-semibold tabular-nums">{formatearFecha(t.creadoEn)}</dd>
+                            </div>
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Nivel</dt>
+                                <dd className="font-semibold tabular-nums">{t.nivelEscalamiento + 1}</dd>
+                            </div>
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Origen</dt>
+                                <dd className="font-semibold">{ORIGENES[t.origen]}</dd>
+                            </div>
+                            <div className="grid gap-0.5">
+                                <dt className="text-muted-foreground">Actualizado</dt>
+                                <dd className="font-semibold tabular-nums">{haceCuanto(t.actualizadoEn, ahora)}</dd>
+                            </div>
+                        </dl>
+                        <div className="grid gap-2.5 border-t border-border pt-3">
+                            <div className="grid gap-1">
+                                <span className="text-xs font-medium text-muted-foreground">SLA de primera respuesta</span>
+                                <SlaVisible reloj={t.slaRespuesta} tipo="respuesta" ahora={ahora} />
+                            </div>
+                            <div className="grid gap-1">
+                                <span className="text-xs font-medium text-muted-foreground">SLA de resolución</span>
+                                <SlaVisible reloj={t.slaResolucion} tipo="resolucion" ahora={ahora} />
+                            </div>
+                        </div>
+                    </section>
                     {t.contacto.verificado ? null : (
                         <Aviso tono="warning" titulo="Contacto sin verificar" icono={ShieldAlert}>
-                            El ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM): cualquiera puede escribir ese «De:».
-                            Confirma la identidad por otro medio antes de dar datos de la cuenta o hacer cambios.
+                            El ticket nació de un correo cuyo remitente no se pudo autenticar (DMARC/DKIM): cualquiera puede escribir ese «De:». Confirma la
+                            identidad por otro medio antes de dar datos de la cuenta o hacer cambios.
                         </Aviso>
                     )}
                     <FichaCliente ticket={t} enlaces={enlaces} />
+                    <TicketsHijos ticketId={t.id} />
                     {puede(["encuestas.ver"]) ? <TarjetaEncuesta key={t.estado} filtro={{ ticketId: t.id }} /> : null}
                 </aside>
             </div>
-        </>
+        </div>
     );
 }
 
-function Conversacion({ paginado, veNotas, ahora }: { paginado: Paginado<Mensaje>; veNotas: boolean; ahora: number }) {
+function Conversacion({ paginado, veNotas, ahora, children }: { paginado: Paginado<Mensaje>; veNotas: boolean; ahora: number; children?: ReactNode }) {
     const { primera, items } = paginado;
     return (
         <Tarjeta>
@@ -324,7 +336,11 @@ function Conversacion({ paginado, veNotas, ahora }: { paginado: Paginado<Mensaje
                                         ) : m.publico ? null : (
                                             <InsigniaEstado tono="warning" icono={Lock} texto="Nota interna" />
                                         )}
-                                        <time className="ml-auto text-xs text-muted-foreground tabular-nums" dateTime={m.creadoEn} title={formatearFecha(m.creadoEn)}>
+                                        <time
+                                            className="ml-auto text-xs text-muted-foreground tabular-nums"
+                                            dateTime={m.creadoEn}
+                                            title={formatearFecha(m.creadoEn)}
+                                        >
                                             {haceCuanto(m.creadoEn, ahora)}
                                         </time>
                                     </div>
@@ -342,6 +358,7 @@ function Conversacion({ paginado, veNotas, ahora }: { paginado: Paginado<Mensaje
                 )}
                 <PieLista paginado={paginado} que="mensajes" />
             </TarjetaContenido>
+            {children}
         </Tarjeta>
     );
 }

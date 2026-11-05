@@ -77,26 +77,37 @@ describe("menú por permisos", () => {
         expect(entradaActiva("/usuariosx")).toBeUndefined();
     });
 
-    it("agrupa como la propuesta: Operación, Equipo, Ventas, Análisis y Administración", () => {
-        expect(GRUPOS.map((g) => g.etiqueta)).toEqual(["Operación", "Equipo", "Ventas", "Análisis", "Administración"]);
+    it("agrupa como el nuevo diseño: la operación arriba (sin título visible), Negocio y Administración", () => {
+        expect(GRUPOS.map((g) => g.etiqueta)).toEqual(["Operación", "Negocio", "Administración"]);
+        expect(GRUPOS.find((g) => g.id === "operacion")?.tituloOculto).toBe(true);
         const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
         const grupos = menuAgrupado(todos).map((g) => [g.etiqueta, g.entradas.map((e) => e.etiqueta)]);
         expect(grupos).toEqual([
-            ["Operación", ["Inicio", "Tickets", "Órdenes", "Agenda", "Despacho"]],
-            ["Equipo", ["Técnicos", "Usuarios"]],
-            ["Ventas", ["Comercial", "Encuestas"]],
-            ["Análisis", ["Reportes"]],
-            ["Administración", ["Administración"]],
+            ["Operación", ["Inicio", "Tickets", "Órdenes y tareas", "Agenda", "Mapa", "Técnicos"]],
+            ["Negocio", ["Comercial", "Encuestas", "Reportes"]],
+            ["Administración", ["Usuarios", "Administración"]],
         ]);
         // Sin permisos de un grupo, el grupo no aparece.
         expect(menuAgrupado(["tickets.ver"]).map((g) => g.etiqueta)).toEqual(["Operación"]);
     });
 
+    it("Despacho no tiene entrada en la barra lateral, pero el buscador lo encuentra (menuVisible)", () => {
+        const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
+        expect(menuAgrupado(todos).flatMap((g) => g.entradas.map((e) => e.href))).not.toContain("/despacho");
+        expect(menuVisible(["agenda.ver"]).map((e) => e.href)).toContain("/despacho");
+    });
+
+    it("el Mapa se ve con agenda.ver o con campo.ver_posiciones", () => {
+        expect(menuVisible(["agenda.ver"]).map((e) => e.href)).toContain("/mapa");
+        expect(menuVisible(["campo.ver_posiciones"]).map((e) => e.href)).toContain("/mapa");
+        expect(menuVisible(["tickets.ver"]).map((e) => e.href)).not.toContain("/mapa");
+    });
+
     it("teléfono: barra inferior con lo principal que se puede ver; el resto va en «Más»", () => {
         const todos = [...new Set(MENU.flatMap((e) => e.permisos ?? []))];
         const { barra, resto } = repartoTelefono(todos);
-        expect(barra.map((e) => e.etiqueta)).toEqual(["Inicio", "Tickets", "Órdenes", "Agenda"]);
-        expect(resto.flatMap((g) => g.entradas.map((e) => e.etiqueta))).toEqual(["Despacho", "Técnicos", "Usuarios", "Comercial", "Encuestas", "Reportes", "Administración"]);
+        expect(barra.map((e) => e.etiquetaCorta ?? e.etiqueta)).toEqual(["Inicio", "Tickets", "Órdenes", "Agenda"]);
+        expect(resto.flatMap((g) => g.entradas.map((e) => e.etiqueta))).toEqual(["Mapa", "Técnicos", "Comercial", "Encuestas", "Reportes", "Usuarios", "Administración"]);
         const soloTickets = repartoTelefono(["tickets.ver"]);
         expect(soloTickets.barra.map((e) => e.etiqueta)).toEqual(["Inicio", "Tickets"]);
         expect(soloTickets.resto).toEqual([]);

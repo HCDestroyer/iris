@@ -31,8 +31,8 @@ export function useNombreEnMigas(nombre: string | null | undefined) {
 }
 
 /** Migas de la pantalla actual, arriba del contenido del panel. */
-export function MigasPanel() {
+export function MigasPanel({ className = "mb-3" }: { className?: string }) {
     const ruta = usePathname();
     const contexto = useContext(Contexto);
-    return <Migas migas={migasDeRuta(ruta, contexto?.nombre)} className="mb-3" />;
+    return <Migas migas={migasDeRuta(ruta, contexto?.nombre)} className={className} />;
 }

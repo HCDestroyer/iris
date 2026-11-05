@@ -78,6 +78,11 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ListarTickets.Ejecutar(ctx, *in))
 		})
 
+	huma.Register(api, operacion("resumirTickets", http.MethodGet, "/api/v1/tickets/resumen", "Resumen de la bandeja: contadores, tickets urgentes y los últimos 7 días", nucleo.PermTicketsVer, http.StatusOK),
+		func(ctx context.Context, _ *struct{}) (*cuerpo[ResumenTickets], error) {
+			return responder(m.ResumirTickets.Ejecutar(ctx, EntradaResumirTickets{}))
+		})
+
 	crear := operacion("crearTicket", http.MethodPost, "/api/v1/tickets", "Crear un ticket", nucleo.PermTicketsCrear, http.StatusCreated)
 	crear.Description += " Calcula el SLA (categoría → SLA, o el por defecto; objetivos de la prioridad) y emite `ticket.creado`."
 	huma.Register(api, crear, func(ctx context.Context, in *conClave[EntradaCrearTicket]) (*cuerpo[Ticket], error) {

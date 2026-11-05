@@ -3227,6 +3227,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/resumen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resumen de la bandeja: contadores, tickets urgentes y los últimos 7 días
+         * @description Permiso: `tickets.ver`.
+         */
+        get: operations["resumirTickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}": {
         parameters: {
             query?: never;
@@ -4981,6 +5001,35 @@ export interface components {
             ruta: string;
             /** @enum {string} */
             tipo: "ticket" | "orden" | "prospecto";
+        };
+        DiaTickets: {
+            /** Format: int64 */
+            creados: number;
+            /**
+             * Format: date
+             * @description Día local (YYYY-MM-DD, America/Guatemala)
+             */
+            dia: string;
+            /**
+             * Format: int64
+             * @description Resueltos ese día (sin los fusionados, como el reporte de SLA)
+             */
+            resueltos: number;
+            /**
+             * Format: int64
+             * @description De los resueltos, los que tenían SLA de resolución
+             */
+            resueltosConSla: number;
+            /**
+             * Format: int64
+             * @description De los resueltos con SLA, los resueltos dentro del plazo
+             */
+            resueltosEnSla: number;
+            /**
+             * Format: int64
+             * @description Tickets cuyo plazo de resolución cayó ese día, ya pasó y no se resolvieron a tiempo
+             */
+            vencidos: number;
         };
         Distribucion: {
             /** Format: int64 */
@@ -8886,6 +8935,49 @@ export interface components {
             imap: components["schemas"]["PruebaServidor"];
             /** @description Ausente si el buzón no tiene SMTP */
             smtp?: components["schemas"]["PruebaServidor"];
+        };
+        ResumenTickets: {
+            /**
+             * Format: int64
+             * @description Tickets nuevos, abiertos o en espera
+             */
+            activos: number;
+            /** Format: date-time */
+            calculadoEn: string;
+            /** @description Hoy y los 6 días anteriores (America/Guatemala), del más antiguo a hoy */
+            dias: components["schemas"]["DiaTickets"][] | null;
+            /**
+             * Format: int64
+             * @description En espera (su SLA de resolución está en pausa)
+             */
+            enEspera: number;
+            /**
+             * Format: int64
+             * @description Activos asignados al actor (0 si no es un usuario)
+             */
+            mios: number;
+            /**
+             * Format: int64
+             * @description Activos sin usuario asignado
+             */
+            sinAsignar: number;
+            /**
+             * Format: int64
+             * @description Nuevos o abiertos con el SLA de resolución en riesgo (aún sin vencer)
+             */
+            slaEnRiesgo: number;
+            /**
+             * Format: int64
+             * @description Nuevos o abiertos cuyo SLA de resolución vence antes del fin de hoy (America/Guatemala), sin contar los ya vencidos
+             */
+            slaVenceHoy: number;
+            /**
+             * Format: int64
+             * @description Nuevos o abiertos con el SLA de resolución vencido
+             */
+            slaVencidos: number;
+            /** @description Hasta 5 tickets nuevos o abiertos con el SLA de resolución en riesgo o vencido; el que vence antes primero */
+            urgentes: components["schemas"]["Ticket"][] | null;
         };
         Rol: {
             /** @description Un rol desactivado no da permisos ni se puede asignar */
@@ -22952,6 +23044,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    resumirTickets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenTickets"];
                 };
             };
             /** @description Unauthorized */

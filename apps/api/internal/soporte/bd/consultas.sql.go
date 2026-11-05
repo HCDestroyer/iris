@@ -8,6 +8,8 @@ package soportebd
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const alcancesDePermisoDeUsuario = `-- name: AlcancesDePermisoDeUsuario :many
@@ -1031,6 +1033,78 @@ func (q *Queries) ReclamarAlertaSLA(ctx context.Context, arg ReclamarAlertaSLAPa
 	return result.RowsAffected(), nil
 }
 
+const resumenTickets = `-- name: ResumenTickets :one
+
+SELECT
+  count(*)::bigint AS activos,
+  count(*) FILTER (WHERE $1::bigint IS NOT NULL AND asignado_a = $1)::bigint AS mios,
+  count(*) FILTER (WHERE asignado_a IS NULL)::bigint AS sin_asignar,
+  count(*) FILTER (WHERE estado = 'en_espera')::bigint AS en_espera,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion > $2::timestamptz
+                   AND riesgo_resolucion IS NOT NULL AND riesgo_resolucion <= $2::timestamptz)::bigint AS sla_en_riesgo,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion <= $2::timestamptz)::bigint AS sla_vencidos,
+  count(*) FILTER (WHERE estado <> 'en_espera' AND vence_resolucion IS NOT NULL AND vence_resolucion > $2::timestamptz
+                   AND vence_resolucion < $3::timestamptz)::bigint AS sla_vence_hoy
+FROM soporte.tickets
+WHERE estado IN ('nuevo', 'abierto', 'en_espera')
+  AND ($4::boolean
+       OR ($5::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = $5)
+  AND ($6::boolean
+       OR zona_id = ANY($7::bigint[])
+       OR cuadrilla_id = ANY($8::bigint[])
+       OR ($1::bigint IS NOT NULL AND asignado_a = $1))
+`
+
+type ResumenTicketsParams struct {
+	ActorID       *int64
+	Ahora         time.Time
+	FinHoy        time.Time
+	TodasEmpresas bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
+}
+
+type ResumenTicketsRow struct {
+	Activos     int64
+	Mios        int64
+	SinAsignar  int64
+	EnEspera    int64
+	SlaEnRiesgo int64
+	SlaVencidos int64
+	SlaVenceHoy int64
+}
+
+// Resumen de la bandeja (Inicio del panel y contadores de las vistas) -------------
+// Mismo filtro de empresa y alcance que ListarTickets. Solo lectura.
+// Conteos de los tickets vivos (nuevo, abierto, en espera). El SLA de resolución se pausa en
+// espera, así que «en riesgo», «vencido» y «vence hoy» solo cuentan nuevo y abierto.
+func (q *Queries) ResumenTickets(ctx context.Context, arg ResumenTicketsParams) (ResumenTicketsRow, error) {
+	row := q.db.QueryRow(ctx, resumenTickets,
+		arg.ActorID,
+		arg.Ahora,
+		arg.FinHoy,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
+	)
+	var i ResumenTicketsRow
+	err := row.Scan(
+		&i.Activos,
+		&i.Mios,
+		&i.SinAsignar,
+		&i.EnEspera,
+		&i.SlaEnRiesgo,
+		&i.SlaVencidos,
+		&i.SlaVenceHoy,
+	)
+	return i, err
+}
+
 const sLAPorDefecto = `-- name: SLAPorDefecto :one
 SELECT id, empresa_id, codigo, nombre, calendario_id, por_defecto, activo, version, created_at, updated_at FROM soporte.slas
 WHERE por_defecto AND activo AND (empresa_id IS NULL OR empresa_id = $1)
@@ -1077,6 +1151,95 @@ func (q *Queries) SLAPorID(ctx context.Context, id int64) (SoporteSla, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const serieTicketsPorDia = `-- name: SerieTicketsPorDia :many
+SELECT d.dia::date AS dia,
+  count(t.id) FILTER (WHERE (t.created_at AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS creados,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.vence_resolucion IS NOT NULL
+                      AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos_con_sla,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.vence_resolucion IS NOT NULL AND t.resuelto_en <= t.vence_resolucion
+                      AND (t.resuelto_en AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS resueltos_en_sla,
+  count(t.id) FILTER (WHERE t.fusionado_en_id IS NULL AND t.estado <> 'en_espera' AND t.vence_resolucion <= $1::timestamptz
+                      AND (t.resuelto_en IS NULL OR t.resuelto_en > t.vence_resolucion)
+                      AND (t.vence_resolucion AT TIME ZONE 'America/Guatemala')::date = d.dia::date)::bigint AS vencidos
+FROM generate_series($2::date, $3::date, interval '1 day') AS d(dia)
+LEFT JOIN soporte.tickets t
+  ON (t.created_at >= $4::timestamptz OR t.resuelto_en >= $4::timestamptz OR t.vence_resolucion >= $4::timestamptz)
+  AND ($5::boolean
+       OR ($6::bigint IS NULL AND t.empresa_id IS NULL)
+       OR t.empresa_id = $6)
+  AND ($7::boolean
+       OR t.zona_id = ANY($8::bigint[])
+       OR t.cuadrilla_id = ANY($9::bigint[])
+       OR ($10::bigint IS NOT NULL AND t.asignado_a = $10))
+GROUP BY d.dia
+ORDER BY d.dia
+`
+
+type SerieTicketsPorDiaParams struct {
+	Ahora         time.Time
+	PrimerDia     pgtype.Date
+	UltimoDia     pgtype.Date
+	Desde         time.Time
+	TodasEmpresas bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
+	ActorID       *int64
+}
+
+type SerieTicketsPorDiaRow struct {
+	Dia             pgtype.Date
+	Creados         int64
+	Resueltos       int64
+	ResueltosConSla int64
+	ResueltosEnSla  int64
+	Vencidos        int64
+}
+
+// Por día local (America/Guatemala), de @primer_dia a @ultimo_dia: creados, resueltos (sin los
+// fusionados, como el reporte de SLA), resueltos con SLA y dentro de él, y vencidos (el plazo de
+// resolución cayó ese día, ya pasó y el ticket no se resolvió a tiempo; los en espera no cuentan:
+// su plazo está en pausa).
+func (q *Queries) SerieTicketsPorDia(ctx context.Context, arg SerieTicketsPorDiaParams) ([]SerieTicketsPorDiaRow, error) {
+	rows, err := q.db.Query(ctx, serieTicketsPorDia,
+		arg.Ahora,
+		arg.PrimerDia,
+		arg.UltimoDia,
+		arg.Desde,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
+		arg.ActorID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SerieTicketsPorDiaRow
+	for rows.Next() {
+		var i SerieTicketsPorDiaRow
+		if err := rows.Scan(
+			&i.Dia,
+			&i.Creados,
+			&i.Resueltos,
+			&i.ResueltosConSla,
+			&i.ResueltosEnSla,
+			&i.Vencidos,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ticketPorID = `-- name: TicketPorID :one
@@ -1322,6 +1485,113 @@ func (q *Queries) TicketPorIdempotencia(ctx context.Context, idempotencia *strin
 		&i.PropuestaOrdenID,
 	)
 	return i, err
+}
+
+const ticketsUrgentes = `-- name: TicketsUrgentes :many
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets
+WHERE estado IN ('nuevo', 'abierto')
+  AND vence_resolucion IS NOT NULL
+  AND (vence_resolucion <= $1::timestamptz OR (riesgo_resolucion IS NOT NULL AND riesgo_resolucion <= $1::timestamptz))
+  AND ($2::boolean
+       OR ($3::bigint IS NULL AND empresa_id IS NULL)
+       OR empresa_id = $3)
+  AND ($4::boolean
+       OR zona_id = ANY($5::bigint[])
+       OR cuadrilla_id = ANY($6::bigint[])
+       OR ($7::bigint IS NOT NULL AND asignado_a = $7))
+ORDER BY vence_resolucion, id
+LIMIT $8
+`
+
+type TicketsUrgentesParams struct {
+	Ahora         time.Time
+	TodasEmpresas bool
+	EmpresaID     *int64
+	AlcanceGlobal bool
+	Zonas         []int64
+	Cuadrillas    []int64
+	ActorID       *int64
+	Limite        int32
+}
+
+// Tickets nuevos o abiertos con el SLA de resolución en riesgo o vencido: el que vence antes primero.
+func (q *Queries) TicketsUrgentes(ctx context.Context, arg TicketsUrgentesParams) ([]SoporteTicket, error) {
+	rows, err := q.db.Query(ctx, ticketsUrgentes,
+		arg.Ahora,
+		arg.TodasEmpresas,
+		arg.EmpresaID,
+		arg.AlcanceGlobal,
+		arg.Zonas,
+		arg.Cuadrillas,
+		arg.ActorID,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SoporteTicket
+	for rows.Next() {
+		var i SoporteTicket
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.ContactoCorreo,
+			&i.CategoriaID,
+			&i.Prioridad,
+			&i.Estado,
+			&i.Origen,
+			&i.Asunto,
+			&i.AsignadoA,
+			&i.CuadrillaID,
+			&i.NivelEscalamiento,
+			&i.SlaID,
+			&i.CalendarioID,
+			&i.SlaInicio,
+			&i.SlaRespuestaMin,
+			&i.SlaResolucionMin,
+			&i.PausaSeg,
+			&i.RiesgoRespuesta,
+			&i.VenceRespuesta,
+			&i.RiesgoResolucion,
+			&i.VenceResolucion,
+			&i.PrimeraRespuestaEn,
+			&i.EnEsperaDesde,
+			&i.ResueltoEn,
+			&i.CerradoEn,
+			&i.TicketPadreID,
+			&i.FusionadoEnID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Idempotencia,
+			&i.ContactoVerificado,
+			&i.Maestro,
+			&i.RouterID,
+			&i.InfraID,
+			&i.IncidenteNombre,
+			&i.HallazgoID,
+			&i.UrlHorus,
+			&i.Propuesta,
+			&i.PropuestaEn,
+			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const tocarTicket = `-- name: TocarTicket :one

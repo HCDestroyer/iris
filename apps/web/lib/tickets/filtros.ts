@@ -47,12 +47,29 @@ export function consultaDeFiltros(f: Filtros, usuarioId: number): ConsultaTicket
 
 export type Vista = { id: string; nombre: string; filtros: Filtros; propia: boolean };
 
-export const VISTAS_PREDEFINIDAS: readonly Vista[] = [
-    { id: "activos", nombre: "Activos", filtros: FILTROS_INICIALES, propia: false },
-    { id: "mios", nombre: "Asignados a mí", filtros: { ...FILTROS_INICIALES, asignacion: "mios" }, propia: false },
-    { id: "sin_asignar", nombre: "Sin asignar", filtros: { ...FILTROS_INICIALES, asignacion: "sin_asignar" }, propia: false },
+/**
+ * Pestañas de la bandeja (nuevo diseño): cada una con su contador del resumen
+ * (`GET /tickets/resumen`). `contador` dice qué número del resumen le corresponde; «Todos» no
+ * lleva número (incluye resueltos y cerrados, que el resumen no cuenta).
+ */
+export type CampoContador = "activos" | "mios" | "sinAsignar" | "enEspera";
+
+export const VISTAS_PREDEFINIDAS: readonly (Vista & { contador?: CampoContador })[] = [
+    { id: "activos", nombre: "Activos", filtros: FILTROS_INICIALES, propia: false, contador: "activos" },
+    { id: "mios", nombre: "Asignados a mí", filtros: { ...FILTROS_INICIALES, asignacion: "mios" }, propia: false, contador: "mios" },
+    { id: "sin_asignar", nombre: "Sin asignar", filtros: { ...FILTROS_INICIALES, asignacion: "sin_asignar" }, propia: false, contador: "sinAsignar" },
+    { id: "en_espera", nombre: "En espera", filtros: { ...FILTROS_INICIALES, estado: "en_espera" }, propia: false, contador: "enEspera" },
     { id: "todos", nombre: "Todos", filtros: { ...FILTROS_INICIALES, estado: "todos" }, propia: false },
 ];
+
+/** Vista pedida por la URL (`/tickets?vista=sin_asignar`, desde Inicio o «Mis vistas»); si no existe, ninguna. */
+export function vistaDeUrl(id: string | null, propias: readonly Vista[]): Vista | undefined {
+    if (!id) return undefined;
+    return [...VISTAS_PREDEFINIDAS, ...propias].find((v) => v.id === id);
+}
+
+/** Aviso entre pestañas de la misma página: la barra lateral («Mis vistas») se entera al guardar. */
+export const EVENTO_VISTAS = "iris-vistas-tickets";
 
 export function mismosFiltros(a: Filtros, b: Filtros): boolean {
     return a.estado === b.estado && a.prioridad === b.prioridad && a.categoria === b.categoria && a.asignacion === b.asignacion && a.q.trim() === b.q.trim();
@@ -88,4 +105,5 @@ export function leerVistas(usuarioId: number): Vista[] {
 
 export function guardarVistas(usuarioId: number, vistas: readonly Vista[]): void {
     escribirLocal(clave(usuarioId), JSON.stringify(vistas.map(({ id, nombre, filtros }) => ({ id, nombre, filtros }))));
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(EVENTO_VISTAS));
 }

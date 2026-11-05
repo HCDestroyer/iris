@@ -17,7 +17,7 @@ import {
     valoresTecnico,
     valoresTurnos,
 } from "./esquemas";
-import { conflictosDe, cuadriculaMes, etiquetaMes, inicioMes, resumenPorDia, sumarMeses, textoConflicto, trozos, unirCalendarios, vistaDeUrl } from "./mes";
+import { conflictosDe, cuadriculaMes, etiquetaMes, inicioMes, resumenPorDia, sinTecnicoPorDia, sumarMeses, textoConflicto, trozos, unirCalendarios, vistaDeUrl } from "./mes";
 import { MENU, menuVisible } from "@/lib/menu";
 import { esDia } from "@/lib/despacho/fechas";
 
@@ -248,5 +248,21 @@ describe("menú de técnicos", () => {
         expect(menuVisible(["agenda.crear_cuadrilla"]).map((e) => e.href)).toContain("/administracion");
         expect(menuVisible(["agenda.crear_zona"]).map((e) => e.href)).toContain("/administracion");
         expect(MENU.find((e) => e.href === "/tecnicos")?.etiqueta).toBe("Técnicos");
+    });
+});
+
+describe("órdenes sin técnico por día", () => {
+    it("cuenta por el día de Guatemala de programadaInicio; las que tienen técnico o no tienen fecha no cuentan", () => {
+        const r = sinTecnicoPorDia(
+            [
+                { programadaInicio: "2026-11-05T20:00:00Z", tecnicoId: null },
+                { programadaInicio: "2026-11-06T03:00:00Z", tecnicoId: null }, // 21:00 del 5 en Guatemala
+                { programadaInicio: "2026-11-05T20:00:00Z", tecnicoId: 3 },
+                { programadaInicio: null, tecnicoId: null },
+                { programadaInicio: "2026-12-01T20:00:00Z", tecnicoId: null },
+            ],
+            ["2026-11-05", "2026-11-06"],
+        );
+        expect([...r]).toEqual([["2026-11-05", 2]]);
     });
 });

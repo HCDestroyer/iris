@@ -1,6 +1,6 @@
 "use client";
 
-import { GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { GrupoSegmentado } from "@iris/ui";
 import { CalendarDays, CalendarRange, LayoutGrid } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -9,7 +9,6 @@ import { AgendaTecnicos } from "@/componentes/despacho/agenda-tecnicos";
 import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
 import { FiltrosAgenda, NavegacionDias } from "@/componentes/despacho/controles";
 import { useCatalogosAgenda, useDatosAgenda, type FiltrosDespacho } from "@/componentes/despacho/datos";
-import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { cuadriculaMes, etiquetaMes, vistaDeUrl, type VistaAgenda } from "@/lib/agenda/mes";
 import { api, resolver } from "@/lib/api/cliente";
 import type { Tecnico } from "@/lib/despacho/calendario";
@@ -62,7 +61,7 @@ function useEstadoAgenda() {
  * la zona elegidas. Hasta 200: si hay más, el filtro lo dice.
  */
 function useTecnicosFiltro(cuadrillaId: number | null, zonaId: number | null) {
-    return useLectura<{ lista: Tecnico[]; cortada: boolean }>(async (signal) => {
+    const lectura = useLectura<{ lista: Tecnico[]; cortada: boolean }>(async (signal) => {
         const p = await resolver(
             api().GET("/api/v1/tecnicos", {
                 params: { query: { limit: 200, ...(cuadrillaId !== null ? { cuadrillaId } : {}), ...(zonaId !== null ? { zonaId } : {}) } },
@@ -71,69 +70,100 @@ function useTecnicosFiltro(cuadrillaId: number | null, zonaId: number | null) {
         );
         return { lista: p.data ?? [], cortada: p.nextCursor !== null };
     });
-}
-
-function FiltrosConTecnicos(props: Omit<Parameters<typeof FiltrosAgenda>[0], "tecnicos">) {
-    const tecnicos = useTecnicosFiltro(props.filtros.cuadrillaId, props.filtros.zonaId);
-    return <FiltrosAgenda {...props} tecnicos={tecnicos} />;
+    // Al cambiar la cuadrilla o la zona, la lista se vuelve a leer (con esos filtros).
+    const { reintentar } = lectura;
+    const primera = useRef(true);
+    useEffect(() => {
+        if (primera.current) {
+            primera.current = false;
+            return;
+        }
+        reintentar();
+    }, [cuadrillaId, zonaId, reintentar]);
+    return lectura;
 }
 
 /**
- * Agenda: calendario de mes (por día, cuántas órdenes y en qué estado), semana y día (por técnico
- * y franja horaria, con las órdenes sin programar). Al tocar un día del mes se abre su detalle,
- * desde donde se programa o asigna con las acciones explícitas de campo.
+ * Agenda (nuevo diseño): pestañas «Día por técnico», «Semana» y «Mes». El mes muestra por día
+ * cuántas órdenes hay, conflictos, ausencias y órdenes sin técnico; al elegir un día, su resumen
+ * aparece al lado con «Abrir el día» y «Programar». Día y semana conservan el calendario por
+ * técnico con arrastrar para programar o reasignar, y «Mover a…» en el teléfono.
  */
 export function PantallaAgenda() {
     const { vista, dia, filtros, ir } = useEstadoAgenda();
     const catalogos = useCatalogosAgenda();
+    const tecnicos = useTecnicosFiltro(filtros.cuadrillaId, filtros.zonaId);
     const desde = vista === "semana" ? inicioSemana(dia) : dia;
-    const titulo = vista === "mes" ? etiquetaMes(dia) : vista === "dia" ? etiquetaDiaLarga(dia) : `Semana del ${etiquetaDia(desde)} al ${etiquetaDia(sumarDias(desde, 6))}`;
+    const titulo =
+        vista === "mes"
+            ? etiquetaMes(dia)
+            : vista === "dia"
+              ? etiquetaDiaLarga(dia)
+              : `Semana del ${etiquetaDia(desde)} al ${etiquetaDia(sumarDias(desde, 6))}`;
     const claveFiltros = `${filtros.tecnicoId}|${filtros.cuadrillaId}|${filtros.zonaId}`;
 
     return (
-        <>
-            <EncabezadoPagina
-                titulo="Agenda"
-                descripcion="Toca un día para ver sus órdenes por técnico y programar las pendientes. En semana y día, arrastra una cita o usa «Mover a…»."
-            />
-            <Tarjeta className="mb-4 grid gap-3 p-4 [&>*]:min-w-0">
-                <div className="flex flex-wrap items-end gap-3">
-                    <GrupoSegmentado
-                        etiqueta="Vista"
-                        valor={vista}
-                        alCambiar={(v) => ir({ vista: v })}
-                        opciones={[
-                            { valor: "mes", etiqueta: "Mes", icono: LayoutGrid },
-                            { valor: "semana", etiqueta: "Semana", icono: CalendarRange },
-                            { valor: "dia", etiqueta: "Día", icono: CalendarDays },
-                        ]}
-                    />
-                    <NavegacionDias dia={dia} paso={vista === "dia" ? 1 : vista === "semana" ? 7 : "mes"} alCambiar={(d) => ir({ dia: d })} />
-                </div>
-                <FiltrosConTecnicos
+        <div className="grid gap-4 [&>*]:min-w-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Agenda</h1>
+                <h2 className="mr-auto text-sm font-normal text-muted-foreground first-letter:uppercase" aria-live="polite">
+                    {titulo}
+                </h2>
+                <GrupoSegmentado
+                    etiqueta="Vista"
+                    valor={vista}
+                    alCambiar={(v) => ir({ vista: v })}
+                    opciones={[
+                        { valor: "dia", etiqueta: "Día por técnico", icono: CalendarDays },
+                        { valor: "semana", etiqueta: "Semana", icono: CalendarRange },
+                        { valor: "mes", etiqueta: "Mes", icono: LayoutGrid },
+                    ]}
+                />
+            </div>
+            <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 [&>*]:min-w-0">
+                <NavegacionDias dia={dia} paso={vista === "dia" ? 1 : vista === "semana" ? 7 : "mes"} alCambiar={(d) => ir({ dia: d })} />
+                <FiltrosAgenda
                     key={`${filtros.cuadrillaId}|${filtros.zonaId}`}
                     filtros={filtros}
                     alCambiar={(f) => ir({ filtros: f })}
                     zonas={catalogos.zonas}
                     cuadrillas={catalogos.cuadrillas}
+                    tecnicos={tecnicos}
                 />
-            </Tarjeta>
+            </div>
             <AvisoCatalogos {...catalogos} />
-            <Tarjeta className="grid gap-3 p-4 [&>*]:min-w-0">
-                <h2 className="text-base font-semibold first-letter:uppercase" aria-live="polite">
-                    {titulo}
-                </h2>
-                {vista === "mes" ? (
-                    <VistaMes key={`${cuadriculaMes(dia).desde}|${claveFiltros}`} dia={dia} filtros={filtros} alElegirDia={(d) => ir({ vista: "dia", dia: d }, true)} />
-                ) : (
+            {vista === "mes" ? (
+                <VistaMes
+                    key={`${cuadriculaMes(dia).desde}|${claveFiltros}`}
+                    dia={dia}
+                    filtros={filtros}
+                    tecnicos={tecnicos}
+                    alElegirDia={(d) => ir({ dia: d })}
+                    alAbrirDia={(d, programar) => {
+                        ir({ vista: "dia", dia: d }, true);
+                        if (programar) requestAnimationFrame(() => document.querySelector('[data-testid="sin-programar"]')?.scrollIntoView({ block: "start" }));
+                    }}
+                />
+            ) : (
+                <div className="grid gap-3 rounded-xl border border-border bg-card p-4 [&>*]:min-w-0">
                     <Calendario key={`${vista}|${desde}|${claveFiltros}`} vista={vista} desde={desde} filtros={filtros} catalogos={catalogos} />
-                )}
-            </Tarjeta>
-        </>
+                </div>
+            )}
+        </div>
     );
 }
 
-function Calendario({ vista, desde, filtros, catalogos }: { vista: "dia" | "semana"; desde: Dia; filtros: FiltrosDespacho; catalogos: ReturnType<typeof useCatalogosAgenda> }) {
+function Calendario({
+    vista,
+    desde,
+    filtros,
+    catalogos,
+}: {
+    vista: "dia" | "semana";
+    desde: Dia;
+    filtros: FiltrosDespacho;
+    catalogos: ReturnType<typeof useCatalogosAgenda>;
+}) {
     const datos = useDatosAgenda(desde, vista === "dia" ? 1 : 7, filtros);
     return (
         <AgendaTecnicos

@@ -152,14 +152,14 @@ export function BuscadorGlobal() {
             </Boton>
             <Boton
                 variante="contorno"
-                className="hidden w-56 justify-start gap-2 font-normal text-muted-foreground lg:inline-flex"
+                className="hidden h-9 w-full max-w-[21.25rem] justify-start gap-2 rounded-lg bg-background px-2.5 text-[0.8125rem] font-normal text-muted-foreground lg:inline-flex"
                 aria-label="Buscador global"
                 aria-keyshortcuts="Control+K Meta+K"
                 onClick={() => setAbierta(true)}
             >
                 <Search />
-                <span className="flex-1 text-left">Buscar…</span>
-                <kbd className="rounded-sm border px-1.5 text-xs text-dimmed">Ctrl K</kbd>
+                <span className="flex-1 truncate text-left">Buscar cliente, ticket, orden o prospecto</span>
+                <kbd className="rounded-[0.3125rem] border border-border px-1.5 font-mono text-[0.6875rem] text-dimmed">Ctrl K</kbd>
             </Boton>
             <PaletaBusqueda
                 abierta={abierta}

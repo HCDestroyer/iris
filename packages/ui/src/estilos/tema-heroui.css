@@ -200,6 +200,16 @@
         cursor: not-allowed;
     }
 
+    /*
+     * La marca (control e indicador) se dibuja, pero no recibe el puntero: con una etiqueta solo
+     * para lectores (la casilla de una fila de tabla), el toque cae sobre la marca y debe llegar
+     * al `<input>` que la cubre.
+     */
+    .iris-entrada-cubierta [data-slot="checkbox-control"],
+    .iris-entrada-cubierta [data-slot="checkbox-control"] * {
+        pointer-events: none;
+    }
+
     /* El telón de las capas modales nunca es transparente ni desenfocado: oscurece. */
     .modal__backdrop,
     .alert-dialog__backdrop,

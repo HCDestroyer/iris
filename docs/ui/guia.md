@@ -151,6 +151,52 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris`, `MarcaIris` | No tienen equivalente en HeroUI (cámara con `<input capture>`, escáner con `BarcodeDetector`/ZXing, firma con pointer events, logo). Siguen como estaban, con los tokens del tema y `Boton` por dentro |
 | Animación de salida de modal, hoja y confirmación | Se desmontan en el acto: con salida animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo |
 
+## Nuevo diseño del panel (nov. 2026, hecho)
+
+Diseño aprobado por el PM («Web-App»): una sola estructura para todo el panel y estilo sobrio
+(texto de 13–14 px, bordes de 1 px, radio de 8–12 px; el color solo para acciones y estados).
+Reemplaza lo que dicen las fases 1 y 3 donde no coincida.
+
+- **Colores del diseño → tokens existentes** (sin colores nuevos): lienzo `bg-background-secondary`
+  (`--hx-bg-muted`), bloques `bg-card` con `border-border` y `rounded-xl` (12 px), relleno tenue
+  `bg-elevated` (`--hx-bg-elevated`), marca `primary` (teal 700 / 400), estados `success`,
+  `warning`, `error`, `info` con fondo al 10 %. Bloques con el componente `Bloque`
+  (`componentes/bloque.tsx`).
+- **Barra lateral** (`lib/menu.ts`): la operación arriba sin título visible (Inicio, Tickets,
+  Órdenes y tareas, Agenda, Mapa, Técnicos), después **Negocio** (Comercial, Encuestas, Reportes),
+  **Administración** (Usuarios, Administración) y **Mis vistas** (las vistas guardadas de la
+  bandeja, `/tickets?vista=`). Tickets lleva su contador (`GET /tickets/resumen`, cada minuto). La
+  empresa va arriba y la cuenta (iniciales, nombre y rol), el tema y «Contraer» al pie. Despacho no
+  tiene entrada: se abre desde el Mapa («Rutas y despacho») y con el buscador.
+- **Barra superior:** migas a la izquierda (en escritorio), buscador global (Ctrl/⌘ + K), «Avisos»
+  (punto rojo solo con SLA vencido o en riesgo; el panel lista lo urgente) y «Crear» (menú con
+  Nuevo ticket, Nueva orden y Nuevo prospecto, según permisos).
+- **Teléfono:** la barra inferior sigue (Inicio, Tickets, Órdenes, Agenda, Más) y «Más» es la
+  barra lateral entera en una hoja, con sus contadores y «Mis vistas».
+- **Inicio:** 4 indicadores con tendencia de 7 días (Tickets activos, SLA en riesgo, Órdenes de
+  hoy, SLA cumplido), «Necesita tu atención» (tickets con SLA en riesgo o vencido, con «Asignar» o
+  «Abrir», y órdenes sin técnico con «Programar»), «Equipo hoy» (avance y estado de cada técnico:
+  `lib/inicio/equipo.ts`), «Tickets por día» y «SLA por categoría» (`reportes.ver`). Cada bloque
+  aparece solo con su permiso y, si su lectura falla, dice «Reintentar» sin números.
+- **Tickets:** lista a todo el ancho; pestañas de vistas con contador (Activos, Asignados a mí, Sin
+  asignar, En espera, Todos y las propias), filtros como chips (listas nativas) y, con
+  `tickets.asignar`, selección múltiple con «Asignar…» (una acción por ticket, con su `version`; si
+  alguno falla, se dice cuál).
+- **Ficha del ticket:** barra de acciones (`toolbar`): Asignar, Escalar, Crear orden, Resolver
+  (principal) y «⋯» (poner en espera, reanudar, reabrir, fusionar, cerrar). Cada acción es un
+  **diálogo corto** (`DialogoProtegido`) con telón. Pestañas **Conversación · Órdenes · Historial**;
+  responder y la nota interna van en el redactor al pie de la conversación (pregunta antes de
+  salir con un mensaje sin enviar). A la derecha, solo «Detalle» (responsable, categoría, SLA…) y el
+  cliente. `?accion=asignar` abre el diálogo al entrar (desde Inicio).
+- **Agenda:** pestañas Día por técnico · Semana · Mes. El mes marca hoy, dice por día cuántas
+  órdenes hay, conflictos, ausencias y órdenes sin técnico; al elegir un día su resumen aparece al
+  lado (en el teléfono, arriba) con «Abrir el día» y «Programar». Día y semana no cambian
+  (arrastrar para programar, «Mover a…»).
+- **Mapa** (`/mapa`, `agenda.ver` o `campo.ver_posiciones`): MapLibre con teselas OSM, lista con
+  Técnicos · Órdenes · Red, leyenda (en sitio, en camino, sin señal, orden sin asignar) y tarjeta
+  del técnico (orden actual, siguiente, «Asignar orden» y «Ruta»). «Red» queda vacía hasta que haya
+  una lectura de la red de Horus (`.claude/integration/i3.md`).
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**
