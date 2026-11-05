@@ -4,6 +4,12 @@ import Dexie, { type DexieOptions, type Table } from "dexie";
 import type { Almacen, CambiosTabla, ContenidoAlmacen, LoteEscritura } from "./almacen";
 import { META_INICIAL, type AdjuntoLocal, type MetaSync, type OperacionLocal, type OrdenLocal } from "./modelo";
 import type { AlmacenPosiciones, CambiosPosiciones, PosicionLocal } from "./posiciones";
+import { META_CHAT_INICIAL, type AlmacenChat, type ContenidoChat, type ConversacionChat, type LoteChat, type MensajeChat, type MetaChat, type SalidaChat } from "./chat/tipos";
+
+interface FilaMetaChat {
+    clave: keyof MetaChat;
+    valor: unknown;
+}
 
 interface FilaMeta {
     clave: keyof MetaSync;
@@ -22,6 +28,11 @@ class BaseSync extends Dexie {
     bytes!: Table<FilaBytes, string>;
     meta!: Table<FilaMeta, string>;
     posiciones!: Table<PosicionLocal, number>;
+    chatSalida!: Table<SalidaChat, string>;
+    chatConversaciones!: Table<ConversacionChat, number>;
+    chatMensajes!: Table<MensajeChat, string>;
+    chatBytes!: Table<FilaBytes, string>;
+    chatMeta!: Table<FilaMetaChat, string>;
 
     constructor(nombre: string, opciones?: DexieOptions) {
         super(nombre, opciones);
@@ -56,6 +67,20 @@ class BaseSync extends Dexie {
             meta: "clave",
             posiciones: "ms",
         });
+        // Versión 4: chat interno (cola de salida con sus fotos y caché de conversaciones y mensajes).
+        this.version(4).stores({
+            operaciones: "id, secuencia, ordenId",
+            ordenes: "id",
+            adjuntos: "id, ordenId",
+            bytes: "id",
+            meta: "clave",
+            posiciones: "ms",
+            chatSalida: "id, secuencia",
+            chatConversaciones: "id",
+            chatMensajes: "id, conversacion_id",
+            chatBytes: "id",
+            chatMeta: "clave",
+        });
     }
 }
 
@@ -75,7 +100,7 @@ export interface OpcionesAlmacenDexie {
     dexie?: DexieOptions;
 }
 
-export class AlmacenDexie implements Almacen, AlmacenPosiciones {
+export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
     private readonly db: BaseSync;
 
     constructor(opciones: OpcionesAlmacenDexie) {
@@ -124,6 +149,50 @@ export class AlmacenDexie implements Almacen, AlmacenPosiciones {
     async escribirPosiciones(cambios: CambiosPosiciones): Promise<void> {
         await this.db.transaction("rw", this.db.posiciones, async () => {
             await aplicar(this.db.posiciones, cambios);
+        });
+    }
+
+    async cargarChat(): Promise<ContenidoChat> {
+        const t = [this.db.chatSalida, this.db.chatConversaciones, this.db.chatMensajes, this.db.chatMeta];
+        return this.db.transaction("r", t, async () => {
+            const [salida, conversaciones, mensajes, filas] = await Promise.all([
+                this.db.chatSalida.orderBy("secuencia").toArray(),
+                this.db.chatConversaciones.toArray(),
+                this.db.chatMensajes.toArray(),
+                this.db.chatMeta.toArray(),
+            ]);
+            const meta: Record<string, unknown> = { ...structuredClone(META_CHAT_INICIAL) };
+            for (const fila of filas) {
+                meta[fila.clave] = fila.valor;
+            }
+            return { salida, conversaciones, mensajes, meta: meta as unknown as MetaChat };
+        });
+    }
+
+    async escribirChat(lote: LoteChat): Promise<void> {
+        const t = [this.db.chatSalida, this.db.chatConversaciones, this.db.chatMensajes, this.db.chatBytes, this.db.chatMeta];
+        await this.db.transaction("rw", t, async () => {
+            await aplicar(this.db.chatSalida, lote.salida);
+            await aplicar(this.db.chatConversaciones, lote.conversaciones);
+            await aplicar(this.db.chatMensajes, lote.mensajes);
+            await aplicar(this.db.chatBytes, lote.bytes);
+            if (lote.meta) {
+                await this.db.chatMeta.bulkPut(Object.entries(lote.meta).map(([clave, valor]) => ({ clave: clave as keyof MetaChat, valor })));
+            }
+        });
+    }
+
+    async leerBytesChat(id: string): Promise<Uint8Array | null> {
+        const fila = await this.db.chatBytes.get(id);
+        return fila ? fila.datos : null;
+    }
+
+    /** Borra la caché del chat (conversaciones, mensajes y cursor); la cola de salida queda. */
+    async borrarCacheChat(): Promise<void> {
+        await this.db.transaction("rw", [this.db.chatConversaciones, this.db.chatMensajes, this.db.chatMeta], async () => {
+            await this.db.chatConversaciones.clear();
+            await this.db.chatMensajes.clear();
+            await this.db.chatMeta.bulkDelete(["cursor", "cargadas"]);
         });
     }
 
