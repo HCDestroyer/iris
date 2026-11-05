@@ -94,6 +94,28 @@ services:
       IRIS_ADJUNTOS_DIR: /tmp/adjuntos
       IRIS_LOG_NIVEL: warn
 
+  # mensajeria no se levanta en la carga, pero como la API y el worker queda sin MinIO (adjuntos en
+  # un directorio local) y sin depender de minio-init ni mailpit.
+  mensajeria:
+    image: iris/api:${IRIS_CARGA_TAG:-carga}
+    env_file: !override
+      - path: ../.env.example
+        required: true
+    build: !reset null
+    volumes: !reset []
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrar:
+        condition: service_completed_successfully
+    environment:
+      IRIS_CORREO_CA: ''
+      IRIS_ADJUNTOS_ALMACEN: local
+      IRIS_ADJUNTOS_DIR: /tmp/adjuntos
+      IRIS_LOG_NIVEL: warn
+
   # web no se levanta aquí, pero la base le fija una IP de la red de dev: se mueve a la de carga
   # para que un `up` sin servicios no falle por una IP fuera de la subred.
   web:

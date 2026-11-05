@@ -223,6 +223,8 @@ services:
   # proceso con el schema `mensajeria` de la misma base. Misma imagen que la API. Sin puerto
   # publicado: se llega por la API (/api/v1/mensajeria). Para probar sin WhatsApp, pon
   # IRIS_MENSAJERIA_SIMULADO=true en tu .env (solo dev y CI; con IRIS_BASE_URL https pública no arranca).
+  # Usa el mismo almacén de adjuntos que la API (MinIO, por x-api-env y el .env): borra la foto de un
+  # mensaje del chat eliminado. infra/produccion/verificar.sh comprueba que no diverjan.
   mensajeria:
     profiles: [app]
     image: iris/api:${IRIS_IMAGEN_TAG:-dev}
