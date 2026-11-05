@@ -118,6 +118,55 @@ export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
     );
 }
 
+/** Iniciales para el círculo de la cuenta («Ana López» → «AL»). */
+export function inicialesDe(nombre: string): string {
+    const partes = nombre.trim().split(/\s+/).filter(Boolean);
+    const letras = partes.length >= 2 ? [partes[0], partes[partes.length - 1]] : partes;
+    return letras.map((p) => p?.[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+/** «soporte» → «Soporte», «integracion_argos» → «Integracion argos». */
+function textoRol(rol: string | undefined): string {
+    if (!rol) return "";
+    const t = rol.replaceAll("_", " ");
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * La cuenta al pie de la barra lateral (nuevo diseño): iniciales, nombre y rol; abre el mismo
+ * menú que en la barra superior. Contraída, solo las iniciales.
+ */
+export function MenuUsuarioLateral({ cerrando, cerrarSesion, contraida = false }: Props & { contraida?: boolean }) {
+    const { yo } = useSesion();
+    const rol = textoRol(yo.usuario.roles?.[0]?.rol);
+    return (
+        <MenuDesplegable>
+            <MenuDesplegableDisparador asChild>
+                <Boton
+                    variante="fantasma"
+                    className={contraida ? "size-10 justify-center rounded-lg p-0" : "h-auto w-full justify-start gap-2.5 rounded-lg px-2 py-2 text-left font-normal"}
+                    aria-label={`Tu cuenta: ${yo.usuario.nombre}`}
+                    title="Tu cuenta"
+                >
+                    <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-full bg-elevated text-xs font-semibold text-foreground">
+                        {inicialesDe(yo.usuario.nombre)}
+                    </span>
+                    {contraida ? null : (
+                        <span className="grid min-w-0 flex-1">
+                            <span className="truncate text-[0.8125rem] font-semibold" data-testid="usuario-nombre">
+                                {yo.usuario.nombre}
+                            </span>
+                            {rol ? <span className="truncate text-xs text-muted-foreground">{rol}</span> : null}
+                        </span>
+                    )}
+                    {contraida ? null : <ChevronDown className="text-muted-foreground" />}
+                </Boton>
+            </MenuDesplegableDisparador>
+            <MenuDesplegableContenido align="start">{OpcionesCuenta({ cerrando, cerrarSesion })}</MenuDesplegableContenido>
+        </MenuDesplegable>
+    );
+}
+
 /** La cuenta como menú a la vista, dentro de «Más» en el teléfono; `antes` cierra la hoja. */
 export function MenuCuentaLista({ cerrando, cerrarSesion, antes }: Props & { antes: () => void }) {
     return <MenuEnLinea etiqueta="Tu cuenta">{OpcionesCuenta({ cerrando, cerrarSesion, antes })}</MenuEnLinea>;

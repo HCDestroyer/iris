@@ -38,10 +38,10 @@ test.describe("agenda de mes", () => {
         const celda = visible(page, `[data-dia="${hoy}"]`);
         await expect(celda).toBeVisible();
         await expect(celda).toContainText(/\d+ órdenes/);
-        await expect(celda.locator('[data-estado-dia="programada"]')).toContainText("programada");
-        await expect(celda.locator('[data-estado-dia="en_camino"]')).toContainText("1 en camino");
+        // El día dice cuántas órdenes tiene, conflictos y ausencias; el detalle por estado va en su resumen y en el nombre.
         await expect(celda.locator("[data-conflictos]")).toContainText("1 conflicto");
-        await expect(celda).toHaveAttribute("aria-label", /1 con conflicto.*Ver el día$/);
+        await expect(celda.locator("[data-ausencias]")).toContainText(/ausencia/i);
+        await expect(celda).toHaveAttribute("aria-label", /\d+ programadas?, 1 en camino.*1 con conflicto.*Ver el resumen del día$/);
         await expect(page.getByTestId("resumen-mes")).toContainText(/\d+ órdenes con cita este mes\..*con conflicto/);
         // El mes visible se pide en trozos de hasta 31 días.
         const pedidos = api.peticiones.filter((p) => p.ruta === "/api/v1/agenda");
@@ -61,8 +61,16 @@ test.describe("agenda de mes", () => {
         await expect(visible(page, `[data-dia="${hoy}"]`).locator("[data-conflictos]")).toHaveCount(0);
         await page.getByLabel("Técnico", { exact: true }).selectOption("");
 
-        // Detalle del día: conflictos explicados y la cita marcada.
+        // Al elegir el día, su resumen aparece al lado: las citas por hora con su técnico y la ausencia.
         await visible(page, `[data-dia="${hoy}"]`).click();
+        const resumen = visible(page, '[data-testid="resumen-dia"]');
+        await expect(resumen.locator('[data-cita-resumen="OT-000003"]')).toContainText("Lucía Ramírez · con conflicto");
+        await expect(resumen).toContainText("Ausencia · Permiso");
+        await expect(visible(page, `[data-dia="${hoy}"]`)).toHaveAttribute("aria-pressed", "true");
+        await captura(page, info, "50b-agenda-mes-resumen");
+
+        // Detalle del día: conflictos explicados y la cita marcada.
+        await resumen.getByRole("button", { name: "Abrir el día" }).click();
         await expect(page).toHaveURL(/vista=dia/);
         await expect(page.getByRole("radio", { name: "Día" })).toBeChecked();
         await expect(visible(page, '[data-cita="OT-000003"]')).toBeVisible();

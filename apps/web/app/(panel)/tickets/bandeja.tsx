@@ -1,27 +1,13 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-    Aviso,
-    Boton,
-    Campo,
-    CampoSelector,
-    cn,
-    Dialogo,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoPie,
-    Entrada,
-    Etiqueta,
-    Tarjeta,
-} from "@iris/ui";
+import { Aviso, Boton, Campo, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Entrada, Selector } from "@iris/ui";
 import { BookmarkPlus, Plus, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { useCategorias, useUsuarios } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
 import { useDiferido } from "@/lib/diferido";
@@ -34,10 +20,12 @@ import {
     leerVistas,
     mismosFiltros,
     VISTAS_PREDEFINIDAS,
+    vistaDeUrl,
     type Filtros,
     type Vista,
 } from "@/lib/tickets/filtros";
 import { ESTADOS, ORDEN_ESTADOS, ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/tickets/presentacion";
+import { contadorDe, textoContador, useResumenTickets } from "@/lib/tickets/resumen";
 import { ListaTickets } from "./lista-tickets";
 
 /**
@@ -54,7 +42,9 @@ function clienteDeParametros(params: URLSearchParams): number | null {
 export function PantallaTickets() {
     const params = useSearchParams();
     const clienteId = clienteDeParametros(params);
-    return <Bandeja key={clienteId ?? "todos"} clienteId={clienteId} />;
+    // `?vista=` (Inicio, «Mis vistas»): la bandeja arranca con esa vista; cambiarla en la URL la remonta.
+    const vista = params.get("vista");
+    return <Bandeja key={`${clienteId ?? "todos"}|${vista ?? ""}`} clienteId={clienteId} vistaInicial={vista} />;
 }
 
 /** Aviso del filtro por cliente: «Cliente #id» hasta leer el nombre, o si no se pudo leer. */
@@ -65,7 +55,6 @@ function AvisoCliente({ clienteId, alQuitar }: { clienteId: number; alQuitar: ()
         <Aviso
             tono="info"
             titulo={`Tickets de ${nombre}`}
-            className="mb-3"
             data-testid="filtro-cliente"
             accion={
                 <Boton variante="secundario" tamano="sm" onClick={alQuitar}>
@@ -79,20 +68,46 @@ function AvisoCliente({ clienteId, alQuitar }: { clienteId: number; alQuitar: ()
     );
 }
 
-function Bandeja({ clienteId }: { clienteId: number | null }) {
+/** Filtro como chip: una lista nativa con su nombre delante («Prioridad · Todas»). */
+function Chip({ etiqueta, activo, children }: { etiqueta: string; activo: boolean; children: (id: string) => ReactNode }) {
+    const id = useId();
+    return (
+        <span
+            className={cn(
+                "inline-flex h-8 min-w-0 items-center gap-1 rounded-lg border pl-2.5 text-xs font-medium",
+                activo ? "border-primary/40 bg-primary/5 text-foreground" : "border-border bg-card text-muted-foreground",
+            )}
+            data-chip={etiqueta}
+        >
+            <label htmlFor={id} className="shrink-0">
+                {etiqueta}
+            </label>
+            {children(id)}
+        </span>
+    );
+}
+
+const claseSelectorChip =
+    "w-auto [&_select]:h-[1.875rem] [&_select]:border-0 [&_select]:bg-transparent [&_select]:pl-1 [&_select]:text-xs [&_select]:font-semibold [&_select]:text-foreground [&_select]:shadow-none";
+
+function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaInicial: string | null }) {
     const { yo, puede } = useSesion();
     const router = useRouter();
     const categorias = useCategorias();
     const usuarios = useUsuarios();
-    const [filtros, setFiltros] = useState<Filtros>(() => (clienteId ? { ...FILTROS_INICIALES, estado: "todos" } : FILTROS_INICIALES));
+    const resumen = useResumenTickets();
     const [propias, setPropias] = useState<Vista[]>(() => leerVistas(yo.usuario.id));
+    const [filtros, setFiltros] = useState<Filtros>(() => {
+        if (clienteId) return { ...FILTROS_INICIALES, estado: "todos" };
+        return vistaDeUrl(vistaInicial, leerVistas(yo.usuario.id))?.filtros ?? FILTROS_INICIALES;
+    });
     const [guardando, setGuardando] = useState(false);
     const idBuscar = useId();
     const q = useDiferido(filtros.q, 350);
 
     const efectivos: Filtros = { ...filtros, q };
     const consulta = { ...consultaDeFiltros(efectivos, yo.usuario.id), ...(clienteId ? { clienteId } : {}) };
-    const vistas = [...VISTAS_PREDEFINIDAS, ...propias];
+    const vistas: (Vista & { contador?: (typeof VISTAS_PREDEFINIDAS)[number]["contador"] })[] = [...VISTAS_PREDEFINIDAS, ...propias];
     const vistaActiva = vistas.find((v) => mismosFiltros(v.filtros, filtros));
     const cambiar = (parcial: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parcial }));
 
@@ -104,43 +119,56 @@ function Bandeja({ clienteId }: { clienteId: number | null }) {
     const listaCategorias = categorias.estado === "listo" ? categorias.datos.filter((c) => c.activa) : [];
 
     return (
-        <>
-            <EncabezadoPagina
-                titulo="Tickets"
-                descripcion="Soporte con SLA: lo urgente primero."
-                acciones={
-                    puede(["tickets.crear"]) ? (
-                        <Boton asChild>
-                            <Link href="/tickets/nuevo">
-                                <Plus />
-                                Nuevo ticket
-                            </Link>
-                        </Boton>
-                    ) : null
-                }
-            />
+        <div className="grid gap-4 [&>*]:min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+                <div className="mr-auto grid gap-1">
+                    <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Tickets</h1>
+                    <p className="text-[0.8125rem] text-muted-foreground">Toca un ticket para abrir su ficha: asignar, escalar y resolver se hacen ahí.</p>
+                </div>
+                {puede(["tickets.crear"]) ? (
+                    <Boton asChild tamano="sm" className="h-[2.125rem] rounded-lg">
+                        <Link href="/tickets/nuevo">
+                            <Plus />
+                            Nuevo ticket
+                        </Link>
+                    </Boton>
+                ) : null}
+            </div>
 
             {clienteId ? <AvisoCliente clienteId={clienteId} alQuitar={() => router.replace("/tickets")} /> : null}
 
-            <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label="Vistas">
+            <div className="flex items-end gap-5 overflow-x-auto border-b border-border" role="group" aria-label="Vistas">
                 {vistas.map((v) => {
                     const activa = vistaActiva?.id === v.id;
+                    const n = v.contador && !clienteId ? contadorDe(resumen, v.contador) : undefined;
                     return (
                         <span key={v.id} className="inline-flex shrink-0 items-center">
                             <Boton
-                                variante={activa ? "secundario" : "fantasma"}
-                                tamano="sm"
+                                variante="fantasma"
                                 aria-pressed={activa}
-                                className={cn(activa && "text-primary", v.propia && "rounded-r-none pr-2")}
+                                className={cn(
+                                    "-mb-px h-10 gap-1.5 rounded-none border-b-2 px-0 text-[0.8125rem] hover:bg-transparent",
+                                    activa
+                                        ? "border-primary font-semibold text-foreground"
+                                        : "border-transparent font-medium text-muted-foreground hover:text-foreground",
+                                )}
                                 onClick={() => setFiltros(v.filtros)}
                             >
                                 {v.nombre}
+                                {n !== undefined ? (
+                                    <span
+                                        className="inline-flex h-[1.125rem] items-center rounded-full bg-elevated px-1.5 text-[0.6875rem] font-semibold text-muted-foreground tabular-nums"
+                                        aria-label={`, ${n}`}
+                                    >
+                                        {textoContador(n)}
+                                    </span>
+                                ) : null}
                             </Boton>
                             {v.propia ? (
                                 <Boton
-                                    variante={activa ? "secundario" : "fantasma"}
+                                    variante="fantasma"
                                     tamano="icono-sm"
-                                    className="rounded-l-none"
+                                    className="ml-0.5 size-6 text-muted-foreground"
                                     aria-label={`Eliminar la vista «${v.nombre}»`}
                                     title="Eliminar vista"
                                     onClick={() => guardarPropias(propias.filter((p) => p.id !== v.id))}
@@ -151,82 +179,124 @@ function Bandeja({ clienteId }: { clienteId: number | null }) {
                         </span>
                     );
                 })}
-                <Boton variante="fantasma" tamano="sm" className="shrink-0 text-muted-foreground" disabled={vistaActiva !== undefined} onClick={() => setGuardando(true)}>
+                <Boton
+                    variante="fantasma"
+                    tamano="sm"
+                    className="mb-1 ml-auto shrink-0 text-[0.8125rem] text-muted-foreground"
+                    disabled={vistaActiva !== undefined}
+                    onClick={() => setGuardando(true)}
+                >
                     <BookmarkPlus />
                     Guardar vista
                 </Boton>
             </div>
 
-            <Tarjeta className="mb-4 grid grid-cols-2 gap-3 p-4 lg:grid-cols-[minmax(12rem,1.4fr)_repeat(4,minmax(0,1fr))]">
-                <div className="col-span-2 grid gap-1.5 lg:col-span-1">
-                    <Etiqueta htmlFor={idBuscar}>Buscar</Etiqueta>
-                    <span className="relative">
-                        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <section aria-label="Lista" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5" role="group" aria-label="Filtros">
+                    <span className="relative min-w-0 flex-[1_1_14rem] sm:max-w-72">
+                        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                         <Entrada
                             id={idBuscar}
                             type="search"
+                            aria-label="Buscar"
                             placeholder="Número, asunto o contacto"
-                            className="pl-9 sm:text-sm"
+                            className="h-8 rounded-lg pl-8 text-[0.8125rem]"
                             maxLength={120}
                             value={filtros.q}
                             onChange={(e) => cambiar({ q: e.target.value })}
                         />
                     </span>
+                    <Chip etiqueta="Estado" activo={filtros.estado !== FILTROS_INICIALES.estado}>
+                        {(id) => (
+                            <Selector
+                                id={id}
+                                tamano="sm"
+                                className={claseSelectorChip}
+                                value={filtros.estado}
+                                onChange={(e) => cambiar({ estado: e.target.value as Filtros["estado"] })}
+                            >
+                                <option value="activos">Activos</option>
+                                {ORDEN_ESTADOS.map((e) => (
+                                    <option key={e} value={e}>
+                                        {ESTADOS[e].texto}
+                                    </option>
+                                ))}
+                                <option value="todos">Todos</option>
+                            </Selector>
+                        )}
+                    </Chip>
+                    <Chip etiqueta="Prioridad" activo={filtros.prioridad !== "todas"}>
+                        {(id) => (
+                            <Selector
+                                id={id}
+                                tamano="sm"
+                                className={claseSelectorChip}
+                                value={filtros.prioridad}
+                                onChange={(e) => cambiar({ prioridad: e.target.value as Filtros["prioridad"] })}
+                            >
+                                <option value="todas">Todas</option>
+                                {[...ORDEN_PRIORIDADES].reverse().map((p) => (
+                                    <option key={p} value={p}>
+                                        {PRIORIDADES[p].texto}
+                                    </option>
+                                ))}
+                            </Selector>
+                        )}
+                    </Chip>
+                    <Chip etiqueta="Categoría" activo={filtros.categoria !== "todas"}>
+                        {(id) => (
+                            <Selector
+                                id={id}
+                                tamano="sm"
+                                className={claseSelectorChip}
+                                value={String(filtros.categoria)}
+                                disabled={categorias.estado !== "listo"}
+                                title={categorias.estado === "error" ? "No se pudieron cargar las categorías." : undefined}
+                                onChange={(e) => cambiar({ categoria: e.target.value === "todas" ? "todas" : Number(e.target.value) })}
+                            >
+                                <option value="todas">Todas</option>
+                                {listaCategorias.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.nombre}
+                                    </option>
+                                ))}
+                            </Selector>
+                        )}
+                    </Chip>
+                    <Chip etiqueta="Asignación" activo={filtros.asignacion !== "todos"}>
+                        {(id) => (
+                            <Selector
+                                id={id}
+                                tamano="sm"
+                                className={claseSelectorChip}
+                                value={filtros.asignacion}
+                                onChange={(e) => cambiar({ asignacion: e.target.value as Filtros["asignacion"] })}
+                            >
+                                <option value="todos">Todos</option>
+                                <option value="mios">Asignados a mí</option>
+                                <option value="sin_asignar">Sin asignar</option>
+                            </Selector>
+                        )}
+                    </Chip>
+                    {!mismosFiltros(filtros, FILTROS_INICIALES) ? (
+                        <Boton variante="fantasma" tamano="sm" className="h-8 text-xs text-muted-foreground" onClick={() => setFiltros(FILTROS_INICIALES)}>
+                            <X />
+                            Quitar filtros
+                        </Boton>
+                    ) : null}
+                    {categorias.estado === "error" ? <span className="text-xs text-muted-foreground">No se pudieron cargar las categorías.</span> : null}
                 </div>
-                <CampoSelector etiqueta="Estado" value={filtros.estado} onChange={(e) => cambiar({ estado: e.target.value as Filtros["estado"] })}>
-                    <option value="activos">Activos</option>
-                    {ORDEN_ESTADOS.map((e) => (
-                        <option key={e} value={e}>
-                            {ESTADOS[e].texto}
-                        </option>
-                    ))}
-                    <option value="todos">Todos</option>
-                </CampoSelector>
-                <CampoSelector
-                    etiqueta="Prioridad"
-                    value={filtros.prioridad}
-                    onChange={(e) => cambiar({ prioridad: e.target.value as Filtros["prioridad"] })}
-                >
-                    <option value="todas">Todas</option>
-                    {[...ORDEN_PRIORIDADES].reverse().map((p) => (
-                        <option key={p} value={p}>
-                            {PRIORIDADES[p].texto}
-                        </option>
-                    ))}
-                </CampoSelector>
-                <CampoSelector
-                    etiqueta="Categoría"
-                    value={String(filtros.categoria)}
-                    disabled={categorias.estado !== "listo"}
-                    ayuda={categorias.estado === "error" ? "No se pudieron cargar las categorías." : undefined}
-                    onChange={(e) => cambiar({ categoria: e.target.value === "todas" ? "todas" : Number(e.target.value) })}
-                >
-                    <option value="todas">Todas</option>
-                    {listaCategorias.map((c) => (
-                        <option key={c.id} value={c.id}>
-                            {c.nombre}
-                        </option>
-                    ))}
-                </CampoSelector>
-                <CampoSelector
-                    etiqueta="Asignación"
-                    value={filtros.asignacion}
-                    onChange={(e) => cambiar({ asignacion: e.target.value as Filtros["asignacion"] })}
-                >
-                    <option value="todos">Todos</option>
-                    <option value="mios">Asignados a mí</option>
-                    <option value="sin_asignar">Sin asignar</option>
-                </CampoSelector>
-            </Tarjeta>
 
-            <ListaTickets
-                key={JSON.stringify(consulta)}
-                consulta={consulta}
-                categorias={categorias.estado === "listo" ? categorias.datos : undefined}
-                usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
-                yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
-                hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
-            />
+                <ListaTickets
+                    key={JSON.stringify(consulta)}
+                    consulta={consulta}
+                    categorias={categorias.estado === "listo" ? categorias.datos : undefined}
+                    usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
+                    yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
+                    hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
+                    alCambiar={() => void resumen?.refrescar()}
+                />
+            </section>
 
             <DialogoGuardarVista
                 abierto={guardando}
@@ -236,7 +306,7 @@ function Bandeja({ clienteId }: { clienteId: number | null }) {
                     setGuardando(false);
                 }}
             />
-        </>
+        </div>
     );
 }
 
@@ -259,7 +329,7 @@ function DialogoGuardarVista({ abierto, alCerrar, alGuardar }: { abierto: boolea
                 }
             }}
         >
-            <DialogoContenido titulo="Guardar vista" descripcion="Guarda los filtros actuales en este navegador.">
+            <DialogoContenido titulo="Guardar vista" descripcion="Guarda los filtros actuales en este navegador. Aparece en «Mis vistas».">
                 <form
                     noValidate
                     className="grid gap-4"

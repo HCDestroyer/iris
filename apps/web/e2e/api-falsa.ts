@@ -333,6 +333,56 @@ const OPERATIVAS = [
     "/api/v1/encuestas",
 ];
 
+const DIA_GT = (ms: number) => new Date(ms - 6 * 3_600_000).toISOString().slice(0, 10);
+
+/**
+ * `GET /tickets/resumen` sobre los tickets visibles del escenario, con las mismas reglas que la
+ * API: vivos = nuevo, abierto o en espera; el SLA en espera no cuenta; 7 días de Guatemala.
+ */
+export function resumenTickets(tickets: readonly Schema<"Ticket">[], actorId: number, ahora: number): Schema<"ResumenTickets"> {
+    const vivos = tickets.filter((t) => t.estado === "nuevo" || t.estado === "abierto" || t.estado === "en_espera");
+    const corriendo = vivos.filter((t) => t.estado !== "en_espera" && t.slaResolucion.venceEn);
+    const vence = (t: Schema<"Ticket">) => Date.parse(t.slaResolucion.venceEn ?? "");
+    const riesgo = (t: Schema<"Ticket">) => (t.slaResolucion.riesgoEn ? Date.parse(t.slaResolucion.riesgoEn) : Number.POSITIVE_INFINITY);
+    const hoy = DIA_GT(ahora);
+    const finHoy = Date.parse(`${hoy}T00:00:00Z`) + 30 * 3_600_000;
+    const dias = Array.from({ length: 7 }, (_, i) => new Date(Date.parse(`${hoy}T00:00:00Z`) - (6 - i) * 86_400_000).toISOString().slice(0, 10));
+    const enDia = (iso: string | null | undefined, d: string) => (iso ? DIA_GT(Date.parse(iso)) === d : false);
+    return {
+        activos: vivos.length,
+        mios: vivos.filter((t) => t.asignadoA === actorId).length,
+        sinAsignar: vivos.filter((t) => t.asignadoA === null).length,
+        enEspera: vivos.filter((t) => t.estado === "en_espera").length,
+        slaEnRiesgo: corriendo.filter((t) => vence(t) > ahora && riesgo(t) <= ahora).length,
+        slaVencidos: corriendo.filter((t) => vence(t) <= ahora).length,
+        slaVenceHoy: corriendo.filter((t) => vence(t) > ahora && vence(t) < finHoy).length,
+        urgentes: corriendo
+            .filter((t) => t.estado !== "en_espera" && (vence(t) <= ahora || riesgo(t) <= ahora))
+            .sort((a, b) => vence(a) - vence(b) || a.id - b.id)
+            .slice(0, 5),
+        dias: dias.map((d) => {
+            const resueltos = tickets.filter((t) => t.fusionadoEnId === null && enDia(t.slaResolucion.cumplidoEn, d));
+            const conSla = resueltos.filter((t) => t.slaResolucion.venceEn);
+            return {
+                dia: d,
+                creados: tickets.filter((t) => enDia(t.creadoEn, d)).length,
+                resueltos: resueltos.length,
+                resueltosConSla: conSla.length,
+                resueltosEnSla: conSla.filter((t) => Date.parse(t.slaResolucion.cumplidoEn ?? "") <= vence(t)).length,
+                vencidos: tickets.filter(
+                    (t) =>
+                        t.estado !== "en_espera" &&
+                        t.slaResolucion.venceEn &&
+                        vence(t) <= ahora &&
+                        enDia(t.slaResolucion.venceEn, d) &&
+                        (!t.slaResolucion.cumplidoEn || Date.parse(t.slaResolucion.cumplidoEn) > vence(t)),
+                ).length,
+            };
+        }),
+        calculadoEn: new Date(ahora).toISOString(),
+    };
+}
+
 function problema(route: Route, p: Problema, cabeceras: Record<string, string> = {}) {
     return route.fulfill({
         status: p.status,
@@ -761,6 +811,11 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             })
         ) {
             return;
+        }
+
+        if (ruta === "/api/v1/tickets/resumen" && metodo === "GET") {
+            if (!puede("tickets.ver")) return prohibido();
+            return route.fulfill({ json: resumenTickets(visibles, actual.id, Date.now()) });
         }
 
         if (ruta === "/api/v1/tickets") {

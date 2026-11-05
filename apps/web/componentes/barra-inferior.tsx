@@ -43,7 +43,7 @@ export function BarraInferior({ entradas, masAbierto, alCambiarMas, children }: 
                         <li key={e.href} className="flex flex-1">
                             <Link href={e.href} aria-current={actual ? "page" : undefined} className={clases(actual)}>
                                 <Icono aria-hidden className="size-5" />
-                                <span className="max-w-full truncate">{e.etiqueta}</span>
+                                <span className="max-w-full truncate">{e.etiquetaCorta ?? e.etiqueta}</span>
                             </Link>
                         </li>
                     );

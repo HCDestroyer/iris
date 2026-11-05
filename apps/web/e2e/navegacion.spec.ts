@@ -24,11 +24,15 @@ test("menú agrupado; en escritorio se contrae a íconos (con globo) y lo recuer
         return;
     }
     const nav = menu(page);
-    for (const grupo of ["Operación", "Equipo", "Ventas", "Análisis"]) {
+    for (const grupo of ["Operación", "Negocio", "Administración"]) {
         await expect(nav.getByRole("list", { name: grupo })).toBeVisible();
     }
-    await expect(nav.getByRole("list", { name: "Operación" }).getByRole("link")).toHaveText(["Inicio", "Tickets", "Órdenes", "Agenda", "Despacho"]);
-    await expect(nav.getByRole("list", { name: "Equipo" }).getByRole("link")).toHaveText(["Técnicos", "Usuarios"]);
+    // La operación va arriba sin título visible; Tickets lleva su contador (del resumen de la bandeja).
+    await expect(nav.getByText("Operación")).toHaveClass(/sr-only/);
+    await expect(nav.getByRole("list", { name: "Operación" }).getByRole("link")).toHaveText([/^Inicio$/, /^Tickets\d+$/, /^Órdenes y tareas$/, /^Agenda$/, /^Mapa$/, /^Técnicos$/]);
+    await expect(nav.getByRole("link", { name: /^Tickets/ }).locator('[data-slot="contador"]')).toHaveText(/^\d+$/);
+    await expect(nav.getByRole("list", { name: "Negocio" }).getByRole("link")).toHaveText(["Comercial", "Encuestas", "Reportes"]);
+    await expect(nav.getByRole("list", { name: "Administración" }).getByRole("link")).toHaveText(["Usuarios", "Administración"]);
     await expect(nav.getByRole("link", { name: "Inicio" })).toHaveAttribute("aria-current", "page");
     await expect(barraInferior(page)).toBeHidden();
 
@@ -190,11 +194,10 @@ test("Ctrl + K: al cambiar de empresa no quedan resultados de la anterior", asyn
 test("aviso emergente después de una acción", async ({ page }) => {
     await simularApi(page);
     await page.goto("/tickets/1");
-    await page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Responder" }).click();
-    const dialogo = page.getByRole("dialog", { name: "Responder al cliente" });
-    await dialogo.getByLabel("Respuesta").fill("Ya revisamos la línea.");
-    await dialogo.getByRole("button", { name: "Enviar respuesta" }).click();
-    await expect(dialogo).toHaveCount(0);
+    const redactor = page.getByRole("form", { name: "Redactar" });
+    await redactor.getByLabel("Respuesta").fill("Ya revisamos la línea.");
+    await redactor.getByRole("button", { name: "Enviar respuesta" }).click();
+    await expect(redactor.getByLabel("Respuesta")).toHaveValue("");
     await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Respuesta enviada en el ticket TK-000101" })).toBeVisible();
 });
 

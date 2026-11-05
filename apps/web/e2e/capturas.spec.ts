@@ -74,7 +74,7 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
     await page.goto("/tickets/2");
     await expect(page.getByTestId("ficha-cliente")).toContainText("Desactualizado");
     api.cambiarVersion(2);
-    await page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Escalar" }).click();
+    await page.getByRole("toolbar", { name: "Acciones del ticket" }).getByRole("button", { name: "Escalar" }).click();
     await page.getByRole("dialog").getByLabel("Motivo").fill("El cliente insiste");
     await page.getByRole("dialog").getByRole("button", { name: "Escalar" }).click();
     await expect(page.getByRole("dialog").getByText("Alguien más cambió este ticket")).toBeVisible();

@@ -1,12 +1,12 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Aviso, Boton, cn } from "@iris/ui";
+import { Aviso, Boton, cn, type Tono } from "@iris/ui";
 import { Crosshair, MapPin } from "lucide-react";
 import type * as MapLibreGL from "maplibre-gl";
 import type { GeoJSONSource, Map as MapaLibre, Marker, StyleSpecification } from "maplibre-gl";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FRESCURAS, type Frescura } from "@/lib/despacho/posiciones";
 import { ESTADOS_ORDEN, type EstadoOrden } from "@/lib/ordenes/presentacion";
@@ -21,12 +21,32 @@ import { CENTRO_GUATEMALA, encuadrar, FONDO_TONO, TESELAS_OSM, TEXTO_TONO, token
 
 export { TESELAS_OSM };
 
-export type PuntoOrden = { ordenId: number; numero: string; estado: EstadoOrden; lat: number; lon: number; detalle: string };
-export type PuntoTecnico = { tecnicoId: number; nombre: string; iniciales: string; lat: number; lon: number; frescura: Frescura; texto: string };
+export type PuntoOrden = {
+    ordenId: number;
+    numero: string;
+    estado: EstadoOrden;
+    lat: number;
+    lon: number;
+    detalle: string;
+    /** Orden sin técnico (Mapa): marcador cuadrado en tono de aviso. */
+    sinAsignar?: boolean;
+};
+export type PuntoTecnico = {
+    tecnicoId: number;
+    nombre: string;
+    iniciales: string;
+    lat: number;
+    lon: number;
+    frescura: Frescura;
+    texto: string;
+    /** Color del marcador por su estado del día (Mapa); sin él, por la frescura de la posición. */
+    tono?: Tono;
+    /** Etiqueta junto al marcador («Tomás · en sitio»). */
+    etiqueta?: string;
+};
 export type LineaRuta = { id: "real" | "propuesta"; coordenadas: [number, number][] };
 /** Pedido de centrar el mapa en un punto (`n` cambia en cada pedido). */
 export type Enfoque = { lat: number; lon: number; n: number };
-
 
 function estilo(oscuro: boolean): StyleSpecification {
     return {
@@ -70,12 +90,23 @@ export function MapaDespacho({
     lineas,
     enfoque,
     className,
+    etiqueta = "Mapa del despacho",
+    alElegirTecnico,
+    tecnicoElegido,
+    children,
 }: {
     ordenes: readonly PuntoOrden[];
     tecnicos: readonly PuntoTecnico[];
     lineas: readonly LineaRuta[];
     enfoque: Enfoque | null;
     className?: string;
+    /** Nombre accesible de la región del mapa. */
+    etiqueta?: string;
+    /** Con él, cada técnico es un botón (Mapa: abre su tarjeta). */
+    alElegirTecnico?: (tecnicoId: number) => void;
+    tecnicoElegido?: number | null;
+    /** Capas encima del mapa (leyenda, tarjeta del técnico). */
+    children?: ReactNode;
 }) {
     const contenedor = useRef<HTMLDivElement>(null);
     const mapa = useRef<MapaLibre | null>(null);
@@ -210,8 +241,9 @@ export function MapaDespacho({
             <div
                 ref={contenedor}
                 role="region"
-                aria-label="Mapa del despacho"
-                className="h-full min-h-72 w-full" data-testid="mapa"
+                aria-label={etiqueta}
+                className="h-full min-h-72 w-full"
+                data-testid="mapa"
                 data-listo={listo ? "si" : "no"}
                 data-lineas={lineas
                     .filter((l) => l.coordenadas.length >= 2)
@@ -241,20 +273,52 @@ export function MapaDespacho({
             })}
             {tecnicos.map((t) => {
                 const el = elementos.get(`t${t.tecnicoId}`);
-                return el ? createPortal(<MarcadorTecnico punto={t} />, el, `t${t.tecnicoId}`) : null;
+                return el
+                    ? createPortal(
+                          <MarcadorTecnico
+                              punto={t}
+                              {...(alElegirTecnico ? { alElegir: () => alElegirTecnico(t.tecnicoId) } : {})}
+                              elegido={tecnicoElegido === t.tecnicoId}
+                          />,
+                          el,
+                          `t${t.tecnicoId}`,
+                      )
+                    : null;
             })}
+            {children}
         </div>
     );
 }
 
-
-
-
 function MarcadorOrden({ punto }: { punto: PuntoOrden }) {
     const e = ESTADOS_ORDEN[punto.estado];
     const Icono = e.icono;
+    const texto = punto.sinAsignar ? "Sin asignar" : e.texto;
+    if (punto.sinAsignar) {
+        return (
+            <div
+                role="img"
+                aria-label={`${punto.numero} · ${texto} · ${punto.detalle}`}
+                title={`${punto.numero} · ${texto} · ${punto.detalle}`}
+                data-marcador-orden={punto.numero}
+                data-sin-asignar=""
+                className="flex items-center gap-1.5"
+            >
+                <span className="size-4 rounded-[4px] border-2 border-background bg-warning shadow-[0_0_0_4px_color-mix(in_oklab,var(--hx-warning)_20%,transparent)]" />
+                <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[0.6875rem] font-semibold whitespace-nowrap text-foreground shadow">
+                    {punto.numero}
+                </span>
+            </div>
+        );
+    }
     return (
-        <div role="img" aria-label={`${punto.numero} · ${e.texto} · ${punto.detalle}`} title={`${punto.numero} · ${e.texto} · ${punto.detalle}`} data-marcador-orden={punto.numero} className="flex flex-col items-center">
+        <div
+            role="img"
+            aria-label={`${punto.numero} · ${texto} · ${punto.detalle}`}
+            title={`${punto.numero} · ${texto} · ${punto.detalle}`}
+            data-marcador-orden={punto.numero}
+            className="flex flex-col items-center"
+        >
             <span className="flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[0.6875rem] font-medium whitespace-nowrap text-foreground shadow">
                 <Icono aria-hidden className={cn("size-3", TEXTO_TONO[e.tono])} />
                 {punto.numero}
@@ -264,8 +328,43 @@ function MarcadorOrden({ punto }: { punto: PuntoOrden }) {
     );
 }
 
-function MarcadorTecnico({ punto }: { punto: PuntoTecnico }) {
+function MarcadorTecnico({ punto, alElegir, elegido = false }: { punto: PuntoTecnico; alElegir?: () => void; elegido?: boolean }) {
     const f = FRESCURAS[punto.frescura];
+    const tono = punto.tono ?? f.tono;
+    const circulo = (
+        <span
+            className={cn(
+                "grid size-8 shrink-0 place-items-center rounded-full border-2 border-background text-[0.6875rem] font-semibold text-white shadow-md",
+                FONDO_TONO[tono],
+                punto.frescura === "sin_senal" && "opacity-70",
+                elegido && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+            )}
+        >
+            {punto.iniciales}
+        </span>
+    );
+    const etiqueta = punto.etiqueta ? (
+        <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[0.6875rem] font-semibold whitespace-nowrap text-foreground shadow">
+            {punto.etiqueta}
+        </span>
+    ) : null;
+    if (alElegir) {
+        return (
+            <Boton
+                variante="fantasma"
+                className="h-auto gap-1.5 p-0 hover:bg-transparent"
+                aria-label={`${punto.nombre} · ${punto.texto}`}
+                aria-pressed={elegido}
+                title={`${punto.nombre} · ${punto.texto}`}
+                data-marcador-tecnico={punto.tecnicoId}
+                data-frescura={punto.frescura}
+                onClick={alElegir}
+            >
+                {circulo}
+                {etiqueta}
+            </Boton>
+        );
+    }
     return (
         <div
             role="img"
@@ -273,13 +372,10 @@ function MarcadorTecnico({ punto }: { punto: PuntoTecnico }) {
             title={`${punto.nombre} · ${punto.texto}`}
             data-marcador-tecnico={punto.tecnicoId}
             data-frescura={punto.frescura}
-            className={cn(
-                "grid size-8 place-items-center rounded-full border-2 border-background text-[0.6875rem] font-semibold text-white shadow-md",
-                FONDO_TONO[f.tono],
-                punto.frescura === "sin_senal" && "opacity-70",
-            )}
+            className="flex items-center gap-1.5"
         >
-            {punto.iniciales}
+            {circulo}
+            {etiqueta}
         </div>
     );
 }

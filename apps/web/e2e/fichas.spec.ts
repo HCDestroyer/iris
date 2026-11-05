@@ -19,30 +19,32 @@ test.describe("pestañas en la URL", () => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
-        await expect(page.getByRole("tablist", { name: "Secciones del ticket" }).getByRole("tab")).toHaveText(["Resumen", "Conversación", "Órdenes", "Historial"]);
-        await expect(elegida(page)).toHaveText("Resumen");
-        await expect(page).toHaveURL(/\/tickets\/1$/);
-
-        await pestana(page, "Conversación");
-        await expect(page).toHaveURL(/\/tickets\/1\?pestana=conversacion$/);
-        await expect(page.getByRole("list", { name: "Mensajes" })).toBeVisible();
-        await page.reload();
+        // El resumen del ticket va a la derecha, siempre a la vista: las pestañas son Conversación, Órdenes e Historial.
+        await expect(page.getByRole("tablist", { name: "Secciones del ticket" }).getByRole("tab")).toHaveText(["Conversación", "Órdenes", "Historial"]);
         await expect(elegida(page)).toHaveText("Conversación");
-        await expect(page.getByRole("list", { name: "Mensajes" })).toBeVisible();
+        await expect(page).toHaveURL(/\/tickets\/1$/);
+        await expect(page.getByRole("complementary", { name: "Datos del ticket" }).getByTestId("asignado")).toBeVisible();
+
+        await pestana(page, "Historial");
+        await expect(page).toHaveURL(/\/tickets\/1\?pestana=historial$/);
+        await expect(page.getByRole("list", { name: "Historial" })).toBeVisible();
+        await page.reload();
+        await expect(elegida(page)).toHaveText("Historial");
+        await expect(page.getByRole("list", { name: "Historial" })).toBeVisible();
 
         // Cambiar de pestaña no apila historial: «Atrás» sale de la ficha.
         await page.goto("/tickets");
         await page.goto("/tickets/1?pestana=historial");
         await expect(elegida(page)).toHaveText("Historial");
         await pestana(page, "Órdenes");
-        await pestana(page, "Resumen");
+        await pestana(page, "Conversación");
         await expect(page).toHaveURL(/\/tickets\/1$/);
         await page.goBack();
         await expect(page).toHaveURL(/\/tickets$/);
 
         // Un valor que no está en la lista abre la primera.
         await page.goto("/tickets/1?pestana=%3Cscript%3E");
-        await expect(elegida(page)).toHaveText("Resumen");
+        await expect(elegida(page)).toHaveText("Conversación");
     });
 
     test("cada ficha abre la pestaña del enlace", async ({ page, context, baseURL }) => {
@@ -74,33 +76,31 @@ test.describe("pestañas en la URL", () => {
     });
 });
 
-test.describe("acciones en un panel lateral", () => {
-    test("responder un ticket: el panel sale a la derecha con la ficha a la vista, protege los cambios y avisa al guardar", async ({ page, context, baseURL }, info) => {
+test.describe("acciones de la ficha", () => {
+    test("escalar un ticket: diálogo corto con telón sobre la ficha, protege los cambios y avisa al guardar", async ({ page, context, baseURL }, info) => {
         await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/tickets/1");
-        await page.getByRole("group", { name: "Acciones del ticket" }).getByRole("button", { name: "Responder" }).click();
-        const panel = page.getByRole("dialog", { name: "Responder al cliente" });
-        await expect(panel).toBeVisible();
-        await expect(panel).toHaveAccessibleDescription("TK-000101 · Sin internet desde la mañana");
-        // La ficha sigue a la vista detrás (sin velo) y el panel va pegado a la derecha.
-        await expect(page.getByRole("heading", { name: "Sin internet desde la mañana", level: 1 })).toBeVisible();
-        const caja = await panel.boundingBox();
+        await page.getByRole("toolbar", { name: "Acciones del ticket" }).getByRole("button", { name: "Escalar" }).click();
+        const dialogo = page.getByRole("dialog", { name: "Escalar ticket" });
+        await expect(dialogo).toBeVisible();
+        await expect(dialogo).toHaveAccessibleDescription("TK-000101 · Sin internet desde la mañana");
+        // Diálogo corto (no panel lateral): en escritorio, centrado y sin tocar los bordes; en el teléfono, hoja a lo ancho.
+        const caja = await dialogo.boundingBox();
         const vista = page.viewportSize();
-        expect(caja && vista && Math.round(caja.x + caja.width) >= vista.width - 1).toBe(true);
-        if (!info.project.name.startsWith("telefono")) expect(caja && caja.x > 0).toBe(true);
+        if (!info.project.name.startsWith("telefono")) expect(caja && vista && caja.x > 0 && Math.round(caja.x + caja.width) < vista.width - 1).toBe(true);
 
         // Con cambios, cerrar pregunta.
-        await panel.getByLabel("Respuesta").fill("Ya revisamos la línea.");
+        await dialogo.getByLabel("Motivo").fill("El cliente es corporativo.");
         await page.keyboard.press("Escape");
         const descartar = page.getByRole("alertdialog", { name: "¿Descartar los cambios?" });
         await expect(descartar).toBeVisible();
         await descartar.getByRole("button", { name: "Seguir editando" }).click();
-        await expect(panel.getByLabel("Respuesta")).toHaveValue("Ya revisamos la línea.");
+        await expect(dialogo.getByLabel("Motivo")).toHaveValue("El cliente es corporativo.");
 
-        await panel.getByRole("button", { name: "Enviar respuesta" }).click();
-        await expect(panel).toHaveCount(0);
-        await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Respuesta enviada en el ticket TK-000101" })).toBeVisible();
+        await dialogo.getByRole("button", { name: "Escalar" }).click();
+        await expect(dialogo).toHaveCount(0);
+        await expect(avisos(page).getByRole("alertdialog").filter({ hasText: "Ticket TK-000101 escalado" })).toBeVisible();
     });
 
     test("programar una orden en el panel: misma validación («Falta…») y «Volver» sin cambios cierra", async ({ page, context, baseURL }) => {
