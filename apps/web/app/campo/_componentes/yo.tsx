@@ -5,6 +5,7 @@ import { totalPorEnviar } from "@iris/sync/campo";
 import { Building2, ChevronRight, CloudUpload, LogOut, RefreshCw, Warehouse } from "lucide-react";
 import { useState } from "react";
 import { SelectorTema } from "@/componentes/selector-tema";
+import { EntradaChat } from "./chat";
 import { useCampo } from "./contexto";
 
 /**
@@ -66,6 +67,8 @@ export function Yo({
                 </p>
             </div>
 
+            {/* Mientras el PM decide su lugar (isla o encabezado), el chat se abre desde aquí. */}
+            <EntradaChat />
             <Boton variante="secundario" tamano="lg" className="h-auto min-h-14 justify-start py-3" onClick={() => navegar({ tipo: "bodega" })}>
                 <Warehouse aria-hidden />
                 <span className="flex-1 text-left">Mi bodega</span>

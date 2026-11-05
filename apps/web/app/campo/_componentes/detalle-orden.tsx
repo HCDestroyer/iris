@@ -30,6 +30,7 @@ import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
 import { FallarOrden, PasoCierre } from "./cierre";
+import { AbrirChatOrden } from "./chat";
 import { useCampo, useOrden } from "./contexto";
 import { Equipos } from "./equipos";
 import { FotosOrden } from "./fotos";
@@ -470,6 +471,7 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                         </Boton>
                     ) : null}
                 </div>
+                <AbrirChatOrden ordenId={orden.id} />
                 {lista.length > 0 ? <ListaTelefonos telefonos={lista} /> : null}
                 {orden.cliente ? (
                     <p className="text-xs text-muted-foreground" title={formatearFecha(orden.cliente.sincronizadoEn)}>

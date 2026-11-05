@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
 import { AgendaDia, AgendaSemana } from "./agenda";
+import { ConversacionPantalla, ListaChat, NuevoChat } from "./chat";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
 import { BarraCompacta, EncabezadoCampo, FranjaSuperior } from "./encabezado";
@@ -117,7 +118,8 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma
     // y el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
-    const conIsla = paso === undefined;
+    // La conversación ocupa la pantalla (encabezado propio y compositor abajo): sin isla.
+    const conIsla = paso === undefined && vista.tipo !== "conversacion";
     const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
 
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
@@ -280,6 +282,12 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     <AgendaDia dia={vista.dia} />
                 ) : vista.tipo === "semana" ? (
                     <AgendaSemana />
+                ) : vista.tipo === "chat" ? (
+                    <ListaChat />
+                ) : vista.tipo === "chat_nuevo" ? (
+                    <NuevoChat />
+                ) : vista.tipo === "conversacion" ? (
+                    <ConversacionPantalla id={vista.id} />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={bajarPaquete} />
                 )}

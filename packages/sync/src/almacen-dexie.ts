@@ -107,6 +107,11 @@ export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
         this.db = new BaseSync(opciones.nombre, opciones.dexie);
     }
 
+    /** ¿Existe ya esa base? (para no crear una vacía al limpiar). */
+    static existe(nombre: string): Promise<boolean> {
+        return Dexie.exists(nombre);
+    }
+
     async cargar(): Promise<ContenidoAlmacen> {
         return this.db.transaction("r", [this.db.operaciones, this.db.ordenes, this.db.adjuntos, this.db.meta], async () => {
             const [operaciones, ordenes, adjuntos, filas] = await Promise.all([
