@@ -68,6 +68,10 @@ test("migas, pestañas, globo, panel emergente, fecha y autocompletar", async ({
     await page.getByRole("button", { name: "Abrir calendario" }).click();
     await expect(page.getByRole("dialog").getByRole("grid")).toBeVisible();
     await page.keyboard.press("Escape");
+    // Al terminar de cerrarse, el calendario devuelve el foco a su botón: se espera a que se vaya
+    // para que ese foco no le quite el suyo (y cierre la lista) al campo «Técnico».
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Abrir calendario" })).toBeFocused();
 
     const tecnico = page.getByRole("combobox", { name: "Técnico" });
     await tecnico.fill("an");

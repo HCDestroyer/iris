@@ -22,7 +22,9 @@ por fases: [`docs/ui/guia.md`](../../docs/ui/guia.md).
     - `accent` y `focus` → teal;
     - `success`, `warning` y `danger` → los de Horus;
     - `surface` → tarjeta casi sólida;
-    - `overlay` → vidrio fuerte (menús, popovers, modales y avisos, con desenfoque);
+    - `overlay` → capa flotante **sólida** (modales, hojas, popovers, menús, globos y avisos
+      emergentes): `--hx-card` en claro y `--hx-bg-elevated` en oscuro, con borde y sombra, sin
+      desenfoque; `backdrop` → telón oscurecido de toda capa modal;
     - radios: 6 px en controles y 14 px en tarjetas y capas.
 
 Utilidades:
@@ -33,7 +35,7 @@ Utilidades:
 - de Iris: `text-muted-foreground`, `text-dimmed`, `bg-elevated`, `bg-card`,
   `bg-primary`/`text-primary-foreground`, `info`, `error`, `rounded-card`, `shadow-glow`.
 
-Materiales: `glass-material` (barras), `glass-strong` (menús, hojas), `surface-card` (contenido) y
+Materiales: `glass-material` (solo la barra lateral y la superior), `surface-card` (contenido) y
 `app-aura` (fondo).
 
 El tema oscuro va por la clase `.dark` en `<html>` (next-themes) o por `[data-theme="dark"]`, con la
@@ -42,44 +44,47 @@ variante `dark:`. La variante de Iris reemplaza la de HeroUI, que también segu�
 
 ## Componentes
 
-Mismos nombres y props de siempre; por dentro, HeroUI:
+Mismos nombres y props de siempre; por dentro, los componentes de HeroUI v3 (el mapa completo y
+lo que no se usa, con su motivo, está en [`docs/ui/guia.md`](../../docs/ui/guia.md#mapa-de-componentes)):
 
-- `Boton`: `<button>` nativo con `buttonVariants`: primario con halo, secundario, contorno,
-  fantasma, peligro y enlace; `asChild`.
+- `Boton`: `Button` de HeroUI: primario con halo, secundario, contorno, fantasma, peligro y enlace;
+  `title`, `role`, `aria-invalid`, `aria-keyshortcuts` y el arrastre nativo pasan directo al
+  `<button>` (`render`); `asChild` con `Ranura`. Como todo `Button` de React Aria, el clic no
+  sigue subiendo a los padres. `esBotonAria(elemento)` dice si un hijo se conecta solo a un
+  disparador (menú, popover, globo).
 - `Entrada`, `Campo`: HeroUI `Input`.
 - `AreaTexto`, `CampoArea`: `TextArea`.
 - `Etiqueta`: `Label`.
 - `Selector`, `CampoSelector`: `<select>` nativo con el estilo de campo de HeroUI; en el teléfono
   abre el selector del sistema.
-- `Dialogo*`: `Modal` de React Aria, en vidrio fuerte; en el teléfono sube desde abajo.
+- `Dialogo*`: `Modal` (`Modal.Backdrop`, `Modal.Container`, `Modal.Dialog`), panel sólido sobre
+  telón oscurecido; en el teléfono sube desde abajo. `DialogoConfirmar`: `AlertDialog`.
   `DialogoContenido cerrable={false}` no se cierra con Escape ni tocando fuera, y no tiene «X»
   (`DialogoPie`).
-- `Hoja*`: `Drawer`.
-- `MenuDesplegable*`: `Dropdown`.
-- `Tarjeta*`: piezas de `Card`.
-- `Aviso`: piezas de `Alert`, con tono + icono + título + acción (p. ej. «Reintentar»).
+- `Hoja*`: `Drawer`, siempre con telón (`fondo="transparente"` ya no lo quita).
+- `MenuDesplegable*`: `Dropdown` (`Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Item`,
+  `Separator`); `MenuEnLinea`: `Menu`.
+- `PanelEmergente`: `Popover`. `Globo`: `Tooltip`.
+- `Tarjeta*`: `Card` y sus partes (`TarjetaTitulo` es un `<h2>`).
+- `Aviso`: `Alert`, con tono + icono + título + acción (p. ej. «Reintentar») y fondo tintado opaco.
 - `InsigniaEstado`: `Chip` suave, con icono + texto + color.
-- `Tabla*`: `<table>` con las piezas de `Table`.
-- `EstadoVacio`: `EmptyState`.
-- `Esqueleto`: `Skeleton`.
-- `Cargando`: estilo de `Spinner`.
+- `Tabla*`: `Table` + `Table.ScrollContainer` con una `<table>` semántica.
+- `EstadoVacio`: `EmptyState`. `Esqueleto`: `Skeleton`. `Cargando`: `Spinner`.
+- `GrupoSegmentado`: `ToggleButtonGroup` (radiogroup). `GrupoOpciones`: `RadioGroup`.
+- `Casilla`: `Checkbox`, que sirve con `register` (el `ref` va al `<input>` real y la marca sigue a
+  `:checked`).
+- `PaletaBusqueda`: `Modal` + `Kbd`.
 
-Siguen como estaban:
-
-- `GrupoSegmentado` (radiogroup);
-- `Casilla` (checkbox con etiqueta);
-- `GrupoOpciones`;
-- `LogoIris`, `MarcaIris`;
-- `cn`.
+Siguen como estaban: `Selector` (`<select>` nativo, ver la guía), `LogoIris`, `MarcaIris` y `cn`.
 
 Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos emergentes,
 `Globo`, `PaletaBusqueda` y `MenuEnLinea`; los demás llegan con las fases 2 y 3:
 
 - `Pestanas`: HeroUI `Tabs`. Las pestañas pueden tener `href`, para fichas con URL; controladas
   con `seleccionada`/`alCambiar` (la pestaña en `?pestana=`). Si la elegida no está, abre la primera.
-- `PanelProtegido`: acción en un panel lateral a la derecha (`Hoja` sin velo, la ficha a la vista),
+- `PanelProtegido`: acción en un panel lateral a la derecha (una `Hoja`, sobre telón oscurecido),
   con la misma protección de cambios que `DialogoProtegido`; por dentro, `DialogoPie` y
-  `DialogoCerrar`. `HojaContenido` acepta `descripcion` y `fondo="transparente"`.
+  `DialogoCerrar`. `HojaContenido` acepta `descripcion` (y `fondo`, que ya no cambia nada).
 - `ProveedorAvisosEmergentes` + `avisar` / `useAvisoEmergente` / `cerrarAviso`: HeroUI `Toast`, en una
   cola fuera de React. Duran 5 s, u 8 s si llevan «Deshacer». `className` permite moverlos (el
   panel los pone arriba en el teléfono). HeroUI anuncia cada aviso como `alertdialog` no modal: en

@@ -73,6 +73,25 @@ describe("tema Horus para HeroUI", () => {
         expect(estilos).not.toMatch(/--color-muted:/);
     });
 
+    it("lo flotante es sólido: superficie opaca de Horus, sin vidrio ni desenfoque, y telón oscurecido", () => {
+        // Claro: la tarjeta (blanca y opaca). Oscuro: la superficie elevada (opaca).
+        expect(tema).toMatch(/--overlay:\s*var\(--hx-card\);/);
+        expect(tema).toMatch(/\.dark,\s*\[data-theme="dark"\]\s*\{\s*--overlay:\s*var\(--hx-bg-elevated\);/);
+        expect(tema).not.toMatch(/--overlay:\s*var\(--hx-glass/);
+        expect(tema).not.toMatch(/blur\(/);
+        expect(tema).toMatch(/\.modal__backdrop,\s*\.alert-dialog__backdrop,\s*\.drawer__backdrop\s*\{\s*background-color:\s*var\(--backdrop\);/);
+        // Ningún envoltorio usa el vidrio fuerte en lo flotante.
+        for (const archivo of ["dialogo", "hoja", "panel-emergente", "menu-desplegable", "globo", "formulario-modal", "paleta-busqueda"]) {
+            expect(leer(`./componentes/${archivo}.tsx`), archivo).not.toContain("glass-strong");
+        }
+    });
+
+    it("los avisos tienen fondo tintado opaco por tono (mezclado con el lienzo, sin transparencia)", () => {
+        const html = renderToStaticMarkup(<Aviso tono="error" titulo="No se pudo leer" />);
+        expect(html).toContain("bg-[color-mix(in_oklab,var(--hx-error)_10%,var(--hx-bg))]");
+        expect(html).not.toMatch(/bg-error\/10/);
+    });
+
     it("la versión instalada de HeroUI es la fijada (v3)", () => {
         const requerir = createRequire(import.meta.url);
         const paquete = JSON.parse(readFileSync(requerir.resolve("@heroui/react/package.json"), "utf8")) as { version: string };
@@ -170,7 +189,13 @@ describe("componentes de siempre, por dentro HeroUI", () => {
 
     it("Tarjeta, Tabla, InsigniaEstado, Aviso, Esqueleto y EstadoVacio llevan las piezas de HeroUI", () => {
         expect(renderToStaticMarkup(<Tarjeta>x</Tarjeta>)).toMatch(/class="[^"]*\bcard\b[^"]*surface-card/);
-        expect(renderToStaticMarkup(<TarjetaTitulo>T</TarjetaTitulo>)).toMatch(/^<h2[^>]*card__title/);
+        expect(
+            renderToStaticMarkup(
+                <Tarjeta>
+                    <TarjetaTitulo>T</TarjetaTitulo>
+                </Tarjeta>,
+            ),
+        ).toMatch(/<h2[^>]*card__title/);
         const tabla = renderToStaticMarkup(
             <Tabla aria-label="Órdenes">
                 <TablaCuerpo>

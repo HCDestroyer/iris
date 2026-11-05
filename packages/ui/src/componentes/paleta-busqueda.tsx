@@ -1,11 +1,12 @@
 "use client";
 
+import { Kbd, Modal } from "@heroui/react";
 import { inputVariants, listboxItemVariants } from "@heroui/styles";
 import { Search, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { Autocomplete, Dialog, Header, Heading, Input, ListBox, ListBoxItem, ListBoxSection, Modal, ModalOverlay, SearchField } from "react-aria-components";
+import { Autocomplete, Header, Input, ListBox, ListBoxItem, ListBoxSection, SearchField } from "react-aria-components";
 import { cn } from "../utilidades";
-import { animacionPanel, clasesFondo } from "./dialogo";
+import { clasesFondo } from "./dialogo";
 
 export type ElementoPaleta = {
     id: string;
@@ -60,18 +61,17 @@ export function PaletaBusqueda({
     const conElementos = secciones.filter((s) => s.elementos.length > 0);
     const porId = new Map(conElementos.flatMap((s) => s.elementos.map((e) => [e.id, e] as const)));
     return (
-        <ModalOverlay isOpen={abierta} onOpenChange={alCambiarAbierta} isDismissable className={clasesFondo}>
-            <Modal
-                className={cn(
-                    "glass-strong fixed z-(--z-index-overlay) flex max-h-[85dvh] w-full flex-col overflow-hidden shadow-xl",
-                    "inset-x-0 top-0 rounded-t-none sm:inset-x-auto sm:top-[12dvh] sm:left-1/2 sm:w-[min(40rem,calc(100vw-2rem))] sm:-translate-x-1/2",
-                    animacionPanel,
-                )}
-            >
-                <Dialog data-slot="paleta-busqueda" className="flex min-h-0 flex-1 flex-col outline-none">
-                    <Heading slot="title" className="sr-only">
-                        {titulo}
-                    </Heading>
+        <Modal.Backdrop isOpen={abierta} onOpenChange={alCambiarAbierta} isDismissable variant="opaque" className={clasesFondo}>
+            {/* Arriba en el teléfono (a lo ancho, debajo queda el teclado); centrado arriba desde `sm`. */}
+            <Modal.Container placement="top" scroll="inside" className="p-0 sm:pt-[12dvh] sm:pb-10 data-exiting:animate-none motion-reduce:animate-none">
+                <Modal.Dialog
+                    data-slot="paleta-busqueda"
+                    className={cn(
+                        "flex max-h-[85dvh] w-full max-w-none min-h-0 flex-col overflow-hidden p-0",
+                        "rounded-t-none rounded-b-[var(--hx-radius-card)] sm:w-[min(40rem,calc(100vw-2rem))] sm:rounded-[var(--hx-radius-card)]",
+                    )}
+                >
+                    <Modal.Heading className="sr-only">{titulo}</Modal.Heading>
                     <Autocomplete inputValue={texto} onInputChange={alCambiarTexto}>
                         {/* Escape cierra el buscador aunque haya texto (SearchField solo lo borraría). */}
                         <SearchField
@@ -110,7 +110,7 @@ export function PaletaBusqueda({
                                                 textValue={e.detalle ? `${e.etiqueta} ${e.detalle}` : e.etiqueta}
                                                 className={piezaElemento.item({
                                                     className:
-                                                        "flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2.5 py-1.5 text-sm outline-none data-focused:bg-primary/10 data-focused:text-foreground data-hovered:bg-elevated",
+                                                        "flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2.5 py-1.5 text-sm outline-none data-focused:bg-primary/10 data-focused:text-foreground data-hovered:bg-[var(--overlay-hover)]",
                                                 })}
                                             >
                                                 {Icono ? <Icono aria-hidden className="size-4 shrink-0 text-muted-foreground" /> : null}
@@ -127,10 +127,10 @@ export function PaletaBusqueda({
                     </Autocomplete>
                     {estado ? <div className="grid gap-2 border-t p-3 text-sm">{estado}</div> : null}
                     <p className="hidden border-t px-3 py-2 text-xs text-muted-foreground sm:block">
-                        <kbd>↑</kbd> <kbd>↓</kbd> para moverte · <kbd>Enter</kbd> para abrir · <kbd>Esc</kbd> para cerrar
+                        <Kbd>↑</Kbd> <Kbd>↓</Kbd> para moverte · <Kbd>Enter</Kbd> para abrir · <Kbd>Esc</Kbd> para cerrar
                     </p>
-                </Dialog>
-            </Modal>
-        </ModalOverlay>
+                </Modal.Dialog>
+            </Modal.Container>
+        </Modal.Backdrop>
     );
 }

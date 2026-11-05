@@ -1,7 +1,7 @@
-import { alertVariants } from "@heroui/styles";
 import type { LucideIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../utilidades";
+import { AlertaAviso } from "./aviso-alerta";
 import { estadoHeroui, iconoPorTono, superficiePorTono, textoPorTono, type Tono } from "./tonos";
 
 export type PropsAviso = Omit<ComponentProps<"div">, "title"> & {
@@ -13,31 +13,27 @@ export type PropsAviso = Omit<ComponentProps<"div">, "title"> & {
 };
 
 /**
- * Aviso con icono + título + texto, con las piezas de HeroUI `Alert` (`alert`, `alert__indicator`,
- * `alert__title`…) y el fondo tintado de Horus. Los de tono `error` se anuncian
- * (`role="alert"`); el resto como `status`.
+ * Aviso en la página con icono + título + texto: el `Alert` de HeroUI (`Alert`, `Alert.Indicator`,
+ * `Alert.Content`, `Alert.Title` y la pieza `alert__description`) con el fondo tintado y sólido del
+ * tono de Horus (nunca transparente) y su borde. Los de tono `error` se anuncian
+ * (`role="alert"`); el resto como `status`. Sirve también desde un componente de servidor.
  */
 export function Aviso({ tono = "info", titulo, icono, accion, className, children, ...props }: PropsAviso) {
     const Icono = icono ?? iconoPorTono[tono];
-    const piezas = alertVariants({ status: estadoHeroui[tono] });
     return (
-        <div
+        <AlertaAviso
             data-slot="aviso"
             data-tono={tono}
             role={tono === "error" ? "alert" : "status"}
-            className={piezas.base({
-                className: cn("flex-col items-stretch justify-normal gap-3 rounded-lg border p-3.5 text-sm shadow-none sm:flex-row sm:items-start", superficiePorTono[tono], className),
-            })}
             {...props}
+            status={estadoHeroui[tono]}
+            indicador={<Icono aria-hidden className="size-4" />}
+            titulo={titulo}
+            claseTitulo={textoPorTono[tono]}
+            accion={accion}
+            className={cn("flex-col items-stretch justify-normal gap-3 rounded-lg border p-3.5 text-sm shadow-none sm:flex-row sm:items-start", superficiePorTono[tono], className)}
         >
-            <div className="flex min-w-0 flex-1 gap-2.5">
-                <Icono aria-hidden className={piezas.indicator({ className: cn("mt-0.5 box-content size-4 shrink-0 p-0", textoPorTono[tono]) })} />
-                <div className={piezas.content({ className: "grid min-w-0 gap-0.5" })}>
-                    <p className={piezas.title({ className: cn("leading-normal", textoPorTono[tono]) })}>{titulo}</p>
-                    {children ? <div className="text-foreground">{children}</div> : null}
-                </div>
-            </div>
-            {accion ? <div className="shrink-0 sm:ml-2">{accion}</div> : null}
-        </div>
+            {children}
+        </AlertaAviso>
     );
 }

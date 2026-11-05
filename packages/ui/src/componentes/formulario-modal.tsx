@@ -1,12 +1,11 @@
 "use client";
 
+import { AlertDialog } from "@heroui/react";
 import { CircleAlert, TriangleAlert } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
-import { cn } from "../utilidades";
 import { Aviso } from "./aviso";
 import { Boton, type PropsBoton } from "./boton";
-import { animacionPanel, clasesFondo, Dialogo, type PropsDialogo } from "./dialogo";
+import { clasesContenedor, clasesFondo, clasesPanel, Dialogo, type PropsDialogo } from "./dialogo";
 import { Hoja, HojaContenido } from "./hoja";
 
 /*
@@ -158,8 +157,9 @@ export type PropsPanelProtegido = {
 };
 
 /**
- * Acción en un panel lateral a la derecha, con la ficha visible detrás (sin velo): para las
- * acciones de 4 o más campos sobre un registro (responder un ticket, programar una orden…).
+ * Acción en un panel lateral a la derecha (una `Hoja`: panel sólido sobre un telón que oscurece la
+ * ficha): para las acciones de 4 o más campos sobre un registro (responder un ticket, programar
+ * una orden…).
  * Igual que `DialogoProtegido`: con cambios sin guardar, cerrar (Escape, tocar fuera, la X o
  * «Cancelar» con `DialogoCerrar`) pregunta antes. Por dentro se usan `DialogoPie` y `DialogoCerrar`.
  */
@@ -185,7 +185,7 @@ export function PanelProtegido({ open, onOpenChange, titulo, descripcion, ocupad
             {/* Contexto de diálogo para `DialogoCerrar` («Cancelar») dentro del panel. */}
             <Dialogo open={open} onOpenChange={pedirCierre}>
                 <Hoja open={open} onOpenChange={pedirCierre}>
-                    <HojaContenido titulo={titulo} descripcion={descripcion} lado="derecha" fondo="transparente" className="left-0 w-auto max-w-full sm:left-auto sm:w-[min(30rem,100vw)]" data-slot="panel-accion">
+                    <HojaContenido titulo={titulo} descripcion={descripcion} lado="derecha" className="w-screen max-w-full sm:w-[min(30rem,100vw)]" data-slot="panel-accion">
                         {children}
                     </HojaContenido>
                 </Hoja>
@@ -247,28 +247,20 @@ export function DialogoConfirmar({
     const [ocupado, setOcupado] = useState(false);
     const idDescripcion = useId();
     return (
-        <ModalOverlay
+        <AlertDialog.Backdrop
             isOpen={open}
             onOpenChange={(a) => !ocupado && onOpenChange(a)}
             isDismissable={false}
             isKeyboardDismissDisabled={ocupado}
+            variant="opaque"
             className={clasesFondo}
         >
-            <Modal
-                className={cn(
-                    "glass-strong fixed z-(--z-index-overlay) flex max-h-[92dvh] w-full flex-col overflow-y-auto shadow-xl",
-                    "inset-x-0 bottom-0 rounded-t-[var(--hx-radius-card)] data-entering:slide-in-from-bottom-4",
-                    "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--hx-radius-card)] sm:data-entering:slide-in-from-bottom-0 sm:data-entering:zoom-in-95",
-                    animacionPanel,
-                )}
-            >
-                <Dialog role="alertdialog" aria-describedby={descripcion ? idDescripcion : undefined} className="flex flex-col gap-4 p-5 outline-none">
+            <AlertDialog.Container placement="auto" className={clasesContenedor}>
+                <AlertDialog.Dialog aria-describedby={descripcion ? idDescripcion : undefined} className={clasesPanel("sm:w-[min(28rem,calc(100vw-2rem))]")}>
                     <div className="flex gap-3">
                         {peligro ? <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-error" /> : null}
                         <div className="grid gap-1">
-                            <Heading slot="title" className="text-lg font-semibold tracking-[-0.015em]">
-                                {titulo}
-                            </Heading>
+                            <AlertDialog.Heading className="text-lg font-semibold tracking-[-0.015em]">{titulo}</AlertDialog.Heading>
                             {descripcion ? (
                                 <p id={idDescripcion} className="text-sm text-muted-foreground">
                                     {descripcion}
@@ -299,9 +291,9 @@ export function DialogoConfirmar({
                             {ocupado ? (textoOcupado ?? `${textoConfirmar}…`) : textoConfirmar}
                         </Boton>
                     </div>
-                </Dialog>
-            </Modal>
-        </ModalOverlay>
+                </AlertDialog.Dialog>
+            </AlertDialog.Container>
+        </AlertDialog.Backdrop>
     );
 }
 

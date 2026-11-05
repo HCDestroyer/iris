@@ -52,8 +52,10 @@ describe("GrupoSegmentado", () => {
         const html = renderToStaticMarkup(
             <GrupoSegmentado etiqueta="Mostrar" opciones={[{ valor: "a", etiqueta: "En curso" }, { valor: "b", etiqueta: "Todos" }]} valor="b" alCambiar={() => undefined} />,
         );
-        expect(html).toMatch(/aria-checked="true"[^>]*aria-checked:text-primary[^>]*>Todos</);
-        expect(html).toMatch(/aria-checked="false"[^>]*>En curso</);
-        expect(html).toContain("aria-checked:shadow-[0_0_0_1px_var(--hx-primary)]");
+        // ToggleButtonGroup de HeroUI con selección única: radiogroup y radios.
+        expect(html).toMatch(/class="toggle-button-group[^"]*"[^>]*role="radiogroup"/);
+        expect(html).toMatch(/data-selected:text-primary[^>]*role="radio" aria-checked="true" data-selected="true">Todos</);
+        expect(html).toMatch(/role="radio" aria-checked="false">En curso</);
+        expect(html).toContain("data-selected:shadow-[0_0_0_1px_var(--hx-primary)]");
     });
 });

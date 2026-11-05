@@ -83,6 +83,7 @@ test.describe("filtros en la URL", () => {
         await page.getByRole("combobox", { name: "Técnico o responsable" }).selectOption({ label: "Jorge Méndez" });
         await expect(page).toHaveURL(/tecnico=11/);
         await page.getByRole("combobox", { name: "Categoría" }).selectOption({ label: "Lentitud" });
+        await expect(page).toHaveURL(/categoria=3/);
         // La casilla refleja la URL: se marca cuando la URL cambia (por eso click y no check).
         await page.getByRole("checkbox", { name: "Crítica" }).click();
         await expect(page.getByRole("checkbox", { name: "Crítica" })).toBeChecked();

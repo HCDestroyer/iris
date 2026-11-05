@@ -1,17 +1,18 @@
 "use client";
 
-import { modalVariants } from "@heroui/styles";
+import { Modal } from "@heroui/react";
 import { X } from "lucide-react";
 import { createContext, use, useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { cn } from "../utilidades";
 import { Boton } from "./boton";
 import { Ranura } from "./ranura";
 
 /*
- * Diálogo modal sobre HeroUI `Modal` (React Aria: `ModalOverlay` + `Modal` + `Dialog`): foco
- * contenido, Escape y tocar fuera cierran, el resto de la página queda inerte y el foco vuelve al
- * disparador. En vidrio fuerte; en el teléfono ocupa el ancho y sube desde abajo.
+ * Diálogo modal: el `Modal` de HeroUI (`Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` +
+ * `Modal.Heading`, sobre React Aria): foco contenido, Escape y tocar fuera cierran, el resto de la
+ * página queda inerte y el foco vuelve al disparador. Panel de color sólido (la capa flotante del
+ * tema) con borde y sombra, sobre un telón que oscurece lo de atrás. En el teléfono ocupa el ancho
+ * y sube desde abajo.
  */
 
 type ContextoDialogo = { abierto: boolean; cambiar: (abierto: boolean) => void };
@@ -100,16 +101,32 @@ function FocoAlAbrir({ alAbrir }: { alAbrir: ((evento: Event) => void) | undefin
     return <span ref={ancla} hidden />;
 }
 
-/** Fondo oscurecido de HeroUI (`modal__backdrop`), por encima de todo lo de la página. */
 /*
- * Solo hay animación de entrada. Al cerrar, la capa se desmonta en el acto (sin `data-exiting`): con
- * salida animada el foco seguiría ~100 ms dentro de la capa que se va y un Escape o un clic
- * inmediato le llegaría a ella y no a la de abajo.
+ * Solo hay animación de entrada. Al cerrar, la capa se desmonta en el acto (sin animación de
+ * salida): con salida animada el foco seguiría ~100 ms dentro de la capa que se va y un Escape o
+ * un clic inmediato le llegaría a ella y no a la de abajo.
  */
-export const clasesFondo = modalVariants({ variant: "opaque" }).backdrop({ className: "data-exiting:animate-none" });
 
-/** Entrada del panel (tw-animate, como HeroUI); sin movimiento si el sistema lo pide. */
-export const animacionPanel = "data-entering:animate-in data-entering:fade-in-0 data-entering:duration-200 data-exiting:animate-none motion-reduce:animate-none";
+/** Telón de HeroUI (`modal__backdrop--opaque`): oscurece todo lo de la página. */
+export const clasesFondo = "data-exiting:animate-none data-exiting:transition-none";
+
+/**
+ * Contenedor de HeroUI (`modal__container`): en el teléfono pegado abajo y a lo ancho; desde `sm`,
+ * centrado. Sin animación de salida.
+ */
+export const clasesContenedor = "p-0 sm:p-10 data-exiting:animate-none motion-reduce:animate-none";
+
+/**
+ * Panel (`modal__dialog`, la capa flotante sólida): hoja inferior en el teléfono, tarjeta centrada
+ * desde `sm`, con su propio desplazamiento si el contenido es largo.
+ */
+export function clasesPanel(ancho: string): string {
+    return cn(
+        "flex max-h-[92dvh] w-full max-w-none min-h-0 flex-col gap-4 overflow-y-auto p-5",
+        "rounded-t-[var(--hx-radius-card)] rounded-b-none sm:rounded-[var(--hx-radius-card)]",
+        ancho,
+    );
+}
 
 export type PropsDialogoContenido = Omit<ComponentProps<"div">, "title" | "role"> & {
     titulo: ReactNode;
@@ -129,28 +146,18 @@ export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar
     const { abierto, cambiar } = useDialogo();
     const idDescripcion = useId();
     return (
-        <ModalOverlay isOpen={abierto} onOpenChange={cambiar} isDismissable={cerrable} isKeyboardDismissDisabled={!cerrable} className={clasesFondo}>
-            <Modal
-                className={cn(
-                    "glass-strong fixed z-(--z-index-overlay) flex max-h-[92dvh] w-full flex-col overflow-y-auto shadow-xl",
-                    "inset-x-0 bottom-0 rounded-t-[var(--hx-radius-card)] rounded-b-none data-entering:slide-in-from-bottom-4",
-                    "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-[min(36rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--hx-radius-card)] sm:data-entering:slide-in-from-bottom-0 sm:data-entering:zoom-in-95",
-                    animacionPanel,
-                    className,
-                )}
-            >
-                <Dialog
+        <Modal.Backdrop isOpen={abierto} onOpenChange={cambiar} isDismissable={cerrable} isKeyboardDismissDisabled={!cerrable} variant="opaque" className={clasesFondo}>
+            <Modal.Container placement="auto" scroll="inside" className={clasesContenedor}>
+                <Modal.Dialog
                     role={role ?? "dialog"}
                     aria-describedby={descripcion ? idDescripcion : undefined}
-                    className="flex min-h-0 flex-1 flex-col gap-4 p-5 outline-none"
+                    className={clasesPanel(cn("sm:w-[min(36rem,calc(100vw-2rem))]", className))}
                     {...props}
                 >
                     <FocoAlAbrir alAbrir={onOpenAutoFocus} />
                     <div className="flex items-start justify-between gap-3">
                         <div className="grid gap-1">
-                            <Heading slot="title" className="text-lg font-semibold tracking-[-0.015em]">
-                                {titulo}
-                            </Heading>
+                            <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{titulo}</Modal.Heading>
                             {descripcion ? (
                                 <p id={idDescripcion} className="text-sm text-muted-foreground">
                                     {descripcion}
@@ -164,9 +171,9 @@ export function DialogoContenido({ titulo, descripcion, etiquetaCerrar = "Cerrar
                         ) : null}
                     </div>
                     {children}
-                </Dialog>
-            </Modal>
-        </ModalOverlay>
+                </Modal.Dialog>
+            </Modal.Container>
+        </Modal.Backdrop>
     );
 }
 

@@ -1,12 +1,15 @@
+"use client";
+
+import { Button } from "@heroui/react";
 import { buttonVariants } from "@heroui/styles";
-import type { ComponentProps } from "react";
+import { isValidElement, type ComponentProps, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { cn } from "../utilidades";
 import { Ranura } from "./ranura";
 
 export type VarianteBoton = "primario" | "secundario" | "contorno" | "fantasma" | "peligro" | "enlace";
 export type TamanoBoton = "md" | "sm" | "lg" | "icono" | "icono-sm";
 
-/** Variante de Iris → variante de HeroUI (`buttonVariants`). */
+/** Variante de Iris → variante de HeroUI (`Button variant`). */
 const VARIANTE_HEROUI = {
     primario: "primary",
     secundario: "tertiary",
@@ -41,18 +44,30 @@ const AJUSTE_TAMANO: Record<TamanoBoton, string> = {
 
 export type OpcionesBoton = { variante?: VarianteBoton | null | undefined; tamano?: TamanoBoton | null | undefined };
 
-/** Clases del botón (HeroUI `buttonVariants` + ajustes de Horus), p. ej. para un `<label>` o `<a>`. */
-export function variantesBoton({ variante, tamano }: OpcionesBoton = {}): string {
+function opcionesHeroui({ variante, tamano }: OpcionesBoton) {
     const v = variante ?? "primario";
     const t = tamano ?? "md";
-    const soloIcono = t === "icono" || t === "icono-sm";
-    const tamanoHeroui = t === "sm" || t === "icono-sm" ? "sm" : t === "lg" ? "lg" : "md";
-    return cn(
-        buttonVariants({ variant: VARIANTE_HEROUI[v], size: tamanoHeroui, isIconOnly: soloIcono }),
-        "rounded-md [&_svg]:size-4",
-        AJUSTE_TAMANO[t],
-        AJUSTE_VARIANTE[v],
-    );
+    return {
+        v,
+        t,
+        variant: VARIANTE_HEROUI[v],
+        size: t === "sm" || t === "icono-sm" ? ("sm" as const) : t === "lg" ? ("lg" as const) : ("md" as const),
+        isIconOnly: t === "icono" || t === "icono-sm",
+    };
+}
+
+/** Ajustes de Horus que van encima de las clases de HeroUI. */
+function ajustesHorus(v: VarianteBoton, t: TamanoBoton): string {
+    return cn("rounded-md [&_svg]:size-4", AJUSTE_TAMANO[t], AJUSTE_VARIANTE[v]);
+}
+
+/**
+ * Clases del botón (HeroUI `buttonVariants` + ajustes de Horus) para lo que no es un `Boton`: un
+ * `<label>` (p. ej. `Camara`) o un `<a>` con `asChild`.
+ */
+export function variantesBoton(opciones: OpcionesBoton = {}): string {
+    const { v, t, variant, size, isIconOnly } = opcionesHeroui(opciones);
+    return cn(buttonVariants({ variant, size, isIconOnly }), ajustesHorus(v, t));
 }
 
 export type PropsBoton = ComponentProps<"button"> &
@@ -61,17 +76,66 @@ export type PropsBoton = ComponentProps<"button"> &
         asChild?: boolean;
     };
 
-/**
- * Botón de Horus con el estilo de HeroUI (`button`, `button--primary`…). Es un `<button>` nativo:
- * `onClick`, `title`, `type="submit"` y la propagación de eventos se comportan como siempre, y
- * dentro de un disparador de React Aria (menú, popover) recibe sus props por `Pressable`.
- * Los botones solo-icono llevan `aria-label` (y `title` como tooltip).
+/*
+ * Atributos que el `Button` de React Aria no deja pasar (filtra lo que no conoce): van directo al
+ * `<button>` por `render`. `title` (globo del navegador), `role`, `tabIndex`, `aria-invalid`,
+ * `aria-keyshortcuts` y el arrastre nativo (`draggable`, `onDrag*`, `onDrop`), que usa el
+ * calendario de despacho; React Aria no impide el arrastre de un elemento `draggable`.
  */
-export function Boton({ className, variante, tamano, asChild = false, type, ...props }: PropsBoton) {
-    const clases = cn(variantesBoton({ variante, tamano }), className);
+const DIRECTO = /^(title|role|tabIndex|draggable|onDrag[A-Za-z]*|onDrop|aria-(invalid|keyshortcuts|busy|checked|selected|owns|live|atomic|errormessage|roledescription|hidden))$/;
+
+/**
+ * Botón de Horus: el `Button` de HeroUI (React Aria) con las variantes de Iris. `disabled`,
+ * `onClick`, `type="submit"`, `title` y los `data-*` funcionan como en un `<button>`; React Aria
+ * agrega el estado de presión, el foco visible (`data-focus-visible`) y el teclado. Como todo
+ * `Button` de React Aria, el clic no sigue subiendo a los padres. Dentro de un disparador de
+ * React Aria (menú, popover, tooltip) se conecta solo. Los botones solo-icono llevan `aria-label`
+ * (y `title` como tooltip). Con `asChild`, el hijo (un enlace) toma el estilo.
+ */
+export function Boton({ className, variante, tamano, asChild = false, type, disabled, onClick, children, ...props }: PropsBoton) {
+    const { v, t, variant, size, isIconOnly } = opcionesHeroui({ variante, tamano });
     if (asChild) {
         const { ref, ...resto } = props;
-        return <Ranura data-slot="boton" className={clases} {...resto} ref={ref as ComponentProps<typeof Ranura>["ref"]} />;
+        return (
+            <Ranura
+                data-slot="boton"
+                className={cn(variantesBoton({ variante, tamano }), className)}
+                {...(onClick ? { onClick: onClick as ComponentProps<typeof Ranura>["onClick"] } : {})}
+                {...resto}
+                ref={ref as ComponentProps<typeof Ranura>["ref"]}
+            >
+                {children}
+            </Ranura>
+        );
     }
-    return <button data-slot="boton" className={clases} type={type ?? "button"} {...props} />;
+    const directos: Record<string, unknown> = {};
+    const paraAria: Record<string, unknown> = {};
+    for (const [clave, valor] of Object.entries(props)) {
+        if (DIRECTO.test(clave)) directos[clave] = valor;
+        else paraAria[clave] = valor;
+    }
+    return (
+        <Button
+            data-slot="boton"
+            variant={variant}
+            size={size}
+            isIconOnly={isIconOnly}
+            className={cn(ajustesHorus(v, t), className)}
+            type={type ?? "button"}
+            isDisabled={disabled ?? false}
+            {...(onClick ? { onClick: onClick as (evento: MouseEvent<Element>) => void } : {})}
+            {...(paraAria as ComponentProps<typeof Button>)}
+            render={(dom) => <button {...(dom as ComponentProps<"button">)} {...directos} />}
+        >
+            {children as ReactNode}
+        </Button>
+    );
+}
+
+/**
+ * ¿El elemento es un `Boton` de React Aria? Esos se conectan solos con los disparadores (menú,
+ * popover, globo); el resto (enlaces, `asChild`) se envuelve con `Pressable` o `Focusable`.
+ */
+export function esBotonAria(elemento: ReactElement): boolean {
+    return isValidElement<PropsBoton>(elemento) && elemento.type === Boton && !elemento.props.asChild;
 }

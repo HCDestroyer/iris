@@ -53,7 +53,8 @@ test.describe("entrada al portal", () => {
         const api = await simularApiPortal(page);
         await page.goto("/soporte/entrar#corto");
         await expect(page.getByRole("heading", { name: "El enlace venció o ya se usó" })).toBeVisible();
-        expect(page.url()).not.toContain("#");
+        // El token se borra de la URL (replaceState) justo después de leerlo: se espera a que pase.
+        await expect(page).not.toHaveURL(/#/);
         expect(api.peticiones).toHaveLength(0);
     });
 

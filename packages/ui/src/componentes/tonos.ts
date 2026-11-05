@@ -23,13 +23,16 @@ export const textoPorTono: Record<Tono, string> = {
     error: "text-error",
 };
 
-/** Fondo tintado al 10 % y borde al 30 % del tono. */
+/**
+ * Fondo tintado y SÓLIDO (10 % del tono sobre el lienzo del tema, sin transparencia: lo de atrás no
+ * se ve a través) y borde al 30 % del tono. Lo usan `Aviso` e `InsigniaEstado`.
+ */
 export const superficiePorTono: Record<Tono, string> = {
     neutral: "bg-elevated border-border",
-    info: "bg-info/10 border-info/30",
-    success: "bg-success/10 border-success/30",
-    warning: "bg-warning/10 border-warning/30",
-    error: "bg-error/10 border-error/30",
+    info: "bg-[color-mix(in_oklab,var(--hx-info)_10%,var(--hx-bg))] border-info/30",
+    success: "bg-[color-mix(in_oklab,var(--hx-success)_10%,var(--hx-bg))] border-success/30",
+    warning: "bg-[color-mix(in_oklab,var(--hx-warning)_10%,var(--hx-bg))] border-warning/30",
+    error: "bg-[color-mix(in_oklab,var(--hx-error)_10%,var(--hx-bg))] border-error/30",
 };
 
 /**

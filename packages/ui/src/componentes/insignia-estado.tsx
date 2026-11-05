@@ -1,7 +1,7 @@
-import { chipVariants } from "@heroui/styles";
 import type { LucideIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
+import { ChipEstado } from "./chip-estado";
 import { colorChipHeroui, iconoPorTono, superficiePorTono, textoPorTono, type Tono } from "./tonos";
 
 export type PropsInsigniaEstado = Omit<ComponentProps<"span">, "children"> & {
@@ -12,26 +12,26 @@ export type PropsInsigniaEstado = Omit<ComponentProps<"span">, "children"> & {
     icono?: LucideIcon;
 };
 
-/** Estado = icono + texto + color (nunca solo color), sobre HeroUI `Chip` (variante suave). */
+/**
+ * Estado = icono + texto + color (nunca solo color): el `Chip` de HeroUI, variante suave. Sirve
+ * también desde un componente de servidor: el icono llega ya dibujado.
+ */
 export function InsigniaEstado({ tono, texto, icono, className, ...props }: PropsInsigniaEstado) {
     const Icono = icono ?? iconoPorTono[tono];
-    const piezas = chipVariants({ color: colorChipHeroui[tono], variant: "soft", size: "sm" });
     return (
-        <span
-            data-slot="insignia-estado"
-            data-tono={tono}
-            className={piezas.base({
-                className: cn(
-                    "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
-                    superficiePorTono[tono],
-                    textoPorTono[tono],
-                    className,
-                ),
-            })}
+        <ChipEstado
             {...props}
+            color={colorChipHeroui[tono]}
+            tono={tono}
+            className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+                superficiePorTono[tono],
+                textoPorTono[tono],
+                className,
+            )}
+            texto={texto}
         >
             <Icono aria-hidden className="size-3.5 shrink-0" />
-            {texto}
-        </span>
+        </ChipEstado>
     );
 }
