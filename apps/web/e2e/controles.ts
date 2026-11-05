@@ -142,22 +142,18 @@ export async function buscarSugerencias(campo: Locator, texto: string): Promise<
 }
 
 /**
- * Elige con el teclado la opción cuyo texto coincide: flecha abajo hasta que es la activa y Enter.
- * Se da por elegida cuando el campo se va (el selector de cliente pasa a confirmar) o cierra su
- * lista; si el Enter llegó mientras la lista se rehacía con resultados nuevos, se repite.
+ * Elige la opción cuyo texto coincide. El clic va como clic «virtual» (`dispatchEvent`, el de un
+ * lector de pantalla, que React Aria toma como un toque): no desplaza la página y, si la lista se
+ * cerró en el camino, no cae en otro control (un Enter con la lista cerrada enviaría el formulario).
+ * Se da por elegida cuando el campo se va (el selector de cliente pasa a confirmar) o queda con el
+ * texto de la opción; si no, vuelve a abrir la lista y repite.
  */
 export async function elegirSugerencia(campo: Locator, nombre: RegExp): Promise<void> {
-    await expect(campo).toBeFocused();
-    const activa = async () => {
-        const id = await campo.getAttribute("aria-activedescendant");
-        return id ? ((await campo.page().locator(`[id="${id}"]`).textContent()) ?? "") : "";
-    };
+    const elegida = async () => (await campo.count()) === 0 || nombre.test(await campo.inputValue());
     await expect(async () => {
-        if ((await campo.count()) === 0) return;
-        if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
-        if (!nombre.test(await activa())) await campo.press("ArrowDown");
-        expect(await activa()).toMatch(nombre);
-        await campo.press("Enter");
-        await expect.poll(async () => (await campo.count()) === 0 || (await campo.getAttribute("aria-expanded")) !== "true", { timeout: 1000 }).toBe(true);
-    }).toPass({ intervals: [50, 100, 200] });
+        if (await elegida()) return;
+        const caja = await abrirSugerencias(campo);
+        await caja.getByRole("option", { name: nombre }).first().dispatchEvent("click", undefined, { timeout: 2000 });
+        await expect.poll(elegida, { timeout: 1500 }).toBe(true);
+    }).toPass({ intervals: [100, 200, 400] });
 }

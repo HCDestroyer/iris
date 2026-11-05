@@ -175,6 +175,9 @@ test.describe("técnicos", () => {
         await expect.poll(() => ultima(api, "/api/v1/tecnicos/candidatos")?.query.get("q")).toBe("marta");
         await expect.poll(() => textosOpciones(d.getByLabel("Usuario", { exact: true }))).toEqual(["Elige el usuario", "Marta Cux · marta@iris.test"]);
         await d.getByLabel("Buscar usuario", { exact: true }).fill("");
+        // Se espera la lectura sin `q` antes de abrir la lista: si los resultados llegan con la lista
+        // abierta, se rehace debajo del dedo.
+        await expect.poll(() => ultima(api, "/api/v1/tecnicos/candidatos")?.query.has("q")).toBe(false);
         await expect.poll(async () => (await textosOpciones(d.getByLabel("Usuario", { exact: true }))).length).toBe(3);
         await elegirOpcion(d.getByLabel("Usuario", { exact: true }), { label: "Pablo Xol · pablo@iris.test" });
         await expect(crear).toBeDisabled();
