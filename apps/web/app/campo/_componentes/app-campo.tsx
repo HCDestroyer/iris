@@ -17,13 +17,16 @@ import {
     leerYo,
     marcarCierrePendiente,
     olvidarSesion,
+    recordarUsuario,
     sesionDesdeYo,
     sesionGuardada,
     usableSinSenal,
     CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
+import { avisoSinConexion } from "@iris/sync/campo";
 import { ProveedorAgenda } from "./agenda-datos";
+import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
@@ -32,6 +35,7 @@ import { ProveedorUbicacion, TurnoAutomatico } from "./ubicacion";
 
 type Arranque =
     | { fase: "cargando" }
+    /** Sin sesión: la entrada del técnico (`EntrarCampo`). */
     | { fase: "sin_sesion" }
     /** Contraseña temporal: va a `/cambiar-contrasena?siguiente=/campo`. */
     | { fase: "cambiar_contrasena" }
@@ -42,7 +46,23 @@ type Arranque =
     | { fase: "ajena"; nombre: string }
     | { fase: "lista"; sesion: SesionCampo; desdeCache: boolean };
 
-export const RUTA_ENTRAR = "/entrar?siguiente=%2Fcampo";
+/**
+ * Entrada del técnico: la de la propia app (`EntrarCampo`, en /campo y bajo su service worker), no
+ * la del panel. Se le suma `&motivo=expirada` cuando la sesión terminó.
+ */
+export const RUTA_ENTRAR = "/campo?entrar=1";
+
+/** «motivo=expirada» de la URL (la sesión terminó en la app). */
+function motivoDeUrl(): "expirada" | null {
+    return typeof window !== "undefined" && new URLSearchParams(window.location.search).get("motivo") === "expirada" ? "expirada" : null;
+}
+
+/** La entrada del técnico a pantalla completa, con el lienzo de la app y sus zonas seguras. */
+function PantallaEntrar({ children }: { children: ReactNode }) {
+    return (
+        <main className="campo-app mx-auto min-h-dvh w-full max-w-md px-5 pt-[calc(env(safe-area-inset-top)+3rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)]">{children}</main>
+    );
+}
 
 function Centro({ children }: { children: ReactNode }) {
     return <main className="mx-auto grid min-h-dvh w-full max-w-md place-content-center gap-6 px-4 py-10">{children}</main>;
@@ -87,6 +107,8 @@ export function AppCampo() {
                 }
                 const sesion = sesionDesdeYo(yo);
                 guardarSesion(sesion);
+                // La próxima vez la entrada lo recuerda (solo nombre y correo) y pide solo la contraseña.
+                recordarUsuario({ nombre: sesion.nombre, correo: sesion.correo });
                 if (vivo) {
                     setArranque({ fase: "lista", sesion, desdeCache: false });
                 }
@@ -99,7 +121,6 @@ export function AppCampo() {
                     irACambiarContrasena();
                 } else if (e instanceof ErrorApi && e.estado === 401) {
                     setArranque({ fase: "sin_sesion" });
-                    window.location.replace(RUTA_ENTRAR);
                 } else if (e instanceof ErrorApi && e.estado === 0) {
                     // Sin señal: solo con una verificación reciente de este mismo usuario.
                     setArranque(cache && usableSinSenal(cache) ? { fase: "lista", sesion: cache, desdeCache: true } : { fase: "conectate", motivo: "sin_verificar" });
@@ -113,6 +134,17 @@ export function AppCampo() {
         };
     }, [intento]);
 
+    // En la entrada «Sin conexión»: al volver la señal se intenta de nuevo solo.
+    const sinSenal = arranque.fase === "conectate" && arranque.motivo === "sin_verificar";
+    useEffect(() => {
+        if (!sinSenal) {
+            return undefined;
+        }
+        const alVolver = () => setIntento((n) => n + 1);
+        window.addEventListener("online", alVolver);
+        return () => window.removeEventListener("online", alVolver);
+    }, [sinSenal]);
+
     const alSesionAjena = useCallback((nombre: string) => setArranque({ fase: "ajena", nombre }), []);
     const alCerrarSesion = useCallback((sinSenal: boolean) => {
         if (sinSenal) {
@@ -122,13 +154,22 @@ export function AppCampo() {
         }
     }, []);
 
-    if (arranque.fase === "cargando" || arranque.fase === "sin_sesion" || arranque.fase === "cambiar_contrasena") {
-        const texto =
-            arranque.fase === "cargando"
-                ? "Abriendo Iris Campo…"
-                : arranque.fase === "sin_sesion"
-                  ? "Llevándote a iniciar sesión…"
-                  : "Tienes que cambiar tu contraseña: llevándote a cambiarla…";
+    if (arranque.fase === "sin_sesion" || (arranque.fase === "conectate" && arranque.motivo === "sin_verificar")) {
+        return (
+            <PantallaEntrar>
+                <EntrarCampo
+                    motivo={motivoDeUrl()}
+                    sinConexion={arranque.fase === "conectate" ? avisoSinConexion(false) : null}
+                    alEntrar={() => {
+                        // Carga completa de /campo (sin `entrar`): GET /yo con la sesión nueva.
+                        window.location.replace("/campo");
+                    }}
+                />
+            </PantallaEntrar>
+        );
+    }
+    if (arranque.fase === "cargando" || arranque.fase === "cambiar_contrasena") {
+        const texto = arranque.fase === "cargando" ? "Abriendo Iris Campo…" : "Tienes que cambiar tu contraseña: llevándote a cambiarla…";
         return (
             <Centro>
                 <MarcaIris />

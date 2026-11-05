@@ -18,6 +18,8 @@ export class ErrorApi extends Error {
     readonly errores: ErrorCampo[];
     /** Segundos de `Retry-After`, si vino (429). */
     readonly reintentarEn: number | undefined;
+    /** El cuerpo `problem+json` tal cual (extensiones, p. ej. los intentos que quedan). */
+    readonly problema: unknown;
 
     constructor(datos: {
         estado: number;
@@ -26,6 +28,7 @@ export class ErrorApi extends Error {
         detalle?: string | undefined;
         errores?: ErrorCampo[] | null | undefined;
         reintentarEn?: number | undefined;
+        problema?: unknown;
     }) {
         super(datos.detalle ? `${datos.titulo}: ${datos.detalle}` : datos.titulo);
         this.name = "ErrorApi";
@@ -35,6 +38,7 @@ export class ErrorApi extends Error {
         this.detalle = datos.detalle;
         this.errores = datos.errores ?? [];
         this.reintentarEn = datos.reintentarEn;
+        this.problema = datos.problema;
     }
 
     /** Mensaje del campo (`correo`, `contrasena`…) en `errors[]`; acepta `body.correo`. */
@@ -88,6 +92,7 @@ export function errorDesdeRespuesta(respuesta: Response, cuerpo: unknown): Error
             detalle: cuerpo.detail,
             errores: cuerpo.errors,
             reintentarEn,
+            problema: cuerpo,
         });
     }
     return new ErrorApi({

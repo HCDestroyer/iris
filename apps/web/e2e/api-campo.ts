@@ -623,7 +623,8 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             return json(route, bodegaDelTecnico());
         }
         if (ruta === "/api/v1/sesion" && metodo === "DELETE") {
-            return route.fulfill({ status: 204 });
+            // Como la API: cerrar la sesión borra la cookie (la entrada de /campo ya no abre sola).
+            return route.fulfill({ status: 204, headers: { "set-cookie": "iris_sesion=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" } });
         }
         return error(route, problema("no_simulado", 501, `Sin simular: ${metodo} ${ruta}`));
     });

@@ -4,6 +4,7 @@
 // que la PWA: una verificación en línea de hace menos de 12 h, y a los 7 días se borra.
 import type { Schema } from "@iris/contratos";
 import { errorSesionAjena, ErrorTransporte, PREFIJO_PROBLEMA } from "@iris/sync";
+import { CLAVE_USUARIO_RECORDADO, leerUsuarioRecordado, ofrecerHuella, textoUsuarioRecordado, type UsuarioRecordado } from "@iris/sync/campo";
 import { crearClienteMovil } from "../api/cliente";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion, resolver } from "../api/errores";
 import { entorno, leerJson } from "../entorno";
@@ -303,4 +304,131 @@ export async function cerrarSesion(usuarioId: number): Promise<void> {
             await entorno().secreto.escribir(CLAVE_CSRF_CIERRE, csrfSesion);
         }
     }
+}
+
+/** El último usuario que entró en este teléfono (nombre y correo; nada sensible). */
+export function usuarioRecordado(): UsuarioRecordado | null {
+    return leerUsuarioRecordado(entorno().claves.leer(CLAVE_USUARIO_RECORDADO));
+}
+
+export function recordarUsuario(u: UsuarioRecordado): void {
+    entorno().claves.escribir(CLAVE_USUARIO_RECORDADO, textoUsuarioRecordado(u));
+}
+
+/** «¿No eres tú?»: el teléfono deja de recordarlo (la sesión guardada y su cola no se tocan). */
+export function olvidarUsuarioRecordado(): void {
+    entorno().claves.borrar(CLAVE_USUARIO_RECORDADO);
+}
+
+/** «Desbloquear con huella» de «Yo»: `si`, `no` (lo apagó o dijo que no al ofrecimiento) o sin decidir. */
+const CLAVE_HUELLA = "iris-campo-huella";
+/** Se acaba de entrar con la contraseña: el primer aviso puede ofrecer la huella (una sola vez). */
+const CLAVE_ENTRO_CON_CONTRASENA = "iris-campo-entro-con-contrasena";
+
+/** ¿Está encendido «Desbloquear con huella»? Apagado por defecto: la app abre sin pedir nada. */
+export function huellaActiva(): boolean {
+    return entorno().claves.leer(CLAVE_HUELLA) === "si";
+}
+
+export function activarHuella(si: boolean): void {
+    entorno().claves.escribir(CLAVE_HUELLA, si ? "si" : "no");
+}
+
+/** ¿Tiene el teléfono biometría con algo registrado? */
+export async function biometriaDisponible(): Promise<boolean> {
+    const biometria = entorno().biometria;
+    return biometria ? biometria.disponible().catch(() => false) : false;
+}
+
+export function marcarEntradaConContrasena(): void {
+    entorno().claves.escribir(CLAVE_ENTRO_CON_CONTRASENA, "1");
+}
+
+/**
+ * Tras entrar con la contraseña, ¿se ofrece la huella? Una sola vez: solo si nunca se decidió (ni
+ * «Usar huella» ni «no») y el teléfono tiene biometría. Consume la marca; quien la muestre guarda
+ * «no» de inmediato (si acepta, pasa a «si»), así no vuelve a salir.
+ */
+export async function debeOfrecerHuella(): Promise<boolean> {
+    const claves = entorno().claves;
+    if (claves.leer(CLAVE_ENTRO_CON_CONTRASENA) === null) {
+        return false;
+    }
+    claves.borrar(CLAVE_ENTRO_CON_CONTRASENA);
+    return claves.leer(CLAVE_HUELLA) === null && (await biometriaDisponible());
+}
+
+/**
+ * ¿Se pide la huella antes de abrir la sesión guardada? Con «Desbloquear con huella» encendido en
+ * «Yo», biometría en el teléfono y una sesión guardada con su token en el llavero (`ofrecerHuella`).
+ * No depende del usuario recordado: olvidarlo no salta el bloqueo. La huella solo desbloquea:
+ * después se verifica como siempre (`GET /yo` o, sin señal, `usableSinSenal`). Nunca se guarda la
+ * contraseña.
+ */
+export async function pedirHuella(guardada: SesionCampo | null): Promise<boolean> {
+    const biometria = entorno().biometria;
+    if (!huellaActiva() || !biometria || !guardada || !leerCsrf()) {
+        return false;
+    }
+    const disponible = await biometria.disponible().catch(() => false);
+    return ofrecerHuella({ huellaActiva: huellaActiva(), biometria: disponible, sesionGuardada: guardada, tokenGuardado: leerCsrf() !== null });
+}
+
+/**
+ * «¿No eres tú?» con una sesión guardada en el teléfono (la pantalla de bloqueo o la de entrar):
+ * cierra esa sesión por completo. `DELETE /sesion` (sin señal queda pendiente y nada entra solo
+ * hasta lograrlo), borra el CSRF del llavero y la sesión guardada, apaga «Desbloquear con huella» y
+ * olvida al usuario recordado. Lo pendiente de la cola no se borra: sale cuando su técnico vuelva a
+ * entrar.
+ */
+export async function noSoyYo(): Promise<void> {
+    const guardada = sesionGuardada();
+    olvidarUsuarioRecordado();
+    activarHuella(false);
+    if (guardada || leerCsrf() !== null) {
+        await cerrarSesion(guardada?.usuarioId ?? 0);
+    }
+}
+
+/** Qué hacer al abrir la app (o al volver a verificar la sesión). */
+export type Apertura =
+    | { tipo: "entrar"; motivo?: "expirada" | "salida" }
+    | { tipo: "huella"; guardada: SesionCampo }
+    | { tipo: "yo"; yo: Schema<"Yo"> }
+    | { tipo: "guardada"; sesion: SesionCampo }
+    | { tipo: "sin_conexion" };
+
+/**
+ * La regla de apertura (la usa `App.tsx`): un cierre pendiente bloquea todo; con la huella encendida
+ * y una sesión guardada se pide la huella antes de cualquier `GET /yo`; si no (o ya desbloqueada),
+ * `GET /yo` y, sin señal, la guardada si es reciente.
+ */
+export async function abrirApp(desbloqueada: boolean): Promise<Apertura> {
+    await cargarCsrf();
+    // Se cerró sesión sin señal: antes de cualquier GET /yo se cierra en la API; mientras no se
+    // pueda, nada entra solo (la cookie vieja no abre la app).
+    if (!(await reintentarCierrePendiente())) {
+        return { tipo: "entrar", motivo: "salida" };
+    }
+    const guardada = sesionGuardada();
+    if (!desbloqueada && guardada && (await pedirHuella(guardada))) {
+        return { tipo: "huella", guardada };
+    }
+    try {
+        return { tipo: "yo", yo: await leerYo(guardada ? empresaElegida(guardada.usuarioId) : null) };
+    } catch (e) {
+        if (e instanceof ErrorApi && e.estado === 0) {
+            return guardada && usableSinSenal(guardada) ? { tipo: "guardada", sesion: guardada } : { tipo: "sin_conexion" };
+        }
+        return guardada ? { tipo: "entrar", motivo: "expirada" } : { tipo: "entrar" };
+    }
+}
+
+/** Pide la huella (o el rostro); `true` si la persona la confirmó. Un error del sistema cuenta como no. */
+export async function autenticarConHuella(): Promise<boolean> {
+    const biometria = entorno().biometria;
+    if (!biometria) {
+        return false;
+    }
+    return biometria.autenticar("Entra a Iris con tu huella").catch(() => false);
 }

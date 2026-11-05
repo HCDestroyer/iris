@@ -5,8 +5,14 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
 
 ## Qué hace
 
-- **Sesión:** la del panel (`GET /yo`; sin señal, la última guardada). Un 401 lleva a
-  `/entrar?siguiente=/campo` (que carga /campo completa para que el service worker la controle).
+- **Sesión:** la del panel (`GET /yo`; sin señal, la última guardada). Un 401 muestra la
+  **entrada del técnico** de la propia app (`_componentes/entrar.tsx`, diseño «Login C»: «Hola,
+  técnico», usuario recordado con «¿No eres tú?» — solo nombre y correo, `iris-campo-ultimo-usuario`
+  —, el ojo de la contraseña, errores en línea con los intentos solo si la API los informa,
+  «¿Olvidaste tu contraseña?» que explica cómo pedir una temporal, el código de 6 casillas solo con
+  `mfaRequerido` y el aviso «Sin conexión»). Vive en /campo, bajo el service worker; el `/entrar`
+  del panel no cambia. Sin huella (no hay en la web) ni «Entrar con Argos» (el autologin empieza en
+  Argos con un ticket de un solo uso).
   Empresa activa: si hay varias, se elige; hay un motor e IndexedDB por usuario y empresa
   (`iris-campo-<usuario>-<empresa>`), así la cola de una empresa nunca sale con la cabecera de
   otra. Al abrir, al cambiar de empresa o de día y al volver la señal se baja el paquete.
