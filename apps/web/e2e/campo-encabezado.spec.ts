@@ -1,9 +1,10 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import type { ServidorChatFalso } from "@iris/sync/pruebas";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
 import { abrirConexion, avisoCampo, pestanaCampo } from "./ayudas-campo";
 import { PERMISOS_TECNICO, TECNICO } from "./datos-campo";
-import { simularChat } from "./api-chat";
+import { LUIS, simularChat } from "./api-chat";
 
 /*
  * Encabezado e isla de la app del técnico (opción elegida por el PM, nov 2026), claro y oscuro:
@@ -48,6 +49,12 @@ async function quieta(page: Page) {
  * La isla del PM: la activa es una píldora en «tinta» con icono y nombre; las demás, solo el icono
  * en gris; el «+» sin relleno ni borde (icono de 26 px en color de texto). Zonas de 48 px o más.
  */
+/** Una directa con un mensaje sin leer (el punto teal del chat en la isla). */
+function conUnMensaje(s: ServidorChatFalso) {
+    s.crearConversacion({ id: 41, tipo: "directa", titulo: LUIS.nombre, otro_usuario: LUIS });
+    s.recibir(41, LUIS, "¿Tienes conectores SC/APC?");
+}
+
 async function revisarIsla(page: Page, activa: string) {
     const enlaces = isla(page).getByRole("link");
     for (const enlace of await enlaces.all()) {
@@ -227,7 +234,7 @@ test("la barra compacta lleva los indicadores; «Yo» de la isla abre la cuenta;
 
 test("isla: la activa en «tinta» con su nombre, que se mueve al cambiar; el punto teal del chat se oculta en Chat", async ({ page }) => {
     await simularApiCampo(page, { permisos: PERMISOS });
-    await simularChat(page);
+    await simularChat(page, conUnMensaje);
     await abrirHoy(page);
     const punto = isla(page).locator('[data-slot="punto-no-leidos"]');
     await expect(punto).toHaveCount(1);
@@ -251,7 +258,7 @@ test("capturas del encabezado y la hoja de estado (390 px)", async ({ page, cont
     const tema = info.project.name.endsWith("oscuro") ? "oscuro" : "claro";
     const nombre = (n: string) => path.join(carpeta, `${n}-${tema}.png`);
     const api = await simularApiCampo(page, { permisos: PERMISOS });
-    await simularChat(page);
+    await simularChat(page, conUnMensaje);
     await abrirHoy(page);
     await page.screenshot({ path: nombre("10-hoy") });
     await agregarNota(page, async () => {
