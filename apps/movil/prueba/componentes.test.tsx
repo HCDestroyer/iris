@@ -2,10 +2,10 @@
 // 44 px o más, estados con icono + texto + color, el «Atrás» de Android cierra la hoja y el
 // lienzo de firma no suelta el trazo al desplazamiento de la vista.
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { CircleAlert, Wifi } from "lucide-react-native";
+import { CircleAlert, Flashlight, ScanLine, Wifi } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet } from "react-native";
-import { Aviso, Boton, Campo, Cargando, Dialogo, Insignia, Opciones, Tarjeta, Tocable, ZONA_TACTIL } from "../src/componentes";
+import { Aviso, Boton, BotonIcono, Campo, Cargando, Dialogo, Insignia, Opciones, Tarjeta, Tocable, ZONA_TACTIL } from "../src/componentes";
 import { ControladorFirma, LienzoFirma } from "../src/pantallas/orden/LienzoFirma";
 import { ProveedorTema } from "../src/tema/tema";
 
@@ -50,6 +50,27 @@ describe.each(["light", "dark"] as const)("componentes con HeroUI Native (%s)", 
         await fireEvent.press(screen.getByRole("tab", { name: "Hoy" }));
         expect(tocar).toHaveBeenCalled();
         expect(screen.getByLabelText("Leyendo")).toBeTruthy();
+    });
+
+    it("BotonIcono: 48 × 48 px con nombre accesible; Tocable deshabilitado no responde", async () => {
+        const tocar = jest.fn();
+        await montar(
+            <>
+                <BotonIcono icono={ScanLine} etiqueta="Escanear MAC" alPresionar={tocar} testID="bi" />
+                <BotonIcono icono={Flashlight} etiqueta="Encender linterna" seleccionado={false} alPresionar={tocar} />
+                <Tocable etiqueta="No es una MAC" deshabilitado alPresionar={tocar} estilo={null} testID="td">
+                    <Cargando etiqueta="x" />
+                </Tocable>
+            </>,
+        );
+        const estilo = StyleSheet.flatten(screen.getByTestId("bi").props.style) as { minHeight: number; minWidth: number };
+        expect(Math.min(estilo.minHeight, estilo.minWidth)).toBeGreaterThanOrEqual(ZONA_TACTIL);
+        await fireEvent.press(screen.getByRole("button", { name: "Escanear MAC" }));
+        expect(tocar).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("button", { name: "Encender linterna" })).not.toBeSelected();
+        expect(screen.getByTestId("td")).toBeDisabled();
+        await fireEvent.press(screen.getByTestId("td"));
+        expect(tocar).toHaveBeenCalledTimes(1);
     });
 
     it("Opciones: radios con nombre, elegida marcada y el error con texto", async () => {

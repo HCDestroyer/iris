@@ -75,6 +75,47 @@ export function Boton({ children, alPresionar, variante = "primario", icono: Ico
     );
 }
 
+/**
+ * Botón solo con icono (escanear junto a un campo, linterna): 48 × 48 px y nombre accesible
+ * obligatorio, porque no hay texto visible. `seleccionado` lo marca encendido (linterna).
+ */
+export function BotonIcono({
+    icono: Icono,
+    etiqueta,
+    alPresionar,
+    variante = "secundario",
+    seleccionado,
+    colorIcono,
+    testID,
+}: {
+    icono: LucideIcon;
+    etiqueta: string;
+    alPresionar: () => void;
+    variante?: Variante;
+    /** Para un interruptor (linterna): `selected` accesible. */
+    seleccionado?: boolean;
+    /** Color del icono si va sobre un fondo propio (el visor de la cámara). */
+    colorIcono?: string;
+    testID?: string;
+}) {
+    const { colores } = useTema();
+    const color = colorIcono ?? (variante === "primario" ? colores.sobrePrimario : variante === "fantasma" ? colores.primario : colores.texto);
+    return (
+        <Button
+            variant={VARIANTE_HEROUI[variante]}
+            isIconOnly
+            onPress={alPresionar}
+            accessibilityLabel={etiqueta}
+            accessibilityState={seleccionado === undefined ? undefined : { selected: seleccionado }}
+            testID={testID}
+            className="rounded-lg"
+            style={estilos.botonIcono}
+        >
+            <Icono color={color} size={22} />
+        </Button>
+    );
+}
+
 export interface PropsCampo extends Omit<TextInputProps, "style" | "onChangeText" | "value"> {
     etiqueta: string;
     valor: string;
@@ -359,6 +400,7 @@ export function Tocable({
     etiqueta,
     estilo,
     seleccionado,
+    deshabilitado,
     rol = "button",
     testID,
 }: {
@@ -368,14 +410,18 @@ export function Tocable({
     estilo: StyleProp<ViewStyle>;
     /** La vista o la pestaña actual (`selected` accesible). */
     seleccionado?: boolean;
+    /** No se puede tocar (p. ej. un código que no es una MAC): `disabled` accesible. */
+    deshabilitado?: boolean;
     rol?: "button" | "tab";
     testID?: string;
 }) {
+    const estado = seleccionado === undefined && deshabilitado === undefined ? undefined : { ...(seleccionado === undefined ? {} : { selected: seleccionado }), ...(deshabilitado === undefined ? {} : { disabled: deshabilitado }) };
     return (
         <PressableFeedback
             accessibilityRole={rol}
             accessibilityLabel={etiqueta}
-            accessibilityState={seleccionado === undefined ? undefined : { selected: seleccionado }}
+            accessibilityState={estado}
+            isDisabled={deshabilitado}
             onPress={alPresionar}
             testID={testID}
             animation={{ scale: { value: 0.99 } }}
@@ -412,6 +458,7 @@ const estilos = StyleSheet.create({
     columna: { gap: 8 },
     filaOpciones: { flexDirection: "row", gap: 8 },
     boton: { minHeight: 48, minWidth: ZONA_TACTIL, borderRadius: 6 },
+    botonIcono: { minHeight: 48, minWidth: 48, borderRadius: 6 },
     campo: { gap: 6 },
     filaCampo: { flexDirection: "row", alignItems: "center", gap: 8 },
     entrada: { minHeight: 48 },
