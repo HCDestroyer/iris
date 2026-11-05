@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/HCDestroyer/iris/compare/v0.12.0...v0.13.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **mensajeria:** servicio de mensajería de Iris, fase 1 (B1, contrato 0.6.1 §6) ([#104](https://github.com/HCDestroyer/iris/issues/104)) ([08fb671](https://github.com/HCDestroyer/iris/commit/08fb671db924a1772d01a3e613f4df03912eb626))
+
 ## [0.12.0](https://github.com/HCDestroyer/iris/compare/v0.11.0...v0.12.0) (2026-11-05)
 
 
