@@ -19,7 +19,7 @@ const AVISOS: Record<AvisoTurno, Notificacion> = {
     terminado_por_ordenes: { tono: "info", texto: "Turno terminado: no tienes órdenes en curso. Ya no se envía tu ubicación." },
     terminado_por_tope: { tono: "warning", texto: "Turno terminado: pasaron 2 h de tu horario; vuelve a iniciarlo si sigues trabajando" },
 };
-const RUTA_VOLVER_A_ENTRAR = "/entrar?siguiente=%2Fcampo&motivo=expirada";
+const RUTA_VOLVER_A_ENTRAR = "/campo?entrar=1&motivo=expirada";
 
 type ContextoUbicacion = {
     estado: EstadoUbicacion;

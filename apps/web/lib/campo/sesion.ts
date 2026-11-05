@@ -11,6 +11,7 @@ import { crearClienteIris } from "@/lib/api/cliente";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion } from "@/lib/api/errores";
 import { CODIGO_CAMBIO_REQUERIDO, rutaCambiarContrasena } from "@/lib/cuenta/sesion";
 import { errorSesionAjena, ErrorTransporte } from "@iris/sync";
+import { CLAVE_USUARIO_RECORDADO, leerUsuarioRecordado, textoUsuarioRecordado, type UsuarioRecordado } from "@iris/sync/campo";
 import { cabecerasCampo } from "./app";
 
 export type EmpresaResumen = Schema<"EmpresaResumen">;
@@ -229,4 +230,18 @@ export async function cerrarSesionApi(): Promise<void> {
     if (!r.response.ok && r.response.status !== 401) {
         throw errorDesdeRespuesta(r.response, r.error);
     }
+}
+
+/** El último usuario que entró en este navegador (nombre y correo; nada sensible). */
+export function usuarioRecordado(): UsuarioRecordado | null {
+    return leerUsuarioRecordado(leerLocal(CLAVE_USUARIO_RECORDADO) ?? null);
+}
+
+export function recordarUsuario(u: UsuarioRecordado): void {
+    escribirLocal(CLAVE_USUARIO_RECORDADO, textoUsuarioRecordado(u));
+}
+
+/** «¿No eres tú?»: el navegador deja de recordarlo (la sesión guardada y su cola no se tocan). */
+export function olvidarUsuarioRecordado(): void {
+    borrarLocal(CLAVE_USUARIO_RECORDADO);
 }

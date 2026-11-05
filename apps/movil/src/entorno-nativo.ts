@@ -1,5 +1,6 @@
 // Implementaciones nativas del entorno: kv-store de expo-sqlite (síncrono) y SecureStore.
 import Storage from "expo-sqlite/kv-store";
+import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import type { Entorno } from "./entorno";
 
@@ -33,5 +34,18 @@ export function entornoNativo(): Entorno {
             borrar: (clave) => SecureStore.deleteItemAsync(clave),
         },
         fetch: (...args) => globalThis.fetch(...args),
+        biometria: {
+            disponible: async () => {
+                try {
+                    return (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
+                } catch {
+                    return false;
+                }
+            },
+            autenticar: async (motivo) => {
+                const r = await LocalAuthentication.authenticateAsync({ promptMessage: motivo, cancelLabel: "Cancelar", disableDeviceFallback: false });
+                return r.success;
+            },
+        },
     };
 }

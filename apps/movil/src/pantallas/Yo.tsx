@@ -3,11 +3,12 @@
 // del teléfono.
 import { totalPorEnviar } from "@iris/sync/campo";
 import { Building2, ChevronRight, CloudUpload, LogOut, RefreshCw, Warehouse } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Aviso, Boton, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
+import { Aviso, Boton, Interruptor, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
 import { useCampo } from "../campo/contexto";
 import { porEnviarEnTelefono } from "../campo/yo";
+import { activarHuella, biometriaDisponible, huellaActiva } from "../sesion/sesion";
 import { useTema } from "../tema/tema";
 
 export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string | null; cambiarEmpresa: (() => void) | undefined; bajarPaquete: () => Promise<void> }) {
@@ -55,6 +56,7 @@ export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string 
                 </Texto>
             </View>
 
+            <DesbloquearConHuella />
             <Tocable
                 etiqueta="Mi bodega"
                 alPresionar={() => navegar({ tipo: "bodega" })}
@@ -148,3 +150,39 @@ const estilos = StyleSheet.create({
     flex: { flex: 1 },
     enlace: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, borderWidth: 1 },
 });
+
+/**
+ * «Desbloquear con huella» (apagado por defecto): encendido, la app pide la huella al abrir (la
+ * contraseña sigue a mano); apagado, abre con la sesión guardada sin pedir nada. Solo con biometría
+ * en el teléfono.
+ */
+function DesbloquearConHuella() {
+    const { notificar } = useCampo();
+    const [disponible, setDisponible] = useState(false);
+    const [activa, setActiva] = useState(() => huellaActiva());
+    useEffect(() => {
+        let vivo = true;
+        void biometriaDisponible().then((d) => vivo && setDisponible(d));
+        return () => {
+            vivo = false;
+        };
+    }, []);
+    if (!disponible) {
+        return null;
+    }
+    return (
+        <Tarjeta testID="tarjeta-huella">
+            <Interruptor
+                etiqueta="Desbloquear con huella"
+                descripcion="Al abrir Iris te pide la huella. Siempre puedes entrar con tu contraseña."
+                valor={activa}
+                testID="interruptor-huella"
+                alCambiar={(v) => {
+                    activarHuella(v);
+                    setActiva(v);
+                    notificar({ tono: "success", texto: v ? "Iris te pedirá la huella al abrir." : "Iris abrirá sin pedir la huella." });
+                }}
+            />
+        </Tarjeta>
+    );
+}

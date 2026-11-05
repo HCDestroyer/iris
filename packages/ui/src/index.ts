@@ -18,6 +18,7 @@ export {
 export { Boton, variantesBoton, type PropsBoton, type TamanoBoton, type VarianteBoton } from "./componentes/boton";
 export { Camara, type PropsCamara } from "./componentes/camara";
 export { Campo, type PropsCampo, type PropsEnvolturaCampo } from "./componentes/campo";
+export { CampoCodigo, CampoConIcono, type PropsCampoCodigo, type PropsCampoConIcono } from "./componentes/campo-acceso";
 export { CampoBusqueda, type PropsCampoBusqueda } from "./componentes/campo-busqueda";
 export { aNumero, CampoNumero, deNumero, type PropsCampoNumero } from "./componentes/campo-numero";
 export { Cargando, type PropsCargando } from "./componentes/cargando";
