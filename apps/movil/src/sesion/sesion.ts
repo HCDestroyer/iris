@@ -4,6 +4,7 @@
 // que la PWA: una verificación en línea de hace menos de 12 h, y a los 7 días se borra.
 import type { Schema } from "@iris/contratos";
 import { errorSesionAjena, ErrorTransporte, PREFIJO_PROBLEMA } from "@iris/sync";
+import { CLAVE_USUARIO_RECORDADO, leerUsuarioRecordado, ofrecerHuella, textoUsuarioRecordado, type UsuarioRecordado } from "@iris/sync/campo";
 import { crearClienteMovil } from "../api/cliente";
 import { ErrorApi, errorDesdeRespuesta, errorSinConexion, resolver } from "../api/errores";
 import { entorno, leerJson } from "../entorno";
@@ -303,4 +304,42 @@ export async function cerrarSesion(usuarioId: number): Promise<void> {
             await entorno().secreto.escribir(CLAVE_CSRF_CIERRE, csrfSesion);
         }
     }
+}
+
+/** El último usuario que entró en este teléfono (nombre y correo; nada sensible). */
+export function usuarioRecordado(): UsuarioRecordado | null {
+    return leerUsuarioRecordado(entorno().claves.leer(CLAVE_USUARIO_RECORDADO));
+}
+
+export function recordarUsuario(u: UsuarioRecordado): void {
+    entorno().claves.escribir(CLAVE_USUARIO_RECORDADO, textoUsuarioRecordado(u));
+}
+
+/** «¿No eres tú?»: el teléfono deja de recordarlo (la sesión guardada y su cola no se tocan). */
+export function olvidarUsuarioRecordado(): void {
+    entorno().claves.borrar(CLAVE_USUARIO_RECORDADO);
+}
+
+/**
+ * ¿Se pide la huella antes de abrir la sesión guardada? Solo con biometría en el teléfono, la sesión
+ * guardada con su token en el llavero y el usuario recordado siendo su dueño (`ofrecerHuella`). La
+ * huella solo desbloquea: después se verifica igual que siempre (`GET /yo` o, sin señal,
+ * `usableSinSenal`). Nunca se guarda la contraseña.
+ */
+export async function pedirHuella(guardada: SesionCampo | null): Promise<boolean> {
+    const biometria = entorno().biometria;
+    if (!biometria || !guardada || !leerCsrf()) {
+        return false;
+    }
+    const disponible = await biometria.disponible().catch(() => false);
+    return ofrecerHuella({ biometria: disponible, sesionGuardada: guardada, tokenGuardado: leerCsrf() !== null, recordado: usuarioRecordado() });
+}
+
+/** Pide la huella (o el rostro); `true` si la persona la confirmó. Un error del sistema cuenta como no. */
+export async function autenticarConHuella(): Promise<boolean> {
+    const biometria = entorno().biometria;
+    if (!biometria) {
+        return false;
+    }
+    return biometria.autenticar("Entra a Iris con tu huella").catch(() => false);
 }

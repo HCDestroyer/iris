@@ -10,7 +10,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import "./global.css";
 import { ErrorApi } from "./api/errores";
-import { Aviso, Boton, Cargando, Pila } from "./componentes";
+import { Aviso, Boton, Cargando, Pila, useAltoTeclado } from "./componentes";
 import type { ServiciosNativos } from "./campo/contexto";
 import { tomarFoto, vaciarCacheFotos } from "./campo/foto";
 import { gpsNativo, posicionSiPermitida } from "./campo/gps-nativo";
@@ -20,8 +20,14 @@ import { AppCampo, type DependenciasCampo } from "./pantallas/AppCampo";
 import { ElegirEmpresa } from "./pantallas/ElegirEmpresa";
 import { RecuperarError } from "./pantallas/RecuperarError";
 import { Entrar } from "./pantallas/Entrar";
+import { avisoSinConexion } from "@iris/sync/campo";
 import {
+    autenticarConHuella,
     cargarCsrf,
+    olvidarUsuarioRecordado,
+    pedirHuella,
+    recordarUsuario,
+    usuarioRecordado,
     cerrarSesion as cerrarSesionApi,
     reintentarCierrePendiente,
     elegirEmpresa,
@@ -39,7 +45,7 @@ import { ProveedorTema, useTema } from "./tema/tema";
 
 type Paso =
     | { tipo: "cargando" }
-    | { tipo: "entrar"; motivo?: "expirada" | "salida" }
+    | { tipo: "entrar"; motivo?: "expirada" | "salida"; huella?: boolean; sinConexion?: { titulo: string; detalle: string } | null }
     | { tipo: "aviso"; titulo: string; detalle: string }
     | { tipo: "empresa"; sesion: SesionCampo }
     | { tipo: "campo"; sesion: SesionCampo; empresa: number | null };
@@ -106,6 +112,8 @@ export default function App() {
 function Raiz() {
     const { oscuro } = useTema();
     const [paso, setPaso] = useState<Paso>({ tipo: "cargando" });
+    // La huella desbloquea la sesión guardada una vez por apertura de la app.
+    const [desbloqueada, setDesbloqueada] = useState(false);
 
     const continuarCon = useCallback((sesion: SesionCampo) => {
         const empresa = empresaDeTrabajo(sesion, empresaElegida(sesion.usuarioId));
@@ -122,6 +130,13 @@ function Raiz() {
             return;
         }
         const guardada = sesionGuardada();
+        // Con biometría y la sesión del usuario recordado guardada: primero la huella (o la contraseña).
+        if (!desbloqueada && (await pedirHuella(guardada))) {
+            const red = await Network.getNetworkStateAsync().catch(() => null);
+            const sinRed = red !== null && !conInternet(red);
+            setPaso({ tipo: "entrar", huella: true, sinConexion: sinRed && guardada ? avisoSinConexion(usableSinSenal(guardada)) : null });
+            return;
+        }
         try {
             const yo = await leerYo(guardada ? empresaElegida(guardada.usuarioId) : null);
             entrarCon(yo);
@@ -131,7 +146,7 @@ function Raiz() {
                 return;
             }
             if (e instanceof ErrorApi && e.estado === 0) {
-                setPaso({ tipo: "aviso", titulo: "Conéctate para entrar", detalle: "Sin señal solo se abre con una sesión verificada en las últimas horas." });
+                setPaso({ tipo: "entrar", sinConexion: avisoSinConexion(false) });
                 return;
             }
             setPaso({ tipo: "entrar", ...(guardada ? { motivo: "expirada" as const } : {}) });
@@ -143,9 +158,10 @@ function Raiz() {
             }
             const sesion = sesionDesdeYo(yo);
             guardarSesion(sesion);
+            recordarUsuario({ nombre: sesion.nombre, correo: sesion.correo });
             continuarCon(sesion);
         }
-    }, [continuarCon]);
+    }, [continuarCon, desbloqueada]);
 
     useEffect(() => {
         const abrir = () => void verificar();
@@ -174,9 +190,27 @@ function Raiz() {
                 <Formulario>
                     <Entrar
                         {...(paso.motivo ? { motivo: paso.motivo } : {})}
+                        recordado={usuarioRecordado()}
+                        alOlvidarRecordado={olvidarUsuarioRecordado}
+                        sinConexion={paso.sinConexion ?? null}
+                        huella={
+                            paso.huella
+                                ? async () => {
+                                      if (await autenticarConHuella()) {
+                                          setDesbloqueada(true);
+                                          setPaso({ tipo: "cargando" });
+                                      }
+                                  }
+                                : null
+                        }
                         alEntrar={() => {
                             setPaso({ tipo: "cargando" });
-                            void verificar();
+                            // Con contraseña ya no se pide la huella; si ya estaba desbloqueada, verifica de nuevo.
+                            if (desbloqueada) {
+                                void verificar();
+                            } else {
+                                setDesbloqueada(true);
+                            }
                         }}
                     />
                 </Formulario>
@@ -239,10 +273,16 @@ function Centro({ children }: { children: React.ReactNode }) {
 }
 
 function Formulario({ children }: { children: React.ReactNode }) {
-    const { colores } = useTema();
+    const { campo } = useTema();
     const margen = useSafeAreaInsets();
+    // Con el teclado abierto el contenido sube por encima (edge-to-edge: la ventana no se encoge sola).
+    const teclado = useAltoTeclado();
     return (
-        <ScrollView style={{ backgroundColor: colores.fondo }} contentContainerStyle={[estilos.formulario, { paddingTop: margen.top + 32 }]} keyboardShouldPersistTaps="handled">
+        <ScrollView
+            style={{ backgroundColor: campo.lienzo }}
+            contentContainerStyle={[estilos.formulario, { paddingTop: margen.top + 32, paddingBottom: Math.max(48, margen.bottom + 24) + teclado }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <Pila espacio={16}>{children}</Pila>
         </ScrollView>
     );
@@ -251,5 +291,5 @@ function Formulario({ children }: { children: React.ReactNode }) {
 const estilos = StyleSheet.create({
     raiz: { flex: 1 },
     centro: { flex: 1, alignItems: "center", justifyContent: "center" },
-    formulario: { padding: 16, paddingBottom: 48 },
+    formulario: { paddingHorizontal: 20 },
 });

@@ -16,12 +16,25 @@ export interface AlmacenSecreto {
     borrar(clave: string): Promise<void>;
 }
 
+/**
+ * Huella o rostro del teléfono (`expo-local-authentication`): solo desbloquea la sesión que ya
+ * está guardada; nunca guarda la contraseña.
+ */
+export interface Biometria {
+    /** ¿Tiene el teléfono biometría con algo registrado? */
+    disponible(): Promise<boolean>;
+    /** Pide la huella; `true` si la persona la confirmó. */
+    autenticar(motivo: string): Promise<boolean>;
+}
+
 export interface Entorno {
     /** Origen de la API, sin `/api/v1` (`EXPO_PUBLIC_IRIS_API_URL`). */
     baseUrl: string;
     claves: AlmacenClaves;
     secreto: AlmacenSecreto;
     fetch: typeof globalThis.fetch;
+    /** Sin ella (pruebas, teléfono sin biometría) no se ofrece «Usar huella». */
+    biometria?: Biometria;
 }
 
 let actual: Entorno | null = null;

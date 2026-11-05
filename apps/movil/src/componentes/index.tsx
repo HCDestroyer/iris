@@ -16,6 +16,7 @@ import { Chip } from "heroui-native/chip";
 import { Description } from "heroui-native/description";
 import { FieldError } from "heroui-native/field-error";
 import { Input } from "heroui-native/input";
+import { InputOTP } from "heroui-native/input-otp";
 import { Label } from "heroui-native/label";
 import { PressableFeedback } from "heroui-native/pressable-feedback";
 import { Radio } from "heroui-native/radio";
@@ -23,11 +24,13 @@ import { RadioGroup } from "heroui-native/radio-group";
 import { Spinner } from "heroui-native/spinner";
 import { TextField } from "heroui-native/text-field";
 import { Toast, useToast } from "heroui-native/toast";
-import { CircleCheck, Info, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
+import { CircleAlert, CircleCheck, Eye, EyeOff, Info, TriangleAlert, X, type LucideIcon } from "lucide-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Keyboard, Modal, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path, Rect } from "react-native-svg";
 import { useTema } from "../tema/tema";
+import { CLARO } from "../tema/tokens";
 
 /** Alto mínimo de cualquier zona táctil (WCAG 2.5.8 y guía de Iris: 44 px; con guante, más). */
 export const ZONA_TACTIL = 44;
@@ -126,37 +129,115 @@ export interface PropsCampo extends Omit<TextInputProps, "style" | "onChangeText
     ayuda?: string;
     /** Unidad que se ve a la derecha (dBm, m…). */
     sufijo?: string | null | undefined;
+    /** Icono a la izquierda (Lucide), p. ej. el candado de la contraseña. */
+    icono?: LucideIcon;
+    /** Contraseña: oculta lo escrito y lleva el ojo para mostrarlo u ocultarlo (48 px). */
+    secreto?: boolean;
+    testID?: string;
 }
 
-/** HeroUI `TextField`: etiqueta visible, ayuda y error (texto + color, nunca solo color). */
-export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, editable, ...resto }: PropsCampo) {
+/**
+ * HeroUI `TextField`: etiqueta visible, ayuda y error en línea (icono + texto + color, nunca solo
+ * color). Con `secreto`, el ojo para mostrar u ocultar la contraseña.
+ */
+export function Campo({ etiqueta, valor, alCambiar, error, ayuda, sufijo, icono: Icono, secreto = false, editable, testID, ...resto }: PropsCampo) {
     const { colores } = useTema();
     const invalido = Boolean(error);
+    const [visible, setVisible] = useState(false);
     return (
         <TextField isInvalid={invalido} isDisabled={editable === false} className="gap-1.5">
             <Label>
                 <Label.Text className="text-sm font-semibold text-foreground">{etiqueta}</Label.Text>
             </Label>
             <View style={estilos.filaCampo}>
+                {Icono ? <Icono size={20} color={invalido ? colores.error : colores.textoSuave} /> : null}
                 <Input
                     accessibilityLabel={etiqueta}
                     value={valor}
                     onChangeText={alCambiar}
                     editable={editable}
                     placeholderTextColor={colores.textoTenue}
+                    secureTextEntry={secreto && !visible}
+                    testID={testID}
                     className="flex-1 px-3 text-base"
                     style={estilos.entrada}
                     {...resto}
                 />
                 {sufijo ? <Text className="text-sm text-muted">{sufijo}</Text> : null}
+                {secreto ? (
+                    <BotonIcono
+                        variante="fantasma"
+                        icono={visible ? EyeOff : Eye}
+                        etiqueta={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
+                        seleccionado={visible}
+                        colorIcono={colores.textoSuave}
+                        alPresionar={() => setVisible((v) => !v)}
+                    />
+                ) : null}
             </View>
             {ayuda && !invalido ? <Description className="text-[13px] text-muted">{ayuda}</Description> : null}
             {invalido ? (
-                <FieldError accessible accessibilityRole="alert" className="text-[13px]">
-                    {error}
-                </FieldError>
+                <View style={estilos.filaError}>
+                    <CircleAlert size={16} color={colores.error} />
+                    <FieldError accessible accessibilityRole="alert" className="text-[13px] font-medium" style={estilos.encoger}>
+                        {error}
+                    </FieldError>
+                </View>
             ) : null}
         </TextField>
+    );
+}
+
+/**
+ * Código de verificación de 6 dígitos: el `InputOTP` de HeroUI Native (una casilla por dígito, pegar
+ * el código completo y autocompletar `one-time-code`). Error en línea con icono + texto + color.
+ */
+export function CampoCodigo({
+    etiqueta,
+    valor,
+    alCambiar,
+    alCompletar,
+    error,
+    largo = 6,
+}: {
+    etiqueta: string;
+    valor: string;
+    alCambiar: (texto: string) => void;
+    alCompletar?: (codigo: string) => void;
+    error?: string | undefined;
+    largo?: number;
+}) {
+    const { colores } = useTema();
+    return (
+        <View style={estilos.campo}>
+            <Text className="text-sm font-semibold text-foreground" style={{ color: colores.texto }}>
+                {etiqueta}
+            </Text>
+            <InputOTP
+                maxLength={largo}
+                value={valor}
+                onChange={(t) => alCambiar(t.replace(/\D/g, ""))}
+                {...(alCompletar ? { onComplete: alCompletar } : {})}
+                isInvalid={Boolean(error)}
+                inputMode="numeric"
+                pasteTransformer={(t) => t.replace(/\D/g, "").slice(0, largo)}
+                textInputProps={{ accessibilityLabel: etiqueta, autoComplete: "one-time-code", textContentType: "oneTimeCode", autoFocus: true, testID: "campo-codigo" }}
+            >
+                <InputOTP.Group style={estilos.casillas}>
+                    {Array.from({ length: largo }, (_, i) => (
+                        <InputOTP.Slot key={i} index={i} style={[estilos.casilla, { borderColor: error ? colores.error : colores.borde }]} />
+                    ))}
+                </InputOTP.Group>
+            </InputOTP>
+            {error ? (
+                <View style={estilos.filaError}>
+                    <CircleAlert size={16} color={colores.error} />
+                    <Text accessibilityRole="alert" style={[estilos.textoError, { color: colores.error }]}>
+                        {error}
+                    </Text>
+                </View>
+            ) : null}
+        </View>
     );
 }
 
@@ -696,6 +777,18 @@ export function Pila({ children, espacio = 12 }: { children: ReactNode; espacio?
     return <View style={{ gap: espacio }}>{children}</View>;
 }
 
+/** Logo de Iris (`docs/marca/logo-mark.svg`): el arco teal de la marca; `tamano` en px. */
+export function LogoIris({ tamano = 48 }: { tamano?: number }) {
+    return (
+        <Svg width={tamano} height={tamano} viewBox="0 0 32 32" accessibilityRole="image" accessibilityLabel="Iris" testID="logo-iris">
+            <Rect width={32} height={32} rx={7} fill={CLARO.primario} />
+            <Path d="M6 22a10 10 0 0 1 20 0" stroke="#fff" strokeWidth={2.6} strokeLinecap="round" fill="none" />
+            <Path d="M9.5 22a6.5 6.5 0 0 1 13 0" stroke="#fff" strokeOpacity={0.7} strokeWidth={2.6} strokeLinecap="round" fill="none" />
+            <Path d="M13 22a3 3 0 0 1 6 0" stroke="#fff" strokeOpacity={0.45} strokeWidth={2.6} strokeLinecap="round" fill="none" />
+        </Svg>
+    );
+}
+
 /** Indicador de carga de HeroUI con el teal de la marca y un nombre para lectores de pantalla. */
 export function Cargando({ etiqueta }: { etiqueta: string }) {
     const { colores } = useTema();
@@ -717,6 +810,11 @@ const estilos = StyleSheet.create({
     campo: { gap: 6 },
     filaCampo: { flexDirection: "row", alignItems: "center", gap: 8 },
     entrada: { minHeight: 48 },
+    encoger: { flexShrink: 1 },
+    filaError: { flexDirection: "row", alignItems: "center", gap: 6 },
+    textoError: { flexShrink: 1, fontSize: 13, fontWeight: "500" },
+    casillas: { flexDirection: "row", gap: 8, justifyContent: "space-between" },
+    casilla: { flex: 1, minHeight: 56, minWidth: 44, borderWidth: 1, borderRadius: 14 },
     insignia: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 4 },
     aviso: { borderWidth: 1 },
     accionAviso: { marginTop: 4, flexDirection: "row", flexWrap: "wrap", gap: 8 },
