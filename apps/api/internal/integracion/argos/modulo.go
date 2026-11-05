@@ -151,6 +151,8 @@ func Nuevo(cfg Config) *Modulo {
 			return m.encolarInformarContrato(ctx, tx, conectorID)
 		},
 		Contrato: ContratoIris, Capacidades: capacidades,
+		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
+		ExigirReceptor:  true,
 		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar

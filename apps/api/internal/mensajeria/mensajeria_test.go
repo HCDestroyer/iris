@@ -866,6 +866,38 @@ func TestWebhooksSoloContrato060(t *testing.T) {
 	}
 }
 
+// Contrato 0.6.2 §6.6: solo se envía a conectores con el receptor guardado. Uno canjeado antes de
+// B1 (sin webhook_salida_url ni secreto) no recibe aviso.*: el webhook queda omitido.
+func TestWebhooksSoloConReceptorGuardado(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	var url string
+	var sec []byte
+	if err := e.bd.QueryRow(e.ctx, `SELECT webhook_salida_url, webhook_salida_secreto_cifrado FROM integracion.conectores WHERE id = $1`,
+		e.conector).Scan(&url, &sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET webhook_salida_url = NULL, webhook_salida_secreto_cifrado = NULL
+		WHERE id = $1`, e.conector); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET webhook_salida_url = $2, webhook_salida_secreto_cifrado = $3 WHERE id = $1`,
+			e.conector, url, sec)
+	})
+	c := e.cliente(1, "5512-3355")
+	e.consentir(c, "acepta", e.reloj.Add(-time.Hour))
+	r := e.avisar(fmt.Sprintf("argos:aviso:factura_por_vencer:%d", c), avisoPorVencer(c, "2026-11-10"))
+	id := r.cuerpo["aviso_id"].(string)
+	e.enviar(id)
+	e.publicar()
+	if len(e.receptor.de("aviso.entregado", "aviso_id", id)) != 0 {
+		t.Fatal("no se envía a un conector sin receptor guardado")
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE payload->>'aviso_id' = $1 AND estado = 'omitido'`, id); n != 1 {
+		t.Fatalf("omitido: %d", n)
+	}
+}
+
 func TestAvisosSinAcuseSeAgotan(t *testing.T) {
 	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.SinConfirmar = time.Hour })
 	c := e.cliente(1, "5512-3344")

@@ -96,6 +96,10 @@ type Sistema struct {
 	// Contrato que Iris habla con el sistema («0.5.0» con Argos); va en el canje (`contrato`) y en
 	// PUT /integraciones/iris/contrato. Vacío = no se informa.
 	Contrato string
+	// ExigirReceptor: el canje debe devolver el receptor de webhooks del otro sistema (`webhook`,
+	// en el host de la base del canje) y Iris manda `receptor_argos: true` en él (contrato Iris ↔
+	// ArgosISP 0.6.2 §1.3 y «Versión y compatibilidad»). Solo Argos; Horus no entrega receptor.
+	ExigirReceptor bool
 	// Capacidades del conector según la versión que informó el otro sistema (p. ej.
 	// inventario_por_tecnico con Argos ≥ 1.6.0). Opcional.
 	Capacidades func(version, contrato *string) []string
@@ -294,30 +298,34 @@ func DatosAsociados(id int64, campo string) []byte {
 const CampoWebhookSalida = "webhook_salida_secreto"
 
 // guardarWebhookSalida guarda el receptor de webhooks que informó el canje (`webhook: { url,
-// secreto }`, §1.3): Iris lo usa para mandarle eventos (mensajería, §6.6). Sin receptor el conector
-// queda sin él (Iris no le envía webhooks). Uno inválido, o en otro host que el de la API del canje
-// (base), es 422 webhook_invalido y el canje no se guarda: los eventos de los clientes no pueden
-// salir hacia un host que no es el del otro sistema.
+// secreto }`, §1.3): Iris lo usa para mandarle eventos (mensajería, §6.6). Uno inválido, o en otro
+// host que el de la API del canje (base: el <base> del enlace o api= del botón, nunca el panel), es
+// 422 webhook_invalido y el canje no se guarda: los eventos de los clientes no pueden salir hacia
+// un host que no es el del otro sistema. Sin receptor: con Sistema.ExigirReceptor (Argos, 0.6.2)
+// también es 422 webhook_invalido; si no (Horus), el conector queda sin él.
 func (c *Conexion) guardarWebhookSalida(ctx context.Context, t *auditoria.Tx, id int64, base string, w *WebhookCanje) error {
-	if w == nil || strings.TrimSpace(w.URL) == "" {
-		return nil
-	}
-	invalido := func(msg string) error {
+	invalido := func(campo, msg string) error {
 		t.Anotar(map[string]any{"webhook_salida": "invalido"})
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "webhook_invalido", "Receptor de webhooks inválido",
 			"El canje de "+c.s.Remoto.Nombre+" devolvió un receptor de webhooks inválido: "+msg,
-			nucleo.ErrorCampo{Field: "webhook.url", Message: msg, Rule: "webhook"})
+			nucleo.ErrorCampo{Field: campo, Message: msg, Rule: "webhook"})
+	}
+	if w == nil || strings.TrimSpace(w.URL) == "" {
+		if c.s.ExigirReceptor {
+			return invalido("webhook", "falta el receptor de webhooks (webhook: { url, secreto })")
+		}
+		return nil
 	}
 	u, err := c.n.validarOrigen(w.URL, "webhook.url")
 	if err != nil {
-		return invalido("debe ser una URL https sin usuario, consulta ni fragmento")
+		return invalido("webhook.url", "debe ser una URL https sin usuario, consulta ni fragmento")
 	}
 	b, err := url.Parse(base)
 	if err != nil || !strings.EqualFold(u.Hostname(), b.Hostname()) {
-		return invalido("su host debe ser el de la API (" + b.Hostname() + ")")
+		return invalido("webhook.url", "su host debe ser el de la API ("+b.Hostname()+")")
 	}
 	if len(w.Secreto) < 16 || len(w.Secreto) > 512 {
-		return invalido("el secreto debe tener de 16 a 512 caracteres")
+		return invalido("webhook.secreto", "el secreto debe tener de 16 a 512 caracteres")
 	}
 	cifrado, err := c.n.cifrar(id, CampoWebhookSalida, w.Secreto)
 	if err != nil {

@@ -157,6 +157,9 @@ type PeticionCanje struct {
 	CodeVerifier string `json:"code_verifier,omitempty"`
 	// Contrato: la versión del contrato que habla Iris (Argos 0.5.0 §3.3); vacío = no se manda.
 	Contrato string `json:"contrato,omitempty"`
+	// ReceptorArgos (contrato Iris ↔ ArgosISP 0.6.2): esta versión de Iris guarda el receptor que
+	// devuelve el canje (y rechaza uno sin él), así que va siempre true; nil = no se manda (Horus).
+	ReceptorArgos *bool `json:"receptor_argos,omitempty"`
 }
 
 // WebhookCanje es un receptor de webhooks y su secreto HMAC, en el canje.
@@ -166,7 +169,7 @@ type WebhookCanje struct {
 }
 
 // RespuestaCanje es lo que devuelve el otro sistema al canjear (§1.4): su token para Iris, su
-// receptor de webhooks (Iris aún no envía eventos: no se guarda) y el id del conector allá.
+// receptor de webhooks (se guarda para §6.6; con Argos es obligatorio desde 0.6.2) y el id del conector allá.
 // conexion_id y empresas son opcionales (versiones anteriores del supuesto). Argos 0.3.1 agrega
 // alcance_global y empresas[] como { id, nombre, nit } (§1.3).
 type RespuestaCanje struct {
