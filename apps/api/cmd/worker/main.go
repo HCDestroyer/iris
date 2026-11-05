@@ -8,7 +8,9 @@
 // subidas de adjuntos abandonadas (cada hora), la orden de retiro automática (suscriptor de
 // argos.servicio_retirado), el mantenimiento de las particiones de posiciones (cada 6 h) y el
 // espejo de zonas de Argos en la agenda (cada 10 min) y el alta en Argos de los prospectos
-// ganados (suscriptor de integracion.pendiente_hecho y barrido cada 5 min).
+// ganados (suscriptor de integracion.pendiente_hecho y barrido cada 5 min) y los webhooks de la
+// mensajería hacia Argos (suscriptor de aviso.entregado, aviso.fallido y contacto.baja; los entrega
+// cmd/mensajeria).
 package main
 
 import (
@@ -33,6 +35,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
@@ -159,6 +162,9 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
+	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
+	mensajeria.Nuevo(mensajeria.Config{}).SuscribirWebhooks(bus, pool)
 
 	cliente, err = integracion.NuevoClienteRiver(pool, relay, integracion.OpcionesWorker{
 		Esquema: migraciones.EsquemaRiver, RelayIntervalo: cfg.RelayIntervalo, Log: log,

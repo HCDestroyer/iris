@@ -198,3 +198,10 @@ RETURNING *;
 
 -- name: MarcarEmpresaSincronizada :exec
 UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id = @id AND origen = 'argos';
+
+-- name: FijarWebhookSalida :exec
+-- Receptor de webhooks del otro sistema que informó el canje (Iris → Argos, contrato 0.6.0 §6.6): URL
+-- y secreto de entrada (cifrado, atado a la fila). No sube la versión: viene del canje.
+UPDATE integracion.conectores
+SET webhook_salida_url = @webhook_salida_url, webhook_salida_secreto_cifrado = @webhook_salida_secreto_cifrado, updated_at = now()
+WHERE id = @id;

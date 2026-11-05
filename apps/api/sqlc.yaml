@@ -179,3 +179,12 @@ sql:
         <<: *gen
         package: reportesbd
         out: internal/reportes/bd
+  - <<: *base
+    queries: internal/mensajeria/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: mensajeriabd
+        out: internal/mensajeria/bd
+        rename:
+          mensajeria_canale: MensajeriaCanal

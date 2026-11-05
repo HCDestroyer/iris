@@ -43,6 +43,8 @@ x-api-env: &api-env
   # lo que llega de fuera entra con la IP del gateway de esta red, que podría fijar su propio
   # X-Forwarded-For. Si el .env trae su propia lista, esa manda.
   IRIS_PROXIES_CONFIABLES: ${IRIS_PROXIES_CONFIABLES:-${IRIS_WEB_IP:-172.28.10.10}/32}
+  # La API reenvía /api/v1/mensajeria al servicio de mensajería (cmd/mensajeria, contrato con Argos §6).
+  IRIS_MENSAJERIA_URL: http://mensajeria:8081
 
 x-api-volumes: &api-volumes
   - ./mailpit/certs/ca.pem:/run/iris/correo-ca.pem:ro
@@ -212,6 +214,36 @@ services:
       start_period: 10s
     ports:
       - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
+    # IP fija: la mensajería solo cree el X-Forwarded-For de la API y del panel.
+    networks:
+      default:
+        ipv4_address: ${IRIS_API_IP:-172.28.10.11}
+
+  # cmd/mensajeria: servicio de mensajería (avisos por WhatsApp para Argos, contrato §6), su propio
+  # proceso con el schema `mensajeria` de la misma base. Misma imagen que la API. Sin puerto
+  # publicado: se llega por la API (/api/v1/mensajeria). En dev, IRIS_MENSAJERIA_SIMULADO=true del
+  # .env.example usa el canal simulado (nada sale a WhatsApp).
+  mensajeria:
+    profiles: [app]
+    image: iris/api:${IRIS_IMAGEN_TAG:-dev}
+    build:
+      <<: *api-build
+      target: api
+    entrypoint: [/usr/local/bin/mensajeria]
+    restart: unless-stopped
+    env_file: *api-env-file
+    environment:
+      <<: *api-env
+      IRIS_MENSAJERIA_PUERTO: '8081'
+      IRIS_PROXIES_CONFIABLES: ${IRIS_MENSAJERIA_PROXIES_CONFIABLES:-${IRIS_WEB_IP:-172.28.10.10}/32,${IRIS_API_IP:-172.28.10.11}/32}
+    volumes: *api-volumes
+    depends_on: *api-depende
+    healthcheck:
+      test: [CMD, /usr/local/bin/mensajeria, salud]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   # cmd/worker (River): outbox, webhooks entrantes de Argos y Horus, correo, crons. Necesita
   # IRIS_BASE_URL e IRIS_CLAVE_CIFRADO igual que la API (descifra tokens y contraseñas).

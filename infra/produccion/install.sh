@@ -19,7 +19,7 @@
 #   install          install or reconfigure (default)
 #   upgrade          back up the database, then move to a newer version (--version X.Y.Z or latest)
 #   status           installed and latest version, containers and health
-#   logs [service]   follow the logs (api, worker, web, postgres, minio...)
+#   logs [service]   follow the logs (api, mensajeria, worker, web, postgres, minio...)
 #   stop             stop every container (data is kept)
 #   start            start everything again and wait until it is healthy
 #   backup           database backup now (encrypted with age; infra/respaldo/respaldar.sh)
@@ -479,7 +479,7 @@ start_all() {
         docker compose --env-file "$ENV_FILE" -f "$DIR/current/docker-compose.yml" --profile osrm \
             rm -sf osrm < /dev/null > /dev/null 2>&1 || true
     fi
-    compose up -d --wait --wait-timeout "$WAIT_S" api worker web < /dev/null || return 1
+    compose up -d --wait --wait-timeout "$WAIT_S" api mensajeria worker web < /dev/null || return 1
     wait_healthy
 }
 
@@ -544,7 +544,7 @@ import_lab_env() {
     }
     for key in IRIS_PG_USUARIO:iris IRIS_PG_CONTRASENA:iris IRIS_PG_BASE:iris IRIS_S3_ACCESS_KEY:iris \
         IRIS_S3_SECRET_KEY:iris-dev-solo-local IRIS_S3_BUCKET:iris-adjuntos IRIS_S3_REGION:us-east-1 \
-        IRIS_RED_COMPOSE:172.28.10.0/24 IRIS_WEB_IP:172.28.10.10 IRIS_WEB_PUERTO:3000 IRIS_API_PUERTO:8080 \
+        IRIS_RED_COMPOSE:172.28.10.0/24 IRIS_WEB_IP:172.28.10.10 IRIS_API_IP:172.28.10.11 IRIS_WEB_PUERTO:3000 IRIS_API_PUERTO:8080 \
         IRIS_PG_PUERTO:5432 IRIS_MINIO_PUERTO:9000 IRIS_MINIO_CONSOLA_PUERTO:9001 IRIS_OSRM_PUERTO:5000; do
         env_set "${key%%:*}" "$(lab_value "${key%%:*}" "${key#*:}")"
     done

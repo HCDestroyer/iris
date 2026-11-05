@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -285,6 +286,31 @@ func (l Leido) Token() string { return l.token }
 // "secreto_webhook"). También lo usa la rotación de la clave (internal/nucleo/clave).
 func DatosAsociados(id int64, campo string) []byte {
 	return fmt.Appendf(nil, "conector:%d:%s", id, campo)
+}
+
+// CampoWebhookSalida es el dato asociado del secreto del receptor de webhooks del otro sistema
+// (integracion.conectores.webhook_salida_secreto_cifrado, contrato Iris ↔ ArgosISP 0.6.0 §6.6).
+const CampoWebhookSalida = "webhook_salida_secreto"
+
+// guardarWebhookSalida guarda el receptor de webhooks que informó el canje (`webhook: { url,
+// secreto }`, §1.3): Iris lo usa para mandarle eventos (mensajería, §6.6). Un receptor ausente o
+// inválido no impide conectar: el conector queda sin él (Iris no le envía webhooks) y se anota.
+func (c *Conexion) guardarWebhookSalida(ctx context.Context, t *auditoria.Tx, id int64, w *WebhookCanje) error {
+	if w == nil || strings.TrimSpace(w.URL) == "" {
+		return nil
+	}
+	u, err := c.n.validarOrigen(w.URL, "webhook.url")
+	if err != nil || len(w.Secreto) < 16 || len(w.Secreto) > 512 {
+		t.Anotar(map[string]any{"webhook_salida": "invalido"})
+		return nil
+	}
+	cifrado, err := c.n.cifrar(id, CampoWebhookSalida, w.Secreto)
+	if err != nil {
+		return err
+	}
+	url := u.String()
+	t.Anotar(map[string]any{"webhook_salida": url})
+	return conectorbd.New(t).FijarWebhookSalida(ctx, conectorbd.FijarWebhookSalidaParams{ID: id, WebhookSalidaUrl: &url, WebhookSalidaSecretoCifrado: cifrado})
 }
 
 func (n *Nucleo) cifrar(id int64, campo, valor string) ([]byte, error) {

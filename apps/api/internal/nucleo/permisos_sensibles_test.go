@@ -12,7 +12,7 @@ import (
 // autologin).
 func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 	operativos := []string{"tickets.", "ordenes.", "prospectos.", "campo.", "agenda.", "rutas.", "cotizaciones.",
-		"contratos.", "encuestas.", "clientes.", "adjuntos."}
+		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria."}
 	operativosSueltos := map[nucleo.Permiso]bool{nucleo.PermFactibilidadEvaluar: true, nucleo.PermFactibilidadRegistrarManual: true,
 		nucleo.PermEmpresasTodas: true} // empresas.todas es un alcance: esPrivilegiado lo cuenta aparte
 	for _, d := range nucleo.Catalogo {

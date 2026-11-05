@@ -339,6 +339,9 @@ func nuevoGuardarConector(c *Conexion, accion string) *auditoria.Caso[entradaGua
 			if err != nil {
 				return Conector{}, err
 			}
+			if err := c.guardarWebhookSalida(ctx, t, f.ID, in.respuesta.Webhook); err != nil {
+				return Conector{}, err
+			}
 			if in.autorizacionID != 0 {
 				if err := conectorbd.New(t).VincularAutorizacion(ctx, conectorbd.VincularAutorizacionParams{ConectorID: &f.ID, ID: in.autorizacionID}); err != nil {
 					return Conector{}, err

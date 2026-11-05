@@ -40,6 +40,10 @@ type OpcionesIdempotencia struct {
 	// aleatoria del proceso (desarrollo sin IRIS_CLAVE_CIFRADO).
 	Claves []ClaveIdempotencia
 	Log    *slog.Logger
+	// Omitir: peticiones cuya Idempotency-Key aplica el propio caso de uso (no se guarda ni se
+	// repite la respuesta aquí). Lo usa la mensajería (§6.2 y §6.4 del contrato con Argos): repetir
+	// la clave devuelve el estado actual del aviso, no la respuesta guardada.
+	Omitir func(*http.Request) bool
 }
 
 type claveNoRepetible int
@@ -138,7 +142,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clave := r.Header.Get(CabeceraIdempotencia)
-			if clave == "" || !metodoConEstado(r.Method) {
+			if clave == "" || !metodoConEstado(r.Method) || (op.Omitir != nil && op.Omitir(r)) {
 				next.ServeHTTP(w, r)
 				return
 			}

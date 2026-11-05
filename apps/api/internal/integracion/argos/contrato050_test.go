@@ -25,11 +25,11 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	admin, id, _ := e.conectado()
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
-	if canje["contrato"] != "0.5.0" {
+	if canje["contrato"] != argos.ContratoIris {
 		t.Fatalf("el canje debía mandar contrato 0.5.0: %v", canje["contrato"])
 	}
-	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND version_remota = '1.6.0' AND contrato_remoto = '0.5.0'
-		AND contrato_informado = '0.5.0' AND version_consultada_en IS NOT NULL`, id); n != 1 {
+	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND version_remota = '1.6.0' AND contrato_remoto = $2
+		AND contrato_informado = $2 AND version_consultada_en IS NOT NULL`, id, argos.ContratoIris); n != 1 {
 		t.Fatal("el conector debía guardar la versión del canje")
 	}
 	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.argos_informar_contrato' AND (args->>'conector_id')::bigint = $1`, id); n != 1 {
@@ -37,7 +37,7 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	}
 	l := admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores", nil)
 	con := conectorDe(t, l, id)
-	if con["versionRemota"] != "1.6.0" || con["contratoInformado"] != "0.5.0" || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
+	if con["versionRemota"] != "1.6.0" || con["contratoInformado"] != argos.ContratoIris || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico]" {
 		t.Fatalf("conector en la API: %v", con)
 	}
 	// El job: PUT …/contrato (idempotente) y GET …/estado. Sin cambios: no audita ni emite.
@@ -48,6 +48,23 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	}
 	if e.argos.contratos != 1 {
 		t.Fatalf("PUT contrato: %d", e.argos.contratos)
+	}
+}
+
+// Contrato 0.6.0 §6.6: el receptor de webhooks que Argos entrega en el canje (`webhook: { url,
+// secreto }`) queda guardado, con el secreto cifrado (Iris le manda los webhooks de la mensajería).
+func TestCanjeGuardaElReceptorDeArgos(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, _ := e.conectado()
+	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1
+		AND webhook_salida_url = 'https://argos.prueba/api/v1/integraciones/iris/webhook'
+		AND webhook_salida_secreto_cifrado IS NOT NULL
+		AND position('secreto-de-argos-para-iris' in encode(webhook_salida_secreto_cifrado, 'escape')) = 0`, id); n != 1 {
+		t.Fatal("el canje debía guardar el receptor de Argos con el secreto cifrado")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.conectar' AND entidad_id = $1
+		AND entrada::text LIKE '%secreto-de-argos%'`, fmt.Sprint(id)); n != 0 {
+		t.Fatal("el secreto del receptor no va en la auditoría")
 	}
 }
 
@@ -81,7 +98,7 @@ func TestArgos15SinVersionYLuegoActualizado(t *testing.T) {
 
 	e.argos.con(func() { e.argos.version = "1.6.0" })
 	r, err = e.mod.InformarContrato.Ejecutar(ctx, id)
-	if err != nil || !r.Cambio || r.VersionRemota == nil || *r.VersionRemota != "1.6.0" || r.ContratoInformado == nil || *r.ContratoInformado != "0.5.0" {
+	if err != nil || !r.Cambio || r.VersionRemota == nil || *r.VersionRemota != "1.6.0" || r.ContratoInformado == nil || *r.ContratoInformado != argos.ContratoIris {
 		t.Fatalf("Argos actualizado: %+v %v", r, err)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.actualizado' AND (payload->>'conector_id')::bigint = $1

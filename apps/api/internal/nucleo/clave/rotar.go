@@ -10,6 +10,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	clavebd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/clave/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -27,10 +28,15 @@ const (
 	ColumnaSMTP           = "soporte.buzones.smtp_contrasena"
 	// ColumnaVerificador: code_verifier de las autorizaciones «Conectar con un botón» sin usar.
 	ColumnaVerificador = "integracion.autorizaciones.verificador_cifrado"
+	// ColumnaWebhookSalida: secreto del receptor de webhooks de Argos (contrato 0.6.0 §6.6).
+	ColumnaWebhookSalida = "integracion.conectores.webhook_salida_secreto_cifrado"
+	// ColumnaCanalMensajeria: credenciales de los canales de mensajería (WhatsApp Cloud API).
+	ColumnaCanalMensajeria = "mensajeria.canales.credenciales_cifradas"
 )
 
 // Columnas en el orden en que se rotan y se informan.
-var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador}
+var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
+	ColumnaWebhookSalida, ColumnaCanalMensajeria}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -119,6 +125,12 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.autorizaciones(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.webhooksSalida(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.canalesMensajeria(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -264,6 +276,44 @@ func (r *rotador) autorizaciones(ctx context.Context, q *clavebd.Queries, simula
 		}
 		if cambio && !simular {
 			if err := q.RecifrarAutorizacion(ctx, clavebd.RecifrarAutorizacionParams{ID: f.ID, VerificadorCifrado: nuevo}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) webhooksSalida(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.WebhooksSalidaCifrados(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaWebhookSalida, f.ID, f.WebhookSalidaSecretoCifrado, conector.DatosAsociados(f.ID, conector.CampoWebhookSalida))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarWebhookSalida(ctx, clavebd.RecifrarWebhookSalidaParams{ID: f.ID, WebhookSalidaSecretoCifrado: nuevo}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) canalesMensajeria(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.CanalesMensajeriaCifrados(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaCanalMensajeria, f.ID, f.CredencialesCifradas, mensajeria.DatosAsociadosCanal(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarCanalMensajeria(ctx, clavebd.RecifrarCanalMensajeriaParams{ID: f.ID, CredencialesCifradas: nuevo}); err != nil {
 				return err
 			}
 		}
