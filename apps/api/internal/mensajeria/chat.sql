@@ -4,14 +4,15 @@
 -- name: ChatVisible :one
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.chat_visibles(@usuario::bigint, sqlc.narg('empresa')::bigint, @todas::boolean, @sup_global::boolean,
-        @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @conversacion_id::bigint)
+        @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @ord_global::boolean, @ord_zonas::bigint[], @ord_cuadrillas::bigint[],
+        @conversacion_id::bigint)
 )::boolean AS visible;
 
 -- name: ConversacionesVisibles :many
 -- Página de «mis conversaciones», de la más reciente a la más vieja (cursor: actividad e id).
 SELECT c.id, c.ultima_actividad FROM mensajeria.chat_conversaciones c
 WHERE c.id IN (SELECT v FROM mensajeria.chat_visibles(@usuario::bigint, sqlc.narg('empresa')::bigint, @todas::boolean, @sup_global::boolean,
-        @sup_zonas::bigint[], @sup_cuadrillas::bigint[], NULL::bigint) v)
+        @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @ord_global::boolean, @ord_zonas::bigint[], @ord_cuadrillas::bigint[], NULL::bigint) v)
   AND (sqlc.narg('tipo')::text IS NULL OR c.tipo = sqlc.narg('tipo')::text)
   AND (NOT @con_cursor::boolean OR (c.ultima_actividad, c.id) < (@cursor_actividad::timestamptz, @cursor_id::bigint))
 ORDER BY c.ultima_actividad DESC, c.id DESC
@@ -85,6 +86,9 @@ SELECT pg_advisory_xact_lock(hashtextextended(@clave::text, 0));
 -- name: MensajePorID :one
 SELECT * FROM mensajeria.chat_mensajes WHERE id = @id;
 
+-- name: MensajePorClave :one
+SELECT * FROM mensajeria.chat_mensajes WHERE autor_id = @autor_id AND idempotency_key = @idempotency_key;
+
 -- name: MensajeParaActualizar :one
 SELECT * FROM mensajeria.chat_mensajes WHERE id = @id FOR UPDATE;
 
@@ -101,14 +105,14 @@ RETURNING ultimo_seq;
 
 -- name: InsertarMensaje :one
 INSERT INTO mensajeria.chat_mensajes (id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en,
-    hash_contenido, created_at, updated_at)
+    hash_contenido, idempotency_key, created_at, updated_at)
 VALUES (@id, @conversacion_id, sqlc.narg('empresa_id'), @seq, @autor_id, sqlc.narg('texto'), sqlc.narg('adjunto_id'), sqlc.narg('lat'), sqlc.narg('lon'),
-    sqlc.narg('creado_en'), @enviado_en, @hash_contenido, @enviado_en, @enviado_en)
+    sqlc.narg('creado_en'), @enviado_en, @hash_contenido, sqlc.narg('idempotency_key'), @enviado_en, @enviado_en)
 RETURNING *;
 
 -- name: EliminarMensaje :one
 UPDATE mensajeria.chat_mensajes
-SET texto = NULL, adjunto_id = NULL, lat = NULL, lon = NULL, eliminado_en = @ahora, updated_at = @ahora
+SET texto = NULL, adjunto_id = NULL, lat = NULL, lon = NULL, hash_contenido = NULL, eliminado_en = @ahora, updated_at = @ahora
 WHERE id = @id
 RETURNING *;
 
@@ -172,7 +176,7 @@ SELECT e.* FROM mensajeria.chat_eventos e
 WHERE e.id > @desde::bigint
   AND (@todas::boolean OR e.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa')::bigint)
   AND e.conversacion_id IN (SELECT v FROM mensajeria.chat_visibles(@usuario::bigint, sqlc.narg('empresa')::bigint, @todas::boolean,
-        @sup_global::boolean, @sup_zonas::bigint[], @sup_cuadrillas::bigint[], NULL::bigint) v)
+        @sup_global::boolean, @sup_zonas::bigint[], @sup_cuadrillas::bigint[], @ord_global::boolean, @ord_zonas::bigint[], @ord_cuadrillas::bigint[], NULL::bigint) v)
 ORDER BY e.id
 LIMIT @limite;
 
@@ -198,7 +202,17 @@ RETURNING eventos_purgados_hasta;
 -- quien tiene chat.supervisar con alcance que la cubre (no en directas), activos, que operan en la
 -- empresa y que no son el autor.
 WITH candidatos AS (
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = @conversacion_id
+    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'directa'
+    UNION
+    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = @conversacion_id AND mm.origen = 'unido'
+      AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                  JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'ordenes.ver'
+                  WHERE ur.usuario_id = mm.usuario_id
+                    AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
+                         OR ur.cuadrilla_id = sqlc.narg('alcance_cuadrilla')::bigint
+                         OR ur.zona_id = ANY (@alcance_zonas::bigint[])))
     UNION
     SELECT t.usuario_id FROM agenda.tecnicos t WHERE t.activo AND @tipo::text = 'cuadrilla' AND t.cuadrilla_id = sqlc.narg('cuadrilla_id')::bigint
     UNION
@@ -222,3 +236,19 @@ WHERE u.id <> @autor_id
                   JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id AND rp2.permiso = 'empresas.todas'
                   WHERE ur2.usuario_id = u.id AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
 ORDER BY u.id;
+
+-- name: MensajeVivoConAdjunto :one
+-- La foto se ve solo si un mensaje sin eliminar de esa conversación la muestra.
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.chat_mensajes
+    WHERE adjunto_id = @adjunto_id AND conversacion_id = @conversacion_id AND eliminado_en IS NULL
+)::boolean AS vivo;
+
+-- name: FotosChatSinMensaje :many
+-- Fotos del chat que ningún mensaje muestra y que nadie toca desde @antes (subidas y nunca
+-- enviadas): se retiran.
+SELECT a.id FROM nucleo.adjuntos a
+WHERE a.entidad = 'chat_conversacion' AND a.estado <> 'rechazado' AND a.updated_at < @antes
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.chat_mensajes m WHERE m.adjunto_id = a.id)
+ORDER BY a.updated_at
+LIMIT @limite;

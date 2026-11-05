@@ -15,6 +15,8 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 )
 
 // Tiempo real del chat: GET /chat/eventos (SSE). Cada flujo lee el feed (mensajeria.chat_eventos)
@@ -22,29 +24,52 @@ import (
 // con Last-Event-ID, el sondeo y el tiempo real son el mismo cursor, y un NOTIFY perdido solo atrasa
 // hasta el siguiente latido.
 
-// difusor reparte los NOTIFY iris_chat entre los flujos SSE del proceso, por empresa.
+// difusor reparte los NOTIFY iris_chat entre los flujos SSE del proceso, por empresa, y lleva la
+// cuenta de flujos abiertos (por usuario y en total) para los topes.
 type difusor struct {
-	mu   sync.Mutex
-	subs map[*suscripcion]struct{}
+	mu         sync.Mutex
+	subs       map[*suscripcion]struct{}
+	porUsuario map[int64]int
 }
 
 type suscripcion struct {
+	usuario int64
 	empresa string
 	c       chan struct{}
 }
 
-func nuevoDifusor() *difusor { return &difusor{subs: map[*suscripcion]struct{}{}} }
+func nuevoDifusor() *difusor {
+	return &difusor{subs: map[*suscripcion]struct{}{}, porUsuario: map[int64]int{}}
+}
 
-func (d *difusor) suscribir(empresa string) (*suscripcion, func()) {
-	s := &suscripcion{empresa: empresa, c: make(chan struct{}, 1)}
+// suscribir reserva un flujo: con porUsuario flujos del usuario abiertos, 429
+// demasiados_flujos (el cliente cierra uno antes de abrir otro); con maximo en el proceso, 503.
+func (d *difusor) suscribir(usuario int64, empresa string, porUsuario, maximo int) (*suscripcion, func(), error) {
 	d.mu.Lock()
-	d.subs[s] = struct{}{}
-	d.mu.Unlock()
-	return s, func() {
-		d.mu.Lock()
-		delete(d.subs, s)
-		d.mu.Unlock()
+	defer d.mu.Unlock()
+	if d.porUsuario[usuario] >= porUsuario {
+		return nil, nil, nucleo.DemasiadosIntentos("demasiados_flujos",
+			fmt.Sprintf("Ya tienes %d flujos de eventos abiertos: cierra uno antes de abrir otro", porUsuario), 30*time.Second)
 	}
+	if len(d.subs) >= maximo {
+		return nil, nil, nucleo.NuevoProblema(http.StatusServiceUnavailable, "flujos_agotados", "Sin lugar para más flujos",
+			"El servicio de mensajería tiene el máximo de flujos de eventos abiertos: usa GET /chat/cambios o vuelve a intentar").
+			ConCabecera("Retry-After", "30")
+	}
+	s := &suscripcion{usuario: usuario, empresa: empresa, c: make(chan struct{}, 1)}
+	d.subs[s] = struct{}{}
+	d.porUsuario[usuario]++
+	var una sync.Once
+	return s, func() {
+		una.Do(func() {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			delete(d.subs, s)
+			if d.porUsuario[usuario]--; d.porUsuario[usuario] <= 0 {
+				delete(d.porUsuario, usuario)
+			}
+		})
+	}, nil
 }
 
 // avisar despierta a los flujos de la empresa ("*" = todos). Nunca bloquea.
@@ -127,9 +152,46 @@ func nuevoAbrirFlujo(*Modulo) *auditoria.Caso[entradaFlujo, flujo] {
 	})
 }
 
-// transmitir escribe el flujo SSE hasta que el cliente se va, ctx termina o pasa ChatDuracionMax.
-// Sin transacción abierta: cada lectura del feed usa el pool.
-func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo) {
+// abrirFlujoSSE autoriza el flujo (permiso, cursor) y reserva su lugar en los topes. quitar libera
+// el lugar (lo llama transmitir al terminar).
+func (m *Modulo) abrirFlujoSSE(ctx context.Context, desde string) (flujo, *suscripcion, func(), error) {
+	f, err := m.Chat.abrirFlujo.Ejecutar(ctx, entradaFlujo{Desde: desde})
+	if err != nil {
+		return flujo{}, nil, nil, err
+	}
+	sub, quitar, err := m.difusor.suscribir(f.alcance.usuario, f.alcance.clave(), m.cfg.ChatSSEPorUsuario, m.cfg.ChatSSEMax)
+	return f, sub, quitar, err
+}
+
+// revalidar vuelve a leer la credencial del flujo y el alcance del usuario desde la base (sesión o
+// token vigente, usuario activo y en la empresa, permisos de hoy). false = cortar el flujo.
+func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD) (alcanceChat, bool) {
+	nctx, err := identidad.Revalidar(ctx, bd)
+	if err != nil {
+		return alcanceChat{}, false
+	}
+	if !contexto.PermisosDe(nctx).Tiene(string(nucleo.PermChatVer)) {
+		return alcanceChat{}, false
+	}
+	a, err := alcanceDe(nctx)
+	return a, err == nil
+}
+
+// leerFeedLimitado es leerFeed con el semáforo de lecturas (ChatLecturas).
+func (m *Modulo) leerFeedLimitado(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, desde int64) ([]EventoChat, bool, int64, error) {
+	select {
+	case m.lecturas <- struct{}{}:
+	case <-ctx.Done():
+		return nil, false, desde, ctx.Err()
+	}
+	defer func() { <-m.lecturas }()
+	return m.leerFeed(ctx, q, a, desde, 100)
+}
+
+// transmitir escribe el flujo SSE hasta que el cliente se va, ctx termina, pasa ChatDuracionMax o
+// la credencial deja de valer. Sin transacción abierta: cada lectura del feed usa el pool.
+func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo, sub *suscripcion, quitar func()) {
+	defer quitar()
 	rc := http.NewResponseController(w)
 	// El servidor tiene WriteTimeout y ReadTimeout de 60 s: este flujo vive más (y el ReadTimeout,
 	// al vencer, cancelaría el contexto de la petición). En su lugar, cada escritura tiene su plazo:
@@ -158,8 +220,6 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo)
 	if bd == nil {
 		return
 	}
-	sub, quitar := m.difusor.suscribir(f.alcance.clave())
-	defer quitar()
 	latido := time.NewTicker(m.cfg.ChatLatido)
 	defer latido.Stop()
 	fin := time.NewTimer(m.cfg.ChatDuracionMax)
@@ -167,10 +227,15 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo)
 	desde := f.desde
 	q := mensajeriabd.New(bd)
 	for {
+		// Antes de entregar: la sesión o el token siguen valiendo y el alcance es el de hoy.
+		a, ok := m.revalidar(ctx, bd)
+		if !ok {
+			return
+		}
 		// Todo lo pendiente desde el cursor, en páginas.
 		for {
 			plazo()
-			evs, hayMas, siguiente, err := m.leerFeed(ctx, q, f.alcance, desde, 100)
+			evs, hayMas, siguiente, err := m.leerFeedLimitado(ctx, q, a, desde)
 			if err != nil {
 				if ctx.Err() == nil {
 					slog.WarnContext(ctx, "chat: leer el feed del flujo", "err", err)
@@ -196,6 +261,9 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo)
 			return
 		case <-sub.c:
 		case <-latido.C:
+			if _, ok := m.revalidar(ctx, bd); !ok {
+				return
+			}
 			plazo()
 			_, _ = fmt.Fprintf(bw, ": latido\n\n")
 			if !enviar() {

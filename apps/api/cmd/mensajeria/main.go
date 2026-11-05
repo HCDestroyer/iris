@@ -36,6 +36,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -104,8 +105,16 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version, RedesPermitidas: cfg.ArgosRedesPermitidas, Origenes: cfg.ArgosOrigenes,
 	})
 
+	// El almacenamiento de adjuntos de la API: borrar la foto de un mensaje del chat eliminado.
+	// Sin él (mal configurado), la foto solo queda rechazada: no se ve ni se descarga.
+	almacen, err := almacenAdjuntos(cfg)
+	if err != nil {
+		log.Warn("mensajeria: sin almacenamiento de adjuntos; las fotos de mensajes eliminados no se borran del almacén", "err", err)
+		almacen = nil
+	}
 	var cliente *river.Client[pgx.Tx]
 	m := mensajeria.Nuevo(mensajeria.Config{
+		Almacen: almacen, ChatSSEMax: ent.ChatSSEMax,
 		Cifrador: cif, Contactos: conectorArgos, Simulado: ent.Simulado, LimiteDiario: ent.LimiteDiario, PorMinuto: ent.PorMinuto,
 		Silencio: ent.Silencio, MetaURL: ent.MetaURL, HTTPArgos: conector.NuevoHTTP(cfg.ArgosRedesPermitidas), Version: version,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
@@ -185,4 +194,15 @@ func salud(ctx context.Context, puerto int, args []string, salida io.Writer) err
 	}
 	_, _ = fmt.Fprintln(salida, "ok")
 	return nil
+}
+
+// almacenAdjuntos: el mismo almacenamiento que la API (disco o S3 compatible).
+func almacenAdjuntos(cfg config.Config) (adjuntos.Almacen, error) {
+	if cfg.AdjuntosAlmacen == "s3" {
+		return adjuntos.NuevoS3(adjuntos.ConfigS3{
+			Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, Bucket: cfg.S3Bucket, AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey, EstiloRuta: cfg.S3EstiloRuta,
+		})
+	}
+	return adjuntos.NuevoDisco(cfg.AdjuntosDir)
 }

@@ -85,7 +85,8 @@ const chatVisible = `-- name: ChatVisible :one
 
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.chat_visibles($1::bigint, $2::bigint, $3::boolean, $4::boolean,
-        $5::bigint[], $6::bigint[], $7::bigint)
+        $5::bigint[], $6::bigint[], $7::boolean, $8::bigint[], $9::bigint[],
+        $10::bigint)
 )::boolean AS visible
 `
 
@@ -96,6 +97,9 @@ type ChatVisibleParams struct {
 	SupGlobal      bool
 	SupZonas       []int64
 	SupCuadrillas  []int64
+	OrdGlobal      bool
+	OrdZonas       []int64
+	OrdCuadrillas  []int64
 	ConversacionID int64
 }
 
@@ -109,6 +113,9 @@ func (q *Queries) ChatVisible(ctx context.Context, arg ChatVisibleParams) (bool,
 		arg.SupGlobal,
 		arg.SupZonas,
 		arg.SupCuadrillas,
+		arg.OrdGlobal,
+		arg.OrdZonas,
+		arg.OrdCuadrillas,
 		arg.ConversacionID,
 	)
 	var visible bool
@@ -251,11 +258,11 @@ func (q *Queries) ConversacionPorID(ctx context.Context, id int64) (MensajeriaCh
 const conversacionesVisibles = `-- name: ConversacionesVisibles :many
 SELECT c.id, c.ultima_actividad FROM mensajeria.chat_conversaciones c
 WHERE c.id IN (SELECT v FROM mensajeria.chat_visibles($1::bigint, $2::bigint, $3::boolean, $4::boolean,
-        $5::bigint[], $6::bigint[], NULL::bigint) v)
-  AND ($7::text IS NULL OR c.tipo = $7::text)
-  AND (NOT $8::boolean OR (c.ultima_actividad, c.id) < ($9::timestamptz, $10::bigint))
+        $5::bigint[], $6::bigint[], $7::boolean, $8::bigint[], $9::bigint[], NULL::bigint) v)
+  AND ($10::text IS NULL OR c.tipo = $10::text)
+  AND (NOT $11::boolean OR (c.ultima_actividad, c.id) < ($12::timestamptz, $13::bigint))
 ORDER BY c.ultima_actividad DESC, c.id DESC
-LIMIT $11
+LIMIT $14
 `
 
 type ConversacionesVisiblesParams struct {
@@ -265,6 +272,9 @@ type ConversacionesVisiblesParams struct {
 	SupGlobal       bool
 	SupZonas        []int64
 	SupCuadrillas   []int64
+	OrdGlobal       bool
+	OrdZonas        []int64
+	OrdCuadrillas   []int64
 	Tipo            *string
 	ConCursor       bool
 	CursorActividad time.Time
@@ -286,6 +296,9 @@ func (q *Queries) ConversacionesVisibles(ctx context.Context, arg Conversaciones
 		arg.SupGlobal,
 		arg.SupZonas,
 		arg.SupCuadrillas,
+		arg.OrdGlobal,
+		arg.OrdZonas,
+		arg.OrdCuadrillas,
 		arg.Tipo,
 		arg.ConCursor,
 		arg.CursorActividad,
@@ -312,19 +325,29 @@ func (q *Queries) ConversacionesVisibles(ctx context.Context, arg Conversaciones
 
 const destinatariosChat = `-- name: DestinatariosChat :many
 WITH candidatos AS (
-    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = $3
+    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm WHERE mm.conversacion_id = $3 AND mm.origen = 'directa'
     UNION
-    SELECT t.usuario_id FROM agenda.tecnicos t WHERE t.activo AND $4::text = 'cuadrilla' AND t.cuadrilla_id = $5::bigint
+    SELECT mm.usuario_id FROM mensajeria.chat_miembros mm
+    WHERE mm.conversacion_id = $3 AND mm.origen = 'unido'
+      AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur
+                  JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+                  JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'ordenes.ver'
+                  WHERE ur.usuario_id = mm.usuario_id
+                    AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
+                         OR ur.cuadrilla_id = $4::bigint
+                         OR ur.zona_id = ANY ($5::bigint[])))
     UNION
-    SELECT o.tecnico_id FROM campo.ordenes o WHERE o.id = $6::bigint AND o.tecnico_id IS NOT NULL
+    SELECT t.usuario_id FROM agenda.tecnicos t WHERE t.activo AND $6::text = 'cuadrilla' AND t.cuadrilla_id = $7::bigint
+    UNION
+    SELECT o.tecnico_id FROM campo.ordenes o WHERE o.id = $8::bigint AND o.tecnico_id IS NOT NULL
     UNION
     SELECT ur.usuario_id FROM nucleo.usuarios_roles ur
     JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
     JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = 'chat.supervisar'
-    WHERE $4::text <> 'directa'
+    WHERE $6::text <> 'directa'
       AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL)
-           OR ur.cuadrilla_id = $7::bigint
-           OR ur.zona_id = ANY ($8::bigint[]))
+           OR ur.cuadrilla_id = $4::bigint
+           OR ur.zona_id = ANY ($5::bigint[]))
 )
 SELECT DISTINCT u.id AS usuario_id FROM candidatos x
 JOIN nucleo.usuarios u ON u.id = x.usuario_id AND u.activo
@@ -342,11 +365,11 @@ type DestinatariosChatParams struct {
 	AutorID          int64
 	Empresa          *int64
 	ConversacionID   int64
+	AlcanceCuadrilla *int64
+	AlcanceZonas     []int64
 	Tipo             string
 	CuadrillaID      *int64
 	OrdenID          *int64
-	AlcanceCuadrilla *int64
-	AlcanceZonas     []int64
 }
 
 // A quién avisar (push) de un mensaje: miembros explícitos, técnicos de la cuadrilla o de la orden y
@@ -357,11 +380,11 @@ func (q *Queries) DestinatariosChat(ctx context.Context, arg DestinatariosChatPa
 		arg.AutorID,
 		arg.Empresa,
 		arg.ConversacionID,
+		arg.AlcanceCuadrilla,
+		arg.AlcanceZonas,
 		arg.Tipo,
 		arg.CuadrillaID,
 		arg.OrdenID,
-		arg.AlcanceCuadrilla,
-		arg.AlcanceZonas,
 	)
 	if err != nil {
 		return nil, err
@@ -383,9 +406,9 @@ func (q *Queries) DestinatariosChat(ctx context.Context, arg DestinatariosChatPa
 
 const eliminarMensaje = `-- name: EliminarMensaje :one
 UPDATE mensajeria.chat_mensajes
-SET texto = NULL, adjunto_id = NULL, lat = NULL, lon = NULL, eliminado_en = $1, updated_at = $1
+SET texto = NULL, adjunto_id = NULL, lat = NULL, lon = NULL, hash_contenido = NULL, eliminado_en = $1, updated_at = $1
 WHERE id = $2
-RETURNING id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at
+RETURNING id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key
 `
 
 type EliminarMensajeParams struct {
@@ -412,6 +435,7 @@ func (q *Queries) EliminarMensaje(ctx context.Context, arg EliminarMensajeParams
 		&i.EliminadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -466,9 +490,9 @@ SELECT e.id, e.empresa_id, e.conversacion_id, e.tipo, e.mensaje_id, e.usuario_id
 WHERE e.id > $1::bigint
   AND ($2::boolean OR e.empresa_id IS NOT DISTINCT FROM $3::bigint)
   AND e.conversacion_id IN (SELECT v FROM mensajeria.chat_visibles($4::bigint, $3::bigint, $2::boolean,
-        $5::boolean, $6::bigint[], $7::bigint[], NULL::bigint) v)
+        $5::boolean, $6::bigint[], $7::bigint[], $8::boolean, $9::bigint[], $10::bigint[], NULL::bigint) v)
 ORDER BY e.id
-LIMIT $8
+LIMIT $11
 `
 
 type EventosChatParams struct {
@@ -479,6 +503,9 @@ type EventosChatParams struct {
 	SupGlobal     bool
 	SupZonas      []int64
 	SupCuadrillas []int64
+	OrdGlobal     bool
+	OrdZonas      []int64
+	OrdCuadrillas []int64
 	Limite        int32
 }
 
@@ -492,6 +519,9 @@ func (q *Queries) EventosChat(ctx context.Context, arg EventosChatParams) ([]Men
 		arg.SupGlobal,
 		arg.SupZonas,
 		arg.SupCuadrillas,
+		arg.OrdGlobal,
+		arg.OrdZonas,
+		arg.OrdCuadrillas,
 		arg.Limite,
 	)
 	if err != nil {
@@ -514,6 +544,41 @@ func (q *Queries) EventosChat(ctx context.Context, arg EventosChatParams) ([]Men
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fotosChatSinMensaje = `-- name: FotosChatSinMensaje :many
+SELECT a.id FROM nucleo.adjuntos a
+WHERE a.entidad = 'chat_conversacion' AND a.estado <> 'rechazado' AND a.updated_at < $1
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.chat_mensajes m WHERE m.adjunto_id = a.id)
+ORDER BY a.updated_at
+LIMIT $2
+`
+
+type FotosChatSinMensajeParams struct {
+	Antes  time.Time
+	Limite int32
+}
+
+// Fotos del chat que ningún mensaje muestra y que nadie toca desde @antes (subidas y nunca
+// enviadas): se retiran.
+func (q *Queries) FotosChatSinMensaje(ctx context.Context, arg FotosChatSinMensajeParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, fotosChatSinMensaje, arg.Antes, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -600,10 +665,10 @@ func (q *Queries) InsertarEventoChat(ctx context.Context, arg InsertarEventoChat
 
 const insertarMensaje = `-- name: InsertarMensaje :one
 INSERT INTO mensajeria.chat_mensajes (id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en,
-    hash_contenido, created_at, updated_at)
+    hash_contenido, idempotency_key, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $11, $11)
-RETURNING id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at
+    $10, $11, $12, $13, $11, $11)
+RETURNING id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key
 `
 
 type InsertarMensajeParams struct {
@@ -619,6 +684,7 @@ type InsertarMensajeParams struct {
 	CreadoEn       *time.Time
 	EnviadoEn      time.Time
 	HashContenido  []byte
+	IdempotencyKey *string
 }
 
 func (q *Queries) InsertarMensaje(ctx context.Context, arg InsertarMensajeParams) (MensajeriaChatMensaje, error) {
@@ -635,6 +701,7 @@ func (q *Queries) InsertarMensaje(ctx context.Context, arg InsertarMensajeParams
 		arg.CreadoEn,
 		arg.EnviadoEn,
 		arg.HashContenido,
+		arg.IdempotencyKey,
 	)
 	var i MensajeriaChatMensaje
 	err := row.Scan(
@@ -653,6 +720,7 @@ func (q *Queries) InsertarMensaje(ctx context.Context, arg InsertarMensajeParams
 		&i.EliminadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -749,7 +817,7 @@ func (q *Queries) LecturasDeConversacion(ctx context.Context, conversacionID int
 }
 
 const listarMensajes = `-- name: ListarMensajes :many
-SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.autor_id, m.texto, m.adjunto_id, m.lat, m.lon, m.creado_en, m.enviado_en, m.hash_contenido, m.eliminado_en, m.created_at, m.updated_at, u.nombre AS autor_nombre, a.estado AS adjunto_estado
+SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.autor_id, m.texto, m.adjunto_id, m.lat, m.lon, m.creado_en, m.enviado_en, m.hash_contenido, m.eliminado_en, m.created_at, m.updated_at, m.idempotency_key, u.nombre AS autor_nombre, a.estado AS adjunto_estado
 FROM mensajeria.chat_mensajes m
 JOIN nucleo.usuarios u ON u.id = m.autor_id
 LEFT JOIN nucleo.adjuntos a ON a.id = m.adjunto_id
@@ -804,6 +872,7 @@ func (q *Queries) ListarMensajes(ctx context.Context, arg ListarMensajesParams) 
 			&i.MensajeriaChatMensaje.EliminadoEn,
 			&i.MensajeriaChatMensaje.CreatedAt,
 			&i.MensajeriaChatMensaje.UpdatedAt,
+			&i.MensajeriaChatMensaje.IdempotencyKey,
 			&i.AutorNombre,
 			&i.AdjuntoEstado,
 		); err != nil {
@@ -818,7 +887,7 @@ func (q *Queries) ListarMensajes(ctx context.Context, arg ListarMensajesParams) 
 }
 
 const mensajeParaActualizar = `-- name: MensajeParaActualizar :one
-SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at FROM mensajeria.chat_mensajes WHERE id = $1 FOR UPDATE
+SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key FROM mensajeria.chat_mensajes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) MensajeParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaChatMensaje, error) {
@@ -840,12 +909,46 @@ func (q *Queries) MensajeParaActualizar(ctx context.Context, id uuid.UUID) (Mens
 		&i.EliminadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const mensajePorClave = `-- name: MensajePorClave :one
+SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key FROM mensajeria.chat_mensajes WHERE autor_id = $1 AND idempotency_key = $2
+`
+
+type MensajePorClaveParams struct {
+	AutorID        int64
+	IdempotencyKey *string
+}
+
+func (q *Queries) MensajePorClave(ctx context.Context, arg MensajePorClaveParams) (MensajeriaChatMensaje, error) {
+	row := q.db.QueryRow(ctx, mensajePorClave, arg.AutorID, arg.IdempotencyKey)
+	var i MensajeriaChatMensaje
+	err := row.Scan(
+		&i.ID,
+		&i.ConversacionID,
+		&i.EmpresaID,
+		&i.Seq,
+		&i.AutorID,
+		&i.Texto,
+		&i.AdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.CreadoEn,
+		&i.EnviadoEn,
+		&i.HashContenido,
+		&i.EliminadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const mensajePorID = `-- name: MensajePorID :one
-SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at FROM mensajeria.chat_mensajes WHERE id = $1
+SELECT id, conversacion_id, empresa_id, seq, autor_id, texto, adjunto_id, lat, lon, creado_en, enviado_en, hash_contenido, eliminado_en, created_at, updated_at, idempotency_key FROM mensajeria.chat_mensajes WHERE id = $1
 `
 
 func (q *Queries) MensajePorID(ctx context.Context, id uuid.UUID) (MensajeriaChatMensaje, error) {
@@ -867,12 +970,33 @@ func (q *Queries) MensajePorID(ctx context.Context, id uuid.UUID) (MensajeriaCha
 		&i.EliminadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
+const mensajeVivoConAdjunto = `-- name: MensajeVivoConAdjunto :one
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.chat_mensajes
+    WHERE adjunto_id = $1 AND conversacion_id = $2 AND eliminado_en IS NULL
+)::boolean AS vivo
+`
+
+type MensajeVivoConAdjuntoParams struct {
+	AdjuntoID      pgtype.UUID
+	ConversacionID int64
+}
+
+// La foto se ve solo si un mensaje sin eliminar de esa conversación la muestra.
+func (q *Queries) MensajeVivoConAdjunto(ctx context.Context, arg MensajeVivoConAdjuntoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, mensajeVivoConAdjunto, arg.AdjuntoID, arg.ConversacionID)
+	var vivo bool
+	err := row.Scan(&vivo)
+	return vivo, err
+}
+
 const mensajesPorIDs = `-- name: MensajesPorIDs :many
-SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.autor_id, m.texto, m.adjunto_id, m.lat, m.lon, m.creado_en, m.enviado_en, m.hash_contenido, m.eliminado_en, m.created_at, m.updated_at, u.nombre AS autor_nombre, a.estado AS adjunto_estado
+SELECT m.id, m.conversacion_id, m.empresa_id, m.seq, m.autor_id, m.texto, m.adjunto_id, m.lat, m.lon, m.creado_en, m.enviado_en, m.hash_contenido, m.eliminado_en, m.created_at, m.updated_at, m.idempotency_key, u.nombre AS autor_nombre, a.estado AS adjunto_estado
 FROM mensajeria.chat_mensajes m
 JOIN nucleo.usuarios u ON u.id = m.autor_id
 LEFT JOIN nucleo.adjuntos a ON a.id = m.adjunto_id
@@ -910,6 +1034,7 @@ func (q *Queries) MensajesPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 			&i.MensajeriaChatMensaje.EliminadoEn,
 			&i.MensajeriaChatMensaje.CreatedAt,
 			&i.MensajeriaChatMensaje.UpdatedAt,
+			&i.MensajeriaChatMensaje.IdempotencyKey,
 			&i.AutorNombre,
 			&i.AdjuntoEstado,
 		); err != nil {

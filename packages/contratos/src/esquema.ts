@@ -1588,7 +1588,7 @@ export interface paths {
         put?: never;
         /**
          * Enviar un mensaje
-         * @description Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key`. Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).
+         * @description Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` (la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).
          */
         post: operations["enviarMensajeChat"];
         delete?: never;
@@ -1646,7 +1646,7 @@ export interface paths {
         };
         /**
          * Tiempo real del chat (Server-Sent Events)
-         * @description Permiso: `chat.ver`. `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y `data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer.
+         * @description Permiso: `chat.ver`. `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y `data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer: en cada latido y antes de entregar se revalida (sesión cerrada, token revocado, usuario inactivo o sin chat.ver: se cierra). Hasta 5 flujos por usuario (el sexto, 429 `demasiados_flujos`) y un tope por proceso (503 `flujos_agotados`, IRIS_CHAT_SSE_MAX).
          */
         get: operations["eventosChat"];
         put?: never;
@@ -17351,8 +17351,26 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

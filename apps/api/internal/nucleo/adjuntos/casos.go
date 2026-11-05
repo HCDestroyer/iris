@@ -207,6 +207,12 @@ func cargar(ctx context.Context, t *auditoria.Tx, id uuid.UUID, uso Uso) (Adjunt
 		// La entidad cambió de empresa después del alta: no se mezcla.
 		return Adjunto{}, nucleo.NoEncontrado("")
 	}
+	if ok, err := pasaFiltro(ctx, t, aAdjunto(f), uso); err != nil || !ok {
+		if err != nil {
+			return Adjunto{}, err
+		}
+		return Adjunto{}, nucleo.NoEncontrado("")
+	}
 	t.FijarEntidad("adjunto", f.ID)
 	t.FijarEmpresa(empresa)
 	return aAdjunto(f), nil
@@ -390,7 +396,14 @@ func nuevoListar(*Modulo) *auditoria.Caso[EntradaListar, nucleo.Pagina[Adjunto]]
 			}
 			visibles := filas[:0]
 			for _, f := range filas {
-				if empresaVisible(ctx, empresaDe(f.EmpresaID)) {
+				if !empresaVisible(ctx, empresaDe(f.EmpresaID)) {
+					continue
+				}
+				ok, err := pasaFiltro(ctx, t, aAdjunto(f), UsoVer)
+				if err != nil {
+					return nucleo.Pagina[Adjunto]{}, err
+				}
+				if ok {
 					visibles = append(visibles, f)
 				}
 			}

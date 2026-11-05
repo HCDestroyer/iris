@@ -171,6 +171,10 @@ type alcanceChat struct {
 	global     bool
 	zonas      []int64
 	cuadrillas []int64
+	// Alcance de ordenes.ver (despacho unido al hilo de una orden).
+	ordGlobal     bool
+	ordZonas      []int64
+	ordCuadrillas []int64
 }
 
 func alcanceDe(ctx context.Context) (alcanceChat, error) {
@@ -178,7 +182,7 @@ func alcanceDe(ctx context.Context) (alcanceChat, error) {
 	if !actor.EsUsuario() {
 		return alcanceChat{}, nucleo.Prohibido("El chat es de los usuarios de Iris")
 	}
-	a := alcanceChat{usuario: actor.ID, zonas: []int64{}, cuadrillas: []int64{}}
+	a := alcanceChat{usuario: actor.ID, zonas: []int64{}, cuadrillas: []int64{}, ordZonas: []int64{}, ordCuadrillas: []int64{}}
 	switch contexto.EmpresasDe(ctx).Estado {
 	case contexto.EmpresaActiva:
 		id := contexto.EmpresaDe(ctx)
@@ -195,6 +199,13 @@ func alcanceDe(ctx context.Context) (alcanceChat, error) {
 		a.global = g
 		a.zonas = append(a.zonas, z...)
 		a.cuadrillas = append(a.cuadrillas, c...)
+	}
+	// El despacho «unido» al hilo de una orden la sigue viendo mientras ordenes.ver la cubra.
+	if p.Tiene(string(nucleo.PermOrdenesVer)) {
+		g, z, c := p.Alcances(string(nucleo.PermOrdenesVer))
+		a.ordGlobal = g
+		a.ordZonas = append(a.ordZonas, z...)
+		a.ordCuadrillas = append(a.ordCuadrillas, c...)
 	}
 	return a, nil
 }
@@ -235,7 +246,7 @@ func contiene(xs []int64, v int64) bool {
 
 func (m *Modulo) visible(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, conversacion int64) (bool, error) {
 	return q.ChatVisible(ctx, mensajeriabd.ChatVisibleParams{Usuario: a.usuario, Empresa: a.empresa, Todas: a.todas, SupGlobal: a.global,
-		SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, ConversacionID: conversacion})
+		SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas, ConversacionID: conversacion})
 }
 
 // conversacionVisible lee la conversación (con FOR UPDATE si bloquear) o 404 si no existe o el

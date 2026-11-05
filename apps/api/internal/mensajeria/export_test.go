@@ -33,3 +33,9 @@ var ErrReintentar = errReintentar
 func (m *Modulo) PurgarFeedChat(ctx context.Context, bd nucleo.BD) error {
 	return m.purgarFeedChat(ctx, bd)
 }
+
+func (m *Modulo) FijarTrasLeerCabeza(f func()) { m.trasLeerCabeza = f }
+
+func (m *Modulo) PurgarFotosSinEnviar(ctx context.Context, bd nucleo.BD) error {
+	return m.purgarFotosSinEnviar(ctx, bd)
+}

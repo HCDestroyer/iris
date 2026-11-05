@@ -27,7 +27,8 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 }
 
 // ArgsMantenimiento: avisos sin acuse (agotado), webhooks de Meta que quedaron sin procesar y la
-// purga del feed del chat (ChatRetencion).
+// purga del feed del chat (ChatRetencion) y de las fotos del chat nunca enviadas
+// (ChatFotosSinEnviar).
 type ArgsMantenimiento struct{}
 
 // Kind implementa river.JobArgs.
@@ -50,6 +51,9 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 		return err
 	}
 	if err := w.m.purgarFeedChat(ctx, w.bd); err != nil {
+		return err
+	}
+	if err := w.m.purgarFotosSinEnviar(ctx, w.bd); err != nil {
 		return err
 	}
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))

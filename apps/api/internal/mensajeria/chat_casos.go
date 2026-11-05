@@ -90,7 +90,7 @@ func nuevoListarConversaciones(m *Modulo) *auditoria.Caso[EntradaListarConversac
 			limite := in.Limite()
 			q := mensajeriabd.New(t)
 			filas, err := q.ConversacionesVisibles(ctx, mensajeriabd.ConversacionesVisiblesParams{Usuario: a.usuario, Empresa: a.empresa, Todas: a.todas,
-				SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, Tipo: tipo, ConCursor: con, CursorActividad: cursorAct,
+				SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas, Tipo: tipo, ConCursor: con, CursorActividad: cursorAct,
 				CursorID: ultimo, Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 			if err != nil {
 				return nucleo.Pagina[ConversacionChat]{}, err
@@ -436,6 +436,7 @@ type EntradaEnviarMensaje struct {
 	CreadoEn       *time.Time     `json:"creado_en,omitempty"`
 	ConTexto       bool           `json:"con_texto"`
 	ConUbicacion   bool           `json:"con_ubicacion"`
+	IdempotencyKey string         `json:"-"`
 }
 
 // MensajeEnviado es la respuesta de enviar (201 nuevo, 200 reenvío del mismo id).
@@ -496,8 +497,22 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 			if err := q.CandadoChat(ctx, fmt.Sprintf("chat:autor:%d", a.usuario)); err != nil {
 				return MensajeEnviado{}, err
 			}
+			// Idempotency-Key (regla 6): la aplica este caso (no el middleware, que guardaría la respuesta
+			// con el texto). La misma clave con otro id es otra petición: 422.
+			if in.IdempotencyKey != "" {
+				previo, err := q.MensajePorClave(ctx, mensajeriabd.MensajePorClaveParams{AutorID: a.usuario, IdempotencyKey: &in.IdempotencyKey})
+				switch {
+				case err == nil && previo.ID != in.ID:
+					return MensajeEnviado{}, idempotenciaReutilizada()
+				case err != nil && !esSinFilas(err):
+					return MensajeEnviado{}, err
+				}
+			}
 			if previo, err := q.MensajePorID(ctx, in.ID); err == nil {
-				if previo.AutorID != a.usuario || string(previo.HashContenido) != string(hash) {
+				// La lápida no guarda el contenido: un reenvío de su autor en la misma conversación
+				// responde la lápida.
+				igual := previo.EliminadoEn != nil || string(previo.HashContenido) == string(hash)
+				if previo.AutorID != a.usuario || previo.ConversacionID != c.ID || !igual {
 					return MensajeEnviado{}, nucleo.Conflicto("mensaje_id_reutilizado", "Ese id de mensaje ya se usó con otro contenido: genera un uuid v7 nuevo")
 				}
 				msj, err := mensajeVisto(ctx, q, previo.ID)
@@ -532,6 +547,9 @@ func nuevoEnviarMensaje(m *Modulo) *auditoria.Caso[EntradaEnviarMensaje, Mensaje
 			}
 			p := mensajeriabd.InsertarMensajeParams{ID: in.ID, ConversacionID: c.ID, EmpresaID: c.EmpresaID, Seq: seq, AutorID: a.usuario,
 				Texto: texto, AdjuntoID: pgUUID(in.AdjuntoID), CreadoEn: in.CreadoEn, EnviadoEn: ahora, HashContenido: hash}
+			if in.IdempotencyKey != "" {
+				p.IdempotencyKey = &in.IdempotencyKey
+			}
 			if in.CreadoEn != nil {
 				u := in.CreadoEn.UTC()
 				p.CreadoEn = &u
@@ -659,6 +677,15 @@ func nuevoEliminarMensaje(m *Modulo) *auditoria.Caso[EntradaEliminarMensaje, Men
 			}
 			if _, err := q.EliminarMensaje(ctx, mensajeriabd.EliminarMensajeParams{Ahora: &ahora, ID: f.ID}); err != nil {
 				return MensajeEliminado{}, err
+			}
+			// La foto también se va: rechazada (no se ve ni se descarga) y, tras el COMMIT, fuera del
+			// almacenamiento.
+			if id := uuidDe(f.AdjuntoID); id != nil {
+				clave, err := adjuntos.Retirar(ctx, t, *id)
+				if err != nil {
+					return MensajeEliminado{}, err
+				}
+				t.AlConfirmar(func(ctx context.Context) { adjuntos.BorrarContenido(ctx, m.cfg.Almacen, clave) })
 			}
 			if err := t.Emitir("chat.mensaje_eliminado", map[string]any{"conversacion_id": c.ID, "mensaje_id": f.ID, "empresa_id": c.EmpresaID,
 				"autor_id": f.AutorID, "eliminado_en": ahora}); err != nil {
@@ -838,8 +865,18 @@ func nuevoCambios(m *Modulo) *auditoria.Caso[EntradaCambios, CambiosChat] {
 
 // leerFeed lee hasta limite eventos después de desde, como los ve el usuario.
 func (m *Modulo) leerFeed(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, desde int64, limite int) ([]EventoChat, bool, int64, error) {
+	// La cabeza de la empresa se lee ANTES que los eventos: un evento que confirma entre las dos
+	// lecturas tiene un id mayor que esa cabeza y sale en esta lectura o en la siguiente. Leída
+	// después, el cursor podía saltarlo.
+	estado, err := q.EstadoFeedChat(ctx, a.empresa)
+	if err != nil {
+		return nil, false, desde, err
+	}
+	if m.trasLeerCabeza != nil {
+		m.trasLeerCabeza()
+	}
 	filas, err := q.EventosChat(ctx, mensajeriabd.EventosChatParams{Desde: desde, Todas: a.todas, Empresa: a.empresa, Usuario: a.usuario,
-		SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
+		SupGlobal: a.global, SupZonas: a.zonas, SupCuadrillas: a.cuadrillas, OrdGlobal: a.ordGlobal, OrdZonas: a.ordZonas, OrdCuadrillas: a.ordCuadrillas, Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 	if err != nil {
 		return nil, false, desde, err
 	}
@@ -855,13 +892,9 @@ func (m *Modulo) leerFeed(ctx context.Context, q *mensajeriabd.Queries, a alcanc
 	if len(filas) > 0 {
 		siguiente = filas[len(filas)-1].ID
 	} else if !hayMas {
-		// Sin eventos visibles: avanza hasta la cabeza de la empresa (lo de otras conversaciones no se
-		// vuelve a leer).
-		e, err := q.EstadoFeedChat(ctx, a.empresa)
-		if err != nil {
-			return nil, false, desde, err
-		}
-		siguiente = max(siguiente, e.CabezaEmpresa)
+		// Sin eventos visibles: avanza hasta la cabeza de la empresa leída antes (lo de otras
+		// conversaciones no se vuelve a leer).
+		siguiente = max(siguiente, estado.CabezaEmpresa)
 	}
 	return evs, hayMas, siguiente, nil
 }

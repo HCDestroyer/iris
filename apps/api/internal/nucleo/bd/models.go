@@ -1058,6 +1058,7 @@ type MensajeriaChatMensaje struct {
 	EliminadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	IdempotencyKey *string
 }
 
 type MensajeriaChatMiembro struct {

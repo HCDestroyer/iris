@@ -191,6 +191,21 @@ FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
 WHERE t.hash = @hash AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
 
+-- name: TokenVigentePorID :one
+-- Revalidar un flujo largo (SSE del chat) autenticado con este token.
+SELECT t.permisos, u.id AS usuario_id
+FROM nucleo.tokens_api t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.id = @id AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+
+-- name: SesionVigentePorID :one
+-- Revalidar un flujo largo (SSE del chat) autenticado con esta sesión del panel.
+SELECT s.usuario_id
+FROM nucleo.sesiones s
+JOIN nucleo.usuarios u ON u.id = s.usuario_id
+WHERE s.id = @id AND s.revocada_en IS NULL AND s.expira_en > now() AND NOT s.mfa_pendiente AND u.activo
+  AND NOT u.debe_cambiar_contrasena;
+
 -- name: TocarToken :exec
 UPDATE nucleo.tokens_api SET ultimo_uso = now()
 WHERE id = @id AND (ultimo_uso IS NULL OR ultimo_uso < now() - interval '1 minute');

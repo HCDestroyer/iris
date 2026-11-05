@@ -33,12 +33,16 @@ type persona struct {
 	token string
 	// empresa: X-Iris-Empresa (0 = sin cabecera).
 	empresa int64
+	correo  string
+	// cookie: sesión del panel (en lugar del token) para abrirSSE.
+	cookie string
 }
 
 // persona crea un usuario con roles y empresas, y su token (con sus permisos).
 func (e *entorno) persona(empresas []int64, roles ...identidad.AsignacionRol) persona {
 	e.t.Helper()
-	u, err := identChat.CrearUsuario.Ejecutar(e.ctx, identidad.EntradaCrearUsuario{Nombre: "Persona " + pruebas.Unico(), Correo: pruebas.Correo("chat"),
+	correo := pruebas.Correo("chat")
+	u, err := identChat.CrearUsuario.Ejecutar(e.ctx, identidad.EntradaCrearUsuario{Nombre: "Persona " + pruebas.Unico(), Correo: correo,
 		Contrasena: "contrasena-larga-1", Roles: roles, Empresas: empresas})
 	if err != nil {
 		e.t.Fatal(err)
@@ -47,7 +51,7 @@ func (e *entorno) persona(empresas []int64, roles ...identidad.AsignacionRol) pe
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	return persona{id: u.ID, token: tk.Valor}
+	return persona{id: u.ID, token: tk.Valor, correo: correo}
 }
 
 func rolBase(r string) identidad.AsignacionRol { return identidad.AsignacionRol{Rol: r} }
@@ -335,7 +339,7 @@ func TestChatReenvioIdempotente(t *testing.T) {
 	primero := e.chat(a, http.MethodPost, "/conversaciones/"+c+"/mensajes", clave, map[string]any{"id": id2, "texto": "con clave"})
 	e.exigir(primero, http.StatusCreated)
 	otra := e.chat(a, http.MethodPost, "/conversaciones/"+c+"/mensajes", clave, map[string]any{"id": id2, "texto": "con clave"})
-	e.exigir(otra, http.StatusCreated, "id", id2)
+	e.exigir(otra, http.StatusOK, "id", id2) // la clave la aplica el caso: el mensaje actual, sin guardar la respuesta
 	e.exigir(e.chat(a, http.MethodPost, "/conversaciones/"+c+"/mensajes", clave, map[string]any{"id": nuevoID(), "texto": "otra"}), http.StatusUnprocessableEntity)
 	// Validación: uuid v4, vacío, más de 4000 caracteres, futuro.
 	e.exigir(e.enviarChat(a, c, uuid.NewString(), "v4"), http.StatusUnprocessableEntity)
@@ -485,7 +489,11 @@ type eventoSSE struct {
 func abrirSSE(t *testing.T, ctx context.Context, url string, p persona, ultimo string) <-chan eventoSSE {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+rutaChat+"/eventos", nil)
-	req.Header.Set("Authorization", "Bearer "+p.token)
+	if p.cookie != "" {
+		req.AddCookie(&http.Cookie{Name: identidad.CookieSesion, Value: p.cookie})
+	} else {
+		req.Header.Set("Authorization", "Bearer "+p.token)
+	}
 	req.Header.Set("Accept", "text/event-stream")
 	if ultimo != "" {
 		req.Header.Set("Last-Event-ID", ultimo)

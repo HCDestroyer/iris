@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -18,11 +19,23 @@ const Etiqueta = "mensajeria"
 // Prefijo de las rutas del servicio (la API las reenvía a este proceso).
 const Prefijo = "/api/v1/mensajeria"
 
-// IdempotenciaPropia: POST /avisos y POST /consentimientos aplican la Idempotency-Key en el caso de
-// uso (una repetición devuelve el estado actual), no en el middleware.
+// IdempotenciaPropia: estas rutas aplican la Idempotency-Key en el caso de uso (una repetición
+// devuelve el estado actual), no en el middleware:
+//   - POST /avisos y POST /consentimientos (contrato con Argos);
+//   - POST /chat/conversaciones/{id}/mensajes: el middleware guardaría la respuesta con el texto
+//     del mensaje, que debe desaparecer al eliminarlo; la clave queda en el mensaje;
+//   - abrir conversaciones (POST /chat/directas, /chat/cuadrillas/{id}/abrir,
+//     /chat/ordenes/{id}/abrir): idempotentes por naturaleza (una por par, cuadrilla u orden) y su
+//     respuesta trae la vista previa del último mensaje.
 func IdempotenciaPropia(r *http.Request) bool {
-	return r.Method == http.MethodPost && (r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos")
+	if r.Method != http.MethodPost {
+		return false
+	}
+	return r.URL.Path == Prefijo+"/avisos" || r.URL.Path == Prefijo+"/consentimientos" || rutaChatPropia.MatchString(r.URL.Path)
 }
+
+var rutaChatPropia = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefijo) +
+	`/chat/(conversaciones/[0-9]+/mensajes|directas|cuadrillas/[0-9]+/abrir|ordenes/[0-9]+/abrir)$`)
 
 type entradaAvisoHTTP struct {
 	nucleo.ConIdempotencia

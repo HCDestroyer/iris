@@ -138,12 +138,14 @@ func (m *Modulo) registrarChat(api huma.API) {
 	enviar := op("enviarMensajeChat", http.MethodPost, base+"/conversaciones/{id}/mensajes", "Enviar un mensaje",
 		nucleo.PermChatEnviar, http.StatusCreated, http.StatusNotFound, http.StatusConflict, http.StatusTooManyRequests)
 	enviar.Description += " Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual " +
-		"(`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key`. " +
+		"(`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` " +
+		"(la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). " +
 		"Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`)."
 	enviar.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
 	huma.Register(api, enviar, func(ctx context.Context, in *entradaEnviarHTTP) (*salidaEnviar, error) {
 		e := EntradaEnviarMensaje{ConversacionID: in.ID, ID: in.Body.ID, Texto: in.Body.Texto, AdjuntoID: in.Body.AdjuntoID,
-			Ubicacion: in.Body.Ubicacion, CreadoEn: in.Body.CreadoEn, ConTexto: in.Body.Texto != nil, ConUbicacion: in.Body.Ubicacion != nil}
+			Ubicacion: in.Body.Ubicacion, CreadoEn: in.Body.CreadoEn, ConTexto: in.Body.Texto != nil, ConUbicacion: in.Body.Ubicacion != nil,
+			IdempotencyKey: in.IdempotencyKey}
 		r, err := m.Chat.EnviarMensaje.Ejecutar(ctx, e)
 		if err != nil {
 			return nil, err
@@ -184,10 +186,12 @@ func (m *Modulo) registrarChat(api huma.API) {
 	})
 
 	eventos := op("eventosChat", http.MethodGet, base+"/eventos", "Tiempo real del chat (Server-Sent Events)", nucleo.PermChatVer,
-		http.StatusOK, http.StatusGone)
+		http.StatusOK, http.StatusGone, http.StatusTooManyRequests, http.StatusServiceUnavailable)
 	eventos.Description += " `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y " +
 		"`data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; " +
-		"el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer."
+		"el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer: en cada latido y antes de entregar " +
+		"se revalida (sesión cerrada, token revocado, usuario inactivo o sin chat.ver: se cierra). Hasta 5 flujos por usuario (el sexto, " +
+		"429 `demasiados_flujos`) y un tope por proceso (503 `flujos_agotados`, IRIS_CHAT_SSE_MAX)."
 	eventos.Responses = map[string]*huma.Response{"200": {
 		Description: "Flujo de eventos",
 		Content:     map[string]*huma.MediaType{"text/event-stream": {Schema: &huma.Schema{Type: huma.TypeString}}},
@@ -197,16 +201,17 @@ func (m *Modulo) registrarChat(api huma.API) {
 		if desde == "" {
 			desde = in.Desde
 		}
-		f, err := m.Chat.abrirFlujo.Ejecutar(ctx, entradaFlujo{Desde: desde})
+		f, sub, quitar, err := m.abrirFlujoSSE(ctx, desde)
 		if err != nil {
 			return nil, err
 		}
 		return &huma.StreamResponse{Body: func(hctx huma.Context) {
 			r, w := humachi.Unwrap(hctx)
 			if r == nil || w == nil {
+				quitar()
 				return
 			}
-			m.transmitir(r.Context(), w, f)
+			m.transmitir(r.Context(), w, f, sub, quitar)
 		}}, nil
 	})
 }

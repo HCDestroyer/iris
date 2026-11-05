@@ -91,22 +91,68 @@ func ProxyHacia(destino string, nombre string, log *slog.Logger) (http.Handler, 
 			noDisponible(w, http.StatusBadGateway)
 		},
 	}
-	// Server-Sent Events (GET /mensajeria/chat/eventos): ReverseProxy ya copia cada evento sin
-	// esperar (con text/event-stream vacía el búfer en cada escritura), pero el WriteTimeout y el
+	// Server-Sent Events (GET /api/v1/mensajeria/chat/eventos): ReverseProxy ya copia cada evento
+	// sin esperar (con text/event-stream vacía el búfer en cada escritura), pero el WriteTimeout y el
 	// ReadTimeout del servidor (60 s) cortarían el flujo, y el ReadTimeout al vencer cancela el
-	// contexto de la petición. Solo para GET con Accept: text/event-stream (EventSource lo manda
-	// siempre); el destino decide si la ruta es un flujo y cuánto dura.
+	// contexto de la petición. Solo en esa ruta exacta (EsFlujoSSE): plazo de escritura móvil (se
+	// renueva con cada escritura; el destino manda un latido cada 25 s) y un máximo absoluto
+	// (el destino cierra a los 30 min). Nunca sin plazo.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if EsFlujoSSE(r) {
-			rc := http.NewResponseController(w)
-			_ = rc.SetWriteDeadline(time.Time{})
-			_ = rc.SetReadDeadline(time.Time{})
+			e := &escrituraMovil{ResponseWriter: w, rc: http.NewResponseController(w), plazo: plazoEscrituraSSE,
+				tope: time.Now().Add(maximoFlujoSSE)}
+			_ = e.rc.SetReadDeadline(e.tope)
+			e.renovar()
+			w = e
 		}
 		p.ServeHTTP(w, r)
 	}), nil
 }
 
-// EsFlujoSSE: la petición pide un flujo de Server-Sent Events (GET con Accept: text/event-stream).
+// RutaFlujoSSE es la única ruta delegada que es un flujo largo (el SSE del chat).
+const RutaFlujoSSE = "/api/v1/mensajeria/chat/eventos"
+
+// Plazos del flujo SSE a través del proxy (variables para las pruebas).
+var (
+	plazoEscrituraSSE = 60 * time.Second
+	maximoFlujoSSE    = 31 * time.Minute
+)
+
+// EsFlujoSSE: GET a la ruta exacta del flujo SSE del chat.
 func EsFlujoSSE(r *http.Request) bool {
-	return r.Method == http.MethodGet && strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
+	return r.Method == http.MethodGet && r.URL.Path == RutaFlujoSSE
 }
+
+// escrituraMovil renueva el plazo de escritura con cada escritura, sin pasar del tope.
+type escrituraMovil struct {
+	http.ResponseWriter
+	rc    *http.ResponseController
+	plazo time.Duration
+	tope  time.Time
+}
+
+func (e *escrituraMovil) renovar() {
+	d := time.Now().Add(e.plazo)
+	if d.After(e.tope) {
+		d = e.tope
+	}
+	_ = e.rc.SetWriteDeadline(d)
+}
+
+func (e *escrituraMovil) WriteHeader(status int) {
+	e.renovar()
+	e.ResponseWriter.WriteHeader(status)
+}
+
+func (e *escrituraMovil) Write(b []byte) (int, error) {
+	e.renovar()
+	return e.ResponseWriter.Write(b)
+}
+
+// Flush: ReverseProxy vacía el búfer después de cada evento.
+func (e *escrituraMovil) Flush() {
+	e.renovar()
+	_ = e.rc.Flush()
+}
+
+func (e *escrituraMovil) Unwrap() http.ResponseWriter { return e.ResponseWriter }

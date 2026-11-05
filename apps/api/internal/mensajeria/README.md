@@ -72,13 +72,20 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   cuadrilla y orden **no se copian**: la función `mensajeria.chat_visibles` los deriva al leer de
   `agenda.tecnicos`, `agenda.cuadrilla_zonas` y `campo.ordenes` (técnico asignado), más el alcance de
   `chat.supervisar` del actor (global, zona o cuadrilla). `chat_miembros` guarda solo los explícitos:
-  los dos de una directa y el despacho que se une a un hilo de orden (`ordenes.ver` con alcance).
-  Las directas nunca se ven por alcance. Lo que no se ve es 404.
+  los dos de una directa y el despacho que se une a un hilo de orden, que solo lo sigue viendo
+  mientras su `ordenes.ver` (con alcance) cubra la orden. Las directas nunca se ven por alcance. Lo
+  que no se ve es 404.
 - **Mensajes** (`chat_mensajes`): id uuid v7 del cliente (mismo id y contenido → 200, otro contenido
-  → 409; también `Idempotency-Key`), texto plano ≤ 4000, una foto (`nucleo/adjuntos`, entidad
-  `chat_conversacion`, registrada con `RegistrarAdjuntos` en cmd/iris y cmd/worker) y/o ubicación.
-  `seq` por conversación en orden de llegada. Nunca se editan; el autor los elimina en 15 min
-  (lápida, sin contenido). 30 por minuto por usuario (429), con el reloj del módulo.
+  → 409). La `Idempotency-Key` la aplica el caso (queda en el mensaje; `IdempotenciaPropia` saca del
+  middleware el envío y el abrir, para no guardar respuestas con texto). Texto plano ≤ 4000, una foto
+  (`nucleo/adjuntos`, entidad `chat_conversacion`, registrada con `RegistrarAdjuntos` en cmd/iris y
+  cmd/worker) y/o ubicación. `seq` por conversación en orden de llegada. Nunca se editan; el autor
+  los elimina en 15 min: lápida sin contenido ni `hash_contenido`. 30 por minuto por usuario (429),
+  con el reloj del módulo.
+- **Fotos:** un filtro de adjuntos (`adjuntos.RegistrarFiltro`) solo deja ver la foto mientras un
+  mensaje sin eliminar la muestra. Al eliminar el mensaje, `adjuntos.Retirar` la deja rechazada
+  (`retirado`) y, tras el COMMIT, se borra del almacén (`Config.Almacen`, el mismo de la API). El
+  mantenimiento retira las fotos nunca enviadas sin actividad en `ChatFotosSinEnviar` (48 h).
 - **Lecturas** (`chat_lecturas`): puntero por usuario que solo avanza; no leídos = mensajes de otros,
   sin eliminar, después del puntero.
 - **Tiempo real:** `chat_eventos` es el feed (`mensaje_nuevo`, `mensaje_eliminado`, `leido`,
@@ -87,13 +94,21 @@ Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):
   nunca salta un evento. `EscucharChat` (cmd/mensajeria) despierta los flujos SSE de esa empresa;
   cada flujo relee el feed con la misma consulta que `GET /chat/cambios` (sondeo), filtrada por lo
   que el usuario ve. Latido cada 25 s, cierre a los 30 min (reconexión con Last-Event-ID) y purga a
-  los 7 días en el mantenimiento (cursor más viejo → 410). El flujo quita los plazos de escritura y
-  lectura del servidor; el proxy de la API (`servidor.ProxyHacia`) también, para GET con
-  `Accept: text/event-stream`, y ReverseProxy copia cada evento sin búfer.
+  los 7 días en el mantenimiento (cursor más viejo → 410). `leerFeed` lee la cabeza de la empresa
+  antes que los eventos (un evento que confirma en medio no se salta).
+- **Seguridad del flujo:** en cada latido y antes de entregar, `identidad.Revalidar` vuelve a leer la
+  sesión o el token (vigente, usuario activo, en la empresa) y el alcance sale de los permisos de
+  ese momento; si falla, se cierra. Topes: `ChatSSEPorUsuario` (5; el sexto, 429
+  `demasiados_flujos`), `ChatSSEMax` (`IRIS_CHAT_SSE_MAX`, 1000; 503 `flujos_agotados`) y un
+  semáforo de `ChatLecturas` (16) lecturas del feed a la vez. El flujo quita el ReadTimeout del
+  servidor y pone un plazo por escritura; el proxy de la API (`servidor.ProxyHacia`) solo en
+  `GET /api/v1/mensajeria/chat/eventos` usa un plazo de escritura móvil (60 s) y un máximo de 31 min,
+  y ReverseProxy copia cada evento sin búfer.
 - **Auditoría:** abrir una conversación nueva, enviar y eliminar, con el id del mensaje y nunca el
   texto. Listar, ver, leer, cambios y el flujo no dejan fila. Los logs no llevan cuerpos.
 - `Config`: `ChatPorMinuto` (30), `ChatPlazoEliminar` (15 min), `ChatLatido` (25 s),
-  `ChatDuracionMax` (30 min), `ChatRetencion` (7 días).
+  `ChatDuracionMax` (30 min), `ChatRetencion` (7 días), `ChatSSEMax`, `ChatSSEPorUsuario`,
+  `ChatLecturas`, `ChatFotosSinEnviar` y `Almacen`.
 
 Emite `chat.conversacion_creada`, `chat.mensaje_enviado` (con `destinatarios[]` para el futuro emisor
 de push) y `chat.mensaje_eliminado`. No emite `chat.leido` (ver `contratos/eventos.md`). No consume

@@ -16,11 +16,12 @@ cookie `HttpOnly` del panel o `Authorization: Bearer` de la app. Multiempresa: l
 | --- | --- | --- |
 | `directa` | par de usuarios y empresa | los dos (fijos) |
 | `cuadrilla` | cuadrilla y empresa | técnicos activos de la cuadrilla (`agenda.tecnicos`) + quien tiene `chat.supervisar` global, con la cuadrilla o con una zona que la cuadrilla atiende |
-| `orden` | orden | su técnico asignado (`campo.ordenes.tecnico_id`) + `chat.supervisar` global, con la zona o con la cuadrilla de la orden + despacho que se unió (`ordenes.ver` con alcance sobre la orden) |
+| `orden` | orden | su técnico asignado (`campo.ordenes.tecnico_id`) + `chat.supervisar` global, con la zona o con la cuadrilla de la orden + despacho que se unió, **mientras** su `ordenes.ver` (con alcance) cubra la orden |
 
 - Los miembros de cuadrilla y de orden **se derivan al leer**: si la orden se reasigna, el técnico
   nuevo entra y el anterior sale; si un técnico cambia de cuadrilla, cambia de chat. Solo quien se
-  une a un hilo de orden desde despacho queda guardado como miembro.
+  une a un hilo de orden desde despacho queda guardado como miembro, y aun así deja de verlo si la
+  orden sale de su alcance de `ordenes.ver` (otra zona o cuadrilla); vuelve a verlo si regresa.
 - Las directas nunca se ven por alcance: ninguna supervisión lee mensajes directos.
 - Lo que no ves responde **404** (no se revela que existe).
 - Permisos: `chat.ver` (leer, marcar leído, flujo), `chat.enviar` (abrir, enviar, eliminar),
@@ -43,8 +44,9 @@ cookie `HttpOnly` del panel o `Authorization: Bearer` de la app. Multiempresa: l
 | `GET /cambios?cursor=&limit=` | ver | Sondeo del feed (§4). `{ data: EventoChat[], nextCursor, hayMas }` |
 | `GET /eventos` | ver | Server-Sent Events (§4) |
 
-Abrir una conversación es idempotente por su naturaleza (una por par, cuadrilla u orden); acepta
-`Idempotency-Key` como cualquier POST.
+Abrir una conversación es idempotente por su naturaleza (una por par, cuadrilla u orden): la
+`Idempotency-Key` se acepta pero no se guarda la respuesta (trae la vista previa del último mensaje,
+que debe desaparecer si se elimina). Repetir el POST da lo mismo.
 
 ### `ConversacionChat`
 
@@ -91,7 +93,11 @@ POST /conversaciones/{id}/mensajes
   `Idempotent-Replayed: true` (aunque ya se haya eliminado: llega la lápida). El mismo `id` con otro
   contenido (o de otro autor): **409** `mensaje_id_reutilizado` — es un error del cliente; no se
   reintenta.
-- `Idempotency-Key` (regla 6) también se acepta; el `id` basta.
+- `Idempotency-Key` (regla 6) también se acepta; la aplica el servidor en el mensaje (no guarda la
+  respuesta con el texto): la misma clave con el mismo `id` responde el mensaje actual (200); con
+  otro `id`, 422 `idempotencia_reutilizada`. El `id` basta.
+- **Eliminar** deja una lápida sin nada del contenido (ni texto, ni foto, ni ubicación, ni su
+  huella): un reenvío del mismo `id` por su autor responde la lápida (200), sin 409.
 - Al menos uno de `texto` (1–4000 caracteres tras recortar los extremos), `adjunto_id` o
   `ubicacion`; si no, 422 `mensaje_vacio`. `creado_en` no puede ser futuro (más de 5 min).
 - **Foto:** primero `POST /api/v1/adjuntos` con `entidad: "chat_conversacion"`, `entidadId:
@@ -99,6 +105,11 @@ POST /conversaciones/{id}/mensajes
   salir antes de terminar la subida (`adjunto.estado` = `pendiente`/`subiendo`; se muestra al estar
   `completo`). La foto debe ser tuya, de esa conversación y no rechazada (422 `adjunto_invalido`,
   `adjunto_no_es_foto`, `adjunto_rechazado`); una foto va en un solo mensaje (409).
+  **Una foto solo se ve mientras un mensaje sin eliminar la muestra**: `GET /api/v1/adjuntos?entidad=
+  chat_conversacion&entidadId=…` no la lista y `GET /api/v1/adjuntos/{id}` da 404 antes de enviar el
+  mensaje (tampoco para su autor: muestra la copia local) y después de eliminarlo. Al eliminar el
+  mensaje la foto queda `rechazado` (motivo `retirado`) y se borra del almacén. Una foto subida y
+  nunca enviada se retira a las 48 h sin actividad.
 - **Límite:** 30 mensajes por minuto por usuario → 429 `demasiados_mensajes` con `Retry-After`. Los
   reenvíos no cuentan. La cola espera `Retry-After` y sigue con el mismo `id`.
 - **Orden:** `seq` lo asigna el servidor al recibir (orden de llegada, por conversación). Se ordena
@@ -139,12 +150,21 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
 : latido
 ```
 
-- `Accept: text/event-stream` (EventSource lo manda; un cliente `fetch` debe mandarlo: es lo que
-  quita los plazos del proxy de la API).
+- `Accept: text/event-stream` (EventSource lo manda; con `fetch`, mándalo). La API reenvía esta ruta
+  exacta con un plazo de escritura móvil (60 s, renovado con cada evento o latido) y un máximo de
+  31 min; las demás rutas conservan los plazos de siempre.
 - Reanudar: `Last-Event-ID: <id>` (EventSource lo hace solo) o `?desde=<id>`. Sin los dos: desde
   ahora.
-- `: latido` cada 25 s. El servidor cierra cada flujo a los 30 min: reconecta con el último `id`
-  (así se vuelven a verificar sesión y permisos).
+- `: latido` cada 25 s. **En cada latido y antes de entregar eventos** el servidor revalida la
+  credencial: sesión cerrada o vencida, token revocado, usuario desactivado, fuera de la empresa o
+  sin `chat.ver` → cierra el flujo (al reconectar, 401/403: no reintentes; vuelve a iniciar sesión).
+  El alcance se recalcula de la base: quitar `chat.supervisar` deja de entregar lo de ese alcance
+  sin cerrar el flujo. Igual, cada flujo se cierra a los 30 min: reconecta con el último `id`.
+- **Topes:** hasta **5 flujos por usuario** por proceso; el sexto responde **429**
+  `demasiados_flujos` (no se cierra el más viejo: el cliente debe cerrar el anterior antes de abrir
+  otro; un flujo muerto se libera al fallar su siguiente escritura, a más tardar en un latido más el
+  plazo). Tope por proceso `IRIS_CHAT_SSE_MAX` (1000): **503** `flujos_agotados` con `Retry-After`;
+  la app pasa al sondeo. Las lecturas del feed de los flujos van por un semáforo (16 a la vez).
 - 410 `cursor_vencido` (el cursor es anterior a la retención de 7 días): EventSource no reintenta;
   recarga las conversaciones y abre el flujo sin cursor. 401/403: no reintentes.
 - El panel usa `EventSource` con la cookie (`withCredentials` si el origen difiere). La app usa un

@@ -27194,7 +27194,7 @@
         "x-permiso": "chat.ver"
       },
       "post": {
-        "description": "Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key`. Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).",
+        "description": "Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` (la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).",
         "operationId": "enviarMensajeChat",
         "parameters": [
           {
@@ -27554,7 +27554,7 @@
     },
     "/api/v1/mensajeria/chat/eventos": {
       "get": {
-        "description": "Permiso: `chat.ver`. `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y `data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer.",
+        "description": "Permiso: `chat.ver`. `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y `data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer: en cada latido y antes de entregar se revalida (sesión cerrada, token revocado, usuario inactivo o sin chat.ver: se cierra). Hasta 5 flujos por usuario (el sexto, 429 `demasiados_flujos`) y un tope por proceso (503 `flujos_agotados`, IRIS_CHAT_SSE_MAX).",
         "operationId": "eventosChat",
         "parameters": [
           {
@@ -27630,6 +27630,16 @@
             },
             "description": "Unprocessable Entity"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -27639,6 +27649,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
