@@ -1,4 +1,4 @@
-Versión: 0.5.1 (borrador) · Iris ↔ ArgosISP
+Versión: 0.6.0 (borrador, propuesta de Iris) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -30,12 +30,15 @@ Iris guarda, cifrado y de solo escritura, un token de Argos `atk_…` del usuari
 - **Instalación y retiro:** `servicios.activar_instalacion` (pedido A1), `servicios.retirar`, `inventario.asignar_comodato`, `inventario.devolver_comodato`, `inventario.declarar_perdida_comodato`, `inventario.consumir`, `inventario.recibir_traslado` (0.5.0) y `facturas.emitir_cargo_unico`.
 - **Comercial:** `clientes.crear` y `servicios.crear`.
 - **Autologin:** `sso.emitir`.
+- **Pagos y atención (0.6.0, §7):** `pagos.reportar`, `promesas.crear`, `servicios.reconexion_temporal`, `clientes.verificar_identidad` y `clientes.buscar_por_telefono`.
 
 El usuario técnico Iris solo tiene alcance por empresas (o global), nunca por zona ni router: una lista completa y vacía significa sin servicios. Argos lo hace cumplir: un token, un rol o un correo que le darían alcance por zona o router responde `422 usuario_tecnico_solo_empresas`, y el canje nunca emite un token así.
 
 ### 1.2 Argos → Iris (Argos lee de Iris)
 
 Token `iris_pat_<32B base62>` con `tickets.ver`, `tickets.crear`, `ordenes.ver` y `sso.emitir`. Argos lo usa para mostrar los tickets y las órdenes de un cliente en su ficha y para abrir tickets desde el portal del cliente.
+
+**0.6.0:** el mismo token suma `mensajeria.enviar` y `mensajeria.ver` para usar el servicio de mensajería de §6. Son permisos de la integración `integracion_argos`; un usuario de Iris no los recibe por rol.
 
 ### 1.3 Webhooks, enlace de conexión y autologin
 
@@ -226,8 +229,9 @@ Los mismos códigos valen en lecturas y escrituras: `GET /inventario/mi-bodega` 
 
 ## 4. Versionado
 
-Semver. Esta versión 0.5.1 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.6.0 es un borrador hasta que los dos lados lo aprueben; desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.6.0** (5 nov, propuesta de Iris, pedido del PM): mensajería y pagos, **fase 1**. §6: el servicio de mensajería de Iris (WhatsApp por API oficial o por QR, Telegram y correo, con las reglas contra spam y el registro de permisos de contacto) también lo usa Argos para sus avisos. §7: boletas de pago y promesas de pago que llegan por chat o llamada (asistente de IA o persona), reconexión temporal fuera de horario, verificación de identidad sin que Iris vea el DPI y búsqueda de cliente por teléfono. Pedidos A16–A21 y B1. La fase 2 (cambios de Wi-Fi del cliente por Argos ↔ SmartOLT) queda anotada en §8, sin forma todavía.
 - **0.5.1** (31 oct): §3.3 documenta la forma exacta de `GET /inventario/traslados/:id` (pregunta de Iris). Sin cambios de comportamiento; Argos 1.6.0 ya responde así.
 - **0.5.0** (31 oct): inventario del técnico (pedido del PM; contrato de inventario, Fase D): `GET /inventario/mi-bodega`, `tecnico` en lugar de `bodega_id` en consumos y comodatos, modalidades por producto (`consumible_gasto`, `consumible_cobro`, `comodato`), recepción de órdenes de traslado con firma digital y los webhooks `inventario.traslado_enviado` / `inventario.traslado_recibido`; permiso `inventario.recibir_traslado`. Pedidos de Iris A10–A15: `servicio.datos_cambiados`, `catalogo.cambiado`, `email` y `referencia` en `cliente.actualizado`, `referencia` en cliente y servicio, contacto en sitio del servicio y teléfonos validados (Guatemala `+502 NNNN-NNNN` o internacional `+` 8–15 dígitos; solo se validan al cambiar). Requiere Argos ≥ 1.6.0.
 - **0.4.0** (30 oct, pedido del PM): §1.4 «Conectar con un botón»: autorización desde el panel de Argos con `state` y PKCE S256, sin copiar enlaces. `panel_url` en la respuesta del canje. El enlace de §1.3 se mantiene.
@@ -253,7 +257,175 @@ Semver. Esta versión 0.5.1 es un borrador hasta que los dos lados lo aprueben; 
 | A8 | **Resolver IP con la IP en el cuerpo** para el conector Iris (`POST /integraciones/iris/resolver`), igual que el de Horus. | solicitado |
 | A9 | **Referencia de planta en el servicio.** `POST /servicios/:id/activar-instalacion` acepta un objeto opcional `planta { caja, puerto, olt, slot, pon, potencia_dbm }` (todos los campos opcionales; `potencia_dbm` decimal). Argos lo guarda tal cual en el servicio y lo muestra en su ficha. Es una referencia de lectura: la fuente de verdad sigue siendo OZmap. | listo en Argos (sale en 1.2.0) |
 | A7 | **Ficha del cliente en Argos con sus tickets y órdenes de Iris**, leyendo `GET /api/v1/tickets?cliente_id=` con el token de §1.2, y botón «Ver en Iris». | solicitado |
+| A16 | **Pagos reportados** (0.6.0, §7.2): `POST /pagos-reportados` con la boleta que mandó el cliente, cola de revisión para caja en el panel de Argos y webhook `pago_reportado.resuelto`. | propuesto |
+| A17 | **Reconexión temporal** (0.6.0, §7.3): `POST /servicios/:id/reconexion-temporal` con la política que fija Argos, y los webhooks `servicio.reconexion_temporal_vencida` y `servicio.reconexion_temporal_revertida`. | propuesto |
+| A18 | **Promesas de pago** (0.6.0, §7.4): `GET /clientes/:id/promesas/politica`, `POST /promesas-pago` y los webhooks `promesa_pago.cumplida` / `promesa_pago.incumplida`. | propuesto |
+| A19 | **Verificar identidad sin exponer el documento** (0.6.0, §7.5): `POST /integraciones/iris/verificar-identidad`. | propuesto |
+| A20 | **Buscar cliente por teléfono** (0.6.0, §7.6): `GET /clientes?telefono=` con coincidencia exacta sobre el número normalizado. | propuesto |
+| A21 | **Avisos de Argos por la mensajería de Iris** (0.6.0, §6): que Argos mande por §6 los avisos de facturación y corte, y registre ahí los permisos de contacto que captura al contratar. | propuesto |
 
 ### 5.2 ArgosISP solicita a Iris
 
-(vacía)
+| # | Pedido | Estado |
+| --- | --- | --- |
+| B1 | **Servicio de mensajería** (0.6.0, §6): API de avisos, plantillas, permisos de contacto y webhooks de entrega. Lo ofrece Iris aunque Argos no lo pidió; Argos confirma si lo adopta (A21). | propuesto por Iris |
+
+## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
+
+Iris corre la mensajería como un **servicio aparte** (`apps/mensajeria`, su propio proceso y su propia base `mensajeria`), con API propia bajo `https://<iris>/api/v1/mensajeria`. Lo usan el panel de Iris, sus asistentes de IA y Argos. Argos entra con el token de §1.2 y el permiso `mensajeria.enviar`.
+
+### 6.1 Canales
+
+| Canal | Cómo se conecta en Iris | Para qué se usa |
+| --- | --- | --- |
+| WhatsApp, API oficial | Meta Cloud API, número de la empresa | Conversar dentro de la ventana de 24 h y enviar avisos con plantillas aprobadas |
+| WhatsApp por QR | Sesión de un teléfono de la empresa (código abierto) | Solo responder a quien escribió. Nunca avisos masivos ni a contactos nuevos |
+| Telegram | Bot de la empresa | Solo a clientes que ya iniciaron el chat |
+| Correo | Buzón de Iris | Avisos y respuestas |
+
+El admin de Iris elige qué método usa cada cosa (respuestas, avisos automáticos, avisos de Argos) y cuál es el respaldo. Los avisos de Argos nunca salen por WhatsApp QR.
+
+### 6.2 Enviar un aviso
+
+`POST /api/v1/mensajeria/avisos` con `Idempotency-Key = argos:aviso:<tipo>:<id de Argos>` (por ejemplo `argos:aviso:factura_por_vencer:F-2026-00881`).
+
+```json
+{
+  "empresa_id": 3,
+  "cliente_id": 1201,
+  "servicio_id": 4410,
+  "plantilla": "factura_por_vencer",
+  "variables": { "monto": "250.00", "moneda": "GTQ", "vence_en": "2026-11-10" },
+  "canal_preferido": "whatsapp",
+  "prioridad": "normal"
+}
+```
+
+- `cliente_id` y `servicio_id` son ids de Argos. Iris toma el teléfono y el correo de su instantánea (§2.2) y los refresca si tienen más de 24 h. **Argos nunca manda el número en el cuerpo:** así ningún aviso puede salir a un contacto que no es del cliente.
+- `plantilla` es uno de los códigos de §6.3. `variables` solo acepta las claves declaradas en esa plantilla (las demás dan `422 variable_desconocida`).
+- Respuesta `202 { aviso_id, estado, motivo? }`, con `estado` = `en_cola` | `bloqueado`. Un aviso `bloqueado` no se reintenta y lleva `motivo`:
+    - `sin_permiso`: el cliente no aceptó avisos por ningún canal posible;
+    - `baja`: el cliente pidió no recibir avisos;
+    - `limite_diario`: superó los avisos automáticos del día;
+    - `sin_contacto`: no tiene un teléfono ni un correo válido;
+    - `canal_no_disponible`: ningún canal configurado puede enviarlo.
+- En horario de silencio el aviso queda `en_cola` y sale al terminar. Si al terminar el silencio ya no tiene sentido (`vence_en` pasado), se descarta con `aviso.fallido` y `motivo = vencido`.
+- `prioridad: "urgente"` (solo `corte_programado`) salta el límite diario, pero nunca el horario de silencio ni la falta de permiso.
+
+### 6.3 Plantillas
+
+Iris mantiene el texto, las traducciones y la aprobación de Meta. Argos solo usa el código.
+
+| Código | Variables | Lo pide |
+| --- | --- | --- |
+| `factura_por_vencer` | `monto`, `moneda`, `vence_en` | Argos |
+| `pago_recibido` | `monto`, `moneda`, `fecha` | Argos |
+| `corte_por_falta_de_pago` | `monto`, `moneda` | Argos |
+| `corte_programado` | `inicio`, `fin`, `zona` | Argos |
+| `bienvenida` | `plan` | Argos |
+| `boleta_confirmada`, `boleta_rechazada`, `boleta_falta_dato` | `monto`, `moneda`, `motivo` | Iris, al recibir `pago_reportado.resuelto` (§7.2) |
+| `reconexion_temporal` | `hasta` | Iris, al recibir el 201 de §7.3 |
+| `promesa_aceptada` | `fecha_compromiso`, `monto` | Iris, al recibir el 201 de §7.4 |
+
+`GET /api/v1/mensajeria/plantillas` lista las vigentes, con sus variables y en qué canales están aprobadas.
+
+### 6.4 Permisos de contacto
+
+Iris guarda el registro: cliente, canal, estado (`acepta` | `baja`), fecha, origen y quién lo registró.
+
+- `POST /api/v1/mensajeria/consentimientos` `{ cliente_id, canal, estado, origen, ocurrido_en }`, con `Idempotency-Key = argos:consentimiento:<cliente_id>:<canal>:<ocurrido_en>`. Argos lo usa al firmar un contrato.
+- Una baja que da el cliente en el chat (palabras `BAJA` o `ALTO`) manda sobre cualquier alta anterior y llega a Argos por el webhook `contacto.baja`.
+- Una baja corta los avisos, pero no las respuestas: el cliente puede seguir escribiendo y se le contesta.
+
+### 6.5 Reglas contra spam (las aplica Iris, nunca Argos)
+
+- Solo a clientes con permiso registrado.
+- Máximo 3 avisos automáticos por cliente y por día (configurable en Iris).
+- Horario de silencio de 21:00 a 07:00, hora de Guatemala.
+- Los envíos masivos van espaciados: 20 por minuto por número, con pausa automática si suben los reportes de spam o baja la calidad del número.
+- Ventana de 24 h de WhatsApp: fuera de ella, solo plantillas aprobadas.
+
+### 6.6 Webhooks Iris → Argos
+
+Al webhook del conector, con la misma firma de §1.3. Solo a conectores con contrato ≥ 0.6.0.
+
+| Evento | Payload |
+| --- | --- |
+| `aviso.entregado` | aviso_id, idempotency_key, canal, entregado_en, leido_en (o null) |
+| `aviso.fallido` | aviso_id, idempotency_key, canal (o null), motivo (`vencido`, `numero_invalido`, `rechazado_por_canal`, `agotado`), detalle |
+| `contacto.baja` | cliente_id, empresa_id, canal, ocurrido_en, origen (`cliente` \| `agente`) |
+
+`GET /api/v1/mensajeria/avisos/:id` devuelve el estado de un aviso, por si Argos perdió un webhook.
+
+## 7. Pagos y atención (0.6.0, fase 1)
+
+Los clientes mandan por chat o llamada la foto de su boleta de depósito o piden una promesa de pago. Los atiende un asistente de IA de Iris o una persona. **Iris nunca registra un pago, una promesa ni una reconexión: siempre lo pide a Argos, y Argos decide.**
+
+### 7.1 Principios
+
+| Regla | Detalle |
+| --- | --- |
+| Argos decide | Argos valida la boleta (una persona de caja en su panel), aplica el pago y fija la política de promesas y de reconexión temporal. |
+| Identidad primero | Antes de dar el saldo o de reportar un pago, Iris verifica al cliente: número registrado más una prueba (§7.5). Sin verificar, solo responde información general. |
+| Datos mínimos | Iris nunca recibe el DPI completo ni datos de tarjeta. El saldo se muestra solo al cliente verificado y no se guarda en el historial del chat. |
+| Actor | Cada llamada lleva la cabecera `X-Iris-Actor` = `asistente_ia` \| `usuario:<id>`, y `X-Iris-Conversacion` = id de la conversación. Argos los guarda en su auditoría (`canal = integracion`). |
+
+### 7.2 Boletas de pago (A16)
+
+`POST /api/v1/pagos-reportados` con `Idempotency-Key = iris:boleta:<id de la boleta en Iris>`.
+
+```json
+{
+  "empresa_id": 3,
+  "cliente_id": 1201,
+  "servicio_id": 4410,
+  "canal": "whatsapp",
+  "banco": "Banco Industrial",
+  "monto": "250.00",
+  "moneda": "GTQ",
+  "fecha": "2026-11-04",
+  "referencia": "88412",
+  "leido_por": "ia",
+  "confianza": 0.93,
+  "adjunto": { "url": "https://<iris>/api/v1/adjuntos/…/descargar?firma=…", "sha256": "…", "mime": "image/jpeg", "vence_en": "2026-11-12T00:00:00Z" },
+  "fuera_de_horario": true
+}
+```
+
+- `leido_por` = `ia` | `persona` | `cliente_dictado`, y `confianza` (0–1, o null) dice qué tan seguro está Iris de los datos que leyó de la foto. Argos los muestra a caja, nunca los aplica solos.
+- `adjunto.url` es una URL firmada de Iris, de solo lectura, válida 7 días. Argos debe copiar la imagen si la quiere conservar.
+- Respuesta `201 { pago_reportado_id, estado: "pendiente" }`. Una boleta con la misma `referencia`, `banco` y `fecha` que una ya confirmada responde `409 boleta_duplicada`, que es de negocio y no se reintenta.
+- Webhook Argos → Iris `pago_reportado.resuelto`: pago_reportado_id, cliente_id, empresa_id, estado (`confirmado` | `rechazado` | `falta_dato`), motivo (o null), pago_id (o null), reconectado (bool). Iris avisa al cliente por el mismo canal con la plantilla de §6.3.
+
+### 7.3 Reconexión temporal fuera de horario (A17)
+
+Cuando una boleta llega sin nadie de caja en turno, Iris puede pedir que Argos reconecte mientras se valida.
+
+`POST /api/v1/servicios/:id/reconexion-temporal` con `{ pago_reportado_id, motivo: "fuera_de_horario" }` e `Idempotency-Key = iris:reconexion:<pago_reportado_id>`.
+
+- Argos aplica su política y responde `201 { reconexion_id, hasta }` o `422 reconexion_no_permitida` con `motivo`. Propuesta de política, que define Argos: una vez por mes por servicio, solo si la boleta cubre el saldo vencido y por un máximo de horas, hasta la siguiente hora de apertura de caja.
+- Si caja rechaza la boleta, Argos revierte el corte al instante y manda `servicio.reconexion_temporal_revertida` (servicio_id, reconexion_id, motivo). Si se vence sin resolverse, manda `servicio.reconexion_temporal_vencida` (servicio_id, reconexion_id). Iris le explica al cliente en los dos casos.
+- Iris nunca pide una reconexión temporal sin una boleta reportada.
+
+### 7.4 Promesas de pago (A18)
+
+1. `GET /api/v1/clientes/:id/promesas/politica?servicio_id=` → `{ permitida, max_dias, max_por_mes, usadas_este_mes, saldo_vencido, motivo? }`. Iris la consulta antes de ofrecer una fecha.
+2. `POST /api/v1/promesas-pago` `{ cliente_id, servicio_id, fecha_compromiso, monto?, canal }` con `Idempotency-Key = iris:promesa:<id en Iris>` → `201 { promesa_id, estado: "aceptada", fecha_compromiso }` o `422 promesa_fuera_de_politica` (`detail` con el límite). Con `422`, Iris pasa la conversación a una persona.
+3. Webhooks Argos → Iris `promesa_pago.cumplida` / `promesa_pago.incumplida`: promesa_id, cliente_id, empresa_id, servicio_id.
+
+### 7.5 Verificar identidad sin exponer el documento (A19)
+
+`POST /api/v1/integraciones/iris/verificar-identidad` `{ cliente_id, metodo, valor }`, con `metodo` = `dpi_ultimos4` | `nit_ultimos4` | `codigo_cliente`.
+
+- Argos compara y responde `{ coincide: true | false }`. **Nunca devuelve el dato.**
+- Límite: 5 intentos por cliente cada 30 minutos. Al pasarse, `429 demasiados_intentos` y Argos registra el evento en su auditoría.
+- El código por WhatsApp y la revisión de una foto del DPI los hace Iris (la foto la revisa siempre una persona) y no necesitan a Argos.
+
+### 7.6 Buscar cliente por teléfono (A20)
+
+`GET /api/v1/clientes?telefono=+50255123344` con coincidencia exacta sobre `telefono`, `movil` y `contacto_telefono` normalizados (§3.2). Responde la lista corta habitual. Iris la usa para reconocer quién llama o escribe. Con más de un resultado, Iris le pide al cliente que diga cuál es su servicio, sin leerle la lista.
+
+## 8. Fase 2 (sin forma todavía)
+
+- **Cambios en el equipo del cliente (Wi-Fi):** Argos se conectará con SmartOLT para cambiar el nombre o la contraseña del Wi-Fi, reiniciar la ONU o revisar la potencia. Iris lo pedirá a Argos, nunca directo a SmartOLT, con cliente verificado (§7.5). Mientras tanto, el asistente de Iris solo da las instrucciones de su biblioteca de ayuda.
+- **Asistente de voz:** llamadas desde Issabel PBX o desde WhatsApp. Usa §7 tal cual; no agrega llamadas a Argos.
