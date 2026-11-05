@@ -1,6 +1,6 @@
 "use client";
 
-import { avisoGuardado, MS_GUARDADO, RegistroBorradores, type Borrador } from "@iris/sync/campo";
+import { RegistroBorradores, type Borrador } from "@iris/sync/campo";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useCampo } from "./contexto";
 
@@ -25,8 +25,12 @@ function useRegistro(): RegistroBorradores {
     return r;
 }
 
-/** Registra el borrador de un campo mientras está montado; `pendiente`: algo escrito sin guardar. */
-export function useBorrador(clave: string, borrador: Borrador, pendiente: boolean): void {
+/**
+ * Registra el borrador de un campo mientras está montado; `pendiente`: algo escrito sin guardar.
+ * Devuelve lo que el campo llama al salir de él: lo guarda en silencio y la isla dice «Guardado»
+ * (un error queda en el campo, sin aviso arriba).
+ */
+export function useBorrador(clave: string, borrador: Borrador, pendiente: boolean): () => Promise<void> {
     const registro = useRegistro();
     const actual = useRef(borrador);
     useEffect(() => {
@@ -46,6 +50,9 @@ export function useBorrador(clave: string, borrador: Borrador, pendiente: boolea
     useEffect(() => {
         registro.avisar();
     }, [registro, pendiente]);
+    return useCallback(async () => {
+        registro.confirmar(await registro.guardarUno(clave), { enLinea: navigator.onLine });
+    }, [registro, clave]);
 }
 
 /** Cuántos campos del paso tienen algo escrito sin guardar. */
@@ -54,40 +61,30 @@ export function useSinGuardar(): number {
     return useSyncExternalStore(r.suscribir, r.pendientes, r.pendientes);
 }
 
+/** Mientras se ve «Guardado» en la isla, lo que oye el lector de pantalla; si no, `null`. */
+export function useRecienGuardado(): string | null {
+    const r = useRegistro();
+    return useSyncExternalStore(r.suscribir, r.guardado, r.guardado);
+}
+
 /**
  * Guardar los borradores del paso (lo hace «Guardar y seguir» y también «Anterior»): un error sale
  * arriba con el campo (y devuelve `false`: el técnico se queda); lo guardado se confirma en la isla
- * con «Guardado» por `MS_GUARDADO` (`guardado` lleva lo que oye el lector de pantalla) y, con señal,
- * se manda ya. Sin borradores no hace nada y devuelve `true`.
+ * con «Guardado» (`RegistroBorradores.confirmar`) y, con señal, se manda ya. Sin borradores no hace
+ * nada y devuelve `true`.
  */
-export function useGuardarPaso(): { guardar: () => Promise<boolean>; guardando: boolean; guardado: string | null } {
+export function useGuardarPaso(): { guardar: () => Promise<boolean>; guardando: boolean } {
     const registro = useRegistro();
     const { motor, notificar } = useCampo();
     const [guardando, setGuardando] = useState(false);
-    const [guardado, setGuardado] = useState<string | null>(null);
-    const reloj = useRef<ReturnType<typeof setTimeout> | null>(null);
-    useEffect(
-        () => () => {
-            if (reloj.current) {
-                clearTimeout(reloj.current);
-            }
-        },
-        [],
-    );
     const guardar = useCallback(async () => {
         setGuardando(true);
         try {
             const r = await registro.guardarTodo();
             const enLinea = navigator.onLine;
-            const aviso = avisoGuardado(r, { enLinea });
+            const aviso = registro.confirmar(r, { enLinea });
             if (aviso?.en === "aviso") {
                 notificar({ tono: aviso.tono, texto: aviso.texto });
-            } else if (aviso?.en === "isla") {
-                setGuardado(aviso.detalle);
-                if (reloj.current) {
-                    clearTimeout(reloj.current);
-                }
-                reloj.current = setTimeout(() => setGuardado(null), MS_GUARDADO);
             }
             if (r.errores.length === 0 && r.guardados > 0 && enLinea) {
                 motor.sincronizar().catch(() => undefined);
@@ -97,5 +94,5 @@ export function useGuardarPaso(): { guardar: () => Promise<boolean>; guardando: 
             setGuardando(false);
         }
     }, [registro, motor, notificar]);
-    return { guardar, guardando, guardado };
+    return { guardar, guardando };
 }

@@ -35,11 +35,15 @@ export interface ResumenGuardado {
 /**
  * Borradores del paso abierto. Cada campo se registra al montarse (y se quita al desmontarse);
  * `avisar` lo llama el campo cuando cambia si está pendiente, para el contador de «Guardar y seguir».
+ * También lleva la confirmación «Guardado» de la isla (`guardado`), que dura `MS_GUARDADO` y sigue
+ * al pasar de paso (el registro es de toda la orden, no del paso).
  */
 export class RegistroBorradores {
     private readonly borradores = new Map<string, Borrador>();
     private readonly oyentes = new Set<() => void>();
     private cuenta = 0;
+    private recien: string | null = null;
+    private reloj: ReturnType<typeof setTimeout> | null = null;
 
     registrar(clave: string, borrador: Borrador): () => void {
         this.borradores.set(clave, borrador);
@@ -62,20 +66,41 @@ export class RegistroBorradores {
         };
     };
 
+    /** Lo que oye el lector de pantalla mientras se ve «Guardado» en la isla; `null` si no se ve. */
+    guardado = (): string | null => this.recien;
+
     avisar(): void {
         const cuenta = [...this.borradores.values()].filter((b) => b.pendiente()).length;
         if (cuenta !== this.cuenta) {
             this.cuenta = cuenta;
-            for (const o of this.oyentes) {
-                o();
-            }
+            this.emitir();
+        }
+    }
+
+    private emitir(): void {
+        for (const o of this.oyentes) {
+            o();
         }
     }
 
     /** Guarda todos los pendientes, en el orden en que se registraron. Nunca lanza. */
     async guardarTodo(): Promise<ResumenGuardado> {
+        return this.guardarLos([...this.borradores.values()]);
+    }
+
+    /**
+     * Guarda un solo campo (al salir de él), también en silencio: lo confirma la isla con
+     * «Guardado». Así, tocar «Guardar y seguir» con el teclado abierto (el campo se guarda al perder
+     * el foco, justo antes del toque) dice lo mismo que guardarlo con el botón.
+     */
+    async guardarUno(clave: string): Promise<ResumenGuardado> {
+        const b = this.borradores.get(clave);
+        return this.guardarLos(b ? [b] : []);
+    }
+
+    private async guardarLos(borradores: Borrador[]): Promise<ResumenGuardado> {
         const resumen: ResumenGuardado = { guardados: 0, errores: [] };
-        for (const b of [...this.borradores.values()]) {
+        for (const b of borradores) {
             if (!b.pendiente()) {
                 continue;
             }
@@ -93,6 +118,27 @@ export class RegistroBorradores {
         }
         this.avisar();
         return resumen;
+    }
+
+    /**
+     * Lo que se dice tras guardar (`avisoGuardado`): si fue a la isla, muestra «Guardado» por
+     * `MS_GUARDADO`. Devuelve el aviso para que quien guardó muestre el error arriba.
+     */
+    confirmar(r: ResumenGuardado, envio: { enLinea: boolean }): AvisoGuardado {
+        const aviso = avisoGuardado(r, envio);
+        if (aviso?.en === "isla") {
+            if (this.reloj) {
+                clearTimeout(this.reloj);
+            }
+            this.recien = aviso.detalle;
+            this.emitir();
+            this.reloj = setTimeout(() => {
+                this.reloj = null;
+                this.recien = null;
+                this.emitir();
+            }, MS_GUARDADO);
+        }
+        return aviso;
     }
 }
 

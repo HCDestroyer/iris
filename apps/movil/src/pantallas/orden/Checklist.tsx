@@ -277,7 +277,7 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
         }
         return ok ? true : "No se pudo guardar en el teléfono.";
     };
-    useBorrador(
+    const guardarAlSalir = useBorrador(
         `item-${item.formularioId ?? ""}-${item.itemId}`,
         { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
         pendiente,
@@ -294,7 +294,7 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
                 }}
                 onEndEditing={() => {
                     if (pendiente) {
-                        void guardar({});
+                        void guardarAlSalir();
                     }
                 }}
                 editable={editable}

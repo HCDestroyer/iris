@@ -59,6 +59,40 @@ describe("RegistroBorradores", () => {
         expect(r.pendientes()).toBe(2);
     });
 
+    it("guardar un solo campo (al salir de él) y confirmar «Guardado» por MS_GUARDADO", async () => {
+        vi.useFakeTimers();
+        try {
+            const r = new RegistroBorradores();
+            const oyente = vi.fn();
+            r.suscribir(oyente);
+            const a = borrador("A", "x");
+            const b = borrador("B", "y");
+            r.registrar("a", a.b);
+            r.registrar("b", b.b);
+            const res = await r.guardarUno("a");
+            expect(res).toEqual({ guardados: 1, errores: [] });
+            expect(b.estado.guardadas).toBe(0);
+            expect(r.pendientes()).toBe(1);
+            expect(await r.guardarUno("nada")).toEqual({ guardados: 0, errores: [] });
+
+            expect(r.guardado()).toBeNull();
+            oyente.mockClear();
+            expect(r.confirmar(res, { enLinea: false })).toMatchObject({ en: "isla", texto: "Guardado" });
+            expect(r.guardado()).toBe("Guardado: 1 cambio en el teléfono. Se enviarán al volver la señal.");
+            expect(oyente).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(MS_GUARDADO - 1);
+            expect(r.guardado()).not.toBeNull();
+            vi.advanceTimersByTime(1);
+            expect(r.guardado()).toBeNull();
+            expect(oyente).toHaveBeenCalledTimes(2);
+            // Un error no se confirma en la isla: lo dice arriba quien guardó.
+            expect(r.confirmar({ guardados: 0, errores: [{ etiqueta: "B", mensaje: "mal" }] }, { enLinea: true })).toMatchObject({ en: "aviso" });
+            expect(r.guardado()).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("al desmontarse un campo se quita del registro (y no quita a otro con la misma clave)", () => {
         const r = new RegistroBorradores();
         const a = borrador("A", "x");

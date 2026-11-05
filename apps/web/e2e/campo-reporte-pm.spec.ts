@@ -2,14 +2,15 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
-import { avisoCampo, guardarPaso } from "./ayudas-campo";
+import { avisoCampo, guardarYSeguir } from "./ayudas-campo";
 import { ordenesDelDia, PERMISOS_TECNICO, TECNICO } from "./datos-campo";
 
 /*
  * Reporte del PM sobre la app «combinada» (0.12.0), en la PWA, en teléfono y escritorio, claro y
  * oscuro: el encabezado sólido (franja bajo la barra de estado; la barra compacta solo se desliza,
- * nunca se transparenta), la orden en pausa de solo lectura con «Reanudar», un solo «Guardar» en la
- * isla de los pasos, los avisos con el `Toast` de HeroUI, las hojas con «X», Escape y «Atrás» del
+ * nunca se transparenta), la orden en pausa de solo lectura con «Reanudar», la isla de los pasos (sin
+ * «Guardar» si no hay cambios; «Guardar y seguir» con el contador si los hay; «Guardado» al
+ * guardar), los avisos con el `Toast` de HeroUI bajo el margen seguro, las hojas con «X», Escape y «Atrás» del
  * navegador (y la pregunta si hay cambios) y la búsqueda en vivo por encima del teclado (simulado
  * con `visualViewport`). Con IRIS_CAPTURAS=<carpeta> deja las capturas a 390 px.
  */
@@ -99,9 +100,15 @@ test("orden en pausa: pasos de solo lectura con «Orden en pausa» y «Reanudar�
     await expect(aviso).toContainText("no se registra trabajo");
     await expect(page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" })).toBeDisabled();
     await expect(page.getByRole("textbox", { name: "Potencia óptica" })).toBeDisabled();
-    await expect(islaPasos(page).getByRole("button", { name: /^Guardar/ })).toBeDisabled();
+    // Solo lectura: nada que guardar; «Siguiente» solo navega.
+    await expect(islaPasos(page).getByRole("button", { name: /Guardar/ })).toHaveCount(0);
     await expect(page.getByLabel("Tomar foto: Foto de la fachada")).toHaveCount(0);
     await captura(page, "03-orden-en-pausa", info.project.name);
+    await islaPasos(page).getByRole("button", { name: "Siguiente: materiales y equipos" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Materiales y equipos" })).toBeVisible();
+    await expect(islaPasos(page).getByRole("button", { name: /Guardar/ })).toHaveCount(0);
+    await islaPasos(page).getByRole("button", { name: "Anterior" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Checklist" })).toBeVisible();
 
     await aviso.getByRole("button", { name: "Reanudar" }).click();
     await expect(page.getByTestId("orden-pausada")).toHaveCount(0);
@@ -117,7 +124,7 @@ test("orden en pausa sin `ordenes.reanudar`: sin «Reanudar», dice a quién ped
     await expect(aviso.getByRole("button", { name: "Reanudar" })).toHaveCount(0);
 });
 
-test("pasos: un solo «Guardar» en la isla (como la del menú), sin botón por campo, con aviso de HeroUI", async ({ page }, info) => {
+test("pasos: sin cambios no hay «Guardar»; con cambios, «Guardar y seguir» con el contador; al guardar, «Guardado»", async ({ page }, info) => {
     await simularApiCampo(page, { ordenes: enSitio() });
     await page.goto("/campo");
     const menu = await page.getByRole("navigation", { name: "Secciones de la app" }).evaluate((el) => {
@@ -129,36 +136,74 @@ test("pasos: un solo «Guardar» en la isla (como la del menú), sin botón por 
     const isla = islaPasos(page);
     // La misma píldora que la isla de menú.
     expect(await isla.evaluate((el) => ({ fondo: getComputedStyle(el).backgroundColor, radio: getComputedStyle(el).borderTopLeftRadius, borde: getComputedStyle(el).borderTopWidth }))).toEqual(menu);
+    // Sin cambios: ningún «Guardar» (ni en la isla ni por campo); el primario es «Siguiente».
     await expect(isla.getByRole("button", { name: "Anterior" })).toBeVisible();
-    await expect(isla.getByRole("button", { name: "Siguiente: materiales y equipos" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Guardar/ })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Guardar Potencia óptica" })).toHaveCount(0);
+    const siguiente = isla.getByRole("button", { name: "Siguiente: materiales y equipos" });
+    await expect(siguiente).toHaveText("Siguiente");
+    await expect(page.getByRole("button", { name: /Guardar/ })).toHaveCount(0);
+    await captura(page, "04-paso-sin-cambios", info.project.name);
 
-    // Lo que no valida queda escrito y «Guardar» dice qué campo falló.
+    // Lo que no valida: «Guardar y seguir» con el contador se queda en el paso y dice qué campo falló.
     await page.getByRole("textbox", { name: "Potencia óptica" }).fill("abc");
-    await expect(isla.getByRole("button", { name: "Guardar (1 sin guardar)" })).toBeVisible();
-    await guardarPaso(page);
+    const guardarSeguir = isla.getByRole("button", { name: "Guardar y seguir (1 sin guardar)" });
+    await expect(guardarSeguir).toBeVisible();
+    await expect(guardarSeguir).toHaveText("Guardar y seguir1");
+    await expect(isla.getByRole("button", { name: /^Siguiente/ })).toHaveCount(0);
+    await guardarYSeguir(page);
     await expect(avisoCampo(page)).toContainText("No se guardó «Potencia óptica»");
-    await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
-    await captura(page, "04-pasos-un-solo-guardar", info.project.name);
-    await guardarPaso(page);
-    // Tocar «Guardar» saca el foco del campo (que se guarda solo al salir): uno u otro lo guarda, una vez.
-    await expect(avisoCampo(page)).toContainText(/Cambio guardado en el teléfono|«Potencia óptica» guardado|Todo está guardado/);
-    await expect(isla.getByRole("button", { name: "Guardar", exact: true })).toBeVisible();
-    await captura(page, "05-pasos-guardado", info.project.name);
-    // Al salir del campo también se guarda solo; un sí/no entra al tocarlo.
-    await page.getByRole("textbox", { name: "Observaciones" }).fill("Cliente conforme");
-    await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
-    await expect(isla.getByRole("button", { name: "Guardar", exact: true })).toBeVisible();
-    await expect(avisoCampo(page)).toContainText("«La ONU enciende» guardado");
-    // El aviso de HeroUI se cierra con su «X».
-    // (HeroUI muestra la «X» al pasar por encima o enfocar el aviso.)
+    await expect(page.getByRole("heading", { level: 1, name: "Checklist" })).toBeVisible();
+    await expect(guardarSeguir).toBeVisible();
     await avisoCampo(page).hover();
     await avisoCampo(page).locator('[data-slot="toast-close"]').click();
     await expect(avisoCampo(page)).toHaveCount(0);
-    // «Siguiente» guarda antes de pasar.
-    await isla.getByRole("button", { name: "Siguiente: materiales y equipos" }).click();
+
+    // Válido: guarda, avanza y confirma «Guardado» en la isla (sin aviso encima).
+    await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
+    await captura(page, "05-paso-con-cambios", info.project.name);
+    await guardarYSeguir(page);
     await expect(page.getByRole("heading", { level: 1, name: "Materiales y equipos" })).toBeVisible();
+    const guardado = isla.locator('[data-slot="guardado-paso"]');
+    await expect(guardado).toContainText("Guardado");
+    await expect(guardado).toHaveAttribute("role", "status");
+    await expect(page.getByRole("button", { name: /Guardar/ })).toHaveCount(0);
+    await expect(isla.getByRole("button", { name: "Siguiente: fotos" })).toBeVisible();
+    await expect(avisoCampo(page)).toHaveCount(0);
+    await captura(page, "06-recien-guardado", info.project.name);
+    // Es breve: se va solo (~1,5 s).
+    await expect(guardado).not.toContainText("Guardado", { timeout: 4000 });
+
+    // De vuelta, sin cambios: «Anterior» no guarda nada; al salir del campo se guarda solo.
+    await isla.getByRole("button", { name: "Anterior" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Checklist" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Guardar/ })).toHaveCount(0);
+    await page.getByRole("textbox", { name: "Observaciones" }).fill("Cliente conforme");
+    await expect(isla.getByRole("button", { name: "Guardar y seguir (1 sin guardar)" })).toBeVisible();
+    await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
+    await expect(page.getByRole("button", { name: /Guardar/ })).toHaveCount(0);
+    await expect(avisoCampo(page)).toContainText("«La ONU enciende» guardado");
+    // Antes de la firma, el primario dice «Ir a firma».
+    await siguiente.click();
+    await isla.getByRole("button", { name: "Siguiente: fotos" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Fotos" })).toBeVisible();
+    await expect(isla.getByRole("button", { name: "Ir a firma y cierre" })).toHaveText("Ir a firma");
+});
+
+test("avisos: el `Toast` de HeroUI queda bajo el margen seguro (la barra de estado y la franja sólida)", async ({ page }, info) => {
+    // Un teléfono con muesca: 47 px de margen arriba (`env(safe-area-inset-top)`, con `viewport-fit=cover`).
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 47, topMax: 47, bottom: 34, bottomMax: 34 } });
+    await simularApiCampo(page, { ordenes: enSitio() });
+    await page.goto("/campo?orden=101&paso=checklist");
+    await expect(page.getByRole("heading", { level: 1, name: "Checklist" })).toBeVisible();
+    const franja = page.locator('[data-slot="franja-superior"]');
+    await expect.poll(async () => (await franja.boundingBox())?.height).toBe(47);
+    await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
+    await expect(avisoCampo(page)).toContainText("«La ONU enciende» guardado");
+    // Debajo de la franja (el margen seguro) con el mismo aire de antes (1 rem), nunca bajo la hora.
+    const region = page.locator(".campo-avisos");
+    await expect.poll(async () => (await region.boundingBox())?.y).toBe(47 + 16);
+    await expect.poll(async () => (await avisoCampo(page).boundingBox())?.y ?? 0).toBeGreaterThanOrEqual(47 + 16);
+    await captura(page, "07-aviso-arriba", info.project.name);
 });
 
 test("hojas: «X», Escape y «Atrás» del navegador las cierran; con cambios, preguntan antes", async ({ page }, info) => {

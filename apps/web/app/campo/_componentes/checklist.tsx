@@ -395,7 +395,7 @@ function ItemValor({
         }
         return ok ? true : "No se pudo guardar en el teléfono.";
     };
-    useBorrador(
+    const guardarAlSalir = useBorrador(
         `item-${item.formularioId ?? ""}-${item.itemId}`,
         { etiqueta: item.etiqueta, pendiente: () => pendiente && enviado.current !== (leido?.success ? leido.data : texto.trim()), guardar },
         pendiente,
@@ -418,7 +418,7 @@ function ItemValor({
                         }}
                         onBlur={() => {
                             if (pendiente) {
-                                void guardar({});
+                                void guardarAlSalir();
                             }
                         }}
                         inputMode={numerico ? "decimal" : "text"}

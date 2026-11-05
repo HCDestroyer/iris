@@ -73,6 +73,54 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         expect(within(barra()).getByRole("button", { name: "Tu cuenta" })).toBeTruthy();
     });
 
+    it("arriba (edge-to-edge): la franja sólida siempre a la vista; al subir, la barra compacta entra y no desaparece al seguir desplazando", async () => {
+        const m = await enSitio();
+        await abrirCampo(m, { esquema, margen: { top: 48, bottom: 24, left: 0, right: 0 } });
+        // La franja: el alto de la barra de estado, el lienzo del tema, sólida y encima de lo demás.
+        expect(estilo("franja-superior")).toMatchObject({ position: "absolute", top: 0, height: 48, backgroundColor: campo.lienzo, zIndex: 20 });
+        expect(String(estilo("franja-superior").backgroundColor)).toMatch(HEX);
+        // La compacta va debajo de la franja, recortada: al irse no la cruza.
+        expect(estilo("recorte-compacta")).toMatchObject({ position: "absolute", top: 48, overflow: "hidden" });
+        const barra = () => screen.getByTestId("barra-compacta", { includeHiddenElements: true });
+        const y = () => (StyleSheet.flatten(barra().props.style) as { transform?: { translateY?: number }[] }).transform?.[0]?.translateY;
+        // Al abrir: el encabezado completo arriba (dentro del desplazamiento) y la compacta fuera.
+        const desplazamiento = screen.getByTestId("desplazamiento");
+        expect(within(desplazamiento).getByTestId("encabezado-campo")).toBeTruthy();
+        await act(async () => {
+            fireEvent(barra(), "layout", { nativeEvent: { layout: { height: 60 } } });
+            fireEvent(within(desplazamiento).getByTestId("encabezado-campo").parent ?? desplazamiento, "layout", { nativeEvent: { layout: { height: 200 } } });
+        });
+        expect(y()).toBe(-(60 + 24));
+        expect(StyleSheet.flatten(barra().props.style)).toMatchObject({ backgroundColor: campo.panel });
+
+        // Al bajar se va con el contenido (la compacta sigue fuera).
+        await act(async () => {
+            fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 600 } } });
+        });
+        expect(barra().props.pointerEvents).toBe("none");
+        // Al subir entra la compacta, sólida…
+        await act(async () => {
+            fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 500 } } });
+        });
+        expect(barra().props.pointerEvents).toBe("auto");
+        await waitFor(() => expect(y()).toBe(0));
+        // …y sigue ahí con más eventos del desplazamiento (cada uno vuelve a pintar el marco): antes,
+        // el valor de JS «oculta» pisaba el del driver nativo y la barra desaparecía al instante.
+        for (const pos of [497, 494, 490, 470, 430]) {
+            await act(async () => {
+                fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: pos } } });
+            });
+            expect(y()).toBe(0);
+            expect(barra().props.pointerEvents).toBe("auto");
+        }
+        // Arriba del todo: el encabezado completo otra vez y la compacta se va.
+        await act(async () => {
+            fireEvent.scroll(desplazamiento, { nativeEvent: { contentOffset: { y: 0 } } });
+        });
+        await waitFor(() => expect(y()).toBe(-(60 + 24)));
+        expect(estilo("franja-superior")).toMatchObject({ height: 48, backgroundColor: campo.lienzo });
+    });
+
     it("orden en pausa: pasos de solo lectura con «Orden en pausa» y «Reanudar»; al reanudar se puede trabajar", async () => {
         const m = await enSitio();
         await m.motor.registrar("orden.pausar", 1, { motivo: "clima" });
@@ -163,6 +211,9 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         await fireEvent(screen.getByLabelText("Potencia"), "endEditing");
         await waitFor(() => expect(tipos(m)).toEqual(["checklist.marcar", "checklist.marcar"]));
         expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        // También lo confirma la isla, en silencio (sin aviso arriba).
+        expect(screen.getByTestId("guardado-paso")).toHaveTextContent("Guardado");
+        expect(screen.queryAllByTestId("notificacion")).toHaveLength(0);
         // Un sí/no entra al tocarlo (no deja nada por guardar).
         await fireEvent.press(screen.getByRole("radio", { name: "Sí" }));
         await waitFor(() => expect(tipos(m)).toHaveLength(3));

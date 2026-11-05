@@ -6,7 +6,7 @@ import { Boton, GrupoOpciones, InsigniaEstado, cn, type Tono } from "@iris/ui";
 import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, CircleCheck, CloudUpload, Building2, FilePlus2, House, KeyRound, PackageOpen, PenLine, Plus, Save, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
 import { useMemo, useState, type MouseEvent } from "react";
 import { RUTA_ENTRAR } from "./app-campo";
-import { useGuardarPaso, useSinGuardar } from "./borradores";
+import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "./borradores";
 import { useCampo, useOrden } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useInventario } from "./inventario-datos";
@@ -107,7 +107,8 @@ const ICONO_PRIMARIO: Record<PrimarioIsla["icono"], LucideIcon> = { siguiente: A
 export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden; encogida: boolean }) {
     const { navegar } = useCampo();
     const orden = useOrden(id);
-    const { guardar, guardando, guardado } = useGuardarPaso();
+    const { guardar, guardando } = useGuardarPaso();
+    const guardado = useRecienGuardado();
     const sinGuardar = useSinGuardar();
     if (!orden) {
         return null;

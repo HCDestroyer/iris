@@ -29,7 +29,7 @@ import {
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Boton, BotonRedondo, Dialogo, Insignia, Opciones, Texto, Tocable } from "../componentes";
-import { useGuardarPaso, useSinGuardar } from "../campo/borradores";
+import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "../campo/borradores";
 import { useCampo, useOrden } from "../campo/contexto";
 import { useCargarAlAbrir, useInventario } from "../campo/inventario";
 import { useTema } from "../tema/tema";
@@ -105,7 +105,8 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
     const { navegar } = useCampo();
     const orden = useOrden(id);
     const { campo, colores } = useTema();
-    const { guardar, guardando, guardado } = useGuardarPaso();
+    const { guardar, guardando } = useGuardarPaso();
+    const guardado = useRecienGuardado();
     const sinGuardar = useSinGuardar();
     if (!orden) {
         return null;
