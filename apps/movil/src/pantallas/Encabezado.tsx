@@ -98,35 +98,44 @@ function ChipsDia() {
 /**
  * Barra compacta: entra desde arriba al subir con el encabezado fuera de vista; al bajar se va
  * deslizándose entera hacia arriba. Siempre sólida (el panel del tema, claro u oscuro): nunca queda
- * a medio transparentar sobre el contenido (no se anima la opacidad, solo la posición). Oculta, no se
- * toca ni la leen los lectores de pantalla.
+ * a medio transparentar sobre el contenido (no se anima la opacidad, solo la posición). Va justo
+ * debajo de la franja de la barra de estado (`top: arriba`), que queda siempre a la vista. Oculta, no
+ * se toca ni la leen los lectores de pantalla.
+ *
+ * La posición se anima en JS (`useNativeDriver: false`) con una interpolación estable: con el driver
+ * nativo y la arquitectura nueva, cada evento del desplazamiento vuelve a pintar el marco y el valor
+ * JS (todavía «oculta») pisaba el nativo, así que la barra entraba y desaparecía al instante.
  */
 export function BarraCompacta({ visible, arriba }: { visible: boolean; arriba: number }) {
     const { sesion } = useCampo();
     const { campo, colores } = useTema();
-    const [alto, setAlto] = useState(arriba + 64);
+    const [alto, setAlto] = useState(64);
     const [posicion] = useState(() => new Animated.Value(visible ? 0 : 1));
     useEffect(() => {
-        const animacion = Animated.timing(posicion, { toValue: visible ? 0 : 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+        const animacion = Animated.timing(posicion, { toValue: visible ? 0 : 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false });
         animacion.start();
         return () => animacion.stop();
     }, [visible, posicion]);
-    // Fuera de vista del todo: su alto más la sombra.
-    const translateY = posicion.interpolate({ inputRange: [0, 1], outputRange: [0, -(alto + 24)] });
+    // Fuera de vista del todo: su alto y la sombra (el recorte la deja bajo la franja).
+    const translateY = useMemo(() => posicion.interpolate({ inputRange: [0, 1], outputRange: [0, -(alto + 24)] }), [posicion, alto]);
     return (
-        <Animated.View
-            testID="barra-compacta"
-            pointerEvents={visible ? "auto" : "none"}
-            accessibilityElementsHidden={!visible}
-            importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
-            onLayout={(e) => setAlto(e.nativeEvent.layout.height)}
-            style={[estilos.compacta, { paddingTop: arriba + 6, backgroundColor: campo.panel, borderColor: colores.borde, shadowColor: campo.sombra, transform: [{ translateY }] }]}
-        >
-            <Text numberOfLines={1} style={[estilos.flex, estilos.textoCompacta, { color: colores.texto }]}>
-                Hola, {primerNombre(sesion.nombre)}
-            </Text>
-            <BotonesCuenta />
-        </Animated.View>
+        // Recorta lo que sube: al irse no cruza la franja de la barra de estado (ni en Android, donde
+        // la elevación de la barra la pondría encima). Deja pasar los toques al contenido.
+        <View testID="recorte-compacta" pointerEvents="box-none" style={[estilos.recorte, { top: arriba }]}>
+            <Animated.View
+                testID="barra-compacta"
+                pointerEvents={visible ? "auto" : "none"}
+                accessibilityElementsHidden={!visible}
+                importantForAccessibility={visible ? "auto" : "no-hide-descendants"}
+                onLayout={(e) => setAlto(e.nativeEvent.layout.height)}
+                style={[estilos.compacta, { paddingTop: 6, backgroundColor: campo.panel, borderColor: colores.borde, shadowColor: campo.sombra, transform: [{ translateY }] }]}
+            >
+                <Text numberOfLines={1} style={[estilos.flex, estilos.textoCompacta, { color: colores.texto }]}>
+                    Hola, {primerNombre(sesion.nombre)}
+                </Text>
+                <BotonesCuenta />
+            </Animated.View>
+        </View>
     );
 }
 
@@ -202,11 +211,8 @@ const estilos = StyleSheet.create({
     chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
     chip: { height: 44, minHeight: 44, paddingHorizontal: 18, borderRadius: 22, alignItems: "center", justifyContent: "center" },
     textoChip: { fontSize: 14 },
+    recorte: { position: "absolute", left: 0, right: 0, paddingBottom: 24, overflow: "hidden" },
     compacta: {
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
         flexDirection: "row",
         alignItems: "center",
         gap: 12,

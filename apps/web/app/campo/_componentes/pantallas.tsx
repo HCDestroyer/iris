@@ -84,7 +84,9 @@ function AvisoDelMarco() {
         });
         return () => cerrarAviso(id);
     }, [notificacion, cerrarNotificacion]);
-    return <ProveedorAvisosEmergentes ubicacion="top" className="campo-avisos" />;
+    // Con `viewport-fit=cover` el `top-4` de HeroUI queda bajo la barra de estado (y la muesca): la
+    // región baja al margen seguro más el mismo aire.
+    return <ProveedorAvisosEmergentes ubicacion="top" className="campo-avisos top-[calc(env(safe-area-inset-top)+1rem)]" />;
 }
 
 /**
@@ -114,7 +116,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const encabezado = useRef<HTMLElement | null>(null);
     const desplazamiento = useDesplazamiento(encabezado);
     useAvisoDeRechazos();
-    // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma
     // y el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
     const conIsla = paso === undefined;

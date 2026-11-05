@@ -30,7 +30,8 @@ type ContextoCampo = {
      * Corre una acción del técnico: avisa «Guardado en el teléfono» (o el error). Devuelve si se
      * guardó. `deshacer` (con lo que devolvió la acción) agrega «Deshacer» al aviso.
      */
-    ejecutar: <T>(accion: () => Promise<T>, guardado?: string, opciones?: { deshacer?: (resultado: T) => () => void }) => Promise<boolean>;
+    /** Corre la acción y avisa (éxito o error); `silencioso`, solo si falla. */
+    ejecutar: <T>(accion: () => Promise<T>, guardado?: string, opciones?: { deshacer?: (resultado: T) => () => void; silencioso?: boolean }) => Promise<boolean>;
     /** Miniaturas de las fotos tomadas en esta visita (URL de objeto por id de adjunto). */
     miniaturas: ReadonlyMap<string, string>;
     agregarMiniatura: (id: string, datos: Blob) => void;
@@ -125,9 +126,12 @@ export function ProveedorCampo({
     }, []);
 
     const ejecutar = useCallback(
-        async <T,>(accion: () => Promise<T>, guardado = "Guardado en el teléfono", opciones: { deshacer?: (resultado: T) => () => void } = {}) => {
+        async <T,>(accion: () => Promise<T>, guardado = "Guardado en el teléfono", opciones: { deshacer?: (resultado: T) => () => void; silencioso?: boolean } = {}) => {
             try {
                 const resultado = await accion();
+                if (opciones.silencioso) {
+                    return true;
+                }
                 const deshacer = opciones.deshacer?.(resultado);
                 notificar({
                     tono: "success",
