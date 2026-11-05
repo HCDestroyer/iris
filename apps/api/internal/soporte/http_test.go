@@ -199,4 +199,12 @@ func TestHTTPRolLecturaSoloVe(t *testing.T) {
 	if !strings.Contains(r.cuerpo["detail"].(string), "tickets.crear") {
 		t.Fatalf("el detalle nombra el permiso: %s", r.crudo)
 	}
+	// El resumen de la bandeja es una ruta fija: no la toma /tickets/{id}.
+	r = c.pedir(http.MethodGet, "/api/v1/tickets/resumen", nil)
+	if r.status != http.StatusOK || r.cuerpo["dias"] == nil || r.cuerpo["urgentes"] == nil {
+		t.Fatalf("lectura ve el resumen: %d %s", r.status, r.crudo)
+	}
+	if dias, _ := r.cuerpo["dias"].([]any); len(dias) != soporte.DiasResumen {
+		t.Fatalf("resumen: %d días", len(dias))
+	}
 }

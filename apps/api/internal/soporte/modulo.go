@@ -98,6 +98,7 @@ type Modulo struct {
 
 	VerTicket        *auditoria.Caso[EntradaVerTicket, Ticket]
 	ListarTickets    *auditoria.Caso[EntradaListarTickets, nucleo.Pagina[Ticket]]
+	ResumirTickets   *auditoria.Caso[EntradaResumirTickets, ResumenTickets]
 	ListarMensajes   *auditoria.Caso[EntradaListarMensajes, nucleo.Pagina[Mensaje]]
 	ListarEventos    *auditoria.Caso[EntradaListarEventos, nucleo.Pagina[EventoTicket]]
 	ListarCategorias *auditoria.Caso[EntradaListarCategorias, nucleo.Pagina[Categoria]]
@@ -168,6 +169,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.FusionarTickets = m.nuevoFusionarTickets()
 	m.VerTicket = m.nuevoVerTicket()
 	m.ListarTickets = m.nuevoListarTickets()
+	m.ResumirTickets = m.nuevoResumirTickets()
 	m.ListarMensajes = m.nuevoListarMensajes()
 	m.ListarEventos = m.nuevoListarEventos()
 	m.ListarCategorias = nuevoListarCategorias()
