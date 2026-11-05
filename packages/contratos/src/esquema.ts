@@ -1037,7 +1037,7 @@ export interface paths {
         };
         /**
          * Técnicos de Argos con bodega (selector del vínculo)
-         * @description Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
+         * @description Permiso: `agenda.vincular_argos`. Proxy paginado de `GET /inventario/tecnicos` de Argos (≥ 1.6.0; si no, 422 `argos_sin_inventario_tecnico`). Cada uno trae sus bodegas, si tiene bodega activa en la empresa activa (`enEmpresa`: solo así se puede vincular) y la ficha de Iris que ya lo tiene (`vinculadoA`). Cada bodega trae su `nombre` (contrato 0.6.4; vacío con un Argos anterior). Con `sinVincular=true` solo los que ninguna ficha tiene (para elegir la bodega por nombre al dar de alta o editar un técnico). Si Argos no responde: 502/503 `argos_no_disponible` (el panel muestra «Reintentar» y deja el número de bodega a mano). Lectura auditada (correos). Sin conector Argos activo responde 503 `conector_apagado` (el panel trabaja con datos locales).
          */
         get: operations["listarTecnicosArgos"];
         put?: never;
@@ -4844,6 +4844,8 @@ export interface components {
              * @description Id de la bodega en Argos
              */
             id: number;
+            /** @description Nombre de la bodega en Argos (contrato 0.6.4). Vacío con un Argos anterior: se muestra «Bodega <id>» */
+            nombre: string;
         };
         Buzon: {
             activo: boolean;
@@ -14926,6 +14928,8 @@ export interface operations {
                 /** @description nextCursor de la página anterior (de Argos) */
                 cursor?: string;
                 limit?: number;
+                /** @description Solo los que ninguna ficha de Iris tiene vinculados (en cualquier empresa). Iris lee de Argos las páginas que hagan falta para llenar limit (hasta 10 por llamada) */
+                sinVincular?: boolean;
             };
             header?: never;
             path?: never;
