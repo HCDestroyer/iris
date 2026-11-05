@@ -95,6 +95,9 @@ func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajadorCatalogos{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorContrato{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorRevisarContrato{m: m, bd: bd})
+	// 0.6.3: revocar el atk_ de un canje que Iris no completó (el núcleo es de este módulo; Horus no
+	// revoca canjes).
+	m.nucleo.RegistrarRevocarCanje(workers)
 }
 
 // TrabajosPeriodicos: refresco de zonas y routers cada intervalo (6 h por defecto) y revisión del

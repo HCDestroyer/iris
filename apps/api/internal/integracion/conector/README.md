@@ -49,11 +49,27 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   (solo los de conectores no activos), al activar otro del mismo sistema (el activo y los intentos
   sobrantes) y al desactivar. Si la revocación falla, el job `integracion.revocar_token_entregado`
   (único por token) la reintenta. `conector_id` de la respuesta: entero positivo o `[A-Za-z0-9_-]{1,64}`.
+- **Token del otro sistema en un canje no completado** (`revocar_canje.go`, contrato Iris ↔ ArgosISP
+  0.6.3 §1.3; solo sistemas con `Sistema.RutaRevocarCanje`, hoy Argos): si el otro sistema respondió 200
+  al canje (Iris tiene su `atk_`) pero Iris no lo completa (422 `webhook_invalido`, `conector_id`
+  inválido, error al guardar, pánico), el mismo `defer` que revoca el `iris_pat_` encola
+  `integracion.revocar_canje_remoto` en una transacción propia (la del canje se deshizo). El job lleva
+  sistema, id de conector reservado, base del canje y el token **cifrado** con la clave de los conectores
+  (`DatosAsociados(id, "token_canje_revocar")`): nunca en claro en `river.river_job` ni en el log. Único
+  por sistema y conector. Llama a `POST <base>/api/v1<RutaRevocarCanje>` con el token como Bearer y sin
+  cuerpo, por el cliente con protección contra SSRF: 204 o 401 terminan; 403 u otro 4xx (también 429,
+  destino bloqueado o token ilegible) quedan cancelados en el log sin reintento; 5xx y sin respuesta se
+  reintentan con la espera de River, máximo `IntentosRevocarCanje` (10). Un canje que no respondió 200 no
+  tiene token y no encola nada; Iris no repite un canje perdido por timeout (el `atk_` sin uso vence solo
+  a las 24 h). Lo registra `Nucleo.RegistrarRevocarCanje` (desde `argos.RegistrarWorkers`).
 - **Rutas comunes por id** (`rutas.go`, las publica `argos.Registrar`): `GET /integraciones/conectores`,
   `POST /integraciones/conectores/{id}/activar|desactivar` (uno activo por sistema: activar uno
   reemplaza al activo, que queda apagado con `conector.desactivado` motivo «reemplazado…» y su token
   revocado, en la misma transacción; así reconectar no corta la integración; `Sistema.AlActivar` corre
-  en la misma transacción),
+  en la misma transacción). Ni el canje ni la activación llaman al otro sistema con el token nuevo:
+  todas las llamadas salen del conector **activo** (`Activo`, `PorID` exige `activo`), así que el
+  token nuevo se usa por primera vez cuando el conector nuevo ya es el activo (con Argos 0.6.3, eso
+  confirma la reconexión allá),
   `POST /integraciones/conectores/{id}/url-publica` (`integraciones.conectar`) y
   `GET /integraciones/enlaces` (`clientes.ver`, sin empresa activa: URL pública de cada sistema activo, para
   «Ver en Argos/Horus»).

@@ -264,7 +264,8 @@ type entradaGuardarConector struct {
 // Seguridad: Iris entrega un iris_pat_ al origen del enlace, así que solo acepta orígenes de
 // Sistema.Origenes (o el de un conector que ya existe), exige empresas.todas global y el token nace
 // con vencimiento (VigenciaTokenCanje): solo queda sin vencimiento al activar el conector. Si el
-// canje no se completa (rechazo, respuesta inválida, error o pánico), se revoca.
+// canje no se completa (rechazo, respuesta inválida, error o pánico), se revoca; y si el otro sistema
+// respondió 200, también se revoca allá el token que entregó (Sistema.RutaRevocarCanje, 0.6.3).
 //
 // Riesgo: si el otro sistema canjea el código pero Iris no logra guardar el conector (caída
 // entre las dos fases), el código queda usado y hay que generar otro enlace.
@@ -398,6 +399,8 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	defer func() {
 		if !ok {
 			c.n.revocarEntregado(context.WithoutCancel(ctx), nil, tokenID, "canje_no_completado")
+			// 0.6.3: si el otro sistema respondió 200, su token también se revoca allá (job).
+			c.encolarRevocarCanje(context.WithoutCancel(ctx), g)
 		}
 	}()
 	g.secreto, g.tokenEntregado = secreto, tokenID

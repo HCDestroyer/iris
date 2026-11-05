@@ -100,6 +100,10 @@ type Sistema struct {
 	// en el host de la base del canje) y Iris manda `receptor_argos: true` en él (contrato Iris ↔
 	// ArgosISP 0.6.2 §1.3 y «Versión y compatibilidad»). Solo Argos; Horus no entrega receptor.
 	ExigirReceptor bool
+	// RutaRevocarCanje (bajo /api/v1): si Iris no completa un canje que el otro sistema respondió con
+	// 200, revoca allí el token recibido (contrato Iris ↔ ArgosISP 0.6.3 §1.3,
+	// /integraciones/iris/conexion/revocar). Vacía = el sistema no la ofrece (Horus).
+	RutaRevocarCanje string
 	// Capacidades del conector según la versión que informó el otro sistema (p. ej.
 	// inventario_por_tecnico con Argos ≥ 1.6.0). Opcional.
 	Capacidades func(version, contrato *string) []string

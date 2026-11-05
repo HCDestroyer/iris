@@ -262,6 +262,17 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `receptor_argos: true` si el conector tiene guardados la URL y el secreto del receptor de Argos y
   `false` si no (conectores canjeados antes de B1: Argos marca `requiere_reconectar` y la mensajería
   deja sus webhooks `omitido`).
+- **Contrato 0.6.3.** `ContratoIris = "0.6.3"`.
+  - **Canje no completado:** si Argos respondió 200 al canje y Iris no lo completa, el job
+    `integracion.revocar_canje_remoto` llama a `POST /integraciones/iris/conexion/revocar` con ese
+    `atk_` (detalle en `conector/README.md`; Horus no tiene esa ruta y sigue igual).
+  - **Reconexión sin corte:** Argos deja vivo el `atk_` anterior hasta la primera llamada autenticada
+    con el nuevo. En Iris el canje nuevo crea otro conector apagado y el anterior sigue activo con su
+    `atk_`. La activación los cambia en una sola transacción y encola el PUT del contrato, sin llamar a
+    Argos. Toda llamada sale del conector activo, así que la primera con el `atk_` nuevo ocurre con el
+    conector nuevo ya activo (`TestReconexionSinCorte`). Esa primera llamada es el PUT del contrato o la
+    carga de catálogos, porque la activación encola los dos, o una llamada que ya estaba en curso
+    (pendientes, panel). El contrato acepta cualquiera.
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
   del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)
