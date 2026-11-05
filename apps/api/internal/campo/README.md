@@ -71,7 +71,9 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   en `ordenes.pausada_seg` (`tiempoPausadoSeg`). Una pausa no empieza antes del fin de la anterior
   (se ajusta con `aviso: pausa_ajustada`) y lo pausado nunca supera lo transcurrido desde que salió. Sigue abierta: conserva la cita (agenda: ocupa,
   cuenta para la capacidad y sale `pausada` en el calendario), no sale del paquete ni de la ruta
-  (que no se marca desactualizada: la cita no se mueve) y admite evidencias. No se cierra, falla,
+  (que no se marca desactualizada: la cita no se mueve) y admite notas y adjuntos (evidencia). Desde
+  la app de campo (el lote) no admite trabajo: checklist, formularios, materiales, equipos y firma
+  responden 422 `orden_pausada` (`sinTrabajoEnPausa`; despacho sí corrige desde el panel). No se cierra, falla,
   llega, sale ni reasigna sin reanudar (422 `orden_pausada`); cancelar y reprogramar cierran la
   pausa. **Fallar desde pausada no se admite** (decisión: se reanuda y se falla en curso; así la
   duración de la pausa queda cerrada y la falla la confirma el técnico en camino o en sitio).

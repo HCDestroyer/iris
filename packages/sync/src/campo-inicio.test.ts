@@ -253,13 +253,19 @@ describe("«+»: acciones rápidas", () => {
     const plantilla = (id: number, activa = true): PlantillaFormulario => ({ id, versionId: id * 100, codigo: `p${id}`, nombre: `Plantilla ${id}`, version: 1, activa, items: [] }) as unknown as PlantillaFormulario;
     const f = { id: "f", plantillaId: 1 } as unknown as NonNullable<OrdenVista["formularios"]>[number];
 
-    it("agregar formulario solo con el permiso y en órdenes con el trabajo empezado", () => {
-        const ordenes = [vista(1, { estado: "en_sitio", formularios: [f] }), vista(2), vista(3, { estado: "pausada" }), vista(4, { estado: "en_camino", reasignada: true })];
+    it("agregar formulario solo con el permiso y en órdenes con el trabajo empezado (pausada, no)", () => {
+        const ordenes = [
+            vista(1, { estado: "en_sitio", formularios: [f] }),
+            vista(2),
+            vista(3, { estado: "pausada" }),
+            vista(4, { estado: "en_camino", reasignada: true }),
+            vista(5, { estado: "en_camino" }),
+        ];
         const plantillas = [plantilla(1), plantilla(2), plantilla(3, false)];
         const r = accionesRapidas(ordenes, plantillas, [PERMISO_AGREGAR_FORMULARIO, "ordenes.cerrar"]);
         expect(r.formulario?.ordenes.map((o) => [o.orden.id, o.plantillas.map((p) => p.id)])).toEqual([
             [1, [2]],
-            [3, [1, 2]],
+            [5, [1, 2]],
         ]);
         expect(r.tarea).toEqual({ disponible: false, motivo: "Próximamente" });
         // Sin el permiso (o sin saberlo: sesión guardada de antes), la opción no aparece.

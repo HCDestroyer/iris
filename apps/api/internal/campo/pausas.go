@@ -17,8 +17,9 @@ import (
 )
 
 // Pausar y reanudar una orden en curso (en camino o en sitio). Una orden pausada sigue abierta:
-// conserva su cita (no sale de la ruta ni libera la agenda del técnico), admite evidencias y se
-// puede cancelar o reprogramar (eso cierra la pausa). No se cierra, falla, sale ni llega sin
+// conserva su cita (no sale de la ruta ni libera la agenda del técnico), admite notas y adjuntos
+// como evidencia (desde la app de campo, nada de trabajo: sinTrabajoEnPausa) y se puede cancelar o
+// reprogramar (eso cierra la pausa). No se cierra, falla, sale ni llega sin
 // reanudar antes (422 orden_pausada): reanudar devuelve el estado de antes de la pausa.
 
 // MotivosPausa son los motivos de ordenes.pausar (con otro, la nota es obligatoria).
@@ -61,6 +62,17 @@ func noPausada(f campobd.CampoOrden, accion string) error {
 	}
 	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "orden_pausada", "Orden pausada",
 		fmt.Sprintf("La orden %s está pausada: reanúdala antes de %s", f.Numero, accion))
+}
+
+// sinTrabajoEnPausa: desde la app de campo (el lote), una orden pausada no admite trabajo
+// (checklist, formularios, materiales, equipos ni firma): 422 orden_pausada, primero reanudar
+// (contratos/sync.md §3). Notas y adjuntos sí, como evidencia. El panel (despacho) puede
+// corregir una pausada: su entrada no trae operación del lote.
+func sinTrabajoEnPausa(f campobd.CampoOrden, s *OpSync, accion string) error {
+	if s == nil {
+		return nil
+	}
+	return noPausada(f, accion)
 }
 
 func (m *Modulo) nuevoPausarOrden() *auditoria.Caso[EntradaPausar, Orden] {

@@ -208,6 +208,9 @@ func (m *Modulo) nuevoAgregarFormularioCampo() *auditoria.Caso[EntradaAgregarFor
 			if !propia(ctx, f) {
 				return f, "", nucleo.Prohibido("Solo el técnico de la orden agrega formularios desde la app de campo")
 			}
+			if err := sinTrabajoEnPausa(f, in.Sync, "agregarle formularios"); err != nil {
+				return f, "", err
+			}
 			if err := exigirEstado(f, "agregar formularios a", estadosAbiertos...); err != nil {
 				return f, "", err
 			}
@@ -325,6 +328,9 @@ func (m *Modulo) nuevoQuitarFormularioCampo() *auditoria.Caso[EntradaQuitarFormu
 			}
 			if !propia(ctx, f) {
 				return f, "", nucleo.Prohibido("Solo el técnico de la orden quita formularios desde la app de campo")
+			}
+			if err := sinTrabajoEnPausa(f, in.Sync, "quitarle formularios"); err != nil {
+				return f, "", err
 			}
 			if err := exigirEstado(f, "quitar formularios de", estadosAbiertos...); err != nil {
 				return f, "", err
