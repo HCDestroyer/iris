@@ -115,13 +115,15 @@ export interface OpcionesArnes {
     sesion?: SesionCampo;
     /** Chat interno (con `chat.ver`); sin él la app no ofrece el chat. */
     chat?: MotorChat;
+    /** Margen seguro del teléfono (barra de estado, muesca); sin él, 0 en todos los lados. */
+    margen?: { top: number; bottom: number; left: number; right: number };
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const inventario = o.inventario ?? new InventarioFalso();
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
     await render(
-        <TemaDePrueba esquema={o.esquema ?? "light"}>
+        <TemaDePrueba esquema={o.esquema ?? "light"} {...(o.margen ? { margen: o.margen } : {})}>
             <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
                     <ProveedorAgenda leer={inventario.agenda}>

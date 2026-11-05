@@ -33,7 +33,7 @@ describe.each(["light", "dark"] as const)("app de campo (%s)", (esquema) => {
         await fireEvent.press(await screen.findByRole("radio", { name: "Sí" }));
         await fireEvent.press(await screen.findByRole("button", { name: /Siguiente: materiales y equipos/ }));
         await fireEvent.press(await screen.findByRole("button", { name: /Siguiente: fotos/ }));
-        await fireEvent.press(await screen.findByRole("button", { name: /Firma y cierre/ }));
+        await fireEvent.press(await screen.findByRole("button", { name: /Ir a firma y cierre/ }));
 
         // El paso final muestra el resumen del trabajo antes de cerrar (sin firma obligatoria).
         expect(await screen.findByTestId("resumen-trabajo")).toHaveTextContent(/Señal verificada/);

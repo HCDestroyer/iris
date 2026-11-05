@@ -150,7 +150,7 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         await fireEvent.press(screen.getByRole("button", { name: "Anterior" }));
         expect(await screen.findByText("Paso 3 de 5", { exact: false })).toBeTruthy();
         await fireEvent.press(screen.getByRole("button", { name: /Siguiente: fotos/ }));
-        await fireEvent.press(await screen.findByRole("button", { name: /Firma y cierre/ }));
+        await fireEvent.press(await screen.findByRole("button", { name: /Ir a firma y cierre/ }));
 
         // Paso final: resumen del trabajo y firma del cliente.
         expect(await screen.findByTestId("resumen-trabajo")).toHaveTextContent(/checklist 1\/1/);

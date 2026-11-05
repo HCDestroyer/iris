@@ -15,9 +15,18 @@ export function avisoCampo(page: Page): Locator {
     return page.locator('[data-slot="toast"][data-frontmost="true"]:not([data-exiting="true"])');
 }
 
-/** El único «Guardar» de los pasos (en la isla de pasos): guarda lo escrito del paso. */
-export async function guardarPaso(page: Page) {
-    await page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /^Guardar/ }).click();
+/** «Guardar y seguir» de la isla de pasos (solo está con algo escrito sin guardar): guarda y avanza. */
+export async function guardarYSeguir(page: Page) {
+    await page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /^Guardar y seguir/ }).click();
+}
+
+/**
+ * Guarda lo escrito sin salir del paso: el campo se guarda solo al salir de él, y la isla deja de
+ * ofrecer «Guardar y seguir» (sin cambios no hay «Guardar»).
+ */
+export async function guardarAlSalirDelCampo(page: Page) {
+    await page.locator(":focus").blur();
+    await expect(page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: /Guardar/ })).toHaveCount(0);
 }
 
 /** Abre un paso desde el avance de la orden (resumen o cualquier paso). */

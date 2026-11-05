@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { abrirPorEnviar, alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarPaso, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarAlSalirDelCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -126,7 +126,7 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     // Checklist: sí/no, medición, foto y texto.
     await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
     await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
-    await guardarPaso(page);
+    await guardarAlSalirDelCampo(page);
     await page.getByLabel("Tomar foto: Foto de la fachada").setInputFiles(FOTO);
     await expect(avisoCampo(page)).toContainText("Foto guardada");
     await expect(page.getByRole("img", { name: "Foto de la fachada" })).toBeVisible();
@@ -146,7 +146,7 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
 
     // Fotos (opcionales) y el paso final: el cliente ve el resumen, firma y se cierra ahí mismo.
     await page.getByRole("button", { name: "Siguiente: fotos" }).click();
-    await page.getByRole("button", { name: "Firma y cierre" }).click();
+    await page.getByRole("button", { name: "Ir a firma y cierre" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Firma del cliente y cierre" })).toBeVisible();
     const resumen = page.locator('[data-slot="resumen-trabajo"]');
     await expect(resumen).toContainText("checklist 3/4 · 1 foto · 1 material · 1 equipo");

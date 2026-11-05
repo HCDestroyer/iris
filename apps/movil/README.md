@@ -54,10 +54,12 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
   (bodega, serie/MAC escaneadas, comodato) · **Fotos**, cada
   paso en su vista, guardado en el teléfono al tocar (texto y números, al salir del campo), con
   «N de 4 pasos listos» y la **isla de pasos** (`IslaPasos`, la misma píldora que la de menú):
-  «Anterior» · **un solo «Guardar»** (guarda lo escrito y todavía sin guardar de todo el paso, con
-  su contador, y avisa qué pasó: `RegistroBorradores` y `avisoGuardado` de `@iris/sync/campo`,
-  `src/campo/borradores.tsx`) · «Siguiente» (que guarda antes de pasar). Sin botón «Guardar» por
-  campo. Con la orden **en pausa** los pasos son de solo lectura, con «Orden en pausa» y
+  «Anterior» · un primario que avanza (`estadoIslaPasos` de `@iris/sync/campo`). **Sin cambios no
+  hay «Guardar»**: el primario es «Siguiente» («Ir a firma» antes de la firma). Con algo escrito sin
+  guardar es **«Guardar y seguir» con el contador**: guarda todo el paso y avanza; si algo no valida,
+  se queda y lo dice arriba. Al guardar, «Guardado» con un check en la isla por 1,5 s
+  (`MS_GUARDADO`; `RegistroBorradores` y `avisoGuardado`, `src/campo/borradores.tsx`). Sin
+  «Guardar» aparte (a 360 px no cabe sin apretar los botones) ni por campo. Con la orden **en pausa** los pasos son de solo lectura, con «Orden en pausa» y
   «Reanudar» arriba (con `ordenes.reanudar`): ni el motor ni la API registran trabajo en pausa.
   Reglas de `@iris/sync/campo` (`estadoPasos`, `accionesDe`); los textos del avance en
   `src/campo/pasos.ts`.
@@ -138,7 +140,9 @@ adjuntos. Lo que agrega lo nativo: cámara del sistema, escáner de códigos y G
     ya no se encoge sola) y `fijo` deja arriba lo que no se desplaza (el campo de «Buscar orden»,
     que filtra en vivo con `ESPERA_BUSQUEDA_MS`).
   - **Avisos emergentes:** el `Toast` de HeroUI Native (`AvisoEmergente`; `toast` en
-    `src/tema/tema.tsx`), arriba, con su animación de entrada y salida, uno a la vez. En las
+    `src/tema/tema.tsx`), arriba, con su animación de entrada y salida, uno a la vez. Va debajo del
+    margen seguro (`insetsAvisos`: margen + 8 px; un `insets` propio reemplaza el de HeroUI, no se
+    suma), así que no queda bajo la barra de estado ni detrás de la franja sólida. En las
     pruebas, `avisoArriba()`: HeroUI dibuja además una copia invisible para medir su alto.
   - **Encabezado:** una franja sólida (el lienzo) bajo la barra de estado y la barra compacta, sólida,
     que entra y se va deslizándose (solo `translateY`, nunca la opacidad).

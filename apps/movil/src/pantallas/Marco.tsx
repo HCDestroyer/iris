@@ -48,7 +48,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
         },
         [url],
     );
-    // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma y
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma y
     // el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
     // La conversación ocupa la pantalla (encabezado propio y compositor sobre el teclado): sin isla.
@@ -172,9 +172,11 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
                 )}
             </ScrollView>
             )}
-            {/* Franja sólida bajo la barra de estado: el contenido que sube nunca se ve detrás de la hora. */}
-            <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
+            {/* La barra compacta va debajo de la franja (no la tapa). */}
             <BarraCompacta visible={desplazamiento.compacto} arriba={margen.top} alEntrar={alSesionVencida} alElegirEmpresa={cambiarEmpresa} />
+            {/* Franja sólida bajo la barra de estado, siempre a la vista y encima de todo lo de arriba:
+                el contenido que sube nunca se ve detrás de la hora. */}
+            <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             <AvisoDelMarco />
@@ -282,5 +284,6 @@ const estilos = StyleSheet.create({
     punto: { width: 8, height: 8, borderRadius: 4 },
     filaBarra: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
     contenido: { paddingHorizontal: 18, gap: 16 },
-    franja: { position: "absolute", top: 0, left: 0, right: 0 },
+    // Encima de lo que se desplaza y de la barra compacta (que va debajo y nunca la cruza quieta).
+    franja: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20 },
 });

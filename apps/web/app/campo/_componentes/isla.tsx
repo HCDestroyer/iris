@@ -1,11 +1,11 @@
 "use client";
 
 import type { PlantillaFormulario } from "@iris/sync";
-import { accionesDe, accionesRapidas, contadoresPestanas, nombreCliente, pestanaDe, pestanasIsla, TITULOS_PASO, urlDeVista, vecinosPaso, type PasoOrden, type Pestana, type Vista } from "@iris/sync/campo";
+import { accionesDe, accionesRapidas, contadoresPestanas, estadoIslaPasos, nombreCliente, pestanaDe, pestanasIsla, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
 import { Boton, GrupoOpciones, InsigniaEstado, cn } from "@iris/ui";
-import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, FilePlus2, House, MessageCircle, Plus, Save, User, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, CircleCheck, FilePlus2, House, MessageCircle, PenLine, Plus, Save, User, type LucideIcon } from "lucide-react";
 import { useMemo, useState, type MouseEvent } from "react";
-import { useGuardarPaso, useSinGuardar } from "./borradores";
+import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "./borradores";
 import { useChatOpcional } from "./chat-datos";
 import { useCampo, useOrden } from "./contexto";
 import { HojaCampo } from "./hoja";
@@ -93,31 +93,37 @@ export function IslaMenu({ encogida }: { encogida: boolean }) {
     );
 }
 
+const ICONO_PRIMARIO: Record<PrimarioIsla["icono"], LucideIcon> = { siguiente: ArrowRight, firma: PenLine, terminar: CircleCheck, guardar: Save };
+
 /**
- * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» y «Siguiente»
- * redondos y un solo botón primario «Guardar» al centro, que guarda lo escrito y todavía sin guardar
- * de todo el paso (con su contador) y avisa qué pasó. Lo demás ya se guardó al hacerlo. Pasar de
- * paso también guarda primero (si algo no valida, se queda y lo dice). Con la orden en pausa,
- * «Guardar» está deshabilitado: no hay trabajo que registrar.
+ * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» redondo y un
+ * primario que avanza (`estadoIslaPasos` de `@iris/sync/campo`). Sin cambios por guardar no hay
+ * «Guardar»: el primario es «Siguiente» («Ir a firma» antes de la firma). Con algo escrito sin
+ * guardar es «Guardar y seguir» con el contador: guarda y avanza, o se queda y dice qué campo falló.
+ * Al guardar, «Guardado» con un check un momento en la isla (sin bloquear). Sin «Guardar» aparte: a
+ * 360 px no cabe sin apretar los botones, y cada campo ya se guarda al salir de él. Con la orden en
+ * pausa (solo lectura) nunca guarda: solo navega.
  */
 export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden; encogida: boolean }) {
     const { navegar } = useCampo();
     const orden = useOrden(id);
     const { guardar, guardando } = useGuardarPaso();
+    const guardado = useRecienGuardado();
     const sinGuardar = useSinGuardar();
     if (!orden) {
         return null;
     }
-    const { anterior, siguiente } = vecinosPaso(paso);
-    const vistaAnterior: Vista = anterior ? { tipo: "orden", id, paso: anterior } : { tipo: "orden", id };
-    const textoAnterior = anterior ? "Anterior" : "Resumen";
-    const textoSiguiente = siguiente ? (siguiente === "cierre" ? "Firma y cierre" : `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`) : null;
     const enPausa = accionesDe(orden).enPausa;
-    const ir = async (vista: Vista) => {
-        if (await guardar({ silencioso: true })) {
-            navegar(vista);
+    const isla = estadoIslaPasos({ paso, pendientes: sinGuardar, enPausa, recienGuardado: guardado !== null });
+    const vistaDe = (destino: PasoOrden | null): Vista => (destino ? { tipo: "orden", id, paso: destino } : { tipo: "orden", id });
+    // Con la orden en pausa no se guarda nada: solo se navega.
+    const ir = async (destino: PasoOrden | null) => {
+        if (enPausa || (await guardar())) {
+            navegar(vistaDe(destino));
         }
     };
+    const { primario } = isla;
+    const IconoPrimario = ICONO_PRIMARIO[primario.icono];
     const redondo = cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "bg-[var(--campo-panel-2)] p-0 text-foreground shadow-none [&_svg]:size-6", encogida ? "md:size-11" : "md:size-[3.375rem]");
     return (
         <nav
@@ -129,25 +135,36 @@ export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden;
                 encogida && "bottom-[calc(1rem+env(safe-area-inset-bottom))] gap-1 p-1",
             )}
         >
-            <Boton variante="secundario" aria-label={textoAnterior} title={textoAnterior} className={redondo} onClick={() => void ir(vistaAnterior)}>
+            <Boton variante="secundario" aria-label={isla.anterior.texto} title={isla.anterior.texto} className={redondo} onClick={() => void ir(isla.anterior.destino)}>
                 <ArrowLeft aria-hidden />
             </Boton>
+            {/* Región viva siempre montada: el lector anuncia «Guardado» al aparecer. */}
+            <span role="status" data-slot="guardado-paso" className={cn("flex items-center gap-1 text-[0.8125rem] font-semibold text-success", isla.guardado && guardado ? "px-1.5" : "sr-only")}>
+                {isla.guardado && guardado ? (
+                    <>
+                        <Check aria-hidden className="size-4" strokeWidth={2.6} />
+                        <span aria-hidden>Guardado</span>
+                        <span className="sr-only">{guardado}</span>
+                    </>
+                ) : null}
+            </span>
             <Boton
                 tamano="lg"
-                data-slot="guardar-paso"
-                disabled={enPausa || guardando}
-                aria-label={sinGuardar > 0 ? `Guardar (${sinGuardar} sin guardar)` : "Guardar"}
+                data-slot={primario.accion === "guardar_y_seguir" ? "guardar-y-seguir" : "paso-siguiente"}
+                disabled={guardando}
+                aria-label={primario.etiqueta}
+                title={primario.etiqueta}
                 className={cn("min-w-[9.5rem] rounded-full px-6 text-base shadow-none", encogida ? "h-11" : "h-[3.375rem]")}
-                onClick={() => void guardar()}
+                onClick={() => void ir(primario.destino)}
             >
-                <Save aria-hidden />
-                {sinGuardar > 0 ? `Guardar · ${sinGuardar}` : "Guardar"}
+                <IconoPrimario aria-hidden />
+                {primario.texto}
+                {primario.cuenta !== null ? (
+                    <span aria-hidden data-slot="cuenta-sin-guardar" className="grid min-w-5 place-content-center rounded-full bg-primary-foreground px-1.5 text-xs leading-5 font-bold text-primary tabular-nums">
+                        {primario.cuenta}
+                    </span>
+                ) : null}
             </Boton>
-            {siguiente && textoSiguiente ? (
-                <Boton variante="secundario" aria-label={textoSiguiente} title={textoSiguiente} className={redondo} onClick={() => void ir({ tipo: "orden", id, paso: siguiente })}>
-                    <ArrowRight aria-hidden />
-                </Boton>
-            ) : null}
         </nav>
     );
 }

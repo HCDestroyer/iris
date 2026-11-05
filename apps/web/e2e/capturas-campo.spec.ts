@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, simularApiCampo } from "./api-campo";
-import { abrirPorEnviar, empezarTrabajo, guardarPaso, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, empezarTrabajo, guardarAlSalirDelCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE } from "./datos-campo";
 
 // Capturas de la app de campo para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto
@@ -47,7 +47,7 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     await irAPaso(page, "Checklist");
     await page.getByRole("radiogroup", { name: "La ONU enciende" }).getByRole("radio", { name: "Sí" }).click();
     await page.getByRole("textbox", { name: "Potencia óptica" }).fill("-18,5");
-    await guardarPaso(page);
+    await guardarAlSalirDelCampo(page);
     await page.getByLabel("Tomar foto: Foto de la fachada").setInputFiles(FOTO);
     await expect(page.getByRole("img", { name: "Foto de la fachada" })).toBeVisible();
     await page.evaluate(() => window.scrollTo({ top: 0 }));
