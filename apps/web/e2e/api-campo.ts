@@ -33,6 +33,13 @@ export interface OpcionesCampo {
     turno?: (fecha: string) => Schema<"TurnoCampo"> | undefined;
     /** Traslados de Argos hacia la bodega de Tomás (por defecto, 31 y 32 enviados). */
     traslados?: Schema<"Traslado">[];
+    /**
+     * Órdenes de días siguientes (agenda de «Mañana» y «Semana»): como la API («programadas hasta
+     * ese día»), van en el paquete solo si la fecha pedida llega a su día (Guatemala).
+     */
+    ordenesFuturas?: OrdenCampo[];
+    /** Permisos de GET /yo (por defecto, los del rol `tecnico`). */
+    permisos?: Schema<"Permiso">[];
 }
 
 export interface ApiCampo {
@@ -77,6 +84,12 @@ export interface ApiCampo {
     fallarBodega: Problema | null;
     /** Mientras sea true, `traslado.recibir` responde 503 `traslado_sin_confirmar` (Argos no contesta). */
     trasladoSinConfirmar: boolean;
+}
+
+const formatoDia = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" });
+/** Día en Guatemala (`YYYY-MM-DD`) de una hora ISO; sin hora, el más lejano (nunca entra). */
+function diaGuatemala(iso: string | null | undefined): string {
+    return iso ? formatoDia.format(Date.parse(iso)) : "9999-12-31";
 }
 
 /** En la explicación previa de la ubicación (la primera vez por usuario), «Permitir ubicación». */
@@ -447,7 +460,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             const yo: Schema<"Yo"> = {
                 actor: "usuario",
                 usuario: api.contrasenaTemporal ? { ...usuario, cambioContrasenaRequerido: true } : usuario,
-                permisos: PERMISOS_TECNICO,
+                permisos: opciones.permisos ?? PERMISOS_TECNICO,
                 empresas,
                 modoEmpresa: empresas.length === 0 ? "sin_conector" : activa ? "activa" : "por_elegir",
                 todasLasEmpresas: false,
@@ -467,9 +480,10 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 fecha,
                 servidorEn: new Date().toISOString(),
                 cursor: String(cursor),
-                ordenes: [...api.ordenes.values()]
-                    .filter((o) => o.tecnicoId === usuario.id && !["cerrada", "fallida", "cancelada"].includes(o.estado))
-                    .map((o) => structuredClone(o)),
+                ordenes: [
+                    ...[...api.ordenes.values()].filter((o) => o.tecnicoId === usuario.id && !["cerrada", "fallida", "cancelada"].includes(o.estado)),
+                    ...(opciones.ordenesFuturas ?? []).filter((o) => diaGuatemala(o.cita?.inicio ?? o.programadaInicio) <= fecha),
+                ].map((o) => structuredClone(o)),
                 existencias: existenciasDelTecnico(),
                 ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
                 ...(turno ? { turno } : {}),

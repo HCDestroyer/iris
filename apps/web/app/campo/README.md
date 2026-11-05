@@ -26,9 +26,40 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
     pendientes, sin datos del servidor, y la app no los muestra sin entrar. Sin señal no navega a
     /entrar (no está en caché): muestra «Cerraste sesión en este teléfono» y cierra la sesión en la
     API al volver la señal.
-- **Navegación (fase 4):** barra inferior Hoy · Por recibir · Pendientes · Yo; cada vista y cada
-  paso con su URL (`@iris/sync/campo` `vista.ts`). La barra de estado es un punto con todo enviado y crece
-  solo cuando hace falta (por enviar, rechazos, sesión vencida, empresa no válida).
+- **Navegación:** isla de menú Hoy · Por recibir · «+» · Agenda · Yo; cada vista y cada paso con
+  su URL (`@iris/sync/campo` `vista.ts`). El estado es un punto con todo enviado y crece como
+  píldora encima de la isla solo cuando hace falta (por enviar, rechazos, sesión vencida, empresa
+  no válida).
+- **Diseño «combinada» (nov 2026, `campo.css` y `@iris/sync/campo` `inicio.ts`):**
+    - **Encabezado que no queda fijo:** fecha con el punto de conexión, «Hola, <nombre>», quién
+      está (y la empresa), buscar (entre las órdenes del teléfono, sin señal) y la cuenta; en Hoy,
+      Mañana y Semana los chips con su contador (solo con datos leídos). Al bajar se va con el
+      contenido; al subir vuelve como barra compacta (`desplazar`).
+    - **Hoy:** la siguiente orden en grande (la primera en curso o, si no hay, la primera por
+      hacer) con estado, código y hora, cliente, tipo, dirección, anillo de avance «2/4» y
+      «Continuar trabajo» / «Cómo llegar» / «Llamar»; mosaicos «Ruta de hoy» (órdenes que quedan:
+      la ruta del teléfono no trae km) y «Por recibir» (traslados, en tono de aviso; «—» si no se
+      pudo leer); lista «Después» con la hora en un bloque, cliente, tipo e insignia.
+    - **Isla de menú** (reemplaza la barra inferior): Hoy · Por recibir (contador) · «+» · Agenda
+      · Yo, zonas de 54 px (44 encogida al bajar). «Por enviar» ya no es pestaña: se abre desde la
+      **píldora de estado** encima de la isla (`avisoIsla`, la barra discreta de la fase 4: sin
+      señal con algo por enviar, rechazos, sesión vencida, empresa no válida) y desde «Yo». En los
+      pasos de la orden no hay isla: va la barra «Anterior» / «Siguiente».
+    - **«+»:** hoja de acciones rápidas. «Agregar formulario» a una orden con el trabajo empezado
+      (`orden.agregar_formulario`, sin señal también; solo con `ordenes.registrar` en `GET /yo`,
+      si no, no aparece), con «Deshacer» (`orden.quitar_formulario` del mismo id). «Agendar tarea
+      propia» va deshabilitada con «Próximamente»: no tiene API.
+    - **Agenda «Mañana» y «Semana»** (`?vista=agenda[&dia=]`, `?vista=semana`): tira de 7 días con
+      el día elegido en teal y las citas en bloques (en curso en tinta, sin formulario en aviso).
+      El técnico no tiene `agenda.ver`: se lee `GET /campo/paquete?fecha=<hoy+6>` con señal y queda
+      en memoria; hoy usa las órdenes del teléfono. Sin leer no hay contadores; sin señal lo dice
+      con «Reintentar» y se relee sola al volver la señal.
+    - **Pasos:** chips de pasos (listo en marca suave, el actual en tinta), barra por pasos,
+      tarjetas de 28 px de radio, − / + junto a «Cantidad» en materiales (`pasoCantidad`) y los
+      avisos que entran desde arriba con su acción («Deshacer»; un rechazo nuevo del servidor,
+      con «Revisar»).
+    - **Tema:** los dos de C-Hoy llevados a los tokens (`color-mix` de `--hx-*`), un solo teal
+      (claro `#0f766e`, oscuro `#2dd4bf`), claro y oscuro según el teléfono.
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
 - **Por recibir y Mi bodega:** traslados de Argos (`GET /campo/inventario/traslados?estado=enviado`)
@@ -120,13 +151,15 @@ posiciones no son acciones: no emiten eventos ni se auditan por fila.
 
 ## Pruebas
 
-Vitest (`lib/campo/*.test.ts`, con `ubicacion.test.ts`: turno, permiso, lectura por minuto y día, y
+Vitest (`lib/campo/*.test.ts`; la lógica del diseño en `packages/sync/src/campo-inicio.test.ts`, con `ubicacion.test.ts`: turno, permiso, lectura por minuto y día, y
 el turno de la agenda con el reloj falso: cruces de tramo, manual dentro de un tramo, fuera de
 tramo, día sin turno y medianoche de Guatemala; `turno.test.ts`) y Playwright (`e2e/campo.spec.ts`, teléfono claro y oscuro, con
 `context.setOffline`; `e2e/campo-sesiones.spec.ts`: dos técnicos en el mismo navegador, cerrar
 sesión con y sin pendientes, abrir sin señal; `e2e/campo-ubicacion.spec.ts`: explicación antes del
 permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta, 429 con
-`Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-turno.spec.ts`:
+`Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-diseno.spec.ts`: el diseño «combinada» (Hoy, encabezado y isla al desplazar, píldora,
+«+» con y sin permiso, Mañana y Semana con y sin señal, pasos con chips y − / +; con
+`IRIS_CAPTURAS=<carpeta>` deja las capturas); `e2e/campo-turno.spec.ts`:
 turno de la agenda con el reloj de Playwright; `e2e/campo-formularios.spec.ts`: formularios y pausa
 sin señal, rechazos y cierre incompleto por formulario; `e2e/campo-escaner.spec.ts`: escáner por campo
 con cámara y `BarcodeDetector` simulados, en escritorio y teléfono, claro y oscuro (con

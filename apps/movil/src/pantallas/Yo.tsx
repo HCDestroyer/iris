@@ -1,7 +1,8 @@
 // «Yo»: quién está en el teléfono, «Mi bodega», actualizar el día, cambiar de empresa y cerrar
 // sesión (con lo pendiente: enviar y salir, o salir conservándolo). Como la PWA; el tema sigue al
 // del teléfono.
-import { Building2, ChevronRight, LogOut, RefreshCw, Warehouse } from "lucide-react-native";
+import { totalPorEnviar } from "@iris/sync/campo";
+import { Building2, ChevronRight, CloudUpload, LogOut, RefreshCw, Warehouse } from "lucide-react-native";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Aviso, Boton, Pila, Tarjeta, Texto, Titulo, Tocable } from "../componentes";
@@ -41,7 +42,7 @@ export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string 
             return;
         }
         setSaliendo(false);
-        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Pendientes» o sal conservándolos.` });
+        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Por enviar» o sal conservándolos.` });
     };
 
     return (
@@ -63,6 +64,19 @@ export function Yo({ empresa, cambiarEmpresa, bajarPaquete }: { empresa: string 
                 <Texto negrita estilo={estilos.flex}>
                     Mi bodega
                 </Texto>
+                <ChevronRight size={20} color={colores.textoSuave} />
+            </Tocable>
+            {/* «Por enviar» ya no está en la isla: se abre desde aquí (y desde la píldora de estado). */}
+            <Tocable
+                etiqueta={totalPorEnviar(estado) > 0 ? `Por enviar (${totalPorEnviar(estado)})` : "Por enviar"}
+                alPresionar={() => navegar({ tipo: "pendientes" })}
+                estilo={[estilos.enlace, { borderColor: colores.borde, backgroundColor: colores.tarjeta, borderRadius: radioTarjeta }]}
+            >
+                <CloudUpload size={22} color={colores.primario} />
+                <Texto negrita estilo={estilos.flex}>
+                    Por enviar
+                </Texto>
+                {totalPorEnviar(estado) > 0 ? <Texto negrita estilo={{ color: colores.advertencia }}>{String(totalPorEnviar(estado))}</Texto> : null}
                 <ChevronRight size={20} color={colores.textoSuave} />
             </Tocable>
 

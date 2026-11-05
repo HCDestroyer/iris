@@ -1,9 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { bodegaDeOrden, type OrdenVista } from "@iris/sync";
-import { esquemaMaterial, type DatosMaterial, type EntradaMaterial } from "@iris/sync/campo";
+import { esquemaMaterial, pasoCantidad, type DatosMaterial, type EntradaMaterial } from "@iris/sync/campo";
+import { Minus, Plus } from "lucide-react-native";
 import { Controller, useForm } from "react-hook-form";
-import { Aviso, Boton, Campo, Opciones, Tarjeta, Texto } from "../../componentes";
+import { StyleSheet, View } from "react-native";
+import { Aviso, Boton, BotonRedondo, Campo, Opciones, Tarjeta, Texto } from "../../componentes";
 import { useCampo } from "../../campo/contexto";
+import { useTema } from "../../tema/tema";
 
 const MOTIVOS: Record<string, string> = {
     sin_conector: "Iris no está conectado a Argos: no hay existencias para elegir.",
@@ -16,6 +19,7 @@ const fmt = new Intl.NumberFormat("es-GT", { maximumFractionDigits: 3 });
 /** Materiales desde las existencias de la bodega de la orden (no se elige bodega). */
 export function Materiales({ orden, editable }: { orden: OrdenVista; editable: boolean }) {
     const { estado, motor, ejecutar, notificar } = useCampo();
+    const { campo, colores } = useTema();
     const bodega = bodegaDeOrden(estado.existencias, orden.bodegaId);
     const lineas = bodega?.lineas ?? [];
     const form = useForm<EntradaMaterial, unknown, DatosMaterial>({ resolver: zodResolver(esquemaMaterial), defaultValues: { productoId: "", cantidad: "" } });
@@ -74,10 +78,21 @@ export function Materiales({ orden, editable }: { orden: OrdenVista; editable: b
                         control={form.control}
                         name="cantidad"
                         render={({ field }) => (
-                            <Campo etiqueta="Cantidad" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} keyboardType="decimal-pad" error={form.formState.errors.cantidad?.message} />
+                            // − / + junto a la cantidad (diseño «combinada»): suman o restan 1 a lo escrito.
+                            <View style={estilos.paso}>
+                                <View style={estilos.boton}>
+                                    <BotonRedondo icono={Minus} etiqueta="Quitar uno" tamano={44} fondo={campo.panel2} tinta={colores.texto} borde={colores.borde} alPresionar={() => field.onChange(pasoCantidad(field.value, -1))} />
+                                </View>
+                                <View style={estilos.flex}>
+                                    <Campo etiqueta="Cantidad" valor={field.value} alCambiar={field.onChange} onBlur={field.onBlur} keyboardType="decimal-pad" error={form.formState.errors.cantidad?.message} />
+                                </View>
+                                <View style={estilos.boton}>
+                                    <BotonRedondo icono={Plus} etiqueta="Agregar uno" tamano={44} fondo={colores.primario} tinta={colores.sobrePrimario} alPresionar={() => field.onChange(pasoCantidad(field.value, 1))} />
+                                </View>
+                            </View>
                         )}
                     />
-                    <Boton variante="secundario" cargando={form.formState.isSubmitting} alPresionar={() => void enviar()}>
+                    <Boton variante="secundario" cargando={form.formState.isSubmitting} alPresionar={() => void enviar()} estilo={estilos.pildora}>
                         Registrar material
                     </Boton>
                 </>
@@ -85,3 +100,11 @@ export function Materiales({ orden, editable }: { orden: OrdenVista; editable: b
         </Tarjeta>
     );
 }
+
+const estilos = StyleSheet.create({
+    flex: { flex: 1 },
+    paso: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    // A la altura de la entrada (bajo la etiqueta de «Cantidad»).
+    boton: { paddingTop: 26 },
+    pildora: { borderRadius: 999 },
+});

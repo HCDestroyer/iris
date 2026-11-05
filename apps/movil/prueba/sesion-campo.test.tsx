@@ -73,7 +73,7 @@ async function preparar(fallaDeSesion = false, sinRed = false) {
                 alConfirmarServidor();
                 return r;
             };
-            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
+            return { motor: m.motor, posiciones, inventario: new InventarioFalso(), agenda: async () => [], nombre: "iris-campo-5-1.db", cerrar: async () => undefined, borrar: async () => undefined };
         },
         gps,
         claves,

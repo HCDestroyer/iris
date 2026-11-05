@@ -6,12 +6,22 @@ import type { InventarioCampo, MiBodega, OrdenCampo, Paquete, Traslado } from "@
 import { itemDePrueba, ordenDePrueba, paqueteDePrueba, type Montaje } from "@iris/sync/pruebas";
 import { render } from "@testing-library/react-native";
 import { ProveedorCampo, type ServiciosNativos, type Vista } from "../src/campo/contexto";
+import { ProveedorAgenda } from "../src/campo/agenda";
 import { ProveedorInventario } from "../src/campo/inventario";
 import { Marco } from "../src/pantallas/Marco";
 import type { SesionCampo } from "../src/sesion/sesion";
 import { ProveedorTema } from "../src/tema/tema";
 
-export const sesion: SesionCampo = { usuarioId: 5, nombre: "Téc. Ana", correo: "ana@isp.gt", empresas: [], modoEmpresa: "sin_conector", empresaActiva: null, verificadoEn: Date.now() };
+export const sesion: SesionCampo = {
+    usuarioId: 5,
+    nombre: "Téc. Ana",
+    correo: "ana@isp.gt",
+    empresas: [],
+    modoEmpresa: "sin_conector",
+    empresaActiva: null,
+    verificadoEn: Date.now(),
+    permisos: ["campo.sincronizar", "ordenes.registrar", "ordenes.llegar", "ordenes.cerrar"],
+};
 
 /** Paquete sin ruta con una orden de visita y un ítem obligatorio. */
 export function paqueteCon(orden: Partial<OrdenCampo>): (fecha: string) => Paquete {
@@ -25,6 +35,11 @@ export function paqueteCon(orden: Partial<OrdenCampo>): (fecha: string) => Paque
 /** «Por recibir» y «Mi bodega» con respuestas del contrato; `fallar` hace que la próxima lectura falle. */
 export class InventarioFalso implements InventarioCampo {
     traslados: Traslado[] = [];
+    /** Órdenes de la semana (`GET /campo/paquete?fecha=` del último día) para «Mañana» y «Semana». */
+    ordenesAgenda: OrdenCampo[] = [];
+    fallarAgenda: unknown = null;
+    /** Último día pedido a la agenda. */
+    hastaAgenda: string | null = null;
     bodega: MiBodega = bodegaDePrueba();
     fallarTraslados: unknown = null;
     fallarBodega: unknown = null;
@@ -38,6 +53,16 @@ export class InventarioFalso implements InventarioCampo {
             throw e;
         }
         return structuredClone(this.traslados);
+    };
+
+    agenda = async (hasta: string): Promise<OrdenCampo[]> => {
+        this.hastaAgenda = hasta;
+        if (this.fallarAgenda) {
+            const e = this.fallarAgenda;
+            this.fallarAgenda = null;
+            throw e;
+        }
+        return structuredClone(this.ordenesAgenda);
     };
 
     miBodega = async (): Promise<MiBodega> => {
@@ -84,6 +109,8 @@ export interface OpcionesArnes {
     inventario?: InventarioFalso;
     servicios?: Partial<ServiciosNativos>;
     enLinea?: () => boolean;
+    /** Otra sesión (p. ej. sin `ordenes.registrar`). */
+    sesion?: SesionCampo;
 }
 
 export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
@@ -91,9 +118,11 @@ export async function abrirCampo(m: Montaje, o: OpcionesArnes = {}) {
     const servicios: ServiciosNativos = { tomarFoto: async () => null, posicion: async () => null, enLinea: o.enLinea ?? (() => true), ...o.servicios };
     await render(
         <ProveedorTema esquema={o.esquema ?? "light"}>
-            <ProveedorCampo motor={m.motor} sesion={sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
+            <ProveedorCampo motor={m.motor} sesion={o.sesion ?? sesion} servicios={servicios} cerrarSesion={async () => undefined} vistaInicial={o.vista ?? { tipo: "lista" }}>
                 <ProveedorInventario inventario={inventario}>
-                    <Marco empresa={null} alSesionVencida={jest.fn()} />
+                    <ProveedorAgenda leer={inventario.agenda}>
+                        <Marco empresa={null} alSesionVencida={jest.fn()} />
+                    </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>
         </ProveedorTema>,

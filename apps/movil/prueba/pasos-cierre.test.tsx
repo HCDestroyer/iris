@@ -1,4 +1,4 @@
-// La orden por pasos (fase 4 en nativo): barra inferior con contadores, pasos independientes con
+// La orden por pasos (fase 4 en nativo): isla de menú con contadores, pasos independientes con
 // avance y «Anterior» / «Siguiente», «Atrás» de Android, la firma solo en el paso final, la guarda
 // contra el doble toque al cerrar y la barra de estado discreta. Motor real sobre memoria.
 import { ErrorTransporte } from "@iris/sync";
@@ -52,7 +52,7 @@ describe("pila de «Atrás»", () => {
 });
 
 describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
-    it("barra inferior: cuatro pestañas de 56 px, con contadores y navegación", async () => {
+    it("isla de menú: Hoy · Por recibir · «+» · Agenda · Yo de 54 px, con contadores y navegación", async () => {
         const atras = atrasAndroid();
         const m = await montar();
         m.transporte.paquete = paqueteCon({ estado: "en_sitio" });
@@ -61,14 +61,17 @@ describe.each(["light", "dark"] as const)("orden por pasos (%s)", (esquema) => {
         await m.motor.registrar("nota.agregar", 1, { texto: "Portón cerrado" });
         await abrirCampo(m, { esquema });
 
-        const barra = screen.getByTestId("navegacion-inferior");
-        const pestanas = within(barra).getAllByRole("tab");
-        expect(pestanas.map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Por recibir", "Pendientes (1)", "Yo"]);
+        const isla = screen.getByTestId("navegacion-inferior");
+        const pestanas = within(isla).getAllByRole("tab");
+        expect(pestanas.map((p) => p.props.accessibilityLabel)).toEqual(["Hoy", "Por recibir", "Agenda", "Yo"]);
+        expect(within(isla).getByRole("button", { name: "Acciones rápidas" })).toBeTruthy();
         expect(screen.getByRole("tab", { name: "Hoy" })).toBeSelected();
-        for (const id of ["hoy", "recibir", "pendientes", "yo"]) {
-            expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 56 });
+        for (const id of ["hoy", "recibir", "agenda", "yo"]) {
+            expect(screen.getByTestId(`pestana-${id}`)).toHaveStyle({ minHeight: 54, width: 54 });
         }
-        await fireEvent.press(screen.getByRole("tab", { name: "Pendientes (1)" }));
+        expect(screen.getByTestId("boton-mas")).toHaveStyle({ minHeight: 54 });
+        // «Por enviar» ya no es pestaña: la píldora de estado lleva ahí.
+        await fireEvent.press(screen.getByRole("button", { name: "Sin conexión: 1 pendiente por enviar. Ver detalle" }));
         expect(await screen.findByText("Por enviar")).toBeTruthy();
         await fireEvent.press(screen.getByRole("tab", { name: "Yo" }));
         expect(await screen.findByRole("button", { name: "Mi bodega" })).toBeTruthy();

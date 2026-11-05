@@ -8,6 +8,7 @@ export * from "./escaneo";
 export * from "./envio";
 export * from "./esquemas";
 export * from "./fechas";
+export * from "./inicio";
 export * from "./pasos";
 export * from "./traslados";
 export * from "./reglas";

@@ -348,6 +348,23 @@ Reemplaza lo que dicen las fases 1 y 3 donde no coincida.
   recientes, solo lectura, con «Reintentar» si no se pudo leer.
 - **Botones de 44 px o más** en toda la app de campo (`tamano="lg"`; `Casilla tamano="lg"`).
 
+## App de campo: diseño «combinada» (nov 2026, web y nativa)
+
+Reemplaza la barra inferior y la barra de estado de la fase 4; las reglas de arriba siguen.
+
+- **Encabezado que no queda fijo:** fecha con el punto de conexión, «Hola, <nombre>», buscar y la
+  cuenta, y en Hoy, Mañana y Semana los chips con su contador. Se va al bajar y vuelve como barra
+  compacta al subir.
+- **Isla de menú flotante** (píldora centrada abajo, sólida): Hoy · Por recibir · «+» en teal ·
+  Agenda · Yo, zonas de 54 px (44 encogida al bajar). Lo que pide atención va como píldora encima
+  («Sin conexión · 2 pendientes por enviar», un rechazo) y lleva a «Por enviar».
+- **«+»:** hoja de acciones rápidas con lo que tiene API (agregar formulario, con «Deshacer»); lo
+  que no la tiene va deshabilitado con «Próximamente».
+- **Tarjetas de 28 px de radio, botones en píldora, avisos que entran desde arriba con su acción.**
+  Colores: los `--hx-*` y sus mezclas (`apps/web/app/campo/campo.css`, `coloresCampo` en la app
+  nativa); un solo teal.
+- La lógica de pantalla es compartida: `@iris/sync/campo` `inicio.ts`.
+
 ## Escáner de serie y MAC (igual en la web y en la app nativa)
 
 Las etiquetas de ONU, routers y antenas traen varios códigos (S/N, MAC, GPON SN, modelo, EAN, a

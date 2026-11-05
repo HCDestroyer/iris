@@ -62,18 +62,59 @@ export function partesEnvio(r: Pick<ResumenEnvio, "porEnviar" | "archivos" | "re
 }
 
 /**
- * Contadores de la barra inferior: en «Pendientes», lo que falta por enviar o decidir; en «Por
- * recibir», los traslados por recibir (0 mientras no se hayan leído: nunca un total inventado).
+ * Contadores de la isla de menú: en «Por recibir», los traslados por recibir (0 mientras no se
+ * hayan leído: nunca un total inventado). Lo que falta por enviar va en la píldora de estado
+ * (`avisoIsla`), no en un botón.
  */
 export function contadoresPestanas(
     estado: EstadoEnvio & { recepciones: readonly OperacionTrasladoLocal[] },
     traslados: readonly Traslado[] | null,
 ): Record<Pestana, number> {
-    const r = resumenEnvio(estado);
     return {
         hoy: 0,
         recibir: traslados ? porRecibir(traslados, estado.recepciones).length : 0,
-        pendientes: r.porEnviar + Math.max(0, r.archivos) + r.rechazos,
+        agenda: 0,
         yo: 0,
     };
+}
+
+/** Lo que falta por enviar o decidir (operaciones, archivos y rechazos), para «Por enviar». */
+export function totalPorEnviar(estado: EstadoEnvio): number {
+    const r = resumenEnvio(estado);
+    return r.porEnviar + Math.max(0, r.archivos) + r.rechazos;
+}
+
+/** Qué hace la píldora al tocarla. */
+export type AccionAvisoIsla = "pendientes" | "entrar" | "empresa" | null;
+
+export interface AvisoIsla {
+    tono: TonoEstado;
+    /** «Sin conexión», «Sincronizando…», «Sesión vencida»… (el de `resumenEnvio`). */
+    estado: string;
+    /** «2 pendientes por enviar · 1 rechazado» (vacío si no hay nada por enviar). */
+    detalle: string;
+    /** Hay un rechazo: pide decidir (en la píldora va con el icono de alerta y «Revisar»). */
+    rechazo: boolean;
+    accion: AccionAvisoIsla;
+    /** Nombre accesible de la píldora completa. */
+    etiqueta: string;
+}
+
+/**
+ * Píldora de estado encima de la isla (la barra de estado discreta de la fase 4, en otra forma):
+ * `null` con todo enviado (queda el punto del encabezado). Sale con algo por enviar, un rechazo, la
+ * sesión vencida o la empresa no válida. El tono es el de la conexión; un rechazo lo vuelve error.
+ */
+export function avisoIsla(estado: EstadoEnvio): AvisoIsla | null {
+    const r = resumenEnvio(estado);
+    if (!r.abierta) {
+        return null;
+    }
+    const { pendientes, rechazos } = partesEnvio(r);
+    const detalle = [...pendientes, ...(rechazos ? [rechazos] : [])].join(" · ");
+    const bloqueo = estado.conexion === "sin_sesion" ? "entrar" : estado.conexion === "sin_empresa" ? "empresa" : null;
+    const accion: AccionAvisoIsla = detalle ? "pendientes" : bloqueo;
+    const tono: TonoEstado = r.rechazos > 0 ? "error" : CONEXION_TEXTO[estado.conexion].tono === "success" ? "info" : CONEXION_TEXTO[estado.conexion].tono;
+    const etiqueta = [r.texto, detalle].filter(Boolean).join(": ") + (accion === "pendientes" ? ". Ver detalle" : "");
+    return { tono, estado: r.texto, detalle, rechazo: r.rechazos > 0, accion, etiqueta };
 }

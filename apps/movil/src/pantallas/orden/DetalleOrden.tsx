@@ -22,8 +22,8 @@ import {
     type LucideIcon,
 } from "lucide-react-native";
 import { useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
-import { Aviso, Boton, Cargando, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Aviso, Boton, BotonRedondo, Cargando, Fila, Insignia, Pila, Tarjeta, Texto, Titulo, Tocable } from "../../componentes";
 import { useCampo, useOrden } from "../../campo/contexto";
 import { avanceOrden, botonTrabajo, navegacionPaso, type MarcaPaso } from "../../campo/pasos";
 import { useTema } from "../../tema/tema";
@@ -79,12 +79,12 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
 
     return (
         <Pila espacio={14}>
-            <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "lista" })} estilo={estilos.volver}>
-                Mis órdenes
-            </Boton>
-            <View style={estilos.encabezado}>
-                <Titulo>{orden.numero}</Titulo>
-                <InsigniaOrden estado={orden.estado} />
+            <View style={estilos.encabezadoPaso}>
+                <BotonVolver etiqueta="Mis órdenes" alPresionar={() => navegar({ tipo: "lista" })} />
+                <View style={[estilos.flex, estilos.encabezado]}>
+                    <Titulo>{orden.numero}</Titulo>
+                    <InsigniaOrden estado={orden.estado} />
+                </View>
             </View>
             <Texto suave>
                 {TIPOS_ORDEN[orden.tipo]}
@@ -99,7 +99,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
                 </Aviso>
             ) : null}
             {trabajable ? (
-                <Boton icono={llego(orden) ? ListChecks : Play} alPresionar={() => navegar(trabajo.vista)}>
+                <Boton icono={llego(orden) ? ListChecks : Play} alPresionar={() => navegar(trabajo.vista)} estilo={estilos.pildora}>
                     {trabajo.texto}
                 </Boton>
             ) : null}
@@ -115,6 +115,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
 /** Un paso de trabajo: su contenido, el avance y «Anterior» / «Siguiente». Todo se guarda solo. */
 function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
     const { navegar } = useCampo();
+    const { campo, colores } = useTema();
     const acciones = accionesDe(orden);
     const nav = navegacionPaso(orden, paso);
     const estadoPaso = avanceOrden(orden).pasos.find((p) => p.paso === paso);
@@ -133,20 +134,22 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
 
     return (
         <Pila espacio={14}>
-            <Boton variante="fantasma" icono={ArrowLeft} alPresionar={() => navegar({ tipo: "orden", id: orden.id })} estilo={estilos.volver}>
-                {`Resumen de ${orden.numero}`}
-            </Boton>
-            <View style={estilos.encabezado}>
-                <Texto suave>
-                    <Texto mono suave>
-                        {orden.numero}
-                    </Texto>
-                    {` · ${nav.posicion}`}
-                </Texto>
-                <InsigniaOrden estado={orden.estado} />
+            <View style={estilos.encabezadoPaso}>
+                <BotonVolver etiqueta={`Resumen de ${orden.numero}`} alPresionar={() => navegar({ tipo: "orden", id: orden.id })} />
+                <View style={[estilos.flex, estilos.titulosPaso]}>
+                    <View style={estilos.encabezado}>
+                        <Texto suave>
+                            <Texto mono suave>
+                                {orden.numero}
+                            </Texto>
+                            {` · ${nav.posicion}`}
+                        </Texto>
+                        <InsigniaOrden estado={orden.estado} />
+                    </View>
+                    <Titulo>{TITULOS_PASO[paso]}</Titulo>
+                </View>
             </View>
             <View style={estilos.encabezado}>
-                <Titulo>{TITULOS_PASO[paso]}</Titulo>
                 {estadoPaso && paso !== "cierre" ? (
                     <Insignia
                         tono={estadoPaso.marca === "falta" ? "warning" : "success"}
@@ -195,15 +198,13 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
             {paso === "cierre" ? <PasoCierre orden={orden} /> : null}
 
             {paso !== "cierre" ? (
-                <View accessibilityLabel="Pasos" style={estilos.pie}>
-                    <View style={estilos.flex}>
-                        <Boton variante="secundario" icono={ArrowLeft} alPresionar={() => navegar(nav.anterior.vista)}>
-                            {nav.anterior.texto}
-                        </Boton>
-                    </View>
+                <View accessibilityLabel="Pasos" testID="barra-pasos" style={[estilos.pie, { backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}>
+                    <Boton variante="secundario" icono={ArrowLeft} alPresionar={() => navegar(nav.anterior.vista)} estilo={estilos.pildora}>
+                        {nav.anterior.texto}
+                    </Boton>
                     {nav.siguiente ? (
                         <View style={estilos.flex}>
-                            <Boton icono={ArrowRight} alPresionar={() => nav.siguiente && navegar(nav.siguiente.vista)}>
+                            <Boton icono={ArrowRight} alPresionar={() => nav.siguiente && navegar(nav.siguiente.vista)} estilo={estilos.pildora}>
                                 {nav.siguiente.texto}
                             </Boton>
                         </View>
@@ -223,31 +224,83 @@ const ICONO_MARCA: Record<MarcaPaso, LucideIcon> = {
     para_firmar: PenLine,
 };
 
+/** Botón redondo de 48 px para volver (al resumen o a «Mis órdenes»). */
+function BotonVolver({ etiqueta, alPresionar }: { etiqueta: string; alPresionar: () => void }) {
+    const { campo, colores } = useTema();
+    return <BotonRedondo icono={ArrowLeft} etiqueta={etiqueta} fondo={campo.panel} tinta={colores.texto} borde={colores.borde} alPresionar={alPresionar} />;
+}
+
+/** Texto corto de cada paso en los chips (el nombre accesible lleva el título completo). */
+const CORTO_PASO: Record<PasoOrden, string> = { llegada: "Llegada", checklist: "Checklist", materiales: "Materiales", fotos: "Fotos", cierre: "Firma" };
+
 /**
- * Avance de la orden: barra con los pasos listos y cada paso como botón (se puede volver a
- * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada.
+ * Avance de la orden: los pasos listos (barra por pasos) y cada paso como botón (se puede volver a
+ * cualquiera). «Firma del cliente y cierre» queda con candado hasta que no falte nada. En el resumen
+ * es una tarjeta con la lista; dentro de un paso, chips (listo en marca suave, el actual en tinta).
  */
 function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista; actual?: PasoOrden; compacto?: boolean }) {
     const { navegar } = useCampo();
-    const { colores, radio } = useTema();
+    const { campo, colores } = useTema();
     const avance = avanceOrden(orden);
-    const contenido = (
-        <>
+    const barra = (
+        <View
+            accessibilityRole="progressbar"
+            accessibilityLabel="Avance de la orden"
+            accessibilityValue={{ min: 0, max: avance.total, now: avance.listos, text: avance.texto }}
+            style={estilos.barra}
+        >
+            {Array.from({ length: avance.total }, (_, i) => (
+                <View key={i} style={[estilos.segmento, { backgroundColor: i < avance.listos ? colores.primario : campo.anillo }]} />
+            ))}
+        </View>
+    );
+    if (compacto) {
+        return (
+            <View style={estilos.progreso}>
+                <Fila entre>
+                    <Texto negrita>Avance</Texto>
+                    <Texto suave testID="avance-orden">
+                        {avance.texto}
+                    </Texto>
+                </Fila>
+                {barra}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={estilos.chips}>
+                    {avance.pasos.map((p) => {
+                        const Icono = ICONO_MARCA[p.marca];
+                        const esActual = actual === p.paso;
+                        const hecho = p.marca === "listo" || p.marca === "hecho" || p.marca === "opcional";
+                        const fondo = esActual ? campo.tinta : hecho ? campo.marcaSuave : campo.panel;
+                        const tinta = esActual ? campo.sobreTinta : hecho ? campo.marcaSuaveTexto : colores.textoSuave;
+                        return (
+                            <Tocable
+                                key={p.paso}
+                                etiqueta={p.etiqueta}
+                                seleccionado={esActual}
+                                testID={`chip-paso-${p.paso}`}
+                                alPresionar={() => navegar({ tipo: "orden", id: orden.id, paso: p.paso })}
+                                estilo={[estilos.chipPaso, { backgroundColor: fondo }, esActual || hecho ? null : { borderWidth: 1, borderColor: colores.borde }]}
+                            >
+                                {esActual ? null : <Icono size={16} color={tinta} />}
+                                <Text style={[estilos.textoChip, { color: tinta, fontWeight: esActual || hecho ? "600" : "500" }]}>
+                                    {esActual ? `${p.numero} · ${CORTO_PASO[p.paso]}` : CORTO_PASO[p.paso]}
+                                </Text>
+                            </Tocable>
+                        );
+                    })}
+                </ScrollView>
+            </View>
+        );
+    }
+    return (
+        <Tarjeta>
             <Fila entre>
-                <Texto negrita>{compacto ? "Avance" : "Trabajo en la orden"}</Texto>
+                <Texto negrita>Trabajo en la orden</Texto>
                 <Texto suave testID="avance-orden">
                     {avance.texto}
                 </Texto>
             </Fila>
-            <View
-                accessibilityRole="progressbar"
-                accessibilityLabel="Avance de la orden"
-                accessibilityValue={{ min: 0, max: avance.total, now: avance.listos, text: avance.texto }}
-                style={[estilos.barra, { backgroundColor: colores.fondoElevado }]}
-            >
-                <View style={[estilos.relleno, { backgroundColor: colores.primario, width: `${Math.round((avance.listos / avance.total) * 100)}%` }]} />
-            </View>
-            <View style={compacto ? estilos.pasosCompactos : estilos.pasos}>
+            {barra}
+            <View style={estilos.pasos}>
                 {avance.pasos.map((p) => {
                     const Icono = ICONO_MARCA[p.marca];
                     const esActual = actual === p.paso;
@@ -258,24 +311,17 @@ function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista;
                             etiqueta={p.etiqueta}
                             seleccionado={esActual}
                             alPresionar={() => navegar({ tipo: "orden", id: orden.id, paso: p.paso })}
-                            estilo={[compacto ? estilos.pasoCompacto : estilos.paso, { borderRadius: radio }, esActual ? { backgroundColor: colores.fondoTono.info } : null]}
+                            estilo={[estilos.paso, { borderRadius: 14 }]}
                         >
                             <Icono size={20} color={color} />
-                            {compacto ? (
-                                <Texto suave>{String(p.numero)}</Texto>
-                            ) : (
-                                <>
-                                    <Texto estilo={estilos.flex}>{p.titulo}</Texto>
-                                    <Texto suave>{p.detalle}</Texto>
-                                </>
-                            )}
+                            <Texto estilo={estilos.flex}>{p.titulo}</Texto>
+                            <Texto suave>{p.detalle}</Texto>
                         </Tocable>
                     );
                 })}
             </View>
-        </>
+        </Tarjeta>
     );
-    return compacto ? <View style={estilos.progreso}>{contenido}</View> : <Tarjeta>{contenido}</Tarjeta>;
 }
 
 function AvisosOrden({ orden }: { orden: OrdenVista }) {
@@ -455,13 +501,28 @@ const estilos = StyleSheet.create({
     flex: { flex: 1 },
     volver: { alignSelf: "flex-start", paddingHorizontal: 0 },
     encabezado: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+    encabezadoPaso: { flexDirection: "row", alignItems: "center", gap: 12 },
+    titulosPaso: { gap: 2 },
     fila: { flexDirection: "row", alignItems: "center", gap: 8 },
-    pie: { flexDirection: "row", gap: 8, paddingTop: 8 },
-    progreso: { gap: 8 },
-    barra: { height: 8, borderRadius: 999, overflow: "hidden" },
-    relleno: { height: "100%", borderRadius: 999 },
+    pie: {
+        flexDirection: "row",
+        gap: 8,
+        padding: 6,
+        marginTop: 8,
+        borderRadius: 999,
+        borderWidth: 1,
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
+    },
+    pildora: { minHeight: 54, borderRadius: 999 },
+    progreso: { gap: 10 },
+    barra: { flexDirection: "row", gap: 6 },
+    segmento: { flex: 1, height: 6, borderRadius: 999 },
+    chips: { gap: 6 },
+    chipPaso: { minHeight: 44, height: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 22 },
+    textoChip: { fontSize: 13 },
     pasos: { gap: 4 },
-    pasosCompactos: { flexDirection: "row", gap: 4 },
     paso: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8 },
-    pasoCompacto: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 2 },
 });

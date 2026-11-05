@@ -13,7 +13,10 @@ import type { EstadoRastreo, RastreoUbicacion } from "./ubicacion";
 /** Pantalla visible (las mismas vistas que la PWA). */
 export type { Vista };
 
-export type Notificacion = { tono: TonoEstado; texto: string };
+/** Acción del aviso que entra desde arriba («Deshacer», «Revisar»). */
+export type AccionNotificacion = { texto: string; alPresionar: () => void };
+
+export type Notificacion = { tono: TonoEstado; texto: string; accion?: AccionNotificacion };
 
 export interface ServiciosNativos {
     /** Cámara del sistema con compresión; `null` si se cancela. */
@@ -40,8 +43,12 @@ interface ContextoCampo {
     atras: () => boolean;
     notificacion: Notificacion | null;
     notificar: (n: Notificacion) => void;
-    /** Corre una acción del técnico y avisa «Guardado en el teléfono» o el error. Devuelve si se guardó. */
-    ejecutar: (accion: () => Promise<unknown>, guardado?: string) => Promise<boolean>;
+    cerrarNotificacion: () => void;
+    /**
+     * Corre una acción del técnico y avisa «Guardado en el teléfono» o el error. Devuelve si se
+     * guardó. `deshacer` (con lo que devolvió la acción) agrega «Deshacer» al aviso.
+     */
+    ejecutar: <T>(accion: () => Promise<T>, guardado?: string, opciones?: { deshacer?: (resultado: T) => () => void }) => Promise<boolean>;
     /** Miniaturas de las fotos tomadas en esta visita (uri por id de adjunto). */
     miniaturas: ReadonlyMap<string, string>;
     agregarMiniatura: (id: string, uri: string) => void;
@@ -140,14 +147,27 @@ export function ProveedorCampo({
         if (temporizador.current) {
             clearTimeout(temporizador.current);
         }
-        temporizador.current = setTimeout(() => setNotificacion(null), 5000);
+        // Con una acción («Deshacer», «Revisar») queda más tiempo: hay que alcanzar a tocarla.
+        temporizador.current = setTimeout(() => setNotificacion(null), n.accion ? 8000 : 5000);
+    }, []);
+
+    const cerrarNotificacion = useCallback(() => {
+        if (temporizador.current) {
+            clearTimeout(temporizador.current);
+        }
+        setNotificacion(null);
     }, []);
 
     const ejecutar = useCallback(
-        async (accion: () => Promise<unknown>, guardado = "Guardado en el teléfono") => {
+        async <T,>(accion: () => Promise<T>, guardado = "Guardado en el teléfono", opciones: { deshacer?: (resultado: T) => () => void } = {}) => {
             try {
-                await accion();
-                notificar({ tono: "success", texto: servicios.enLinea() ? `${guardado}. Enviando…` : `${guardado}. Se enviará al volver la señal.` });
+                const resultado = await accion();
+                const deshacer = opciones.deshacer?.(resultado);
+                notificar({
+                    tono: "success",
+                    texto: servicios.enLinea() ? `${guardado}. Enviando…` : `${guardado}. Se enviará al volver la señal.`,
+                    ...(deshacer ? { accion: { texto: "Deshacer", alPresionar: deshacer } } : {}),
+                });
                 return true;
             } catch (e) {
                 notificar({ tono: "error", texto: mensajeError(e) });
@@ -175,12 +195,13 @@ export function ProveedorCampo({
             atras,
             notificacion,
             notificar,
+            cerrarNotificacion,
             ejecutar,
             miniaturas,
             agregarMiniatura,
             cerrarSesion,
         }),
-        [motor, estado, posiciones, rastreo, estadoRastreo, sesion, servicios, vista, navegar, atras, notificacion, notificar, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
+        [motor, estado, posiciones, rastreo, estadoRastreo, sesion, servicios, vista, navegar, atras, notificacion, notificar, cerrarNotificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
