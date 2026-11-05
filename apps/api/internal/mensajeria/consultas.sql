@@ -181,8 +181,10 @@ SELECT id FROM mensajeria.entrantes WHERE procesado_en IS NULL AND created_at < 
 -- Webhooks hacia Argos -------------------------------------------------------------------------
 
 -- name: InsertarWebhookSalida :exec
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en)
-VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en)
+-- proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
+-- mismo reloj, y en las pruebas es fijo.
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
+VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento)
 ON CONFLICT (id) DO NOTHING;
 
 -- name: WebhooksPorEnviar :many
@@ -194,7 +196,7 @@ FOR UPDATE SKIP LOCKED;
 
 -- name: ReservarWebhook :exec
 -- Un despacho lo toma: nadie más lo intenta en los próximos 5 min (si el proceso cae, se retoma).
-UPDATE mensajeria.webhooks_salida SET proximo_intento = now() + interval '5 minutes', updated_at = now() WHERE id = @id;
+UPDATE mensajeria.webhooks_salida SET proximo_intento = @hasta, updated_at = now() WHERE id = @id;
 
 -- name: WebhooksVencidos :many
 SELECT id FROM mensajeria.webhooks_salida
