@@ -15,7 +15,7 @@ import type {
 import type { OperacionLocal } from "./modelo";
 
 /** Tipos que la API acepta como evidencia aunque la orden esté cancelada (§3). */
-export const TIPOS_EVIDENCIA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["nota.agregar", "adjunto.registrar"]);
+export const TIPOS_EVIDENCIA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["nota.agregar", "nota.editar", "nota.eliminar", "adjunto.registrar"]);
 
 /** Estado al que lleva cada operación que cambia el estado de la orden. */
 const TRANSICIONES: Partial<Record<TipoOperacion, EstadoOrden>> = {
@@ -246,9 +246,16 @@ export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCa
             if (notas.some((n) => n.id === op.id)) {
                 return orden;
             }
-            const nota = { id: op.id, texto: op.datos.texto, ocurridoEn: op.ocurridoEn, autorId: null, autorNombre: "", canal: "campo" };
+            const nota = { id: op.id, texto: op.datos.texto, ocurridoEn: op.ocurridoEn, autorId: null, autorNombre: "", canal: "campo", version: 1, editadaEn: null };
             return { ...orden, notas: [...notas, nota] };
         }
+        case "nota.editar": {
+            // Como el servidor: sube la versión de la nota (la siguiente edición la manda así).
+            const notas = (orden.notas ?? []).map((n) => (n.id === op.datos.notaId ? { ...n, texto: op.datos.texto, version: n.version + 1, editadaEn: op.ocurridoEn } : n));
+            return { ...orden, notas };
+        }
+        case "nota.eliminar":
+            return { ...orden, notas: (orden.notas ?? []).filter((n) => n.id !== op.datos.notaId) };
         case "material.usar": {
             const materiales = orden.materiales ?? [];
             if (materiales.some((m) => m.id === op.id)) {

@@ -85,6 +85,8 @@ export const TIPOS_OPERACION = [
     "orden.llegar",
     "checklist.marcar",
     "nota.agregar",
+    "nota.editar",
+    "nota.eliminar",
     "material.usar",
     "equipo.instalar",
     "equipo.retirar",
@@ -122,6 +124,9 @@ export interface DatosPorTipo {
     "orden.llegar": SinVersion<Schema<"EntradaPosicion">>;
     "checklist.marcar": SinVersion<Schema<"EntradaMarcarChecklist">> & { valor: ValorChecklist | null };
     "nota.agregar": SinVersion<Schema<"EntradaAgregarNota">>;
+    /** `versionNota`: la de la nota que ve el teléfono (con lo pendiente aplicado); 409 si cambió. */
+    "nota.editar": Schema<"EntradaEditarNotaCampo">;
+    "nota.eliminar": Schema<"EntradaEliminarNotaCampo">;
     /** Siempre de la bodega de la orden: el lote rechaza `bodegaId`. */
     "material.usar": Omit<Schema<"EntradaUsarMaterial">, "version" | "bodegaId">;
     "equipo.instalar": SinVersion<Schema<"EntradaEquipo">>;

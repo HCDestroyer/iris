@@ -649,7 +649,7 @@ export class MotorSync {
         const nueva = {
             ...sinEspera(op),
             id: this.generarId(),
-            datos: datos ?? op.datos,
+            datos: datos ?? conVersionNotaActual(op, orden?.base),
             versionBase: orden?.base.version ?? op.versionBase,
             estado: "pendiente",
             error: null,
@@ -1586,6 +1586,18 @@ export class MotorSync {
                 }
                 return;
             }
+            case "nota.editar":
+            case "nota.eliminar": {
+                const { notaId } = datos as DatosPorTipo["nota.eliminar"];
+                const nota = (vista.notas ?? []).find((n) => n.id === notaId);
+                if (!nota) {
+                    throw new ErrorSync("nota_desconocida", "Esa nota ya no está en la orden");
+                }
+                if (tipo === "nota.editar" && (datos as DatosPorTipo["nota.editar"]).texto.trim() === nota.texto.trim()) {
+                    throw new ErrorSync("sin_cambios", "La nota no cambió");
+                }
+                return;
+            }
             case "orden.reanudar":
                 if (vista.estado !== "pausada") {
                     throw new ErrorSync("orden_no_pausada", "La orden no está pausada");
@@ -1741,4 +1753,16 @@ export class MotorSync {
             desfaseMs: this.meta.desfaseMs,
         };
     }
+}
+
+/**
+ * «Rehacer» una edición o eliminación de nota rechazada por `conflicto_version`: el técnico ya vio
+ * cómo quedó en el servidor, así que va con la versión de la nota que tiene ahora la base.
+ */
+function conVersionNotaActual(op: OperacionLocal, base: OrdenCampo | undefined): OperacionLocal["datos"] {
+    if (op.tipo !== "nota.editar" && op.tipo !== "nota.eliminar") {
+        return op.datos;
+    }
+    const nota = (base?.notas ?? []).find((n) => n.id === op.datos.notaId);
+    return nota ? { ...op.datos, versionNota: nota.version } : op.datos;
 }

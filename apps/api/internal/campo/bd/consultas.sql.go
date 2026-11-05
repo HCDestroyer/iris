@@ -829,7 +829,7 @@ const crearNota = `-- name: CrearNota :one
 
 INSERT INTO campo.orden_notas (id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at
+RETURNING id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por
 `
 
 type CrearNotaParams struct {
@@ -867,6 +867,11 @@ func (q *Queries) CrearNota(ctx context.Context, arg CrearNotaParams) (CampoOrde
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Version,
+		&i.EditadaEn,
+		&i.EditadaPor,
+		&i.EliminadaEn,
+		&i.EliminadaPor,
 	)
 	return i, err
 }
@@ -1184,6 +1189,84 @@ func (q *Queries) DescartarDatosArgosOrden(ctx context.Context, arg DescartarDat
 		&i.DatosArgosCampos,
 		&i.Referencia,
 		&i.DatosArgosEntranteID,
+	)
+	return i, err
+}
+
+const editarNota = `-- name: EditarNota :one
+UPDATE campo.orden_notas
+SET texto = $1, version = version + 1, editada_en = $2, editada_por = $3, updated_at = now()
+WHERE id = $4
+RETURNING id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por
+`
+
+type EditarNotaParams struct {
+	Texto      string
+	EditadaEn  *time.Time
+	EditadaPor *int64
+	ID         uuid.UUID
+}
+
+func (q *Queries) EditarNota(ctx context.Context, arg EditarNotaParams) (CampoOrdenNota, error) {
+	row := q.db.QueryRow(ctx, editarNota,
+		arg.Texto,
+		arg.EditadaEn,
+		arg.EditadaPor,
+		arg.ID,
+	)
+	var i CampoOrdenNota
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Texto,
+		&i.AutorID,
+		&i.AutorNombre,
+		&i.Canal,
+		&i.OcurridoEn,
+		&i.OperacionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.EditadaEn,
+		&i.EditadaPor,
+		&i.EliminadaEn,
+		&i.EliminadaPor,
+	)
+	return i, err
+}
+
+const eliminarNota = `-- name: EliminarNota :one
+UPDATE campo.orden_notas
+SET eliminada_en = $1, eliminada_por = $2, version = version + 1, updated_at = now()
+WHERE id = $3
+RETURNING id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por
+`
+
+type EliminarNotaParams struct {
+	EliminadaEn  *time.Time
+	EliminadaPor *int64
+	ID           uuid.UUID
+}
+
+func (q *Queries) EliminarNota(ctx context.Context, arg EliminarNotaParams) (CampoOrdenNota, error) {
+	row := q.db.QueryRow(ctx, eliminarNota, arg.EliminadaEn, arg.EliminadaPor, arg.ID)
+	var i CampoOrdenNota
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Texto,
+		&i.AutorID,
+		&i.AutorNombre,
+		&i.Canal,
+		&i.OcurridoEn,
+		&i.OperacionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.EditadaEn,
+		&i.EditadaPor,
+		&i.EliminadaEn,
+		&i.EliminadaPor,
 	)
 	return i, err
 }
@@ -2459,8 +2542,40 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 	return items, nil
 }
 
+const notaParaActualizar = `-- name: NotaParaActualizar :one
+SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por FROM campo.orden_notas WHERE id = $1 AND orden_id = $2 FOR UPDATE
+`
+
+type NotaParaActualizarParams struct {
+	ID      uuid.UUID
+	OrdenID int64
+}
+
+func (q *Queries) NotaParaActualizar(ctx context.Context, arg NotaParaActualizarParams) (CampoOrdenNota, error) {
+	row := q.db.QueryRow(ctx, notaParaActualizar, arg.ID, arg.OrdenID)
+	var i CampoOrdenNota
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Texto,
+		&i.AutorID,
+		&i.AutorNombre,
+		&i.Canal,
+		&i.OcurridoEn,
+		&i.OperacionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.EditadaEn,
+		&i.EditadaPor,
+		&i.EliminadaEn,
+		&i.EliminadaPor,
+	)
+	return i, err
+}
+
 const notaPorID = `-- name: NotaPorID :one
-SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_notas WHERE id = $1
+SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por FROM campo.orden_notas WHERE id = $1
 `
 
 func (q *Queries) NotaPorID(ctx context.Context, id uuid.UUID) (CampoOrdenNota, error) {
@@ -2477,14 +2592,22 @@ func (q *Queries) NotaPorID(ctx context.Context, id uuid.UUID) (CampoOrdenNota, 
 		&i.OperacionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Version,
+		&i.EditadaEn,
+		&i.EditadaPor,
+		&i.EliminadaEn,
+		&i.EliminadaPor,
 	)
 	return i, err
 }
 
 const notasDeOrdenes = `-- name: NotasDeOrdenes :many
-SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at FROM campo.orden_notas WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, texto, autor_id, autor_nombre, canal, ocurrido_en, operacion_id, created_at, updated_at, version, editada_en, editada_por, eliminada_en, eliminada_por FROM campo.orden_notas
+WHERE orden_id = ANY($1::bigint[]) AND eliminada_en IS NULL
+ORDER BY orden_id, ocurrido_en, created_at
 `
 
+// Las eliminadas no salen de la orden (quedan la fila y su auditoría).
 func (q *Queries) NotasDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenNota, error) {
 	rows, err := q.db.Query(ctx, notasDeOrdenes, ordenes)
 	if err != nil {
@@ -2505,6 +2628,11 @@ func (q *Queries) NotasDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoO
 			&i.OperacionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Version,
+			&i.EditadaEn,
+			&i.EditadaPor,
+			&i.EliminadaEn,
+			&i.EliminadaPor,
 		); err != nil {
 			return nil, err
 		}

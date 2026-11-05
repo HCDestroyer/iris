@@ -158,8 +158,10 @@ type NotaOrden struct {
 	Texto       string    `json:"texto"`
 	AutorID     *int64    `json:"autorId" nullable:"true"`
 	AutorNombre string    `json:"autorNombre"`
-	Canal       string    `json:"canal"`
-	OcurridoEn  time.Time `json:"ocurridoEn"`
+	Canal       string     `json:"canal"`
+	OcurridoEn  time.Time  `json:"ocurridoEn"`
+	Version     int32      `json:"version" doc:"Para editarla o eliminarla (409 si cambió)"`
+	EditadaEn   *time.Time `json:"editadaEn" nullable:"true" doc:"Última edición (null si nunca se editó)"`
 }
 
 // MaterialOrden: material usado (producto de Argos).

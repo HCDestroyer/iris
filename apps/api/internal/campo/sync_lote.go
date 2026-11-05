@@ -31,7 +31,7 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir"`
 	OrdenID     int64          `json:"ordenId,omitempty" minimum:"1" doc:"Obligatorio salvo en traslado.recibir (no es de una orden)"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
@@ -380,7 +380,7 @@ func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
 	esquemasUna.Do(func() {
 		registroDatos = huma.NewMapRegistry("#/components/schemas/", huma.DefaultSchemaNamer)
 		esquemasDatos = map[reflect.Type]*huma.Schema{}
-		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaUsarMaterial{},
+		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaEditarNotaCampo{}, EntradaEliminarNotaCampo{}, EntradaUsarMaterial{},
 			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{},
 			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{},
 			inventario.EntradaRecibirTraslado{}} {
@@ -459,6 +459,18 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 		}
 		e.ID, e.Version, e.Sync = op.OrdenID, nil, s
 		return m.AgregarNota.Ejecutar(ctx, e)
+	case OpNotaEditar:
+		d, err := datosDe[EntradaEditarNotaCampo](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		return m.EditarNota.Ejecutar(ctx, EntradaEditarNota{ID: op.OrdenID, NotaID: d.NotaID, Version: d.VersionNota, Texto: d.Texto, Sync: s})
+	case OpNotaEliminar:
+		d, err := datosDe[EntradaEliminarNotaCampo](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		return m.EliminarNota.Ejecutar(ctx, EntradaEliminarNota{ID: op.OrdenID, NotaID: d.NotaID, Version: d.VersionNota, Sync: s})
 	case OpMaterialUsar:
 		e, err := datosDe[EntradaUsarMaterial](op)
 		if err != nil {
