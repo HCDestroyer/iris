@@ -16,6 +16,8 @@ export const viewport: Viewport = {
     width: "device-width",
     initialScale: 1,
     viewportFit: "cover",
+    // Con el teclado abierto la ventana se encoge (Chrome): lo fijo abajo (hojas, isla) queda encima.
+    interactiveWidget: "resizes-content",
     themeColor: [
         { media: "(prefers-color-scheme: light)", color: "#ffffff" },
         { media: "(prefers-color-scheme: dark)", color: "#0b1014" },

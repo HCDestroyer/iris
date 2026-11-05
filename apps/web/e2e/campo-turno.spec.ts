@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, problema, simularApiCampo, type ApiCampo } from "./api-campo";
-import { empezarTrabajo, irAPaso } from "./ayudas-campo";
+import { avisoCampo, empezarTrabajo, irAPaso } from "./ayudas-campo";
 import { ordenesDelDia, TECNICO } from "./datos-campo";
 
 /*
@@ -29,7 +29,7 @@ function turnoDe(tramos: { inicio: string; fin: string }[]): Schema<"TurnoCampo"
 const diaPartido = (fecha: string) => turnoDe([tramo(GT("08:00", fecha), GT("12:00", fecha)), tramo(GT("13:00", fecha), GT("17:00", fecha))]);
 
 const indicador = (page: Page) => page.getByTestId("indicador-ubicacion");
-const notificacion = (page: Page) => page.locator('[data-slot="notificacion"]');
+const notificacion = (page: Page) => avisoCampo(page);
 const puntosEnviados = (api: ApiCampo) => api.posiciones.flatMap((l) => l.puntos ?? []);
 
 /** Permiso dado y explicación aceptada en una visita anterior (así el turno puede encenderse solo). */

@@ -1,11 +1,10 @@
 "use client";
 
 import type { OrdenVista } from "@iris/sync";
-import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, siguientePaso, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
+import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, puedeReanudar, siguientePaso, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
 import {
     ArrowLeft,
-    ArrowRight,
     CircleCheck,
     CircleDashed,
     FileQuestion,
@@ -63,7 +62,7 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
 
 /** Resumen: cliente, avisos, pausa, avance y «Empezar trabajo» (o «Continuar trabajo»). */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {
-    const { navegar } = useCampo();
+    const { navegar, sesion } = useCampo();
     const acciones = accionesDe(orden);
     const inicio = orden.cita?.inicio ?? orden.programadaInicio;
     const fin = orden.cita?.fin ?? orden.programadaFin;
@@ -103,7 +102,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
                     {empezado ? "Continuar trabajo" : "Empezar trabajo"}
                 </Boton>
             ) : null}
-            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+            <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} puedeReanudar={puedeReanudar(sesion.permisos)} />
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} />
@@ -112,13 +111,15 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
     );
 }
 
-/** Un paso de trabajo: su contenido, el avance y «Anterior» / «Siguiente». Todo se guarda solo. */
+/**
+ * Un paso de trabajo: su contenido y el avance. «Anterior», «Guardar» y «Siguiente» van en la isla
+ * de pasos (`IslaPasos`). Con la orden en pausa, todo de solo lectura con el aviso «Orden en pausa»
+ * y «Reanudar» arriba.
+ */
 function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
-    const { navegar } = useCampo();
+    const { navegar, sesion } = useCampo();
     const acciones = accionesDe(orden);
     const indice = PASOS_ORDEN.indexOf(paso);
-    const anterior = PASOS_ORDEN[indice - 1];
-    const siguiente = PASOS_ORDEN[indice + 1];
     const estado = estadoPasos(orden).find((p) => p.paso === paso);
     const sinLlegar = !acciones.trabajo && !llego(orden);
     const irALlegada = sinLlegar ? (
@@ -158,6 +159,7 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
                     </div>
                 </div>
             </header>
+            {acciones.enPausa ? <PausaOrden orden={orden} pausar={false} reanudar puedeReanudar={puedeReanudar(sesion.permisos)} enPasos /> : null}
             <ProgresoOrden orden={orden} actual={paso} compacto />
             <AvisosOrden orden={orden} />
 
@@ -174,13 +176,13 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
                         </Aviso>
                     ) : null}
                     {acciones.iniciarCamino || acciones.llegar ? <AccionesEstado orden={orden} camino={acciones.iniciarCamino} llegar={acciones.llegar} /> : null}
-                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={acciones.reanudar} />
+                    <PausaOrden orden={orden} pausar={acciones.pausar} reanudar={false} />
                 </>
             ) : null}
             {paso === "checklist" ? (
                 <>
                     {irALlegada}
-                    {acciones.trabajo || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
+                    {acciones.trabajo || acciones.enPausa || acciones.agregarFormulario || (orden.checklist ?? []).some((i) => i.valor !== null) ? (
                         <Checklist orden={orden} editable={acciones.trabajo} agregar={acciones.agregarFormulario} />
                     ) : null}
                 </>
@@ -188,39 +190,14 @@ function PasoDeOrden({ orden, paso }: { orden: OrdenVista; paso: PasoOrden }) {
             {paso === "materiales" ? (
                 <>
                     {irALlegada}
-                    {acciones.trabajo || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
+                    {acciones.trabajo || acciones.enPausa || (orden.materiales ?? []).length > 0 ? <Materiales orden={orden} editable={acciones.trabajo} /> : null}
                     <Equipos orden={orden} instalar={acciones.instalar} retirar={acciones.retirar} />
                     <Comodato orden={orden} />
                 </>
             ) : null}
-            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} /> : <p className="text-sm text-muted-foreground">Esta orden ya no admite fotos.</p> : null}
+            {paso === "fotos" ? acciones.notas ? <FotosOrden orden={orden} editable={!acciones.enPausa} /> : <p className="text-sm text-muted-foreground">Esta orden ya no admite fotos.</p> : null}
             {paso === "cierre" ? <PasoCierre orden={orden} /> : null}
 
-            {paso !== "cierre" ? (
-                <nav
-                    aria-label="Pasos"
-                    data-slot="barra-pasos"
-                    className="fixed inset-x-3.5 bottom-[calc(1.75rem+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[calc(42rem-1.75rem)] gap-2 rounded-full border border-border bg-[var(--campo-isla)] p-1.5 shadow-[var(--campo-sombra-isla)]"
-                >
-                    {anterior ? (
-                        <Boton variante="secundario" tamano="lg" className="h-[3.375rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] px-5 shadow-none" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: anterior })}>
-                            <ArrowLeft aria-hidden />
-                            Anterior
-                        </Boton>
-                    ) : (
-                        <Boton variante="secundario" tamano="lg" className="h-[3.375rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] px-5 shadow-none" onClick={() => navegar({ tipo: "orden", id: orden.id })}>
-                            <ArrowLeft aria-hidden />
-                            Resumen
-                        </Boton>
-                    )}
-                    {siguiente ? (
-                        <Boton tamano="lg" className="h-auto min-h-[3.375rem] flex-1 rounded-full py-1.5 whitespace-normal" onClick={() => navegar({ tipo: "orden", id: orden.id, paso: siguiente })}>
-                            {siguiente === "cierre" ? "Firma y cierre" : `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`}
-                            <ArrowRight aria-hidden />
-                        </Boton>
-                    ) : null}
-                </nav>
-            ) : null}
         </article>
     );
 }

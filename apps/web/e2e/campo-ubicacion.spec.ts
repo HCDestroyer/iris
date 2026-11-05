@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { empezarTrabajo, irAPaso, pestanaCampo } from "./ayudas-campo";
+import { avisoCampo, empezarTrabajo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { ordenesDelDia } from "./datos-campo";
 
 /*
@@ -185,7 +185,7 @@ test.describe("en el teléfono", () => {
         await expect(explicacion).toContainText("Fuera de turno no se registra nada");
         expect(api.intentosPosiciones).toHaveLength(0);
         await explicacion.getByRole("button", { name: "Permitir ubicación" }).click();
-        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno iniciado: se envía tu ubicación cada minuto");
+        await expect(avisoCampo(page)).toContainText("Turno iniciado: se envía tu ubicación cada minuto");
         await expect(indicador(page)).toHaveText("Ubicación activa");
         await expect.poll(() => puntosEnviados(api).length).toBe(1);
         expect(api.lotes.flatMap((l) => l.operaciones ?? [])[0]?.datos).toMatchObject({ lat: 14.6407, lon: -90.5133 });
@@ -196,7 +196,7 @@ test.describe("en el teléfono", () => {
         await page.keyboard.press("Escape");
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await page.getByRole("button", { name: "Llegué" }).click();
-        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Llegada registrada con ubicación. Turno iniciado: se envía tu ubicación cada minuto");
+        await expect(avisoCampo(page)).toContainText("Llegada registrada con ubicación. Turno iniciado: se envía tu ubicación cada minuto");
         await expect(explicacion).toHaveCount(0);
         await expect(indicador(page)).toHaveText("Ubicación activa");
     });
@@ -220,7 +220,7 @@ test.describe("en el teléfono", () => {
         await page.getByRole("radiogroup", { name: "Señal restablecida" }).getByRole("radio", { name: "Sí" }).click();
         await irAPaso(page, "Firma del cliente y cierre");
         await page.getByRole("button", { name: /^(Firmar y cerrar orden|Cerrar orden)$/ }).click();
-        await expect(page.locator('[data-slot="notificacion"]')).toContainText("Turno terminado: no tienes órdenes en curso");
+        await expect(avisoCampo(page)).toContainText("Turno terminado: no tienes órdenes en curso");
         await expect(indicador(page)).toHaveText("Fuera de turno");
         await expect.poll(() => api.ordenes.get(102)?.estado, { timeout: 15_000 }).toBe("cerrada");
 

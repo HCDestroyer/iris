@@ -83,8 +83,8 @@ export function Miniatura({ id, alt }: { id: string; alt: string }) {
     );
 }
 
-/** Fotos sueltas de la orden (evidencia), también en una orden cancelada. */
-export function FotosOrden({ orden }: { orden: OrdenVista }) {
+/** Fotos sueltas de la orden (evidencia), también en una orden cancelada; `editable` en falso (en pausa) solo las muestra. */
+export function FotosOrden({ orden, editable = true }: { orden: OrdenVista; editable?: boolean }) {
     const { estado } = useCampo();
     const { tomar, procesando } = useTomarFoto();
     const delItem = new Set((orden.checklist ?? []).map((i) => String(i.valor)));
@@ -108,14 +108,16 @@ export function FotosOrden({ orden }: { orden: OrdenVista }) {
                 ) : (
                     <p className="text-sm text-muted-foreground">Sin fotos todavía.</p>
                 )}
-                <Camara
-                    disabled={procesando}
-                    aria-label="Agregar foto de la orden"
-                    alElegir={(archivo) => void tomar(archivo, { ordenId: orden.id })}
-                    className="w-full"
-                >
-                    {procesando ? "Procesando foto…" : "Agregar foto"}
-                </Camara>
+                {editable ? (
+                    <Camara
+                        disabled={procesando}
+                        aria-label="Agregar foto de la orden"
+                        alElegir={(archivo) => void tomar(archivo, { ordenId: orden.id })}
+                        className="w-full"
+                    >
+                        {procesando ? "Procesando foto…" : "Agregar foto"}
+                    </Camara>
+                ) : null}
             </TarjetaContenido>
         </Tarjeta>
     );

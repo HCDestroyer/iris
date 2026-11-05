@@ -9,8 +9,6 @@ import {
     Campo,
     CampoArea,
     CampoSelector,
-    Dialogo,
-    DialogoContenido,
     DialogoPie,
     GrupoSegmentado,
     InsigniaEstado,
@@ -32,6 +30,7 @@ import { esquemaFallar, esquemaFirma, type DatosFallar, type DatosFirma } from "
 import { accionesDe } from "@/lib/campo/reglas";
 import { MOTIVOS_FALLA } from "@/lib/campo/textos";
 import { useCampo } from "./contexto";
+import { HojaCampo } from "./hoja";
 import { useUbicacion } from "./ubicacion";
 
 /** GPS del cierre o de la falla si el permiso ya está dado (no pregunta dentro del diálogo). */
@@ -283,12 +282,23 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
         }
     });
     return (
-        <Dialogo open={abierto} onOpenChange={setAbierto}>
+        <>
             <Boton variante="secundario" tamano="lg" className="w-full" onClick={() => setAbierto(true)}>
                 <CircleX aria-hidden />
                 No se pudo
             </Boton>
-            <DialogoContenido titulo={`No se pudo hacer ${orden.numero}`} descripcion="Indica el motivo; despacho la reprogramará.">
+            <HojaCampo
+                abierto={abierto}
+                alCambiar={(a) => {
+                    setAbierto(a);
+                    if (!a) {
+                        form.reset();
+                    }
+                }}
+                cambios={form.formState.isDirty}
+                titulo={`No se pudo hacer ${orden.numero}`}
+                descripcion="Indica el motivo; despacho la reprogramará."
+            >
                 <form onSubmit={enviar} className="grid gap-3" noValidate>
                     <CampoSelector etiqueta="Motivo" error={form.formState.errors.motivoFalla?.message} {...form.register("motivoFalla")}>
                         <option value="">Elige el motivo</option>
@@ -300,15 +310,12 @@ export function FallarOrden({ orden }: { orden: OrdenVista }) {
                     </CampoSelector>
                     <CampoArea etiqueta="Detalle" rows={3} error={form.formState.errors.detalle?.message} {...form.register("detalle")} />
                     <DialogoPie>
-                        <Boton tamano="lg" variante="fantasma" onClick={() => setAbierto(false)}>
-                            Volver
-                        </Boton>
                         <Boton tamano="lg" type="submit" disabled={form.formState.isSubmitting}>
                             Confirmar
                         </Boton>
                     </DialogoPie>
                 </form>
-            </DialogoContenido>
-        </Dialogo>
+            </HojaCampo>
+        </>
     );
 }

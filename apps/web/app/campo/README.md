@@ -62,6 +62,18 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
       (claro `#0f766e`, oscuro `#2dd4bf`), claro y oscuro según el teléfono.
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
+  En los pasos, la **isla de pasos** (`IslaPasos` en `_componentes/isla.tsx`, la misma píldora que la
+  de menú): «Anterior» · **un solo «Guardar»** · «Siguiente». Cada cambio entra a la cola al hacerlo
+  (texto y números, al salir del campo); «Guardar» guarda lo escrito y todavía sin guardar de todo el
+  paso, con su contador, y dice qué pasó (`RegistroBorradores` y `avisoGuardado` de
+  `@iris/sync/campo`, `_componentes/borradores.tsx`). Sin botón «Guardar» por campo.
+- **Encabezado, avisos y hojas:** franja sólida bajo la barra de estado (`FranjaSuperior`) y barra
+  compacta sólida que solo se desliza (nunca cambia de opacidad). Los avisos son el `Toast` de HeroUI
+  (`avisar` de `@iris/ui`, arriba, uno a la vez). Las hojas (`HojaCampo`, `_componentes/hoja.tsx`)
+  tienen «X» de 44 px, Escape y **«Atrás» del navegador** (`useAtrasCierraHoja`: una entrada de
+  historial mientras están abiertas); con cambios preguntan «¿Descartar los cambios?». Con el teclado
+  abierto quedan por encima (`interactive-widget=resizes-content` y el `Modal` de HeroUI, que mide
+  la ventana visible con `visualViewport`). «Buscar orden» filtra en vivo (`ESPERA_BUSQUEDA_MS`).
 - **Por recibir y Mi bodega:** traslados de Argos (`GET /campo/inventario/traslados?estado=enviado`)
   con recepción firmada por el técnico (`traslado.recibir` en la cola) y la bodega del técnico
   (`GET /campo/inventario/mi-bodega`), solo con señal y en memoria mientras la app está abierta.

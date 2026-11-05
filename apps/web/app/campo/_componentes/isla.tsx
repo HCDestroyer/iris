@@ -1,12 +1,14 @@
 "use client";
 
 import type { PlantillaFormulario } from "@iris/sync";
-import { accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, urlDeVista, type Pestana } from "@iris/sync/campo";
-import { Boton, Dialogo, DialogoContenido, GrupoOpciones, InsigniaEstado, cn, type Tono } from "@iris/ui";
-import { CalendarClock, CalendarDays, CloudUpload, Building2, FilePlus2, House, KeyRound, PackageOpen, Plus, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
+import { accionesDe, accionesRapidas, avisoIsla, contadoresPestanas, nombreCliente, pestanaDe, PESTANAS, TITULOS_PASO, urlDeVista, vecinosPaso, type PasoOrden, type Pestana, type Vista } from "@iris/sync/campo";
+import { Boton, GrupoOpciones, InsigniaEstado, cn, type Tono } from "@iris/ui";
+import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, CloudUpload, Building2, FilePlus2, House, KeyRound, PackageOpen, Plus, Save, TriangleAlert, UserRound, WifiOff, type LucideIcon } from "lucide-react";
 import { useMemo, useState, type MouseEvent } from "react";
 import { RUTA_ENTRAR } from "./app-campo";
-import { useCampo } from "./contexto";
+import { useGuardarPaso, useSinGuardar } from "./borradores";
+import { useCampo, useOrden } from "./contexto";
+import { HojaCampo } from "./hoja";
 import { useInventario } from "./inventario-datos";
 
 const ICONOS: Record<Pestana, LucideIcon> = { hoy: House, recibir: PackageOpen, agenda: CalendarDays, yo: UserRound };
@@ -88,6 +90,65 @@ export function IslaMenu({ encogida }: { encogida: boolean }) {
             {/* Se monta al abrir: cada vez empieza sin elegir (con una sola orden, ya elegida). */}
             {acciones ? <HojaAcciones alCambiar={setAcciones} /> : null}
         </>
+    );
+}
+
+/**
+ * Isla de los pasos de la orden: la misma píldora que la isla de menú, con «Anterior» y «Siguiente»
+ * redondos y un solo botón primario «Guardar» al centro, que guarda lo escrito y todavía sin guardar
+ * de todo el paso (con su contador) y avisa qué pasó. Lo demás ya se guardó al hacerlo. Pasar de
+ * paso también guarda primero (si algo no valida, se queda y lo dice). Con la orden en pausa,
+ * «Guardar» está deshabilitado: no hay trabajo que registrar.
+ */
+export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden; encogida: boolean }) {
+    const { navegar } = useCampo();
+    const orden = useOrden(id);
+    const { guardar, guardando } = useGuardarPaso();
+    const sinGuardar = useSinGuardar();
+    if (!orden) {
+        return null;
+    }
+    const { anterior, siguiente } = vecinosPaso(paso);
+    const vistaAnterior: Vista = anterior ? { tipo: "orden", id, paso: anterior } : { tipo: "orden", id };
+    const textoAnterior = anterior ? "Anterior" : "Resumen";
+    const textoSiguiente = siguiente ? (siguiente === "cierre" ? "Firma y cierre" : `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`) : null;
+    const enPausa = accionesDe(orden).enPausa;
+    const ir = async (vista: Vista) => {
+        if (await guardar({ silencioso: true })) {
+            navegar(vista);
+        }
+    };
+    const redondo = cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "bg-[var(--campo-panel-2)] p-0 text-foreground shadow-none [&_svg]:size-6", encogida ? "md:size-11" : "md:size-[3.375rem]");
+    return (
+        <nav
+            aria-label="Pasos"
+            data-slot="barra-pasos"
+            data-encogida={encogida ? "true" : undefined}
+            className={cn(
+                "campo-suave fixed bottom-[calc(1.75rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-[var(--campo-isla)] p-1.5 shadow-[var(--campo-sombra-isla)]",
+                encogida && "bottom-[calc(1rem+env(safe-area-inset-bottom))] gap-1 p-1",
+            )}
+        >
+            <Boton variante="secundario" aria-label={textoAnterior} title={textoAnterior} className={redondo} onClick={() => void ir(vistaAnterior)}>
+                <ArrowLeft aria-hidden />
+            </Boton>
+            <Boton
+                tamano="lg"
+                data-slot="guardar-paso"
+                disabled={enPausa || guardando}
+                aria-label={sinGuardar > 0 ? `Guardar (${sinGuardar} sin guardar)` : "Guardar"}
+                className={cn("min-w-[9.5rem] rounded-full px-6 text-base shadow-none", encogida ? "h-11" : "h-[3.375rem]")}
+                onClick={() => void guardar()}
+            >
+                <Save aria-hidden />
+                {sinGuardar > 0 ? `Guardar · ${sinGuardar}` : "Guardar"}
+            </Boton>
+            {siguiente && textoSiguiente ? (
+                <Boton variante="secundario" aria-label={textoSiguiente} title={textoSiguiente} className={redondo} onClick={() => void ir({ tipo: "orden", id, paso: siguiente })}>
+                    <ArrowRight aria-hidden />
+                </Boton>
+            ) : null}
+        </nav>
     );
 }
 
@@ -188,8 +249,7 @@ function HojaAcciones({ alCambiar }: { alCambiar: (abierta: boolean) => void }) 
     };
 
     return (
-        <Dialogo open onOpenChange={alCambiar}>
-            <DialogoContenido titulo="Acciones rápidas" className="campo-hoja rounded-t-[2rem] sm:rounded-[2rem]">
+        <HojaCampo abierto alCambiar={alCambiar} titulo="Acciones rápidas" cambios={plantillaId !== "" && !ocupado} className="rounded-t-[2rem] sm:rounded-[2rem]">
                 <div className="grid gap-3" data-slot="hoja-acciones">
                     {r.formulario ? (
                         <section aria-labelledby="titulo-agregar-formulario" className="grid gap-3 rounded-[1.375rem] bg-[var(--campo-panel-2)] p-3">
@@ -205,7 +265,7 @@ function HojaAcciones({ alCambiar }: { alCambiar: (abierta: boolean) => void }) 
                                 </div>
                             </div>
                             {ordenes.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">Ninguna orden en camino, en sitio o pausada: empieza una para agregarle un formulario.</p>
+                                <p className="text-sm text-muted-foreground">Ninguna orden en camino o en sitio: empieza una (o reanuda la pausada) para agregarle un formulario.</p>
                             ) : (
                                 <>
                                     {ordenes.length > 1 ? (
@@ -255,7 +315,6 @@ function HojaAcciones({ alCambiar }: { alCambiar: (abierta: boolean) => void }) 
                         <InsigniaEstado tono="neutral" icono={CalendarClock} texto={r.tarea.motivo} />
                     </div>
                 </div>
-            </DialogoContenido>
-        </Dialogo>
+        </HojaCampo>
     );
 }
