@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { simularAccesos } from "./api-accesos";
 import { ADMIN, CONSULTA, CONTRASENA, conSesion, simularApi, SOPORTE } from "./api-falsa";
 import { irA, pestana } from "./ayudas";
+import { abrirOpciones, cerrarOpciones, elegirOpcion, escribirFecha, esperarOpcion } from "./controles";
 
 // Pedido 10 del PM: Administración → Accesos, Actividad de la app y Roles; y en el usuario, sus
 // roles con alcance, sesiones activas y accesos recientes. En escritorio y teléfono, claro y oscuro.
@@ -61,14 +62,14 @@ test.describe("accesos, actividad de la app y roles", () => {
 
         // Rango al revés: no se aplica y se dice por qué.
         const filtros = page.getByRole("form", { name: "Filtros del historial" });
-        await filtros.getByLabel("Desde").fill("2026-10-30");
-        await filtros.getByLabel("Hasta").fill("2026-10-29");
+        await escribirFecha(filtros, "Desde", "2026-10-30");
+        await escribirFecha(filtros, "Hasta", "2026-10-29");
         await filtros.getByRole("button", { name: "Aplicar filtros" }).click();
         await expect(filtros.getByText("«Hasta» debe ser igual o posterior a «Desde»")).toBeVisible();
 
         await filtros.getByRole("button", { name: "Limpiar" }).click();
-        await filtros.getByLabel("Usuario").selectOption({ label: SOPORTE.nombre });
-        await filtros.getByLabel("Resultado").selectOption({ label: "Código MFA fallido" });
+        await elegirOpcion(filtros.getByLabel("Usuario"), { label: SOPORTE.nombre });
+        await elegirOpcion(filtros.getByLabel("Resultado"), { label: "Código MFA fallido" });
         await filtros.getByRole("button", { name: "Aplicar filtros" }).click();
         await expect(lista.locator("[data-acceso]")).toHaveCount(1);
         await expect(page.locator('[data-acceso="55"]')).toContainText("Código MFA fallido");
@@ -185,12 +186,15 @@ test.describe("accesos, actividad de la app y roles", () => {
         await expect(boton).toBeDisabled();
         await expect(asignar.getByText("Elige un rol para poder asignarlo.")).toBeVisible();
         // Solo los roles activos.
-        await expect(asignar.getByLabel("Rol").locator("option", { hasText: "Temporada alta" })).toHaveCount(0);
-        await asignar.getByLabel("Rol").selectOption({ label: "Mesa de ayuda" });
+        const activos = await abrirOpciones(asignar.getByLabel("Rol"));
+        await expect(activos.getByRole("option", { name: "Mesa de ayuda" })).toBeVisible();
+        await expect(activos.getByRole("option", { name: /Temporada alta/ })).toHaveCount(0);
+        await cerrarOpciones(page);
+        await elegirOpcion(asignar.getByLabel("Rol"), { label: "Mesa de ayuda" });
         await asignar.getByRole("radio", { name: "Una zona" }).click();
         await expect(boton).toBeDisabled();
         await expect(asignar.getByText("Elige la zona del alcance.")).toBeVisible();
-        await asignar.getByLabel("Zona").selectOption({ label: "Mixco" });
+        await elegirOpcion(asignar.getByLabel("Zona"), { label: "Mixco" });
         await expect(boton).toBeEnabled();
         await boton.click();
         await expect(roles.locator('[data-asignacion="mesa_ayuda:5:0"]')).toContainText("Zona Mixco");
@@ -224,6 +228,6 @@ test.describe("accesos, actividad de la app y roles", () => {
         await page.screenshot({ path: path.join(carpeta, `usuario-accesos-${info.project.name}.png`), fullPage: true });
         await accesos.getByRole("link", { name: "Ver todo el historial" }).click();
         await expect(page).toHaveURL(new RegExp(`/administracion/accesos\\?usuarioId=${CONSULTA.id}$`));
-        await expect(page.getByRole("form", { name: "Filtros del historial" }).getByLabel("Usuario")).toHaveValue(String(CONSULTA.id));
+        await esperarOpcion(page.getByRole("form", { name: "Filtros del historial" }).getByLabel("Usuario"), String(CONSULTA.id));
     });
 });

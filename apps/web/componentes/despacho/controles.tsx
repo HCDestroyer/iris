@@ -1,6 +1,6 @@
 "use client";
 
-import { Boton, Campo, CampoSelector } from "@iris/ui";
+import { Boton, CampoFecha, CampoSelector } from "@iris/ui";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { sumarMeses } from "@/lib/agenda/mes";
 import type { Lectura } from "@/lib/lectura";
@@ -25,10 +25,9 @@ export function NavegacionDias({ dia, paso, alCambiar }: { dia: Dia; paso: 1 | 7
                     <ChevronRight />
                 </Boton>
             </div>
-            <Campo
+            <CampoFecha
                 etiqueta="Fecha"
-                type="date"
-                className="w-40"
+                className="w-44"
                 value={dia}
                 onChange={(e) => {
                     if (esDia(e.target.value)) alCambiar(e.target.value);

@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
 import { avisoCampo, guardarPaso } from "./ayudas-campo";
 import { ordenesDelDia, PERMISOS_TECNICO, TECNICO } from "./datos-campo";
+import { elegirOpcion } from "./controles";
 
 /*
  * Reporte del PM sobre la app «combinada» (0.12.0), en la PWA, en teléfono y escritorio, claro y
@@ -192,7 +193,7 @@ test("hojas: «X», Escape y «Atrás» del navegador las cierran; con cambios, 
 
     // Con un motivo elegido: «Atrás» pregunta; «Seguir editando» se queda; la «X» pregunta y «Descartar» cierra.
     await page.getByRole("button", { name: "Pausar", exact: true }).click();
-    await pausar.getByLabel("Motivo").selectOption("clima");
+    await elegirOpcion(pausar.getByLabel("Motivo"), "clima");
     await page.goBack();
     const confirmar = page.getByRole("alertdialog", { name: "¿Descartar los cambios?" });
     await expect(confirmar).toBeVisible();

@@ -55,8 +55,11 @@ lo que no se usa, con su motivo, está en [`docs/ui/guia.md`](../../docs/ui/guia
 - `Entrada`, `Campo`: HeroUI `Input`.
 - `AreaTexto`, `CampoArea`: `TextArea`.
 - `Etiqueta`: `Label`.
-- `Selector`, `CampoSelector`: `<select>` nativo con el estilo de campo de HeroUI; en el teléfono
-  abre el selector del sistema.
+- `Selector`, `CampoSelector`: `Select` de HeroUI (botón + lista en un popover). Se escriben con
+  `<option>` como un `<select>` y sirven con `register` o con `value` + `onChange(e)`: el `ref` va a
+  un input oculto con el `name` (`control-nativo.tsx`), así `reset` y `setValue` mueven la opción.
+  El botón lleva `data-valor` con el valor elegido. Una `Etiqueta htmlFor` de afuera también lo
+  nombra.
 - `Dialogo*`: `Modal` (`Modal.Backdrop`, `Modal.Container`, `Modal.Dialog`), panel sólido sobre
   telón oscurecido; en el teléfono sube desde abajo. `DialogoConfirmar`: `AlertDialog`.
   `DialogoContenido cerrable={false}` no se cierra con Escape ni tocando fuera, y no tiene «X»
@@ -75,7 +78,7 @@ lo que no se usa, con su motivo, está en [`docs/ui/guia.md`](../../docs/ui/guia
   `:checked`).
 - `PaletaBusqueda`: `Modal` + `Kbd`.
 
-Siguen como estaban: `Selector` (`<select>` nativo, ver la guía), `LogoIris`, `MarcaIris` y `cn`.
+Siguen como estaban: `LogoIris`, `MarcaIris` y `cn`.
 
 Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos emergentes,
 `Globo`, `PaletaBusqueda` y `MenuEnLinea`; los demás llegan con las fases 2 y 3:
@@ -96,7 +99,18 @@ Nuevos (fases 1 a 3). Ya en el panel (fase 1): `Migas`, `ProveedorRutas`, avisos
 - `ProveedorRutas`: el `RouterProvider` de React Aria. Va en el layout con `navegar={router.push}`.
 - `SelectorFecha`, `SelectorRangoFechas`: `DatePicker` / `DateRangePicker`. Valores `AAAA-MM-DD`,
   formato `es-GT`, y `hoyEnGuatemala()` para «hoy».
-- `Autocompletar`: `ComboBox`. Filtra en el navegador, o busca en el servidor con `alBuscar`.
+- `CampoFecha`, `CampoHora`: `DatePicker` y `TimeField` (24 h) con la forma de un input
+  (`{...register()}` o `value` + `onChange(e)`). Valores `AAAA-MM-DD` y `HH:MM`, hora local de
+  Guatemala; la pantalla los pasa a UTC al enviar.
+- `Autocompletar`: `ComboBox`. Filtra en el navegador, o busca en el servidor con `alBuscar`
+  (texto controlado, `cargando`, `sinResultados`, `cabeceraLista` y opciones con `contenido`
+  propio; salir del campo no borra lo escrito).
+- `ListaOpciones`: `ListBox` para elegir una tarjeta entre pocas (el servicio de un cliente).
+- `Interruptor`: `Switch` (encendido/apagado), con `register` como `Casilla`.
+- `CampoNumero`: `NumberField` para cantidades y montos; el valor del formulario es el texto del
+  número.
+- `CampoBusqueda`: `SearchField` con la lupa y la «X» de Lucide.
+- `AvatarUsuario`, `inicialesDe`: `Avatar` con las iniciales.
 - `Globo`: `Tooltip`. Usa al hijo como disparador (`Focusable`).
 - `PanelEmergente`: `Popover`, un diálogo no modal junto a su disparador.
 - `PaletaBusqueda`: el buscador global (Ctrl/⌘ + K), con el `Autocomplete` de React Aria. El foco

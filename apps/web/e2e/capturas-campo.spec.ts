@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 import { aceptarUbicacion, conSesionTecnico, simularApiCampo } from "./api-campo";
 import { empezarTrabajo, guardarPaso, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE } from "./datos-campo";
+import { elegirOpcion } from "./controles";
 
 // Capturas de la app de campo para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto
 // test-results/capturas). Teléfono (390 px) y escritorio (1280 px), claro y oscuro.
@@ -53,7 +54,7 @@ test("capturas de la app de campo", async ({ page, context, baseURL }, info) => 
     await page.evaluate(() => window.scrollTo({ top: 0 }));
     await page.screenshot({ path: nombre("03-en-sitio-sin-conexion"), fullPage: true });
     await irAPaso(page, "Materiales y equipos");
-    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
+    await elegirOpcion(page.getByLabel("Material", { exact: true }), String(CABLE));
     await page.getByLabel("Cantidad").fill("35");
     await page.getByRole("button", { name: "Registrar material" }).click();
     // Sin el equipo instalado, la firma y el cierre siguen bloqueados.

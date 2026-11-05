@@ -4,6 +4,7 @@ import { conSesion } from "./api-falsa";
 import { conSesionPortal, simularApiPortal, TICKET_LIMITE, TICKET_RED, TICKET_VALIDO, TICKET_VENCIDO, type ApiPortal } from "./api-portal";
 import { avisoError } from "./ayudas";
 import { CSRF_PORTAL } from "./datos-portal";
+import { elegirOpcion } from "./controles";
 
 // Capturas para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto test-results/capturas).
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
@@ -147,7 +148,7 @@ test.describe("con sesión del portal", () => {
         await expect(page.getByText("El asunto necesita al menos 3 caracteres")).toBeVisible();
 
         await page.getByLabel("Asunto").fill("Internet muy lento de noche");
-        await page.getByLabel("Tipo de problema (opcional)").selectOption({ label: "Internet lento" });
+        await elegirOpcion(page.getByLabel("Tipo de problema (opcional)"), { label: "Internet lento" });
         await page.getByLabel("¿Qué está pasando?").fill("Después de las 8 p. m. no cargan los videos.");
         await page.getByRole("button", { name: "Enviar" }).click();
         await expect(page.getByRole("heading", { name: "Internet muy lento de noche" })).toBeVisible();

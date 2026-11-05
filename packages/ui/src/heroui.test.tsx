@@ -177,14 +177,20 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         expect(nueva).toMatch(/autoComplete="new-password"|autocomplete="new-password"/);
     });
 
-    it("Selector sigue nativo, con el estilo de campo de HeroUI", () => {
+    it("Selector es el Select de HeroUI: botón con el valor y un input oculto para el formulario", () => {
         const html = renderToStaticMarkup(
-            <Selector aria-label="Estado">
-                <option>Todos</option>
+            <Selector aria-label="Estado" name="estado" defaultValue="activos">
+                <option value="">Todos</option>
+                <option value="activos">Activos</option>
             </Selector>,
         );
-        expect(html).toMatch(/<select[^>]*class="[^"]*\binput\b/);
-        expect(html).toContain("<option>Todos</option>");
+        expect(html).toMatch(/class="select\b/);
+        expect(html).toMatch(/<button[^>]*data-slot="select-trigger"[^>]*data-valor="activos"/);
+        expect(html).toMatch(/aria-haspopup="listbox"/);
+        expect(html).toContain("Activos");
+        expect(html).toMatch(/<input type="hidden" data-slot="valor-nativo" name="estado" value="activos"/);
+        // Chevron de Lucide, no el ícono de HeroUI.
+        expect(html).toContain("lucide-chevron-down");
     });
 
     it("Tarjeta, Tabla, InsigniaEstado, Aviso, Esqueleto y EstadoVacio llevan las piezas de HeroUI", () => {

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import { cerrarMenu, selectorEmpresa } from "./ayudas";
+import { elegirOpcion, esperarOpcion } from "./controles";
 
 const lecturasTickets = (api: Awaited<ReturnType<typeof simularApi>>) => api.peticiones.filter((p) => p.metodo === "GET" && p.ruta === "/api/v1/tickets");
 
@@ -33,7 +34,7 @@ test.describe("empresa activa", () => {
         await expect(page.getByText("Sin internet desde la mañana").filter({ visible: true })).toBeVisible();
         expect(lecturasTickets(api).at(-1)?.empresa).toBe("10");
 
-        await (await selectorEmpresa(page)).selectOption({ label: "Fibra Sur" });
+        await elegirOpcion(await selectorEmpresa(page), { label: "Fibra Sur" });
         await cerrarMenu(page);
         await expect(page.getByText("Antena desalineada (Fibra Sur)").filter({ visible: true })).toBeVisible();
         await expect(page.getByText("Sin internet desde la mañana").filter({ visible: true })).toHaveCount(0);
@@ -41,7 +42,7 @@ test.describe("empresa activa", () => {
 
         // La elección se recuerda en este navegador.
         await page.reload();
-        await expect(await selectorEmpresa(page)).toHaveValue("20");
+        await esperarOpcion(await selectorEmpresa(page), "20");
         await cerrarMenu(page);
         await expect(page.getByText("Antena desalineada (Fibra Sur)").filter({ visible: true })).toBeVisible();
     });
@@ -89,7 +90,7 @@ test.describe("empresa activa", () => {
         await expect(page.getByText("Hay datos de antes del conector sin empresa")).toBeVisible();
         await page.getByRole("link", { name: "Asignar a una empresa…" }).click();
         await expect(page.getByRole("heading", { name: "Datos sin empresa" })).toBeVisible();
-        await page.getByLabel("Empresa que recibe los datos").selectOption({ label: "Fibra Sur" });
+        await elegirOpcion(page.getByLabel("Empresa que recibe los datos"), { label: "Fibra Sur" });
         await page.getByRole("button", { name: "Asignar datos…" }).click();
         const dialogo = page.getByRole("dialog");
         await expect(dialogo).toContainText("¿Asignar los datos sin empresa?");

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
 import { alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarPaso, irAPaso } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
+import { elegirOpcion } from "./controles";
 
 /*
  * App de campo (/campo) en el teléfono (390 px, claro y oscuro): sin conexión con
@@ -134,7 +135,7 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
 
     // Material de su bodega y equipo instalado (escrito a mano).
     await page.getByRole("button", { name: "Siguiente: materiales y equipos" }).click();
-    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
+    await elegirOpcion(page.getByLabel("Material", { exact: true }), String(CABLE));
     await page.getByLabel("Cantidad").fill("35");
     await page.getByRole("button", { name: "Registrar material" }).click();
     await expect(page.getByText("Cable drop 1 hilo — quedan 85 m")).toBeAttached();

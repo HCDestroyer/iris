@@ -5,7 +5,6 @@ import {
     esIP,
     estadoServicio,
     MAX_RECIENTES,
-    moverIndice,
     nombresEmpresas,
     ordenarServicios,
     limpiarClientesRecientes,
@@ -116,16 +115,6 @@ describe("selector de cliente", () => {
         };
         limpiarClientesRecientes(almacen);
         expect([...datos.keys()]).toEqual(["iris:empresa"]);
-    });
-
-    it("teclado: flechas con vuelta, Inicio y Fin", () => {
-        expect(moverIndice(-1, 3, "ArrowDown")).toBe(0);
-        expect(moverIndice(2, 3, "ArrowDown")).toBe(0);
-        expect(moverIndice(0, 3, "ArrowUp")).toBe(2);
-        expect(moverIndice(1, 3, "Home")).toBe(0);
-        expect(moverIndice(1, 3, "End")).toBe(2);
-        expect(moverIndice(1, 3, "a")).toBeNull();
-        expect(moverIndice(0, 0, "ArrowDown")).toBeNull();
     });
 
     it("nombres de las empresas del cliente", () => {

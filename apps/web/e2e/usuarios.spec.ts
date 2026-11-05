@@ -4,6 +4,7 @@ import { simularAccesos } from "./api-accesos";
 import { ADMIN, CON_MFA, CONSULTA, conSesion, ELENA, EMPRESAS, LECTOR, simularApi, type OpcionesApi } from "./api-falsa";
 import { simularUsuarios, type OpcionesUsuarios } from "./api-usuarios";
 import { confirmacion, pestana } from "./ayudas";
+import { elegirOpcion, esperarOpcion, textosOpciones } from "./controles";
 
 // «Aún no puedo crear usuarios» (PM): «Nuevo usuario» en /usuarios; en la ficha, «Editar»,
 // «Desactivar» y empresas; y «Crear usuario» desde «Nuevo técnico». En escritorio y teléfono,
@@ -61,7 +62,7 @@ test.describe("administración de usuarios", () => {
         await d.getByRole("button", { name: "Agregar rol" }).click();
         await expect(d.getByRole("button", { name: "Crear usuario" })).toBeDisabled();
         await expect(d.getByText("Falta elegir el rol de cada fila para guardar.")).toBeVisible();
-        await d.getByLabel("Rol 1", { exact: true }).selectOption({ label: "Mesa de ayuda" });
+        await elegirOpcion(d.getByLabel("Rol 1", { exact: true }), { label: "Mesa de ayuda" });
         await d.getByRole("checkbox", { name: "Cable Norte" }).check();
         await sinDesborde(page);
         await page.screenshot({ path: path.join(carpeta, `usuarios-nuevo-${info.project.name}.png`), fullPage: true });
@@ -106,8 +107,8 @@ test.describe("administración de usuarios", () => {
         // Integración: sin contraseña (entra con token) y solo con su rol de contrato.
         await d.getByRole("radio", { name: "Integración" }).click();
         await expect(d.getByLabel("Contraseña temporal")).toHaveCount(0);
-        await expect(d.getByLabel("Rol 1", { exact: true }).locator("option")).toHaveText(["Elige un rol…", "Integración Argos", "Integración Horus"]);
-        await expect(d.getByLabel("Rol 1", { exact: true })).toHaveValue("integracion_argos");
+        await expect.poll(() => textosOpciones(d.getByLabel("Rol 1", { exact: true }))).toEqual(["Elige un rol…", "Integración Argos", "Integración Horus"]);
+        await esperarOpcion(d.getByLabel("Rol 1", { exact: true }), "integracion_argos");
         await expect(d.getByText("Una integración entra solo con un token de API")).toBeVisible();
         await d.getByLabel("Correo", { exact: true }).fill("script@iris.test");
         await d.getByRole("button", { name: "Crear usuario" }).click();
@@ -187,10 +188,10 @@ test.describe("administración de usuarios", () => {
         const asignar = s.getByRole("button", { name: "Asignar empresa" });
         await expect(asignar).toBeDisabled();
         await expect(s.getByText("Falta elegir la empresa para guardar.")).toBeVisible();
-        await s.getByLabel("Empresa", { exact: true }).selectOption({ label: "Fibra Sur" });
+        await elegirOpcion(s.getByLabel("Empresa", { exact: true }), { label: "Fibra Sur" });
         await asignar.click();
         await expect(s.getByRole("list", { name: "Empresas asignadas" })).toContainText("Fibra Sur");
-        await expect(s.getByLabel("Empresa", { exact: true }).locator("option")).toHaveText(["Elige la empresa…", "Cable Norte"]);
+        await expect.poll(() => textosOpciones(s.getByLabel("Empresa", { exact: true }))).toEqual(["Elige la empresa…", "Cable Norte"]);
         await sinDesborde(page);
         await page.screenshot({ path: path.join(carpeta, `usuarios-empresas-${info.project.name}.png`), fullPage: true });
 
@@ -255,8 +256,8 @@ test.describe("técnico sin usuario", () => {
         await expect(page.getByTestId("crear-usuario")).toHaveCount(0);
         await expect(page.getByTestId("usuario-creado")).toHaveCount(0);
         const usuario = f.getByLabel("Usuario", { exact: true });
-        await expect(usuario).toHaveValue("500");
-        await f.getByLabel("Cuadrilla", { exact: true }).selectOption({ label: "Cuadrilla Sur" });
+        await esperarOpcion(usuario, "500");
+        await elegirOpcion(f.getByLabel("Cuadrilla", { exact: true }), { label: "Cuadrilla Sur" });
         await f.getByRole("button", { name: "Crear técnico" }).click();
         await expect(f).toHaveCount(0);
         await expect(page).toHaveURL(/\/tecnicos\/\d+$/);

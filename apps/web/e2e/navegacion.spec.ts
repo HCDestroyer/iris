@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import { abrirMenu, barraInferior, cerrarMenu, esTelefono, hojaMas, menu, selectorEmpresa } from "./ayudas";
+import { elegirOpcion } from "./controles";
 
 // Fase 1 de la interfaz: barra lateral agrupada y contraíble, migas, buscador global (Ctrl/⌘ + K),
 // avisos emergentes tras una acción y, en el teléfono, barra inferior con «Más».
@@ -157,7 +158,7 @@ test("Ctrl + K: al cambiar de empresa no quedan resultados de la anterior", asyn
     await page.keyboard.press("Escape");
     await expect(buscador).toHaveCount(0);
 
-    await (await selectorEmpresa(page)).selectOption({ label: "Fibra Sur" });
+    await elegirOpcion(await selectorEmpresa(page), { label: "Fibra Sur" });
     await cerrarMenu(page);
     await expect(page.getByText("Antena desalineada (Fibra Sur)").filter({ visible: true })).toBeVisible();
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla } from "@iris/ui";
+import { Aviso, Boton, Campo, CampoArea, CampoSelector, Casilla, Interruptor } from "@iris/ui";
 import { ArrowDown, ArrowUp, Plus, Save, Trash2 } from "lucide-react";
 import type { FocusEvent, ReactNode } from "react";
 import { useFieldArray, useForm, useWatch, type UseFormSetError } from "react-hook-form";
@@ -64,7 +64,7 @@ export function EditorPlantilla({ modo, valores, puedeComun, aviso, error, alGua
                     ))}
                 </CampoSelector>
                 <div className="grid content-end gap-3 pb-1">
-                    <Casilla etiqueta="Pide la firma del cliente" {...formulario.register("requiereFirma")} />
+                    <Interruptor etiqueta="Pide la firma del cliente" {...formulario.register("requiereFirma")} />
                     {modo === "crear" && puedeComun ? <Casilla etiqueta="Común a todas las empresas" {...formulario.register("comun")} /> : null}
                     {modo === "crear" ? (
                         <Casilla etiqueta="Guardar como borrador" ayuda="Nace inactiva y se edita sin crear versiones hasta activarla." {...formulario.register("borrador")} />

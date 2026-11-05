@@ -1,6 +1,7 @@
 "use client";
 
 import { ComboBox, Input, Label, ListBox } from "@heroui/react";
+import { Search } from "lucide-react";
 import type { Key, ReactNode } from "react";
 import { cn } from "../utilidades";
 import { PieCampo, useIdsCampo } from "./campo";
@@ -12,6 +13,11 @@ export type OpcionAutocompletar = {
     etiqueta: string;
     /** Texto secundario bajo la etiqueta (código, correo…). */
     detalle?: string;
+    /**
+     * Contenido propio de la opción (nombre, dirección, servicios…) en lugar de etiqueta y
+     * detalle. `etiqueta` sigue siendo su texto para el teclado y el lector de pantalla.
+     */
+    contenido?: ReactNode;
     deshabilitada?: boolean;
 };
 
@@ -27,22 +33,35 @@ export type PropsAutocompletar = {
     alBuscar?: (texto: string) => void;
     /** Texto de la búsqueda (controlado, junto con `alBuscar`). */
     texto?: string;
+    /** Mientras se busca: la lista dice «Buscando…» si está vacía, o lo indica arriba si ya tiene resultados. */
     cargando?: boolean;
-    /** Mensaje cuando no hay resultados. */
-    sinResultados?: string;
+    /** Texto de «Buscando…». */
+    textoCargando?: string;
+    /** Lo que muestra la lista cuando no hay opciones (sin resultados, «escribe 3 letras»…). */
+    sinResultados?: ReactNode;
+    /** Arriba de la lista, dentro del panel (p. ej. «Recientes»). */
+    cabeceraLista?: ReactNode;
+    /** Nombre de la lista para el lector de pantalla («Clientes recientes»). */
+    etiquetaLista?: string;
+    /** Lupa a la izquierda del campo (búsquedas). */
+    conLupa?: boolean;
     placeholder?: string;
     ayuda?: ReactNode;
     error?: string | undefined;
     disabled?: boolean;
     obligatorio?: boolean;
+    autoFocus?: boolean;
+    maxLength?: number;
     id?: string;
     className?: string;
+    "data-testid"?: string;
 };
 
 /**
  * Autocompletar (HeroUI `ComboBox`, React Aria): se escribe para filtrar y se elige con flechas y
  * Enter. Rol `combobox` con su `listbox`. Para listas largas o búsquedas en el servidor (clientes,
- * técnicos); con pocas opciones fijas, `Selector`.
+ * técnicos); con pocas opciones fijas, `Selector`. Con `alBuscar`, la app trae las opciones (y
+ * dice `cargando`); la lista se abre al enfocar, así que puede mostrar recientes con el campo vacío.
  */
 export function Autocompletar({
     etiqueta,
@@ -52,24 +71,41 @@ export function Autocompletar({
     alBuscar,
     texto,
     cargando = false,
+    textoCargando = "Buscando…",
     sinResultados = "Sin resultados",
+    cabeceraLista,
+    etiquetaLista,
+    conLupa = false,
     placeholder,
     ayuda,
     error,
     disabled,
     obligatorio,
+    autoFocus,
+    maxLength,
     id,
     className,
+    "data-testid": testid,
 }: PropsAutocompletar) {
     const ids = useIdsCampo(id, error, ayuda);
     const deshabilitadas = opciones.filter((o) => o.deshabilitada).map((o) => o.valor);
     return (
         <ComboBox
             data-slot="autocompletar"
+            {...(testid ? { "data-testid": testid } : {})}
             className={cn("grid w-full gap-1.5", className)}
             selectedKey={valor}
-            onSelectionChange={(clave: Key | null) => alCambiar(clave === null ? null : String(clave))}
+            onSelectionChange={(clave: Key | null) => {
+                const elegida = clave === null ? null : String(clave);
+                // Con el texto controlado, React Aria espera que la app ponga el de la opción elegida.
+                const etiquetaElegida = opciones.find((o) => o.valor === elegida)?.etiqueta;
+                if (alBuscar && texto !== undefined && etiquetaElegida !== undefined) alBuscar(etiquetaElegida);
+                alCambiar(elegida);
+            }}
             {...(alBuscar ? { onInputChange: alBuscar, items: opciones } : { defaultItems: opciones })}
+            // En una búsqueda, salir del campo o Escape no borran lo escrito (el aviso de error
+            // con «Reintentar» queda bajo el campo y se puede tocar).
+            allowsCustomValue={Boolean(alBuscar)}
             {...(texto !== undefined ? { inputValue: texto } : {})}
             disabledKeys={deshabilitadas}
             allowsEmptyCollection
@@ -79,22 +115,38 @@ export function Autocompletar({
             isInvalid={Boolean(error)}
         >
             <Label className="text-sm font-medium">{etiqueta}</Label>
-            <ComboBox.InputGroup>
-                <Input id={ids.idCampo} aria-describedby={ids.control["aria-describedby"]} placeholder={placeholder} className="h-10" />
+            <ComboBox.InputGroup className="relative">
+                {conLupa ? <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2 text-muted-foreground" /> : null}
+                <Input
+                    id={ids.idCampo}
+                    aria-describedby={ids.control["aria-describedby"]}
+                    placeholder={placeholder}
+                    className={cn("h-10", conLupa && "pl-9")}
+                    autoComplete="off"
+                    {...(autoFocus ? { autoFocus } : {})}
+                    {...(maxLength ? { maxLength } : {})}
+                />
                 <ComboBox.Trigger aria-label="Ver opciones" />
             </ComboBox.InputGroup>
-            <ComboBox.Popover>
+            <ComboBox.Popover className="max-w-[calc(100vw-1rem)]">
+                {cabeceraLista || (cargando && opciones.length > 0) ? (
+                    <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground">
+                        <span className="flex min-w-0 items-center gap-1.5">{cabeceraLista}</span>
+                        {cargando && opciones.length > 0 ? <Cargando texto={textoCargando} visible /> : null}
+                    </div>
+                ) : null}
                 <ListBox
-                    renderEmptyState={() => (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">{cargando ? <Cargando texto="Buscando…" visible /> : sinResultados}</div>
-                    )}
+                    {...(etiquetaLista ? { "aria-label": etiquetaLista } : {})}
+                    renderEmptyState={() => <div className="px-3 py-2 text-sm text-muted-foreground">{cargando ? <Cargando texto={textoCargando} visible /> : sinResultados}</div>}
                 >
                     {(o: OpcionAutocompletar) => (
                         <ListBox.Item id={o.valor} textValue={o.etiqueta}>
-                            <span className="grid min-w-0">
-                                <span className="truncate">{o.etiqueta}</span>
-                                {o.detalle ? <span className="truncate text-xs text-muted-foreground">{o.detalle}</span> : null}
-                            </span>
+                            {o.contenido ?? (
+                                <span className="grid min-w-0">
+                                    <span className="truncate">{o.etiqueta}</span>
+                                    {o.detalle ? <span className="truncate text-xs text-muted-foreground">{o.detalle}</span> : null}
+                                </span>
+                            )}
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
                     )}

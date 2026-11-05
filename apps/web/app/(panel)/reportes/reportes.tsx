@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, Campo, CampoSelector, Casilla, GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { Aviso, Boton, CampoFecha, CampoSelector, Casilla, GrupoSegmentado, Tarjeta } from "@iris/ui";
 import { CalendarRange, FilterX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -284,8 +284,8 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
                 />
             </div>
             <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-                <Campo etiqueta="Desde" type="date" className="[&_input]:sm:text-sm" value={borrador.desde} max={borrador.hasta || undefined} onChange={(e) => editar({ desde: e.target.value })} />
-                <Campo etiqueta="Hasta" type="date" className="[&_input]:sm:text-sm" value={borrador.hasta} min={borrador.desde || undefined} onChange={(e) => editar({ hasta: e.target.value })} />
+                <CampoFecha etiqueta="Desde" value={borrador.desde} max={borrador.hasta || undefined} onChange={(e) => editar({ desde: e.target.value })} />
+                <CampoFecha etiqueta="Hasta" value={borrador.hasta} min={borrador.desde || undefined} onChange={(e) => editar({ hasta: e.target.value })} />
             </div>
             {error ? (
                 <p className="text-sm text-error lg:col-span-2" role="status">

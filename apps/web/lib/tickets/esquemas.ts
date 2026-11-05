@@ -25,7 +25,7 @@ const textoOpcional = (max: number) =>
 
 const prioridad = z.enum(ORDEN_PRIORIDADES as [Prioridad, ...Prioridad[]]);
 
-/** Id numérico opcional desde un `<select>` (cadena vacía = ninguno). */
+/** Id numérico opcional desde una lista (`Selector`; cadena vacía = ninguno). */
 const idOpcional = z
     .string()
     .transform((v) => (v === "" ? undefined : Number(v)))

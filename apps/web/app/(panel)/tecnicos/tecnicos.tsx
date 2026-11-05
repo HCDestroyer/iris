@@ -1,6 +1,6 @@
 "use client";
 
-import { Boton, Campo, CampoSelector, Esqueleto, EstadoVacio, GrupoSegmentado, Tarjeta } from "@iris/ui";
+import { Boton, CampoBusqueda, CampoSelector, Esqueleto, EstadoVacio, GrupoSegmentado, Tarjeta } from "@iris/ui";
 import { HardHat, Map as IconoMapa, Pencil, Phone, Plus, UserRound, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -72,7 +72,7 @@ export function PantallaTecnicos() {
             />
             <AvisoCatalogos {...catalogos} />
             <Tarjeta className="mb-4 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_14rem_auto] sm:items-end">
-                <Campo etiqueta="Buscar" type="search" placeholder="Nombre o correo" value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} />
+                <CampoBusqueda etiqueta="Buscar" placeholder="Nombre o correo" valor={filtros.q} alCambiar={(q) => setFiltros({ ...filtros, q })} />
                 <CampoSelector
                     etiqueta="Cuadrilla"
                     value={filtros.cuadrillaId}

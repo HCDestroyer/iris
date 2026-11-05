@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, LECTOR, conSesion, simularApi, type ApiFalsa } from "./api-falsa";
 import { avisoError, enlaceMenu, irA, sinEntradas } from "./ayudas";
+import { boton, elegirOpcion, escribirFecha, esperarOpcion } from "./controles";
 
 /*
  * Reportes (Fase 5): menú con `reportes.ver`, filtros en la URL (atajos de período, zona,
@@ -22,7 +23,7 @@ const ultima = (api: ApiFalsa, reporte: string) => lecturas(api, reporte).at(-1)
 
 async function elegirReporte(page: Page, nombre: string) {
     if ((page.viewportSize()?.width ?? 0) < 768) {
-        await page.getByRole("combobox", { name: "Reporte" }).selectOption({ label: nombre });
+        await elegirOpcion(page.getByLabel("Reporte"), { label: nombre });
     } else {
         await page.getByRole("radio", { name: nombre }).click();
     }
@@ -78,11 +79,11 @@ test.describe("filtros en la URL", () => {
         await expect(page).toHaveURL(new RegExp(`hasta=${hoy()}`));
         await expect(page.getByRole("radio", { name: "Últimos 90 días" })).toHaveAttribute("aria-checked", "true");
 
-        await page.getByRole("combobox", { name: "Zona" }).selectOption({ label: "Centro" });
+        await elegirOpcion(page.getByLabel("Zona"), { label: "Centro" });
         await expect(page).toHaveURL(/zona=4/);
-        await page.getByRole("combobox", { name: "Técnico o responsable" }).selectOption({ label: "Jorge Méndez" });
+        await elegirOpcion(page.getByLabel("Técnico o responsable"), { label: "Jorge Méndez" });
         await expect(page).toHaveURL(/tecnico=11/);
-        await page.getByRole("combobox", { name: "Categoría" }).selectOption({ label: "Lentitud" });
+        await elegirOpcion(page.getByLabel("Categoría"), { label: "Lentitud" });
         await expect(page).toHaveURL(/categoria=3/);
         // La casilla refleja la URL: se marca cuando la URL cambia (por eso click y no check).
         await page.getByRole("checkbox", { name: "Crítica" }).click();
@@ -97,7 +98,7 @@ test.describe("filtros en la URL", () => {
         expect(q?.get("categoriaId")).toBe("3");
 
         await page.reload();
-        await expect(page.getByRole("combobox", { name: "Zona" })).toHaveValue("4");
+        await esperarOpcion(page.getByLabel("Zona"), "4");
         await expect(page.getByRole("checkbox", { name: "Alta" })).toBeChecked();
         await expect(page.getByRole("checkbox", { name: "Media" })).not.toBeChecked();
 
@@ -111,7 +112,7 @@ test.describe("filtros en la URL", () => {
 
         await page.getByRole("button", { name: "Quitar filtros" }).click();
         await expect(page).not.toHaveURL(/zona=/);
-        await expect(page.getByRole("combobox", { name: "Zona" })).toHaveValue("");
+        await esperarOpcion(page.getByLabel("Zona"), "");
     });
 
     test("fechas a mano: un período inválido no se aplica y uno de más de 366 días en la URL no se pide", async ({ page, context, baseURL }) => {
@@ -119,10 +120,10 @@ test.describe("filtros en la URL", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto(`/reportes?${OCT}`);
         await expect(indicador(page, "Tickets resueltos")).toContainText("120");
-        await page.getByLabel("Desde", { exact: true }).fill("2026-11-15");
+        await escribirFecha(page, "Desde", "2026-11-15");
         await expect(page.getByText("«Desde» va antes de «hasta». El reporte sigue con el período anterior.")).toBeVisible();
         await expect(page).toHaveURL(/desde=2026-10-01/);
-        await page.getByLabel("Desde", { exact: true }).fill("2026-10-10");
+        await escribirFecha(page, "Desde", "2026-10-10");
         await expect(page).toHaveURL(/desde=2026-10-10&hasta=2026-10-28/);
         await expect.poll(() => ultima(api, "sla")?.get("desde")).toBe("2026-10-10");
         await expect(page.getByText("Período: 10 oct – 28 oct 2026")).toBeVisible();
@@ -182,7 +183,7 @@ test.describe("cada reporte", () => {
         await page.goto(`/reportes?reporte=primera-visita&${OCT}`);
         await expect(indicador(page, "Resueltas en la primera visita")).toContainText("27 de 30 evaluadas, sin retorno en 30 días");
         expect(ultima(api, "primera-visita")?.get("dias")).toBe("30");
-        await page.getByRole("combobox", { name: "Sin retorno durante" }).selectOption({ label: "60 días" });
+        await elegirOpcion(page.getByLabel("Sin retorno durante"), { label: "60 días" });
         await expect(page).toHaveURL(/dias=60/);
         await expect(indicador(page, "En observación")).toContainText("Aún no cumplen los 60 días");
         expect(ultima(api, "primera-visita")?.get("dias")).toBe("60");
@@ -196,7 +197,7 @@ test.describe("cada reporte", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto(`/reportes?reporte=reincidencias&${OCT}&dias=7`);
         await expect(indicador(page, "Reincidencia")).toContainText("15.8 %");
-        await expect(page.getByRole("combobox", { name: "Volvió dentro de" })).toHaveValue("7");
+        await esperarOpcion(page.getByLabel("Volvió dentro de"), "7");
         await expect(page.locator("[data-reincidencia]")).toHaveCount(50);
         await expect(page.locator('[data-reincidencia="7000"]')).toContainText("TK-008000");
         await page.getByRole("button", { name: "Cargar más" }).click();
@@ -301,7 +302,7 @@ test("teléfono y escritorio sin desbordes, y capturas de cada reporte", async (
         await page.screenshot({ path: nombre(archivo), fullPage: true });
     }
     if (esTelefono(info.project.name)) {
-        await expect(page.getByRole("combobox", { name: "Reporte" })).toBeVisible();
+        await expect(boton(page.getByLabel("Reporte"))).toBeVisible();
     } else {
         await expect(page.getByRole("radiogroup", { name: "Reporte" })).toBeVisible();
     }

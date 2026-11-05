@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    AvatarUsuario,
     Boton,
     Dialogo,
     DialogoContenido,
@@ -118,13 +119,6 @@ export function MenuUsuario({ cerrando, cerrarSesion }: Props) {
     );
 }
 
-/** Iniciales para el círculo de la cuenta («Ana López» → «AL»). */
-export function inicialesDe(nombre: string): string {
-    const partes = nombre.trim().split(/\s+/).filter(Boolean);
-    const letras = partes.length >= 2 ? [partes[0], partes[partes.length - 1]] : partes;
-    return letras.map((p) => p?.[0]?.toUpperCase() ?? "").join("") || "?";
-}
-
 /** «soporte» → «Soporte», «integracion_argos» → «Integracion argos». */
 function textoRol(rol: string | undefined): string {
     if (!rol) return "";
@@ -148,9 +142,7 @@ export function MenuUsuarioLateral({ cerrando, cerrarSesion, contraida = false }
                     aria-label={`Tu cuenta: ${yo.usuario.nombre}`}
                     title="Tu cuenta"
                 >
-                    <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-full bg-elevated text-xs font-semibold text-foreground">
-                        {inicialesDe(yo.usuario.nombre)}
-                    </span>
+                    <AvatarUsuario nombre={yo.usuario.nombre} />
                     {contraida ? null : (
                         <span className="grid min-w-0 flex-1">
                             <span className="truncate text-[0.8125rem] font-semibold" data-testid="usuario-nombre">

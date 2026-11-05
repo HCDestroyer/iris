@@ -5,8 +5,9 @@ import { abrirCuenta } from "./ayudas";
 
 /*
  * Pedido del PM (4) y (9): selector de cliente único (búsqueda mientras se escribe, servicios con
- * estado, empresa, recientes, teclado, IP, vacío y error con «Reintentar», hoja a pantalla
- * completa en el teléfono, pide el servicio) y modales que avisan antes de perder cambios.
+ * estado, empresa, recientes, teclado, IP, vacío y error con «Reintentar», pide el servicio) y
+ * formularios que avisan antes de perder cambios. Es el `Autocompletar` (HeroUI `ComboBox`): la
+ * lista cabe en el ancho del teléfono.
  */
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
@@ -25,17 +26,9 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     const dialogo = await abrirNuevoTicket(page);
     await dialogo.getByLabel("Asunto").fill("Lentitud en la bodega");
 
-    await dialogo.getByLabel("Cliente en Argos").click();
-    const hoja = page.getByTestId("dialogo-cliente");
-    await expect(hoja.getByText("Escribe al menos 3 caracteres")).toBeVisible();
-    if (info.project.name.startsWith("telefono")) {
-        // En el teléfono: hoja a pantalla completa.
-        const caja = await hoja.boundingBox();
-        const vista = page.viewportSize();
-        expect(caja && vista && Math.round(caja.height) >= vista.height - 1 && Math.round(caja.width) >= vista.width - 1).toBe(true);
-    }
-    const buscar = page.getByRole("combobox", { name: "Buscar cliente" });
-    await expect(buscar).toBeFocused();
+    const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscar.click();
+    await expect(page.getByText(/Escribe al menos 3 caracteres/)).toBeVisible();
     await buscar.fill("Ana");
     const opcion = page.getByRole("option", { name: /Ana Morales/ });
     await expect(opcion).toContainText("CL-0503");
@@ -44,19 +37,24 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     await expect(opcion).toContainText("Cable Norte");
     await expect(opcion).toContainText("Fibra 100 Mb/s · Activo");
     await expect(opcion).toContainText("Radio 10 Mb/s · Suspendido");
-    await expect(opcion).toHaveAttribute("aria-selected", "true");
+    // La lista cabe en la pantalla (390 px en el teléfono).
+    const caja = await page.getByRole("listbox", { name: "Clientes encontrados" }).boundingBox();
+    const vista = page.viewportSize();
+    expect(caja && vista && caja.x >= 0 && caja.x + caja.width <= vista.width).toBe(true);
     await page.screenshot({ path: nombre("01-resultados") });
 
-    // Enter elige el cliente: se confirma contra la ficha y, con dos servicios, pide cuál.
+    // Flecha abajo y Enter eligen el cliente: se confirma contra la ficha y, con dos servicios, pide cuál.
+    await buscar.press("ArrowDown");
+    await expect(opcion).toHaveAttribute("data-focused", "true");
     await buscar.press("Enter");
     const servicios = page.getByRole("listbox", { name: "Servicios del cliente" });
-    await expect(servicios).toBeFocused();
     await expect(servicios.getByRole("option")).toHaveCount(2);
+    await expect(servicios.getByRole("option").first()).toBeFocused();
     await page.screenshot({ path: nombre("02-servicio") });
-    await servicios.press("ArrowDown");
-    await servicios.press("Enter");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
 
-    await expect(hoja).toHaveCount(0);
+    await expect(dialogo.getByTestId("elegir-servicio")).toHaveCount(0);
     await expect(dialogo.getByTestId("cliente-elegido")).toContainText("Ana Morales");
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("Suspendido");
@@ -75,7 +73,7 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
 
     // Recientes: al volver a abrir aparece el último elegido; al elegirlo se vuelve a leer la ficha.
     await page.goto("/tickets/nuevo");
-    await page.getByRole("form", { name: "Nuevo ticket" }).getByLabel("Cliente en Argos").click();
+    await page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" }).click();
     const recientes = page.getByRole("listbox", { name: "Clientes recientes" });
     const fichas = api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length;
     await recientes.getByRole("option", { name: /Ana Morales/ }).click();
@@ -114,20 +112,26 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await simularApi(page, { empresas: EMPRESAS });
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     const dialogo = await abrirNuevoTicket(page);
-    await dialogo.getByLabel("Cliente en Argos").click();
-    const buscar = page.getByRole("combobox", { name: "Buscar cliente" });
+    const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
 
     await buscar.fill("zzz");
     await expect(page.getByText("Ningún cliente coincide con «zzz»")).toBeVisible();
 
     await buscar.fill("falla");
+    await expect(page.getByText(/No se pudo buscar/)).toBeVisible();
+    // Con la lista abierta, el resto de la página queda oculto al lector (React Aria): Escape la cierra y deja lo escrito.
+    await buscar.press("Escape");
+    await expect(buscar).toHaveValue("falla");
     const aviso = page.getByRole("alert").filter({ hasText: "No se pudieron leer los clientes" });
     await expect(aviso).toBeVisible();
     await aviso.getByRole("button", { name: "Reintentar" }).click();
+    await expect(aviso).toHaveCount(0);
+    await buscar.click();
     await expect(page.getByText("Ningún cliente coincide con «falla»")).toBeVisible();
 
     await buscar.fill("10.20.31.9");
     await expect(page.getByRole("option", { name: /Ana Morales/ })).toBeVisible();
+    await buscar.press("ArrowDown");
     await buscar.press("Enter");
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
 });
@@ -164,8 +168,7 @@ test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async
     await page.getByRole("link", { name: "Nueva orden" }).click();
     const dialogo = page.getByRole("form", { name: "Nueva orden" });
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
-    await dialogo.getByLabel("Cliente en Argos").click();
-    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("CL-0501");
+    await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("CL-0501");
     await page.getByRole("option", { name: /María Castillo/ }).click();
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeEnabled();
@@ -180,8 +183,7 @@ test("los errores de la verificación del cliente en el servidor se explican en 
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     const dialogo = await abrirNuevoTicket(page);
     await dialogo.getByLabel("Asunto").fill("Sin servicio");
-    await dialogo.getByLabel("Cliente en Argos").click();
-    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
+    await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
     await page.getByRole("option", { name: /María Castillo/ }).click();
     await expect(dialogo.getByTestId("servicio-elegido")).toBeVisible();
 

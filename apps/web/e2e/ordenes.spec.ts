@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADJ } from "./datos-ordenes";
 import { ADMIN, CONSULTA, DESPACHO, conSesion, simularApi } from "./api-falsa";
 import { irA, pestana } from "./ayudas";
+import { elegirOpcion, escribirFecha, escribirHora } from "./controles";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -43,23 +44,23 @@ test.describe("tablero de órdenes", () => {
         await page.goto("/ordenes");
         await expect(tarjetas(page)).toHaveCount(30);
 
-        await page.getByLabel("Estado").selectOption("activas");
-        await page.getByLabel("Tipo").selectOption("retiro");
+        await elegirOpcion(page.getByLabel("Estado"), "activas");
+        await elegirOpcion(page.getByLabel("Tipo"), "retiro");
         await expect(tarjetas(page)).toHaveCount(1);
         await expect(orden(page, "OT-000003")).toBeVisible();
         const ultima = api.peticiones.filter((p) => p.ruta === "/api/v1/ordenes").at(-1);
         expect(ultima?.query.getAll("estado")).toEqual(["pendiente,programada,en_camino,en_sitio,pausada"]);
         expect(ultima?.query.get("tipo")).toBe("retiro");
 
-        await page.getByLabel("Tipo").selectOption("todos");
-        await page.getByLabel("Estado").selectOption("todos");
-        await page.getByLabel("Técnico").selectOption("sin");
+        await elegirOpcion(page.getByLabel("Tipo"), "todos");
+        await elegirOpcion(page.getByLabel("Estado"), "todos");
+        await elegirOpcion(page.getByLabel("Técnico"), "sin");
         await expect(orden(page, "OT-000002")).toBeVisible();
         await expect(orden(page, "OT-000003")).toHaveCount(0);
         expect(api.peticiones.filter((p) => p.ruta === "/api/v1/ordenes").at(-1)?.query.get("sinTecnico")).toBe("true");
 
-        await page.getByLabel("Técnico").selectOption({ label: "Lucía Ramírez" });
-        await page.getByLabel("Fecha programada").fill(hoyGuatemala());
+        await elegirOpcion(page.getByLabel("Técnico"), { label: "Lucía Ramírez" });
+        await escribirFecha(page, "Fecha programada", hoyGuatemala());
         await page.getByLabel("Zona").fill("4");
         await expect.poll(() => api.peticiones.filter((p) => p.ruta === "/api/v1/ordenes").at(-1)?.query.get("zonaId")).toBe("4");
         await expect(tarjetas(page)).toHaveCount(5);
@@ -248,9 +249,9 @@ test.describe("acciones del panel", () => {
         // Sin técnico ni fecha no se puede programar: botón deshabilitado con el motivo.
         await expect(dialogo.getByRole("button", { name: "Programar" })).toBeDisabled();
         await expect(dialogo.getByRole("button", { name: "Programar" })).toHaveAccessibleDescription(/Falta elegir el técnico, la fecha/);
-        await dialogo.getByLabel("Técnico").selectOption({ label: "Lucía Ramírez" });
-        await dialogo.getByLabel("Fecha").fill("2026-11-03");
-        await dialogo.getByLabel("Hora").fill("14:30");
+        await elegirOpcion(dialogo.getByLabel("Técnico"), { label: "Lucía Ramírez" });
+        await escribirFecha(dialogo, "Fecha", "2026-11-03");
+        await escribirHora(dialogo, "Hora", "14:30");
         await page.screenshot({ path: path.join(carpeta, `26-orden-programar-${info.project.name}.png`) });
         await dialogo.getByRole("button", { name: "Programar" }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -296,8 +297,8 @@ test.describe("acciones del panel", () => {
         await expect(page.getByText("Fallida: Cliente ausente")).toBeVisible();
         await page.getByRole("group", { name: "Acciones de la orden" }).getByRole("button", { name: "Reprogramar" }).click();
         const dialogo = page.getByRole("dialog", { name: "Reprogramar visita" });
-        await dialogo.getByLabel("Fecha").fill("2026-11-04");
-        await dialogo.getByLabel("Hora").fill("09:00");
+        await escribirFecha(dialogo, "Fecha", "2026-11-04");
+        await escribirHora(dialogo, "Hora", "09:00");
         await dialogo.getByRole("button", { name: "Reprogramar" }).click();
         await expect(dialogo.getByText("Escribe el motivo")).toBeVisible();
         await dialogo.getByLabel("Motivo").fill("El cliente estará el martes");

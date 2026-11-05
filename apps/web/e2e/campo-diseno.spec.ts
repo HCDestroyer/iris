@@ -4,6 +4,7 @@ import type { Schema } from "@iris/contratos";
 import { conSesionTecnico, simularApiCampo } from "./api-campo";
 import { avisoCampo, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE, ordenesDelDia, PERMISOS_TECNICO } from "./datos-campo";
+import { elegirOpcion } from "./controles";
 
 /*
  * Diseño «combinada» de la app del técnico (nov 2026), en el teléfono (390 px) claro y oscuro:
@@ -262,7 +263,7 @@ test("pasos: chips, tarjetas de 28 px, − / + en materiales y el aviso desde ar
     const radio = await page.locator('[data-slot="tarjeta"]').first().evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
     expect(radio).toBe("28px");
 
-    await page.getByLabel("Material", { exact: true }).selectOption(String(CABLE));
+    await elegirOpcion(page.getByLabel("Material", { exact: true }), String(CABLE));
     await page.getByRole("button", { name: "Agregar uno" }).click();
     await page.getByRole("button", { name: "Agregar uno" }).click();
     await page.getByRole("button", { name: "Agregar uno" }).click();

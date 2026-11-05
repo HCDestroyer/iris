@@ -61,9 +61,11 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
     await page.screenshot({ path: nombre("12-barra-superior"), clip: { x: 0, y: 0, width: page.viewportSize()?.width ?? 390, height: 64 } });
 
     await page.getByRole("link", { name: "Nuevo ticket" }).click();
-    await page.getByRole("form", { name: "Nuevo ticket" }).getByLabel("Cliente en Argos").click();
-    await page.getByRole("combobox", { name: "Buscar cliente" }).fill("Castillo");
-    await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible();
+    // Recién llegada la pantalla, lo escrito antes de que React tome el campo no busca: se reintenta.
+    await expect(async () => {
+        await page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
+        await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible({ timeout: 2000 });
+    }).toPass();
     await page.screenshot({ path: nombre("13-alta-rapida") });
     await page.keyboard.press("Escape");
 
