@@ -12,6 +12,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -83,7 +84,12 @@ func TestPausarYReanudar(t *testing.T) {
 	o = deber(e.m.AgregarNota.Ejecutar(ct, campo.EntradaAgregarNota{ID: o.ID, Texto: "Espero al proveedor"}))(t)
 	dt := detalle(t, e, o.ID)
 	it := dt.Checklist[0]
-	o = deber(e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true}))(t)
+	// El técnico ya no trabaja una pausada ni por REST (contratos/sync.md §3); despacho sí corrige.
+	problema(t, func() error {
+		_, err := e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true})
+		return err
+	}(), 422, "orden_pausada")
+	o = deber(e.m.MarcarChecklist.Ejecutar(cd, campo.EntradaMarcarChecklist{ID: o.ID, ItemID: &it.ItemID, Valor: true}))(t)
 
 	// Sigue abierta: en el paquete, en el calendario (pausada) y en la ruta, que no se marca
 	// desactualizada (la cita no se movió).
@@ -245,7 +251,14 @@ func TestPausadaSinTrabajoPorSync(t *testing.T) {
 		t.Fatalf("trabajo aplicado en pausa: materiales %d, equipos %d, firma %v, notas %d", len(dt.Materiales), len(dt.Equipos), dt.Firma, len(dt.Notas))
 	}
 
-	// Despacho corrige desde el panel aunque esté pausada (no es una operación del lote).
+	// Tampoco por REST: el técnico asignado no se salta la regla llamando a la API directo.
+	if _, err := e.m.MarcarChecklist.Ejecutar(ct, campo.EntradaMarcarChecklist{ID: o.ID, Codigo: ptr("potencia_rx"), Valor: -19.8}); err == nil {
+		t.Fatal("checklist por REST en pausa: el técnico no debía poder")
+	} else if p, _ := nucleo.AProblema(err); p.Status != 422 {
+		t.Fatalf("checklist por REST en pausa: %v", err)
+	}
+
+	// Despacho corrige desde el panel aunque esté pausada (no es una operación del lote ni su orden).
 	deber(e.m.MarcarChecklist.Ejecutar(cd, campo.EntradaMarcarChecklist{ID: o.ID, Codigo: ptr("potencia_rx"), Valor: -20.1}))(t)
 
 	// Reanudada, el mismo trabajo (otra operación: «Rehacer») entra.

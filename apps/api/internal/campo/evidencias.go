@@ -139,7 +139,7 @@ func (m *Modulo) nuevoMarcarChecklist() *auditoria.Caso[EntradaMarcarChecklist, 
 				return f, "", err
 			}
 			cuando := m.cuandoEn(in.Sync, f)
-			if err := sinTrabajoEnPausa(f, in.Sync, "marcar el checklist"); err != nil {
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "marcar el checklist"); err != nil {
 				return f, "", err
 			}
 			if err := exigirEstado(f, "marcar el checklist de", estadosEnCurso...); err != nil {
@@ -268,7 +268,7 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			if err != nil {
 				return f, "", err
 			}
-			if err := sinTrabajoEnPausa(f, in.Sync, "registrar materiales"); err != nil {
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar materiales"); err != nil {
 				return f, "", err
 			}
 			if err := exigirEstado(f, "registrar materiales en", estadosEnCurso...); err != nil {
@@ -362,7 +362,7 @@ func (m *Modulo) nuevoEquipo(accionEquipo string) *auditoria.Caso[EntradaEquipo,
 			if err != nil {
 				return f, "", err
 			}
-			if err := sinTrabajoEnPausa(f, in.Sync, "registrar equipos"); err != nil {
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar equipos"); err != nil {
 				return f, "", err
 			}
 			if err := exigirEstado(f, "registrar equipos en", estadosEnCurso...); err != nil {
@@ -450,7 +450,7 @@ func (m *Modulo) nuevoCapturarFirma() *auditoria.Caso[EntradaCapturarFirma, Orde
 			if err != nil {
 				return f, "", err
 			}
-			if err := sinTrabajoEnPausa(f, in.Sync, "tomar la firma"); err != nil {
+			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "tomar la firma"); err != nil {
 				return f, "", err
 			}
 			if err := exigirEstado(f, "capturar la firma de", estadosEnCurso...); err != nil {

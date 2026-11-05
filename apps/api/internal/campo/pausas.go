@@ -64,12 +64,13 @@ func noPausada(f campobd.CampoOrden, accion string) error {
 		fmt.Sprintf("La orden %s está pausada: reanúdala antes de %s", f.Numero, accion))
 }
 
-// sinTrabajoEnPausa: desde la app de campo (el lote), una orden pausada no admite trabajo
-// (checklist, formularios, materiales, equipos ni firma): 422 orden_pausada, primero reanudar
-// (contratos/sync.md §3). Notas y adjuntos sí, como evidencia. El panel (despacho) puede
-// corregir una pausada: su entrada no trae operación del lote.
-func sinTrabajoEnPausa(f campobd.CampoOrden, s *OpSync, accion string) error {
-	if s == nil {
+// sinTrabajoEnPausa: una orden pausada no admite trabajo (checklist, formularios, materiales,
+// equipos ni firma) desde la app de campo (el lote) ni del técnico asignado por REST: 422
+// orden_pausada, primero reanudar (contratos/sync.md §3). Notas y adjuntos sí, como evidencia.
+// Despacho puede corregir una pausada desde el panel: no es una operación del lote ni la orden es
+// suya.
+func sinTrabajoEnPausa(ctx context.Context, f campobd.CampoOrden, s *OpSync, accion string) error {
+	if s == nil && !propia(ctx, f) {
 		return nil
 	}
 	return noPausada(f, accion)
