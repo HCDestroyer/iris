@@ -1,7 +1,8 @@
 "use client";
 
 import { Aviso, Boton, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Building2, ChevronRight, LogOut, RefreshCw, Warehouse } from "lucide-react";
+import { totalPorEnviar } from "@iris/sync/campo";
+import { Building2, ChevronRight, CloudUpload, LogOut, RefreshCw, Warehouse } from "lucide-react";
 import { useState } from "react";
 import { SelectorTema } from "@/componentes/selector-tema";
 import { useCampo } from "./contexto";
@@ -50,7 +51,7 @@ export function Yo({
             return;
         }
         setSaliendo(false);
-        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Pendientes» o sal conservándolos.` });
+        notificar({ tono: "warning", texto: `No se pudo enviar todo: quedan ${quedan}. Revisa «Por enviar» o sal conservándolos.` });
     };
 
     return (
@@ -68,6 +69,13 @@ export function Yo({
             <Boton variante="secundario" tamano="lg" className="h-auto min-h-14 justify-start py-3" onClick={() => navegar({ tipo: "bodega" })}>
                 <Warehouse aria-hidden />
                 <span className="flex-1 text-left">Mi bodega</span>
+                <ChevronRight aria-hidden className="text-muted-foreground" />
+            </Boton>
+            {/* «Por enviar» ya no está en la isla: se abre desde aquí (y desde la píldora de estado). */}
+            <Boton variante="secundario" tamano="lg" className="h-auto min-h-14 justify-start py-3" onClick={() => navegar({ tipo: "pendientes" })}>
+                <CloudUpload aria-hidden />
+                <span className="flex-1 text-left">Por enviar</span>
+                {totalPorEnviar(estado) > 0 ? <span className="text-sm font-semibold text-warning tabular-nums">{totalPorEnviar(estado)}</span> : null}
                 <ChevronRight aria-hidden className="text-muted-foreground" />
             </Boton>
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { RegistrarSw } from "./_componentes/registrar-sw";
+import "./campo.css";
 
 export const metadata: Metadata = {
     title: { absolute: "Iris Campo" },

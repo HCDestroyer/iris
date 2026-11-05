@@ -23,6 +23,7 @@ import {
     CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
+import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
@@ -376,8 +377,10 @@ function ConMotor({
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
                 <ProveedorInventario inventario={abierto.inventario}>
-                    <TurnoAutomatico rastreador={rastreador} />
-                    <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                    <ProveedorAgenda leer={abierto.agenda}>
+                        <TurnoAutomatico rastreador={rastreador} />
+                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                    </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>
         </ProveedorUbicacion>

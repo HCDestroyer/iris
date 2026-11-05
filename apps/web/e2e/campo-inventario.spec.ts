@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesionTecnico, problema, simularApiCampo, type ApiCampo } from "./api-campo";
-import { firmarEn, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, firmarEn, pestanaCampo } from "./ayudas-campo";
 
 /*
  * «Por recibir» y «Mi bodega» en la app de campo (contrato Iris ↔ ArgosISP 0.5.0, teléfono):
@@ -88,8 +88,8 @@ test("rechazos: traslado_no_encontrado solo se descarta; sin respuesta de Argos 
     const rechazo = page.getByTestId("recepcion-rechazada");
     await expect(rechazo).toContainText("Argos no tiene ese traslado para ti", { timeout: 15_000 });
     await expect(rechazo.getByRole("button", { name: "Rehacer" })).toHaveCount(0);
-    // También en «Pendientes», con el traslado y sin «Rehacer».
-    await pestanaCampo(page, "Pendientes");
+    // También en «Por enviar», con el traslado y sin «Rehacer».
+    await abrirPorEnviar(page);
     const tarjeta = page.getByTestId("rechazo");
     await expect(tarjeta).toContainText("Recepción de traslado · Traslado 31");
     await expect(tarjeta.getByRole("button", { name: "Rehacer" })).toHaveCount(0);
@@ -105,7 +105,7 @@ test("rechazos: traslado_no_encontrado solo se descarta; sin respuesta de Argos 
     await expect.poll(() => api.resultados.filter((r) => r.error?.type === "urn:iris:problema:traslado_sin_confirmar").length, { timeout: 15_000 }).toBeGreaterThan(0);
     await expect(page.getByTestId("recepcion-en-telefono")).toBeVisible();
     await page.clock.fastForward("25:00:00");
-    await pestanaCampo(page, "Pendientes");
+    await abrirPorEnviar(page);
     await page.getByRole("button", { name: "Reintentar", exact: true }).click();
     await expect(page.getByTestId("rechazo")).toContainText("Argos no respondió durante 24 h", { timeout: 15_000 });
     api.trasladoSinConfirmar = false;

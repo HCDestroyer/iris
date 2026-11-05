@@ -18,6 +18,7 @@ import {
     situacionLocal,
     textoErrorLectura,
     textoValorItem,
+    totalPorEnviar,
     urlDeVista,
     vecinosPaso,
     vistaDeUrl,
@@ -45,6 +46,9 @@ describe("vista de la app de campo", () => {
             { tipo: "traslado", id: 31 },
             { tipo: "yo" },
             { tipo: "bodega" },
+            { tipo: "agenda" },
+            { tipo: "agenda", dia: "2026-11-06" },
+            { tipo: "semana" },
         ];
         for (const v of vistas) {
             expect(vistaDeUrl(urlDeVista(v).replace("/campo", ""))).toEqual(v);
@@ -56,10 +60,13 @@ describe("vista de la app de campo", () => {
         expect(pestanaDe({ tipo: "orden", id: 7, paso: "fotos" })).toBe("hoy");
         expect(pestanaDe({ tipo: "traslado", id: 31 })).toBe("recibir");
         expect(pestanaDe({ tipo: "bodega" })).toBe("yo");
+        expect(pestanaDe({ tipo: "semana" })).toBe("agenda");
+        // «Por enviar» no está en la isla: se abre desde la píldora de estado y desde «Yo».
+        expect(pestanaDe({ tipo: "pendientes" })).toBeNull();
     });
 
     it("pestañas en orden y cada una abre una vista de su pestaña", () => {
-        expect(PESTANAS.map((p) => p.texto)).toEqual(["Hoy", "Por recibir", "Pendientes", "Yo"]);
+        expect(PESTANAS.map((p) => p.texto)).toEqual(["Hoy", "Por recibir", "Agenda", "Yo"]);
         for (const p of PESTANAS) {
             expect(pestanaDe(p.vista)).toBe(p.id);
         }
@@ -111,14 +118,15 @@ describe("barra de estado discreta", () => {
         expect(etiquetaPunto("en_linea", resumenEnvio(estado({ pendientes: 1 })))).toBe("En línea");
     });
 
-    it("contadores de la barra inferior: lo pendiente y lo que falta por recibir (0 si no se leyó)", () => {
+    it("contadores de la isla: lo que falta por recibir (0 si no se leyó); lo pendiente va en la píldora", () => {
         const traslados: Traslado[] = [
             { id: 1, estado: "enviado", lineas: [] },
             { id: 2, estado: "enviado", lineas: [], recepcion: { estado: "recibida", trasladoId: 2, pendienteId: 9, actualizadoEn: "2026-10-28T15:00:00Z" } },
         ];
         const e = estado({ pendientes: 1, subidas: { pendientes: 2, bytesPendientes: 0, conError: 0, rechazadas: 1 } });
-        expect(contadoresPestanas(e, null)).toEqual({ hoy: 0, recibir: 0, pendientes: 3, yo: 0 });
+        expect(contadoresPestanas(e, null)).toEqual({ hoy: 0, recibir: 0, agenda: 0, yo: 0 });
         expect(contadoresPestanas(e, traslados).recibir).toBe(1);
+        expect(totalPorEnviar(e)).toBe(3);
     });
 });
 

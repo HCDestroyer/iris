@@ -1,19 +1,22 @@
 "use client";
 
 import { ErrorTransporte } from "@iris/sync";
-import { Aviso, Boton, LogoIris, cn } from "@iris/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { DESPLAZAMIENTO_INICIAL, desplazar } from "@iris/sync/campo";
+import { Aviso, Boton, cn } from "@iris/ui";
+import { CircleCheck, Info, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { hoyEnGuatemala } from "@/lib/campo/fechas";
 import { irACambiarContrasena, pideCambioContrasena } from "@/lib/campo/sesion";
-import { BarraConexion, PuntoConexion } from "./barra-conexion";
+import { AgendaDia, AgendaSemana } from "./agenda";
 import { useCampo } from "./contexto";
 import { DetalleOrden } from "./detalle-orden";
+import { BarraCompacta, EncabezadoCampo } from "./encabezado";
 import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
+import { AvisoIsla, IslaMenu } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
-import { NavegacionInferior } from "./navegacion-inferior";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
-import { IndicadorUbicacion, useUbicacion } from "./ubicacion";
+import { useUbicacion } from "./ubicacion";
 import { Yo } from "./yo";
 
 /** Espera tras el primer error al bajar el paquete; se duplica en cada falla, hasta 10 min. */
@@ -22,9 +25,121 @@ const ESPERA_MAX_MS = 10 * 60_000;
 
 export type CargaPaquete = { estado: "inactiva" | "cargando" | "lista" } | { estado: "error"; mensaje: string };
 
-/** Marco de la app: encabezado, barra de conexión, la vista actual y el aviso flotante. */
+/**
+ * Encabezado que se va con el contenido y vuelve compacto al subir, e isla que se encoge al bajar
+ * (`desplazar` de `@iris/sync/campo`).
+ */
+function useDesplazamiento(encabezado: RefObject<HTMLElement | null>) {
+    const [estado, setEstado] = useState(DESPLAZAMIENTO_INICIAL);
+    useEffect(() => {
+        let marco = 0;
+        const medir = () => {
+            marco = 0;
+            const alto = encabezado.current?.offsetHeight ?? 0;
+            setEstado((e) => desplazar(e, window.scrollY, alto));
+        };
+        const alDesplazar = () => {
+            if (!marco) {
+                marco = requestAnimationFrame(medir);
+            }
+        };
+        window.addEventListener("scroll", alDesplazar, { passive: true });
+        return () => {
+            window.removeEventListener("scroll", alDesplazar);
+            if (marco) {
+                cancelAnimationFrame(marco);
+            }
+        };
+    }, [encabezado]);
+    return estado;
+}
+
+const ICONO_AVISO = { error: TriangleAlert, warning: TriangleAlert, success: CircleCheck, info: Info, neutral: Info } as const;
+
+const FONDO_ICONO_AVISO = {
+    error: "bg-[var(--campo-error-fondo)] text-error",
+    warning: "bg-[var(--campo-aviso-fondo)] text-warning",
+    success: "bg-[var(--campo-marca-suave)] text-[var(--campo-marca-suave-texto)]",
+    info: "bg-[var(--campo-info-fondo)] text-info",
+    neutral: "bg-[var(--campo-panel-2)] text-muted-foreground",
+} as const;
+
+/** Aviso que entra desde arriba, con su acción («Deshacer», «Revisar») si la tiene. */
+function NotificacionArriba() {
+    const { notificacion, cerrarNotificacion } = useCampo();
+    const Icono = notificacion ? ICONO_AVISO[notificacion.tono] : Info;
+    return (
+        <div aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+0.875rem)] z-50 mx-auto w-full max-w-2xl px-3.5">
+            {notificacion ? (
+                <div
+                    key={notificacion.texto}
+                    data-slot="notificacion"
+                    data-tono={notificacion.tono}
+                    className={cn(
+                        "campo-entra-arriba pointer-events-auto flex items-center gap-3 rounded-[1.375rem] border bg-[var(--campo-panel)] p-3 text-sm font-medium shadow-[var(--campo-sombra-isla)]",
+                        notificacion.tono === "error"
+                            ? "border-[var(--campo-error-borde)] text-error"
+                            : notificacion.tono === "warning"
+                              ? "border-[var(--campo-aviso-borde)] text-foreground"
+                              : "border-border text-foreground",
+                    )}
+                >
+                    <span aria-hidden className={cn("grid size-10 shrink-0 place-content-center rounded-full", FONDO_ICONO_AVISO[notificacion.tono])}>
+                        <Icono className="size-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">{notificacion.texto}</span>
+                    {notificacion.accion ? (
+                        <Boton
+                            tamano="lg"
+                            className="shrink-0 rounded-full bg-[var(--campo-tinta)] px-3.5 text-[0.8125rem] text-[var(--campo-sobre-tinta)] shadow-none"
+                            onClick={() => {
+                                notificacion.accion?.alPresionar();
+                                cerrarNotificacion();
+                            }}
+                        >
+                            {notificacion.accion.texto}
+                        </Boton>
+                    ) : (
+                        <Boton variante="fantasma" tamano="icono" aria-label="Cerrar aviso" className="size-11 shrink-0 rounded-full md:size-11" onClick={cerrarNotificacion}>
+                            <X aria-hidden />
+                        </Boton>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+/**
+ * Un rechazo nuevo del servidor entra desde arriba con «Revisar» (lleva a «Por enviar»): nunca pasa
+ * en silencio. Solo cuando crece; los que ya estaban al abrir los muestra la píldora.
+ */
+function useAvisoDeRechazos() {
+    const { estado, notificar, navegar } = useCampo();
+    const rechazos = estado.rechazos.length + estado.subidas.rechazadas;
+    const previos = useRef(rechazos);
+    useEffect(() => {
+        if (rechazos > previos.current) {
+            const nuevos = rechazos - previos.current;
+            notificar({
+                tono: "error",
+                texto: nuevos === 1 ? "El servidor rechazó una acción." : `El servidor rechazó ${nuevos} acciones.`,
+                accion: { texto: "Revisar", alPresionar: () => navegar({ tipo: "pendientes" }) },
+            });
+        }
+        previos.current = rechazos;
+    }, [rechazos, notificar, navegar]);
+}
+
+/** Marco de la app: encabezado, la vista actual, el aviso que entra desde arriba y la isla. */
 export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; pedirEmpresa: () => void }) {
-    const { motor, estado, sesion, vista, notificacion } = useCampo();
+    const { motor, estado, sesion, vista } = useCampo();
+    const encabezado = useRef<HTMLElement | null>(null);
+    const desplazamiento = useDesplazamiento(encabezado);
+    useAvisoDeRechazos();
+    // Los pasos de la orden llevan su propia barra abajo («Anterior» / «Siguiente»): sin isla.
+    const conIsla = !(vista.tipo === "orden" && vista.paso !== undefined);
+
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const { envio } = useUbicacion();
     const bajadoEnVisita = useRef(false);
@@ -133,24 +248,9 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const nombreEmpresa = sesion.empresas.find((e) => e.id === empresa)?.nombre;
 
     return (
-        <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-            <header className="glass-material sticky top-0 z-30 border-b border-border pt-[env(safe-area-inset-top)]">
-                <div className="flex items-center gap-3 px-4 py-1.5">
-                    <LogoIris className="size-8" />
-                    <div className="min-w-0 flex-1 leading-tight">
-                        <p className="flex items-center gap-2 font-semibold tracking-[-0.015em]">
-                            Iris Campo
-                            <PuntoConexion />
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                            {sesion.nombre}
-                            {nombreEmpresa ? ` · ${nombreEmpresa}` : ""}
-                        </p>
-                    </div>
-                    <IndicadorUbicacion className="-mr-2 max-w-[55%] shrink-0" />
-                </div>
-                <BarraConexion />
-            </header>
+        <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
+            <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} />
+            <BarraCompacta visible={desplazamiento.compacto} />
             {estado.conexion === "sin_sesion" ? (
                 <div className="px-4 pt-3">
                     <Aviso
@@ -181,7 +281,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     </Aviso>
                 </div>
             ) : null}
-            <main className="flex-1 px-4 pt-4">
+            <main className="flex-1 px-[1.125rem] pt-4">
                 {vista.tipo === "orden" ? (
                     <DetalleOrden id={vista.id} paso={vista.paso} />
                 ) : vista.tipo === "pendientes" ? (
@@ -194,28 +294,17 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     <Yo nombreEmpresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} bajarPaquete={bajarPaquete} />
                 ) : vista.tipo === "bodega" ? (
                     <MiBodega />
+                ) : vista.tipo === "agenda" ? (
+                    <AgendaDia dia={vista.dia} />
+                ) : vista.tipo === "semana" ? (
+                    <AgendaSemana />
                 ) : (
                     <ListaOrdenes carga={carga} bajarPaquete={bajarPaquete} />
                 )}
             </main>
-            <div
-                aria-live="polite"
-                className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 mx-auto w-full max-w-2xl px-4 pb-2"
-            >
-                {notificacion ? (
-                    <div
-                        data-slot="notificacion"
-                        data-tono={notificacion.tono}
-                        className={cn(
-                            "pointer-events-auto rounded-lg border px-4 py-3 text-sm font-medium shadow-lg",
-                            notificacion.tono === "error" ? "border-error/40 bg-card text-error" : "border-border bg-card text-foreground",
-                        )}
-                    >
-                        {notificacion.texto}
-                    </div>
-                ) : null}
-            </div>
-            <NavegacionInferior />
+            <NotificacionArriba />
+            <AvisoIsla alto={vista.tipo !== "orden" || vista.paso !== "cierre"} pedirEmpresa={pedirEmpresa} />
+            {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} /> : null}
         </div>
     );
 }

@@ -26,6 +26,23 @@ const cantidad = z
             .refine((n) => Math.round(n * 1000) === n * 1000, "Hasta 3 decimales"),
     );
 
+/**
+ * Botones − / + junto a «Cantidad» (diseño «combinada»): suma o resta 1 a lo escrito, sin bajar de
+ * 0 (vacío) ni pasar el tope; conserva los decimales y la coma si el técnico la usó. Lo que no es
+ * número se toma como 0.
+ */
+export function pasoCantidad(actual: string, delta: number): string {
+    const coma = actual.includes(",");
+    const n = Number(actual.trim().replace(",", "."));
+    const base = Number.isFinite(n) && actual.trim() !== "" ? n : 0;
+    const r = Math.min(1_000_000, Math.max(0, Math.round((base + delta) * 1000) / 1000));
+    if (r === 0) {
+        return "";
+    }
+    const texto = String(r);
+    return coma ? texto.replace(".", ",") : texto;
+}
+
 export const esquemaMaterial = z.object({
     productoId: z.string().min(1, "Elige el material").transform(Number).pipe(z.number().int().positive("Elige el material")),
     cantidad,

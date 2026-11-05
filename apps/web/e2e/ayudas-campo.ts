@@ -23,9 +23,19 @@ export async function alResumen(page: Page) {
     await page.getByRole("button", { name: /^Resumen de OT-/ }).click();
 }
 
-/** Pestaña de la barra inferior. */
-export async function pestanaCampo(page: Page, nombre: "Hoy" | "Por recibir" | "Pendientes" | "Yo") {
+/** Botón de la isla de menú (diseño «combinada»: Hoy · Por recibir · «+» · Agenda · Yo). */
+export async function pestanaCampo(page: Page, nombre: "Hoy" | "Por recibir" | "Agenda" | "Yo") {
     await page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: new RegExp(`^${nombre}( \\(\\d+\\))?$`) }).click();
+}
+
+/**
+ * «Por enviar» ya no está en la isla: desde cualquier vista (también un paso de la orden, sin isla)
+ * se llega por la cuenta («Yo») → «Por enviar».
+ */
+export async function abrirPorEnviar(page: Page) {
+    await page.getByRole("button", { name: "Tu cuenta" }).first().click();
+    await page.getByRole("button", { name: /^Por enviar/ }).click();
+    await expect(page.getByRole("heading", { name: "Por enviar", exact: true })).toBeVisible();
 }
 
 /** Firma en el lienzo con un trazo (al centro de la pantalla). */

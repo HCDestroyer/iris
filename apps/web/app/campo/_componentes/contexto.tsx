@@ -9,7 +9,10 @@ import { urlDeVista, vistaDeUrl, type Vista } from "@iris/sync/campo";
 
 export { urlDeVista, type Vista };
 
-export type Notificacion = { tono: Tono; texto: string };
+/** Acción del aviso que entra desde arriba («Deshacer», «Revisar»). */
+export type AccionNotificacion = { texto: string; alPresionar: () => void };
+
+export type Notificacion = { tono: Tono; texto: string; accion?: AccionNotificacion };
 
 /** Cierra la sesión del técnico: borra el teléfono o conserva solo lo pendiente (cola y archivos). */
 export type CerrarSesion = (opciones: { conservarPendientes: boolean }) => Promise<void>;
@@ -22,11 +25,12 @@ type ContextoCampo = {
     navegar: (v: Vista) => void;
     notificar: (n: Notificacion) => void;
     notificacion: Notificacion | null;
+    cerrarNotificacion: () => void;
     /**
      * Corre una acción del técnico: avisa «Guardado en el teléfono» (o el error). Devuelve si se
-     * guardó.
+     * guardó. `deshacer` (con lo que devolvió la acción) agrega «Deshacer» al aviso.
      */
-    ejecutar: (accion: () => Promise<unknown>, guardado?: string) => Promise<boolean>;
+    ejecutar: <T>(accion: () => Promise<T>, guardado?: string, opciones?: { deshacer?: (resultado: T) => () => void }) => Promise<boolean>;
     /** Miniaturas de las fotos tomadas en esta visita (URL de objeto por id de adjunto). */
     miniaturas: ReadonlyMap<string, string>;
     agregarMiniatura: (id: string, datos: Blob) => void;
@@ -94,10 +98,21 @@ export function ProveedorCampo({
     );
 
     const navegar = useCallback((v: Vista) => {
-        // pushState sin pasar por el router: la página es una sola y funciona sin señal.
-        window.history.pushState(null, "", urlDeVista(v));
+        // pushState sin pasar por el router: la página es una sola y funciona sin señal. La misma
+        // vista no se repite en el historial (así «Atrás» vuelve a la anterior de verdad).
+        const url = urlDeVista(v);
+        if (url !== window.location.pathname + window.location.search) {
+            window.history.pushState(null, "", url);
+        }
         setVista(v);
         window.scrollTo({ top: 0 });
+    }, []);
+
+    const cerrarNotificacion = useCallback(() => {
+        if (temporizador.current) {
+            clearTimeout(temporizador.current);
+        }
+        setNotificacion(null);
     }, []);
 
     const notificar = useCallback((n: Notificacion) => {
@@ -105,14 +120,20 @@ export function ProveedorCampo({
         if (temporizador.current) {
             clearTimeout(temporizador.current);
         }
-        temporizador.current = setTimeout(() => setNotificacion(null), 5000);
+        // Con una acción («Deshacer», «Revisar») queda más tiempo: hay que alcanzar a tocarla.
+        temporizador.current = setTimeout(() => setNotificacion(null), n.accion ? 8000 : 5000);
     }, []);
 
     const ejecutar = useCallback(
-        async (accion: () => Promise<unknown>, guardado = "Guardado en el teléfono") => {
+        async <T,>(accion: () => Promise<T>, guardado = "Guardado en el teléfono", opciones: { deshacer?: (resultado: T) => () => void } = {}) => {
             try {
-                await accion();
-                notificar({ tono: "success", texto: navigator.onLine ? `${guardado}. Enviando…` : `${guardado}. Se enviará al volver la señal.` });
+                const resultado = await accion();
+                const deshacer = opciones.deshacer?.(resultado);
+                notificar({
+                    tono: "success",
+                    texto: navigator.onLine ? `${guardado}. Enviando…` : `${guardado}. Se enviará al volver la señal.`,
+                    ...(deshacer ? { accion: { texto: "Deshacer", alPresionar: deshacer } } : {}),
+                });
                 return true;
             } catch (e) {
                 notificar({ tono: "error", texto: mensajeError(e) });
@@ -127,8 +148,8 @@ export function ProveedorCampo({
     }, []);
 
     const valor = useMemo<ContextoCampo>(
-        () => ({ motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion }),
-        [motor, estado, sesion, vista, navegar, notificar, notificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
+        () => ({ motor, estado, sesion, vista, navegar, notificar, notificacion, cerrarNotificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion }),
+        [motor, estado, sesion, vista, navegar, notificar, notificacion, cerrarNotificacion, ejecutar, miniaturas, agregarMiniatura, cerrarSesion],
     );
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
