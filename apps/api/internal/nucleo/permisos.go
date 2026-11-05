@@ -205,6 +205,19 @@ const (
 	PermIntegracionesVerPendientes     Permiso = "integraciones.ver_pendientes"
 )
 
+// Mensajería (contrato Iris ↔ ArgosISP 0.6.0 §6; servicio cmd/mensajeria).
+const (
+	// PermMensajeriaEnviar: pedir avisos y consultar los propios (POST/GET /mensajeria/avisos). Es de la
+	// integración integracion_argos (§1.2); ningún rol de persona lo recibe salvo admin (todos).
+	PermMensajeriaEnviar Permiso = "mensajeria.enviar"
+	// PermMensajeriaRegistrarConsentimiento: registrar el permiso de contacto de un cliente (§6.4).
+	PermMensajeriaRegistrarConsentimiento Permiso = "mensajeria.registrar_consentimiento"
+	// PermMensajeriaVer: ver las plantillas vigentes y en qué canales están aprobadas (§6.3).
+	PermMensajeriaVer Permiso = "mensajeria.ver"
+	// PermMensajeriaConfigurar: configurar los canales de una empresa (credenciales de WhatsApp).
+	PermMensajeriaConfigurar Permiso = "mensajeria.configurar"
+)
+
 // Portal de soporte (/soporte).
 const (
 	PermPortalEmitir Permiso = "portal.emitir"
@@ -229,7 +242,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
-	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true,
 }
 
 // EsSensible indica si el permiso es de administración (PermisosSensibles).
@@ -299,6 +312,10 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
+	{PermMensajeriaConfigurar, "Configurar los canales de mensajería de una empresa (WhatsApp: número, credenciales y plantillas aprobadas)"},
+	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
+	{PermMensajeriaRegistrarConsentimiento, "Registrar el permiso de contacto (acepta o baja) de un cliente de Argos por un canal"},
+	{PermMensajeriaVer, "Ver las plantillas de mensajería vigentes y en qué canales están aprobadas"},
 	{PermOrdenesAplicarDatosArgos, "Aplicar a una orden abierta los datos nuevos de Argos (dirección, coordenadas, referencia y contacto) tras el aviso «Dato de Argos cambió»"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
@@ -462,7 +479,9 @@ var RolesBase = []DefRol{
 	//    pendiente de acordar con Argos; se deja por decisión del líder.
 	//  - Horus: tickets.ver y tickets.crear (contratos/horus.md §1.2); sso.emitir cuando exista.
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
-		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir}},
+		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir,
+			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
+			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
@@ -534,7 +553,8 @@ var modulosPermiso = map[string][2]string{
 	"usuarios": {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},
 	"roles":  {"roles", "Roles y permisos"}, "permisos": {"roles", "Roles y permisos"},
-	"empresas": {"empresas", "Empresas"},
+	"empresas":   {"empresas", "Empresas"},
+	"mensajeria": {"mensajeria", "Mensajería"},
 }
 
 // ModuloDe devuelve el módulo (código y nombre legible) de un permiso.

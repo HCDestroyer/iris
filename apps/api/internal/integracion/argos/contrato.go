@@ -26,7 +26,7 @@ import (
 //     Iris los guarda en el conector y elige `tecnico` (Argos ≥ 1.6.0) o `bodega_id`.
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
-const ContratoIris = "0.5.0"
+const ContratoIris = "0.6.0"
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».

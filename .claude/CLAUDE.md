@@ -205,6 +205,12 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
 | `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
+| `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null) |
+| `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |
+| `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |
+| `consentimiento.registrado` | mensajeria | consentimiento_id, empresa_id, cliente_id, canal, estado (acepta \| baja), origen, ocurrido_en, estado_vigente |
+| `contacto.baja` | mensajeria (chat) | cliente_id, empresa_id, canal, ocurrido_en, origen (cliente \| agente), consentimiento_id; va a Argos (§6.6) |
+| `canal_mensajeria.creado` / `canal_mensajeria.actualizado` / `canal_mensajeria.activado` / `canal_mensajeria.desactivado` / `canal_mensajeria.calidad` | mensajeria | canal_id, empresa_id; tipo, canal (creado); campos[] (actualizado); evento, pausado_hasta (calidad) |
 
 El detalle de cada payload vive en `.claude/integration/contratos/eventos.md`.
 

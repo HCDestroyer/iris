@@ -45,6 +45,8 @@ x-api-env: &api-env
   # Optional CA (PEM) for an SMTP/IMAP server with a private certificate. Put the file in
   # <install dir>/certs/ and set IRIS_CORREO_CA=/run/iris/certs/<file> in the .env.
   IRIS_CORREO_CA: ${IRIS_CORREO_CA:-}
+  # The API forwards /api/v1/mensajeria to the messaging service (cmd/mensajeria, Argos contract §6).
+  IRIS_MENSAJERIA_URL: http://mensajeria:8081
 
 x-api-volumes: &api-volumes
   - ${IRIS_DIR:-/opt/iris}/certs:/run/iris/certs:ro
@@ -171,6 +173,34 @@ services:
       start_period: 15s
     ports:
       - 127.0.0.1:${IRIS_API_PUERTO:-8080}:8080
+    # Fixed IP: the messaging service trusts X-Forwarded-For only from the API and the panel.
+    networks:
+      default:
+        ipv4_address: ${IRIS_API_IP:-172.28.10.11}
+
+  # Messaging service (WhatsApp notices for Argos, contract §6): its own process, same image as the
+  # API, schema `mensajeria` in the same database. No published port: reached through the API
+  # (/api/v1/mensajeria). Never IRIS_MENSAJERIA_SIMULADO in production: an empresa without a
+  # configured WhatsApp channel gets bloqueado / canal_no_disponible.
+  mensajeria:
+    image: ${IRIS_REGISTRY:-ghcr.io/hcdestroyer}/iris-api:${IRIS_VERSION:?IRIS_VERSION is required}
+    entrypoint: [/usr/local/bin/mensajeria]
+    restart: unless-stopped
+    logging: *logging
+    env_file: *api-env-file
+    environment:
+      <<: *api-env
+      IRIS_MENSAJERIA_PUERTO: '8081'
+      IRIS_MENSAJERIA_SIMULADO: 'false'
+      IRIS_PROXIES_CONFIABLES: ${IRIS_WEB_IP:-172.28.10.10}/32,${IRIS_API_IP:-172.28.10.11}/32
+    volumes: *api-volumes
+    depends_on: *api-depende
+    healthcheck:
+      test: [CMD, /usr/local/bin/mensajeria, salud]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
 
   # River: outbox relay, Argos/Horus webhooks, mail, crons. Distroless and no health command: the
   # restart policy brings it back if it exits.

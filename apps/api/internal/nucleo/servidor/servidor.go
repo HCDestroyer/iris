@@ -34,6 +34,9 @@ type Deps struct {
 	// ProxiesConfiables: redes cuyo X-Forwarded-For se cree (IRIS_PROXIES_CONFIABLES). Vacío =
 	// la IP del cliente es la de la conexión.
 	ProxiesConfiables []netip.Prefix
+	// Delegados: prefijo de ruta → handler de otro proceso (ProxyHacia), que se atiende antes de la
+	// identidad y la idempotencia (las aplica el destino). La API delega /api/v1/mensajeria.
+	Delegados map[string]http.Handler
 }
 
 // Nuevo devuelve el handler y la API (para leer el OpenAPI).
@@ -73,7 +76,7 @@ func Nuevo(d Deps) (http.Handler, huma.API) {
 	for _, registrar := range d.Modulos {
 		registrar(api)
 	}
-	return r, api
+	return delegar(r, d.Delegados, d.Log), api
 }
 
 func configuracion(version string) huma.Config {

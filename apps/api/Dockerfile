@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=secret,id=ca_extra,requir
 COPY apps/api/ ./
 ARG VERSION=0.0.0-dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go build -ldflags "-s -w -X main.version=${VERSION}" -o /salida/ ./cmd/iris ./cmd/worker
+    go build -ldflags "-s -w -X main.version=${VERSION}" -o /salida/ ./cmd/iris ./cmd/worker ./cmd/mensajeria
 
 # Base común de las dos imágenes finales (fijada por digest: static-debian12:nonroot).
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS final
@@ -37,10 +37,12 @@ COPY --from=build /salida/worker /usr/local/bin/worker
 ENTRYPOINT ["/usr/local/bin/worker"]
 
 # API HTTP. Órdenes: servir (por defecto), migrar, salud, clave rotar, admin crear, portal acceso,
-# integracion crear…
+# integracion crear… Trae también el servicio de mensajería (/usr/local/bin/mensajeria, contrato con
+# Argos §6): el compose lo corre como servicio aparte con `entrypoint: [/usr/local/bin/mensajeria]`.
 # Va al final para que un `docker build` sin --target construya la API.
 FROM final AS api
 COPY --from=build /salida/iris /usr/local/bin/iris
+COPY --from=build /salida/mensajeria /usr/local/bin/mensajeria
 ENV PORT=8080
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/iris"]

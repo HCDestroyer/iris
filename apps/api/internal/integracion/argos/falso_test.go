@@ -65,6 +65,8 @@ type argosFalso struct {
 	tecnicos  []map[string]any
 	planes    []map[string]any
 	contratos int // PUT /integraciones/iris/contrato recibidos
+	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
+	webhookURL string
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -197,7 +199,12 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	a.codigo = "usado-" + a.codigo
 	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
 	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
-	resp := map[string]any{"token": a.token, "webhook": map[string]any{"url": "https://argos.prueba/api/v1/integraciones/iris/webhook", "secreto": "secreto-de-argos-para-iris"},
+	// El receptor en el mismo host que la API de Argos (contrato 0.6.0 §6.6); webhookURL lo cambia.
+	receptor := a.srv.URL + "/api/v1/integraciones/iris/webhook"
+	if a.webhookURL != "" {
+		receptor = a.webhookURL
+	}
+	resp := map[string]any{"token": a.token, "webhook": map[string]any{"url": receptor, "secreto": "secreto-de-argos-para-iris"},
 		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}}
 	if a.empresasCanje != nil {
 		resp["empresas"] = a.empresasCanje

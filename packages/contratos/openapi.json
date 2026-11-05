@@ -977,6 +977,124 @@
         ],
         "type": "object"
       },
+      "AvisoCreado": {
+        "additionalProperties": false,
+        "properties": {
+          "aviso_id": {
+            "description": "Id del aviso (uuid)",
+            "type": "string"
+          },
+          "estado": {
+            "description": "Al crearlo: en_cola o bloqueado. Una repetición con la misma Idempotency-Key devuelve el estado actual",
+            "enum": [
+              "en_cola",
+              "bloqueado",
+              "entregado",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Con bloqueado: sin_permiso, baja, limite_diario, sin_contacto o canal_no_disponible; con fallido, el de aviso.fallido",
+            "type": "string"
+          }
+        },
+        "required": [
+          "aviso_id",
+          "estado"
+        ],
+        "type": "object"
+      },
+      "AvisoDetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "aviso_id": {
+            "type": "string"
+          },
+          "canal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cliente_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "creado_en": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresa_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entregado_en": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "en_cola",
+              "bloqueado",
+              "entregado",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "leido_en": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plantilla": {
+            "type": "string"
+          },
+          "servicio_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "aviso_id",
+          "idempotency_key",
+          "empresa_id",
+          "cliente_id",
+          "servicio_id",
+          "plantilla",
+          "estado",
+          "canal",
+          "motivo",
+          "detalle",
+          "creado_en",
+          "entregado_en",
+          "leido_en"
+        ],
+        "type": "object"
+      },
       "Bodega": {
         "additionalProperties": false,
         "properties": {
@@ -1245,6 +1363,94 @@
           "cambios",
           "cursor",
           "hayMas"
+        ],
+        "type": "object"
+      },
+      "Canal": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "type": "boolean"
+          },
+          "canal": {
+            "enum": [
+              "whatsapp"
+            ],
+            "type": "string"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "Número remitente en E.164",
+            "type": "string"
+          },
+          "pausadoHasta": {
+            "description": "Pausa automática por calidad o límite de Meta",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phoneNumberId": {
+            "type": "string"
+          },
+          "plantillas": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlantillaMeta"
+            },
+            "description": "Plantillas aprobadas en Meta por código de Iris",
+            "type": "object"
+          },
+          "tipo": {
+            "enum": [
+              "whatsapp_cloud"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "wabaId": {
+            "type": "string"
+          },
+          "webhookRuta": {
+            "description": "Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "tipo",
+          "canal",
+          "nombre",
+          "numero",
+          "phoneNumberId",
+          "wabaId",
+          "plantillas",
+          "activo",
+          "pausadoHasta",
+          "webhookRuta",
+          "version",
+          "creadoEn"
         ],
         "type": "object"
       },
@@ -2177,6 +2383,28 @@
           "webhookUrl",
           "webhookSecreto",
           "estado"
+        ],
+        "type": "object"
+      },
+      "Consentimiento": {
+        "additionalProperties": false,
+        "properties": {
+          "consentimiento_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "estado_vigente": {
+            "description": "El del registro más reciente (por ocurrido_en) del cliente en la empresa y el canal",
+            "enum": [
+              "acepta",
+              "baja"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "consentimiento_id",
+          "estado_vigente"
         ],
         "type": "object"
       },
@@ -3317,6 +3545,62 @@
         ],
         "type": "object"
       },
+      "EntradaActualizarCanal": {
+        "additionalProperties": false,
+        "properties": {
+          "appSecret": {
+            "description": "Vacío = no cambia",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "numero": {
+            "pattern": "^\\+[1-9][0-9]{7,14}$",
+            "type": "string"
+          },
+          "phoneNumberId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          },
+          "plantillas": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlantillaMeta"
+            },
+            "type": "object"
+          },
+          "token": {
+            "description": "Vacío = no cambia",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "verifyToken": {
+            "description": "Vacío = no cambia",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "wabaId": {
+            "pattern": "^[0-9]{0,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "nombre",
+          "numero",
+          "phoneNumberId",
+          "plantillas"
+        ],
+        "type": "object"
+      },
       "EntradaAgregarFormulario": {
         "additionalProperties": false,
         "properties": {
@@ -3530,6 +3814,71 @@
         },
         "required": [
           "panelUrl"
+        ],
+        "type": "object"
+      },
+      "EntradaAviso": {
+        "additionalProperties": false,
+        "properties": {
+          "canal_preferido": {
+            "default": "whatsapp",
+            "description": "Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible",
+            "enum": [
+              "whatsapp",
+              "telegram",
+              "correo"
+            ],
+            "type": "string"
+          },
+          "cliente_id": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "empresa_id": {
+            "description": "Empresa en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "plantilla": {
+            "description": "Código de la plantilla (§6.3; GET /mensajeria/plantillas)",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "prioridad": {
+            "default": "normal",
+            "description": "urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso",
+            "enum": [
+              "normal",
+              "urgente"
+            ],
+            "type": "string"
+          },
+          "servicio_id": {
+            "description": "Servicio en Argos (opcional; debe ser del cliente y de la empresa)",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "variables": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala",
+            "maxProperties": 20,
+            "type": "object"
+          }
+        },
+        "required": [
+          "empresa_id",
+          "cliente_id",
+          "plantilla"
         ],
         "type": "object"
       },
@@ -3865,6 +4214,59 @@
         ],
         "type": "object"
       },
+      "EntradaConsentimiento": {
+        "additionalProperties": false,
+        "properties": {
+          "canal": {
+            "description": "Fase 1: whatsapp",
+            "enum": [
+              "whatsapp"
+            ],
+            "type": "string"
+          },
+          "cliente_id": {
+            "description": "Cliente en Argos",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "empresa_id": {
+            "description": "Empresa en Argos (el permiso es por empresa)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "estado": {
+            "enum": [
+              "acepta",
+              "baja"
+            ],
+            "type": "string"
+          },
+          "ocurrido_en": {
+            "description": "Cuándo lo dio el cliente (RFC 3339). Manda el registro más reciente: un acepta más viejo se guarda, pero no gana a una baja más nueva",
+            "format": "date-time",
+            "type": "string"
+          },
+          "origen": {
+            "description": "argos_panel: un operador lo marcó; argos_portal: el cliente en su portal",
+            "enum": [
+              "argos_panel",
+              "argos_portal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "empresa_id",
+          "cliente_id",
+          "canal",
+          "estado",
+          "origen",
+          "ocurrido_en"
+        ],
+        "type": "object"
+      },
       "EntradaContacto": {
         "additionalProperties": false,
         "properties": {
@@ -3943,6 +4345,74 @@
           "nombre",
           "correo",
           "imap"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearCanal": {
+        "additionalProperties": false,
+        "properties": {
+          "appSecret": {
+            "description": "App secret de la app de Meta (verifica X-Hub-Signature-256; solo escritura)",
+            "maxLength": 256,
+            "minLength": 16,
+            "type": "string"
+          },
+          "empresaId": {
+            "description": "Empresa de Argos (null solo en modo sin conector)",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "nombre": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "numero": {
+            "description": "Número remitente en E.164",
+            "pattern": "^\\+[1-9][0-9]{7,14}$",
+            "type": "string"
+          },
+          "phoneNumberId": {
+            "description": "Phone number ID de Meta",
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          },
+          "plantillas": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlantillaMeta"
+            },
+            "description": "Plantillas aprobadas en Meta por código de Iris (§6.3)",
+            "type": "object"
+          },
+          "token": {
+            "description": "Token de acceso del usuario del sistema de Meta (solo escritura)",
+            "maxLength": 1024,
+            "minLength": 20,
+            "type": "string"
+          },
+          "verifyToken": {
+            "description": "Token de verificación del webhook que se escribe en Meta (solo escritura)",
+            "maxLength": 256,
+            "minLength": 16,
+            "type": "string"
+          },
+          "wabaId": {
+            "description": "WhatsApp Business Account ID",
+            "pattern": "^[0-9]{0,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "numero",
+          "phoneNumberId",
+          "token",
+          "appSecret",
+          "verifyToken"
         ],
         "type": "object"
       },
@@ -8517,6 +8987,56 @@
         ],
         "type": "object"
       },
+      "ListaCanales": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Canal"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "ListaPlantillas": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PlantillaVigente"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
       "MFAConfigurado": {
         "additionalProperties": false,
         "properties": {
@@ -8796,6 +9316,18 @@
           "cuerpo",
           "adjuntos",
           "creadoEn"
+        ],
+        "type": "object"
+      },
+      "MetaRecibido": {
+        "additionalProperties": false,
+        "properties": {
+          "duplicado": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "duplicado"
         ],
         "type": "object"
       },
@@ -11801,6 +12333,10 @@
           "integraciones.resolver_pendiente",
           "integraciones.ver",
           "integraciones.ver_pendientes",
+          "mensajeria.configurar",
+          "mensajeria.enviar",
+          "mensajeria.registrar_consentimiento",
+          "mensajeria.ver",
           "ordenes.aplicar_datos_argos",
           "ordenes.asignar",
           "ordenes.asignar_formulario",
@@ -12235,6 +12771,82 @@
           "items",
           "creadoEn",
           "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "PlantillaMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "idioma": {
+            "description": "Código de idioma de la plantilla en Meta (es, es_MX…)",
+            "maxLength": 10,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(_[A-Z]{2})?$",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre de la plantilla aprobada en Meta",
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "idioma"
+        ],
+        "type": "object"
+      },
+      "PlantillaVigente": {
+        "additionalProperties": false,
+        "properties": {
+          "admite_urgente": {
+            "description": "Admite prioridad urgente (solo la pide Iris)",
+            "type": "boolean"
+          },
+          "canales": {
+            "description": "Medios en que está aprobada para las empresas consultadas (vacío = no aprobada: un aviso queda bloqueado con canal_no_disponible)",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "pide": {
+            "description": "Quién puede pedirla: argos (Argos e Iris) o iris (solo Iris; una integración recibe 422 plantilla_no_permitida)",
+            "enum": [
+              "argos",
+              "iris"
+            ],
+            "type": "string"
+          },
+          "texto": {
+            "description": "Texto de referencia en español con {{variable}}",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/Variable"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "codigo",
+          "variables",
+          "texto",
+          "admite_urgente",
+          "pide",
+          "canales"
         ],
         "type": "object"
       },
@@ -16244,6 +16856,30 @@
           "correo",
           "correoVerificado",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "Variable": {
+        "additionalProperties": false,
+        "properties": {
+          "formato": {
+            "description": "monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres",
+            "enum": [
+              "monto",
+              "moneda",
+              "fecha",
+              "instante",
+              "texto"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "formato"
         ],
         "type": "object"
       },
@@ -24385,6 +25021,1123 @@
         "tags": [
           "sistema"
         ]
+      }
+    },
+    "/api/v1/mensajeria/avisos": {
+      "post": {
+        "description": "Permiso: `mensajeria.enviar`. Idempotency-Key obligatoria (`argos:aviso:\u003cplantilla\u003e:\u003cenvio_id\u003e`; 400 `idempotency_key_requerida`): repetirla con el mismo cuerpo devuelve el mismo `aviso_id` con su **estado actual** (`Idempotent-Replayed: true`); con otro cuerpo, 422 `idempotencia_reutilizada`. Sin teléfono en el cuerpo: Iris toma el contacto de su instantánea de Argos (refrescada si tiene más de 24 h; sin instantánea y con Argos caído, 503). `variables` solo acepta las de la plantilla (422 `variable_desconocida`; falta o formato: 422 `validacion`). 422 `cliente_fuera_de_empresa` / `servicio_fuera_de_empresa`.Una integración solo pide las plantillas con `pide: argos` (si no, 422 `plantilla_no_permitida`) y nunca `prioridad: urgente` (422). Responde 202 `{ aviso_id, estado: en_cola | bloqueado, motivo? }`; un bloqueado (`sin_permiso`, `baja`, `limite_diario`, `sin_contacto`, `canal_no_disponible`) no se reintenta. En horario de silencio (21:00–07:00 Guatemala) queda en cola y sale al terminar; si para entonces venció, `aviso.fallido` con `vencido`. Cada aviso en cola termina en un solo webhook: `aviso.entregado` o `aviso.fallido` (§6.6).",
+        "operationId": "enviarAviso",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAviso"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvisoCreado"
+                }
+              }
+            },
+            "description": "Accepted",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "description": "true si la clave ya se había usado (el cuerpo trae el estado actual)",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pedir un aviso (contrato Iris ↔ ArgosISP §6.2)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.enviar"
+      }
+    },
+    "/api/v1/mensajeria/avisos/{id}": {
+      "get": {
+        "description": "Permiso: `mensajeria.enviar`. Para conciliar un webhook perdido. Una integración solo ve los avisos que pidió: cualquier otro, 404.",
+        "operationId": "verAviso",
+        "parameters": [
+          {
+            "description": "aviso_id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "aviso_id",
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvisoDetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Estado de un aviso",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.enviar"
+      }
+    },
+    "/api/v1/mensajeria/canales": {
+      "get": {
+        "description": "Permiso: `mensajeria.configurar`.",
+        "operationId": "listarCanalesMensajeria",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaCanales"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Canales de mensajería configurados (sin credenciales)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      },
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Uno activo por empresa (409 `canal_existente`). `webhookRuta` es la ruta que se configura en la app de Meta (verificación con el verify token y firma con el app secret).",
+        "operationId": "crearCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearCanal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Configurar WhatsApp Cloud API de una empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/activar": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`.",
+        "operationId": "activarCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar un canal",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/actualizar": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`.",
+        "operationId": "actualizarCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaActualizarCanal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Actualizar un canal (credenciales vacías: no cambian)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/desactivar": {
+      "post": {
+        "description": "Permiso: `mensajeria.configurar`.",
+        "operationId": "desactivarCanalMensajeria",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Canal"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Desactivar un canal",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.configurar"
+      }
+    },
+    "/api/v1/mensajeria/canales/{id}/webhook": {
+      "get": {
+        "description": "Meta llama con `hub.mode=subscribe`, `hub.verify_token` (el del canal) y `hub.challenge`; responde el challenge en texto plano. 403 `verificacion_invalida`.",
+        "operationId": "verificarWebhookMeta",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.mode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.verify_token",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "hub.challenge",
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "contentEncoding": "base64",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Verificación de la suscripción del webhook de Meta",
+        "tags": [
+          "mensajeria"
+        ]
+      },
+      "post": {
+        "description": "Estados de entrega (`sent`, `delivered`, `read`, `failed`), mensajes del cliente (`BAJA` o `ALTO` dan de baja sus avisos) y calidad del número. Firmado con el app secret del canal (`X-Hub-Signature-256: sha256=\u003chex\u003e`; 401 `firma_invalida`, sin auditar). Se guarda deduplicado y se procesa en un job.",
+        "operationId": "webhookMeta",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "sha256=\u003chex(HMAC-SHA256(app_secret, cuerpo))\u003e",
+            "in": "header",
+            "name": "X-Hub-Signature-256",
+            "schema": {
+              "description": "sha256=\u003chex(HMAC-SHA256(app_secret, cuerpo))\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaRecibido"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Webhook de WhatsApp Cloud API (Meta)",
+        "tags": [
+          "mensajeria"
+        ]
+      }
+    },
+    "/api/v1/mensajeria/consentimientos": {
+      "post": {
+        "description": "Permiso: `mensajeria.registrar_consentimiento`. Idempotency-Key obligatoria (`argos:consentimiento:\u003cempresa_id\u003e:\u003ccliente_id\u003e:\u003ccanal\u003e:\u003cocurrido_en\u003e`). 201 si es nuevo, 200 si es una repetición; los dos con `{ consentimiento_id, estado_vigente }`. Manda el registro con `ocurrido_en` más reciente: un `acepta` más viejo se guarda pero no gana a una `baja` más nueva. 422 `cliente_fuera_de_empresa` si el cliente no es de una empresa de la integración (según la instantánea de Argos).",
+        "operationId": "registrarConsentimiento",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConsentimiento"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Repetición: el mismo registro y el estado vigente"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Consentimiento"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un permiso de contacto (§6.4)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.registrar_consentimiento"
+      }
+    },
+    "/api/v1/mensajeria/plantillas": {
+      "get": {
+        "description": "Permiso: `mensajeria.ver`. Con sus variables y los medios en que están aprobadas para las empresas de quien consulta. Una no aprobada responde `bloqueado` / `canal_no_disponible` al pedir un aviso.",
+        "operationId": "listarPlantillasMensajeria",
+        "parameters": [
+          {
+            "description": "Solo los canales de esta empresa (por defecto, todas las de la integración)",
+            "explode": false,
+            "in": "query",
+            "name": "empresa_id",
+            "schema": {
+              "description": "Solo los canales de esta empresa (por defecto, todas las de la integración)",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaPlantillas"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas vigentes (§6.3)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "mensajeria.ver"
       }
     },
     "/api/v1/ordenes": {

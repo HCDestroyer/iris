@@ -168,6 +168,34 @@ Un payload inválido (sin `router_id`, `estado` que no es caído/arriba, hallazg
 o sin `categoria`) o un evento desconocido no emite nada: el entrante queda «ignorado» con el
 motivo en `integracion.entrantes.error`.
 
+## Mensajería (I1)
+
+Emite `internal/mensajeria` (proceso `cmd/mensajeria`, contrato Iris ↔ ArgosISP 0.6.0 §6). Llevan
+`empresa_id` = la empresa del aviso, del permiso o del canal (null en modo sin conector). Nunca llevan
+el teléfono del cliente. `origen` dice quién pidió el aviso (`argos`: un token de integración de
+Argos; `iris`: cualquier otro). Fechas en UTC (RFC 3339).
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `aviso.creado` | `aviso_id` (uuid), `empresa_id`, `cliente_id`, `servicio_id` (o null), `plantilla`, `estado` (`en_cola` \| `bloqueado`), `motivo` (o null: `sin_permiso`, `baja`, `limite_diario`, `sin_contacto`, `canal_no_disponible`), `origen`, `prioridad`, `programado_en` (o null) | `mensajeria.enviar` (`POST /mensajeria/avisos`). Una repetición con la misma `Idempotency-Key` no emite. |
+| `aviso.enviado` | `aviso_id`, `canal`, `canal_id` (o null con el simulado), `origen` | El canal aceptó el envío (Meta devolvió su id). |
+| `aviso.entregado` | `aviso_id`, `idempotency_key`, `empresa_id`, `canal`, `entregado_en`, `leido_en` (o null), `origen`, `cliente_id` | El canal confirmó la entrega (o la lectura antes que la entrega). Estado final: uno por aviso. Va a Argos como webhook (§6.6) si `origen = argos`. |
+| `aviso.leido` | `aviso_id`, `leido_en`, `origen` | Lectura después de la entrega. Solo interno: no va a Argos. |
+| `aviso.fallido` | `aviso_id`, `idempotency_key`, `empresa_id`, `canal` (o null), `motivo` (`vencido`, `numero_invalido`, `rechazado_por_canal`, `agotado`), `detalle` (o null), `origen`, `cliente_id` | Estado final del aviso (uno por aviso): venció al terminar el silencio, el canal lo rechazó, se agotaron los reintentos o no hubo acuse en 72 h. Va a Argos si `origen = argos`. |
+| `consentimiento.registrado` | `consentimiento_id`, `empresa_id`, `cliente_id`, `canal`, `estado` (`acepta` \| `baja`), `origen` (`argos_panel`, `argos_portal`, `cliente`, `agente`), `ocurrido_en`, `estado_vigente` | `mensajeria.registrar_consentimiento` o una baja por chat. Una repetición no emite. |
+| `contacto.baja` | `cliente_id`, `empresa_id`, `canal`, `ocurrido_en`, `origen` (`cliente` \| `agente`), `consentimiento_id` | Una baja dada en Iris (el cliente escribe `BAJA` o `ALTO`) que queda vigente. Va a Argos (§6.6) sin `consentimiento_id`. |
+| `canal_mensajeria.creado` | `canal_id`, `empresa_id`, `tipo` (`whatsapp_cloud`), `canal` (`whatsapp`) | `mensajeria.configurar` (`POST /mensajeria/canales`). |
+| `canal_mensajeria.actualizado` | `canal_id`, `empresa_id`, `campos[]` (las credenciales cambiadas van como `credenciales`, nunca el valor) | `POST /mensajeria/canales/{id}/actualizar`. |
+| `canal_mensajeria.activado` / `canal_mensajeria.desactivado` | `canal_id`, `empresa_id` | `POST /mensajeria/canales/{id}/activar` / `desactivar`. |
+| `canal_mensajeria.calidad` | `canal_id`, `evento` (de Meta: `FLAGGED`, `UNFLAGGED`, `DOWNGRADE`, `UPGRADE`), `pausado_hasta` (o null) | Meta cambia la calidad del número: se pausa 24 h o se libera (§6.5). |
+
+**Webhooks hacia Argos (§6.6, 0.6.1).** El suscriptor `mensajeria.webhooks` del relay toma
+`aviso.entregado`, `aviso.fallido` (solo `origen = argos`) y `contacto.baja`, y los entrega como
+`{ id, evento, ocurrido_en, payload }` con `X-Webhook-Id` = `id` = el id del evento del outbox. El
+payload lleva solo los campos del contrato: `aviso.entregado` (aviso_id, idempotency_key, empresa_id,
+canal, entregado_en, leido_en o null), `aviso.fallido` (aviso_id, idempotency_key, empresa_id, canal
+o null, motivo, detalle o null) y `contacto.baja` (cliente_id, empresa_id, canal, ocurrido_en, origen).
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

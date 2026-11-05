@@ -38,6 +38,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
@@ -263,6 +264,19 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if len(clavesIdem) == 0 {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: la idempotencia usa una clave aleatoria del proceso (tras reiniciar, una Idempotency-Key repetida responde 422)")
 	}
+	// Mensajería (contrato 0.6.0 §6): su propio proceso (cmd/mensajeria); /api/v1/mensajeria se le
+	// reenvía tal cual (IRIS_MENSAJERIA_URL; vacía = 503 servicio_no_disponible).
+	entMsj, err := mensajeria.EntornoDesdeVariables()
+	if err != nil {
+		return err
+	}
+	if entMsj.URL == "" {
+		log.Warn("IRIS_MENSAJERIA_URL vacía: /api/v1/mensajeria responde 503 (el servicio de mensajería no está conectado)")
+	}
+	proxyMsj, err := servidor.ProxyHacia(entMsj.URL, "Mensajería", log)
+	if err != nil {
+		return fmt.Errorf("IRIS_MENSAJERIA_URL inválida: %w", err)
+	}
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		Idempotencia: nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
@@ -279,6 +293,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			reportes.Nuevo(reportes.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
+		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},
 	})
 
 	srv := &http.Server{

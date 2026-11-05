@@ -847,30 +847,32 @@ type IntegracionCodigosConexion struct {
 }
 
 type IntegracionConectore struct {
-	ID                    int64
-	Sistema               string
-	BaseUrl               string
-	Origen                string
-	TokenCifrado          []byte
-	SecretoWebhookCifrado []byte
-	RemotoID              *string
-	Empresas              []int64
-	Estado                string
-	CreadoPor             *int64
-	ActivadoEn            *time.Time
-	ActivadoPor           *int64
-	UltimoWebhookEn       *time.Time
-	Version               int32
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	UrlPublica            *string
-	TokenEntregadoID      *int64
-	AlcanceGlobal         *bool
-	PanelUrl              *string
-	VersionRemota         *string
-	ContratoRemoto        *string
-	ContratoInformado     *string
-	VersionConsultadaEn   *time.Time
+	ID                          int64
+	Sistema                     string
+	BaseUrl                     string
+	Origen                      string
+	TokenCifrado                []byte
+	SecretoWebhookCifrado       []byte
+	RemotoID                    *string
+	Empresas                    []int64
+	Estado                      string
+	CreadoPor                   *int64
+	ActivadoEn                  *time.Time
+	ActivadoPor                 *int64
+	UltimoWebhookEn             *time.Time
+	Version                     int32
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	UrlPublica                  *string
+	TokenEntregadoID            *int64
+	AlcanceGlobal               *bool
+	PanelUrl                    *string
+	VersionRemota               *string
+	ContratoRemoto              *string
+	ContratoInformado           *string
+	VersionConsultadaEn         *time.Time
+	WebhookSalidaUrl            *string
+	WebhookSalidaSecretoCifrado []byte
 }
 
 type IntegracionEntrante struct {
@@ -943,6 +945,100 @@ type IntegracionPendiente struct {
 	ResueltoMotivo   *string
 	ResueltoPor      *int64
 	ResueltoEn       *time.Time
+}
+
+type MensajeriaAviso struct {
+	ID             uuid.UUID
+	EmpresaID      int64
+	ClienteID      int64
+	ServicioID     *int64
+	Plantilla      string
+	Variables      []byte
+	CanalPreferido string
+	Prioridad      string
+	Origen         string
+	Estado         string
+	Motivo         *string
+	Detalle        *string
+	Canal          *string
+	CanalID        *int64
+	Remitente      *string
+	Destino        *string
+	ProveedorID    *string
+	UsuarioID      *int64
+	TokenID        *int64
+	IdempotencyKey *string
+	HashPeticion   []byte
+	VenceEn        *time.Time
+	ProgramadoEn   *time.Time
+	EnviadoEn      *time.Time
+	EntregadoEn    *time.Time
+	LeidoEn        *time.Time
+	FinalizadoEn   *time.Time
+	Intentos       int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type MensajeriaCanale struct {
+	ID                   int64
+	EmpresaID            *int64
+	Tipo                 string
+	Canal                string
+	Nombre               string
+	Numero               string
+	PhoneNumberID        string
+	WabaID               string
+	CredencialesCifradas []byte
+	Plantillas           []byte
+	PausadoHasta         *time.Time
+	Activo               bool
+	CreadoPor            *int64
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type MensajeriaConsentimiento struct {
+	ID             int64
+	EmpresaID      int64
+	ClienteID      int64
+	Canal          string
+	Estado         string
+	Origen         string
+	OcurridoEn     time.Time
+	RegistradoPor  *int64
+	IdempotencyKey *string
+	HashPeticion   []byte
+	EntranteID     *int64
+	CreatedAt      time.Time
+}
+
+type MensajeriaEntrante struct {
+	ID          int64
+	CanalID     int64
+	HashCuerpo  []byte
+	Payload     []byte
+	ProcesadoEn *time.Time
+	Error       *string
+	Intentos    int32
+	CreatedAt   time.Time
+}
+
+type MensajeriaWebhooksSalida struct {
+	ID             uuid.UUID
+	Evento         string
+	EmpresaID      *int64
+	Payload        []byte
+	OcurridoEn     time.Time
+	Estado         string
+	Intentos       int32
+	ProximoIntento time.Time
+	UltimoError    *string
+	ConectorID     *int64
+	EntregadoEn    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type NucleoAcceso struct {

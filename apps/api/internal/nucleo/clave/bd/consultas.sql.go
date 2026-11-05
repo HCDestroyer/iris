@@ -75,6 +75,38 @@ func (q *Queries) BuzonesCifrados(ctx context.Context) ([]BuzonesCifradosRow, er
 	return items, nil
 }
 
+const canalesMensajeriaCifrados = `-- name: CanalesMensajeriaCifrados :many
+SELECT id, credenciales_cifradas FROM mensajeria.canales
+ORDER BY id
+FOR UPDATE
+`
+
+type CanalesMensajeriaCifradosRow struct {
+	ID                   int64
+	CredencialesCifradas []byte
+}
+
+// Credenciales de los canales de mensajería (WhatsApp Cloud API).
+func (q *Queries) CanalesMensajeriaCifrados(ctx context.Context) ([]CanalesMensajeriaCifradosRow, error) {
+	rows, err := q.db.Query(ctx, canalesMensajeriaCifrados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CanalesMensajeriaCifradosRow
+	for rows.Next() {
+		var i CanalesMensajeriaCifradosRow
+		if err := rows.Scan(&i.ID, &i.CredencialesCifradas); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const conectoresCifrados = `-- name: ConectoresCifrados :many
 SELECT id, token_cifrado, secreto_webhook_cifrado FROM integracion.conectores
 ORDER BY id
@@ -138,6 +170,20 @@ func (q *Queries) RecifrarBuzon(ctx context.Context, arg RecifrarBuzonParams) er
 	return err
 }
 
+const recifrarCanalMensajeria = `-- name: RecifrarCanalMensajeria :exec
+UPDATE mensajeria.canales SET credenciales_cifradas = $1 WHERE id = $2
+`
+
+type RecifrarCanalMensajeriaParams struct {
+	CredencialesCifradas []byte
+	ID                   int64
+}
+
+func (q *Queries) RecifrarCanalMensajeria(ctx context.Context, arg RecifrarCanalMensajeriaParams) error {
+	_, err := q.db.Exec(ctx, recifrarCanalMensajeria, arg.CredencialesCifradas, arg.ID)
+	return err
+}
+
 const recifrarConector = `-- name: RecifrarConector :exec
 UPDATE integracion.conectores
 SET token_cifrado = $1, secreto_webhook_cifrado = $2
@@ -169,6 +215,20 @@ func (q *Queries) RecifrarTOTP(ctx context.Context, arg RecifrarTOTPParams) erro
 	return err
 }
 
+const recifrarWebhookSalida = `-- name: RecifrarWebhookSalida :exec
+UPDATE integracion.conectores SET webhook_salida_secreto_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarWebhookSalidaParams struct {
+	WebhookSalidaSecretoCifrado []byte
+	ID                          int64
+}
+
+func (q *Queries) RecifrarWebhookSalida(ctx context.Context, arg RecifrarWebhookSalidaParams) error {
+	_, err := q.db.Exec(ctx, recifrarWebhookSalida, arg.WebhookSalidaSecretoCifrado, arg.ID)
+	return err
+}
+
 const tOTPCifrados = `-- name: TOTPCifrados :many
 
 SELECT id, totp_secreto FROM nucleo.usuarios
@@ -195,6 +255,39 @@ func (q *Queries) TOTPCifrados(ctx context.Context) ([]TOTPCifradosRow, error) {
 	for rows.Next() {
 		var i TOTPCifradosRow
 		if err := rows.Scan(&i.ID, &i.TotpSecreto); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const webhooksSalidaCifrados = `-- name: WebhooksSalidaCifrados :many
+SELECT id, webhook_salida_secreto_cifrado FROM integracion.conectores
+WHERE webhook_salida_secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type WebhooksSalidaCifradosRow struct {
+	ID                          int64
+	WebhookSalidaSecretoCifrado []byte
+}
+
+// Secreto del receptor de webhooks de Argos (Iris → Argos, contrato 0.6.0 §6.6).
+func (q *Queries) WebhooksSalidaCifrados(ctx context.Context) ([]WebhooksSalidaCifradosRow, error) {
+	rows, err := q.db.Query(ctx, webhooksSalidaCifrados)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WebhooksSalidaCifradosRow
+	for rows.Next() {
+		var i WebhooksSalidaCifradosRow
+		if err := rows.Scan(&i.ID, &i.WebhookSalidaSecretoCifrado); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

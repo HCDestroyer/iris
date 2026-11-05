@@ -41,3 +41,22 @@ FOR UPDATE;
 
 -- name: RecifrarAutorizacion :exec
 UPDATE integracion.autorizaciones SET verificador_cifrado = @verificador_cifrado WHERE id = @id;
+
+-- name: WebhooksSalidaCifrados :many
+-- Secreto del receptor de webhooks de Argos (Iris → Argos, contrato 0.6.0 §6.6).
+SELECT id, webhook_salida_secreto_cifrado FROM integracion.conectores
+WHERE webhook_salida_secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarWebhookSalida :exec
+UPDATE integracion.conectores SET webhook_salida_secreto_cifrado = @webhook_salida_secreto_cifrado WHERE id = @id;
+
+-- name: CanalesMensajeriaCifrados :many
+-- Credenciales de los canales de mensajería (WhatsApp Cloud API).
+SELECT id, credenciales_cifradas FROM mensajeria.canales
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarCanalMensajeria :exec
+UPDATE mensajeria.canales SET credenciales_cifradas = @credenciales_cifradas WHERE id = @id;

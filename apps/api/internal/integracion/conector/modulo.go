@@ -21,7 +21,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -285,6 +287,45 @@ func (l Leido) Token() string { return l.token }
 // "secreto_webhook"). También lo usa la rotación de la clave (internal/nucleo/clave).
 func DatosAsociados(id int64, campo string) []byte {
 	return fmt.Appendf(nil, "conector:%d:%s", id, campo)
+}
+
+// CampoWebhookSalida es el dato asociado del secreto del receptor de webhooks del otro sistema
+// (integracion.conectores.webhook_salida_secreto_cifrado, contrato Iris ↔ ArgosISP 0.6.0 §6.6).
+const CampoWebhookSalida = "webhook_salida_secreto"
+
+// guardarWebhookSalida guarda el receptor de webhooks que informó el canje (`webhook: { url,
+// secreto }`, §1.3): Iris lo usa para mandarle eventos (mensajería, §6.6). Sin receptor el conector
+// queda sin él (Iris no le envía webhooks). Uno inválido, o en otro host que el de la API del canje
+// (base), es 422 webhook_invalido y el canje no se guarda: los eventos de los clientes no pueden
+// salir hacia un host que no es el del otro sistema.
+func (c *Conexion) guardarWebhookSalida(ctx context.Context, t *auditoria.Tx, id int64, base string, w *WebhookCanje) error {
+	if w == nil || strings.TrimSpace(w.URL) == "" {
+		return nil
+	}
+	invalido := func(msg string) error {
+		t.Anotar(map[string]any{"webhook_salida": "invalido"})
+		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "webhook_invalido", "Receptor de webhooks inválido",
+			"El canje de "+c.s.Remoto.Nombre+" devolvió un receptor de webhooks inválido: "+msg,
+			nucleo.ErrorCampo{Field: "webhook.url", Message: msg, Rule: "webhook"})
+	}
+	u, err := c.n.validarOrigen(w.URL, "webhook.url")
+	if err != nil {
+		return invalido("debe ser una URL https sin usuario, consulta ni fragmento")
+	}
+	b, err := url.Parse(base)
+	if err != nil || !strings.EqualFold(u.Hostname(), b.Hostname()) {
+		return invalido("su host debe ser el de la API (" + b.Hostname() + ")")
+	}
+	if len(w.Secreto) < 16 || len(w.Secreto) > 512 {
+		return invalido("el secreto debe tener de 16 a 512 caracteres")
+	}
+	cifrado, err := c.n.cifrar(id, CampoWebhookSalida, w.Secreto)
+	if err != nil {
+		return err
+	}
+	destino := u.String()
+	t.Anotar(map[string]any{"webhook_salida": destino})
+	return conectorbd.New(t).FijarWebhookSalida(ctx, conectorbd.FijarWebhookSalidaParams{ID: id, WebhookSalidaUrl: &destino, WebhookSalidaSecretoCifrado: cifrado})
 }
 
 func (n *Nucleo) cifrar(id int64, campo, valor string) ([]byte, error) {

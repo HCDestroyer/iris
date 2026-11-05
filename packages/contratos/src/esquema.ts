@@ -1345,6 +1345,194 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/avisos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pedir un aviso (contrato Iris ↔ ArgosISP §6.2)
+         * @description Permiso: `mensajeria.enviar`. Idempotency-Key obligatoria (`argos:aviso:<plantilla>:<envio_id>`; 400 `idempotency_key_requerida`): repetirla con el mismo cuerpo devuelve el mismo `aviso_id` con su **estado actual** (`Idempotent-Replayed: true`); con otro cuerpo, 422 `idempotencia_reutilizada`. Sin teléfono en el cuerpo: Iris toma el contacto de su instantánea de Argos (refrescada si tiene más de 24 h; sin instantánea y con Argos caído, 503). `variables` solo acepta las de la plantilla (422 `variable_desconocida`; falta o formato: 422 `validacion`). 422 `cliente_fuera_de_empresa` / `servicio_fuera_de_empresa`.Una integración solo pide las plantillas con `pide: argos` (si no, 422 `plantilla_no_permitida`) y nunca `prioridad: urgente` (422). Responde 202 `{ aviso_id, estado: en_cola | bloqueado, motivo? }`; un bloqueado (`sin_permiso`, `baja`, `limite_diario`, `sin_contacto`, `canal_no_disponible`) no se reintenta. En horario de silencio (21:00–07:00 Guatemala) queda en cola y sale al terminar; si para entonces venció, `aviso.fallido` con `vencido`. Cada aviso en cola termina en un solo webhook: `aviso.entregado` o `aviso.fallido` (§6.6).
+         */
+        post: operations["enviarAviso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/avisos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado de un aviso
+         * @description Permiso: `mensajeria.enviar`. Para conciliar un webhook perdido. Una integración solo ve los avisos que pidió: cualquier otro, 404.
+         */
+        get: operations["verAviso"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Canales de mensajería configurados (sin credenciales)
+         * @description Permiso: `mensajeria.configurar`.
+         */
+        get: operations["listarCanalesMensajeria"];
+        put?: never;
+        /**
+         * Configurar WhatsApp Cloud API de una empresa
+         * @description Permiso: `mensajeria.configurar`. Token, app secret y verify token se guardan cifrados (IRIS_CLAVE_CIFRADO) y nunca se devuelven. Uno activo por empresa (409 `canal_existente`). `webhookRuta` es la ruta que se configura en la app de Meta (verificación con el verify token y firma con el app secret).
+         */
+        post: operations["crearCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar un canal
+         * @description Permiso: `mensajeria.configurar`.
+         */
+        post: operations["activarCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Actualizar un canal (credenciales vacías: no cambian)
+         * @description Permiso: `mensajeria.configurar`.
+         */
+        post: operations["actualizarCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Desactivar un canal
+         * @description Permiso: `mensajeria.configurar`.
+         */
+        post: operations["desactivarCanalMensajeria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/canales/{id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verificación de la suscripción del webhook de Meta
+         * @description Meta llama con `hub.mode=subscribe`, `hub.verify_token` (el del canal) y `hub.challenge`; responde el challenge en texto plano. 403 `verificacion_invalida`.
+         */
+        get: operations["verificarWebhookMeta"];
+        put?: never;
+        /**
+         * Webhook de WhatsApp Cloud API (Meta)
+         * @description Estados de entrega (`sent`, `delivered`, `read`, `failed`), mensajes del cliente (`BAJA` o `ALTO` dan de baja sus avisos) y calidad del número. Firmado con el app secret del canal (`X-Hub-Signature-256: sha256=<hex>`; 401 `firma_invalida`, sin auditar). Se guarda deduplicado y se procesa en un job.
+         */
+        post: operations["webhookMeta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/consentimientos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar un permiso de contacto (§6.4)
+         * @description Permiso: `mensajeria.registrar_consentimiento`. Idempotency-Key obligatoria (`argos:consentimiento:<empresa_id>:<cliente_id>:<canal>:<ocurrido_en>`). 201 si es nuevo, 200 si es una repetición; los dos con `{ consentimiento_id, estado_vigente }`. Manda el registro con `ocurrido_en` más reciente: un `acepta` más viejo se guarda pero no gana a una `baja` más nueva. 422 `cliente_fuera_de_empresa` si el cliente no es de una empresa de la integración (según la instantánea de Argos).
+         */
+        post: operations["registrarConsentimiento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas vigentes (§6.3)
+         * @description Permiso: `mensajeria.ver`. Con sus variables y los medios en que están aprobadas para las empresas de quien consulta. Una no aprobada responde `bloqueado` / `canal_no_disponible` al pedir un aviso.
+         */
+        get: operations["listarPlantillasMensajeria"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes": {
         parameters: {
             query?: never;
@@ -4394,6 +4582,39 @@ export interface components {
             /** @description https://<panel>/integraciones/iris/autorizar?iris=…&state=…&code_challenge=…&code_challenge_method=S256: el panel de Iris la abre en la misma pestaña */
             url: string;
         };
+        AvisoCreado: {
+            /** @description Id del aviso (uuid) */
+            aviso_id: string;
+            /**
+             * @description Al crearlo: en_cola o bloqueado. Una repetición con la misma Idempotency-Key devuelve el estado actual
+             * @enum {string}
+             */
+            estado: "en_cola" | "bloqueado" | "entregado" | "fallido";
+            /** @description Con bloqueado: sin_permiso, baja, limite_diario, sin_contacto o canal_no_disponible; con fallido, el de aviso.fallido */
+            motivo?: string;
+        };
+        AvisoDetalle: {
+            aviso_id: string;
+            canal: string | null;
+            /** Format: int64 */
+            cliente_id: number;
+            /** Format: date-time */
+            creado_en: string;
+            detalle: string | null;
+            /** Format: int64 */
+            empresa_id: number;
+            /** Format: date-time */
+            entregado_en: string | null;
+            /** @enum {string} */
+            estado: "en_cola" | "bloqueado" | "entregado" | "fallido";
+            idempotency_key: string;
+            /** Format: date-time */
+            leido_en: string | null;
+            motivo: string | null;
+            plantilla: string;
+            /** Format: int64 */
+            servicio_id: number | null;
+        };
         Bodega: {
             /** Format: int64 */
             empresaId: number;
@@ -4480,6 +4701,37 @@ export interface components {
             recepciones?: components["schemas"]["EstadoRecepcion"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
+        };
+        Canal: {
+            activo: boolean;
+            /** @enum {string} */
+            canal: "whatsapp";
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            /** @description Número remitente en E.164 */
+            numero: string;
+            /**
+             * Format: date-time
+             * @description Pausa automática por calidad o límite de Meta
+             */
+            pausadoHasta: string | null;
+            phoneNumberId: string;
+            /** @description Plantillas aprobadas en Meta por código de Iris */
+            plantillas: {
+                [key: string]: components["schemas"]["PlantillaMeta"];
+            };
+            /** @enum {string} */
+            tipo: "whatsapp_cloud";
+            /** Format: int32 */
+            version: number;
+            wabaId: string;
+            /** @description Ruta del webhook a configurar en la app de Meta (sobre IRIS_BASE_URL) */
+            webhookRuta: string;
         };
         CandidatoTecnico: {
             correo: string;
@@ -4801,6 +5053,15 @@ export interface components {
             webhookSecreto: string;
             /** @description URL a la que el otro sistema envía los webhooks firmados */
             webhookUrl: string;
+        };
+        Consentimiento: {
+            /** Format: int64 */
+            consentimiento_id: number;
+            /**
+             * @description El del registro más reciente (por ocurrido_en) del cliente en la empresa y el canal
+             * @enum {string}
+             */
+            estado_vigente: "acepta" | "baja";
         };
         Contacto: {
             correo: string | null;
@@ -5195,6 +5456,23 @@ export interface components {
             /** @enum {string} */
             tipo: "llamada" | "visita" | "nota" | "mensaje";
         };
+        EntradaActualizarCanal: {
+            /** @description Vacío = no cambia */
+            appSecret?: string;
+            nombre: string;
+            numero: string;
+            phoneNumberId: string;
+            plantillas: {
+                [key: string]: components["schemas"]["PlantillaMeta"];
+            };
+            /** @description Vacío = no cambia */
+            token?: string;
+            /** @description Vacío = no cambia */
+            verifyToken?: string;
+            /** Format: int32 */
+            version: number;
+            wabaId?: string;
+        };
         EntradaAgregarFormulario: {
             /**
              * Format: int64
@@ -5300,6 +5578,41 @@ export interface components {
         EntradaAutorizar: {
             /** @description Dirección del panel del otro sistema (https://host[:puerto]); se normaliza al origen */
             panelUrl: string;
+        };
+        EntradaAviso: {
+            /**
+             * @description Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible
+             * @default whatsapp
+             * @enum {string}
+             */
+            canal_preferido: "whatsapp" | "telegram" | "correo";
+            /**
+             * Format: int64
+             * @description Cliente en Argos
+             */
+            cliente_id: number;
+            /**
+             * Format: int64
+             * @description Empresa en Argos
+             */
+            empresa_id: number;
+            /** @description Código de la plantilla (§6.3; GET /mensajeria/plantillas) */
+            plantilla: string;
+            /**
+             * @description urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso
+             * @default normal
+             * @enum {string}
+             */
+            prioridad: "normal" | "urgente";
+            /**
+             * Format: int64
+             * @description Servicio en Argos (opcional; debe ser del cliente y de la empresa)
+             */
+            servicio_id?: number | null;
+            /** @description Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala */
+            variables?: {
+                [key: string]: string;
+            };
         };
         EntradaBorrarVinculoSSO: {
             motivo?: string;
@@ -5420,6 +5733,35 @@ export interface components {
              */
             version: number;
         };
+        EntradaConsentimiento: {
+            /**
+             * @description Fase 1: whatsapp
+             * @enum {string}
+             */
+            canal: "whatsapp";
+            /**
+             * Format: int64
+             * @description Cliente en Argos
+             */
+            cliente_id: number;
+            /**
+             * Format: int64
+             * @description Empresa en Argos (el permiso es por empresa)
+             */
+            empresa_id: number;
+            /** @enum {string} */
+            estado: "acepta" | "baja";
+            /**
+             * Format: date-time
+             * @description Cuándo lo dio el cliente (RFC 3339). Manda el registro más reciente: un acepta más viejo se guarda, pero no gana a una baja más nueva
+             */
+            ocurrido_en: string;
+            /**
+             * @description argos_panel: un operador lo marcó; argos_portal: el cliente en su portal
+             * @enum {string}
+             */
+            origen: "argos_panel" | "argos_portal";
+        };
         EntradaContacto: {
             /** Format: email */
             correo?: string;
@@ -5446,6 +5788,30 @@ export interface components {
             prioridad?: "baja" | "media" | "alta" | "critica";
             /** @description Sin smtp, las respuestas de los agentes no salen por correo */
             smtp?: components["schemas"]["EntradaSMTP"];
+        };
+        EntradaCrearCanal: {
+            /** @description App secret de la app de Meta (verifica X-Hub-Signature-256; solo escritura) */
+            appSecret: string;
+            /**
+             * Format: int64
+             * @description Empresa de Argos (null solo en modo sin conector)
+             */
+            empresaId?: number | null;
+            nombre: string;
+            /** @description Número remitente en E.164 */
+            numero: string;
+            /** @description Phone number ID de Meta */
+            phoneNumberId: string;
+            /** @description Plantillas aprobadas en Meta por código de Iris (§6.3) */
+            plantillas?: {
+                [key: string]: components["schemas"]["PlantillaMeta"];
+            };
+            /** @description Token de acceso del usuario del sistema de Meta (solo escritura) */
+            token: string;
+            /** @description Token de verificación del webhook que se escribe en Meta (solo escritura) */
+            verifyToken: string;
+            /** @description WhatsApp Business Account ID */
+            wabaId?: string;
         };
         EntradaCrearContrato: {
             /**
@@ -7256,6 +7622,14 @@ export interface components {
             productoId: number;
             series: string[] | null;
         };
+        ListaCanales: {
+            data: components["schemas"]["Canal"][] | null;
+            nextCursor: string | null;
+        };
+        ListaPlantillas: {
+            data: components["schemas"]["PlantillaVigente"][] | null;
+            nextCursor: string | null;
+        };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
             secreto: string;
@@ -7346,6 +7720,9 @@ export interface components {
             cuerpo: string;
             /** Format: int64 */
             id: number;
+        };
+        MetaRecibido: {
+            duplicado: boolean;
         };
         MiBodegaRespuesta: {
             bodega: components["schemas"]["Bodega"];
@@ -8307,7 +8684,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -8442,6 +8819,27 @@ export interface components {
             versionId: number;
             /** @description De la más nueva a la más vieja */
             versiones: components["schemas"]["VersionPlantilla"][] | null;
+        };
+        PlantillaMeta: {
+            /** @description Código de idioma de la plantilla en Meta (es, es_MX…) */
+            idioma: string;
+            /** @description Nombre de la plantilla aprobada en Meta */
+            nombre: string;
+        };
+        PlantillaVigente: {
+            /** @description Admite prioridad urgente (solo la pide Iris) */
+            admite_urgente: boolean;
+            /** @description Medios en que está aprobada para las empresas consultadas (vacío = no aprobada: un aviso queda bloqueado con canal_no_disponible) */
+            canales: string[] | null;
+            codigo: string;
+            /**
+             * @description Quién puede pedirla: argos (Argos e Iris) o iris (solo Iris; una integración recibe 422 plantilla_no_permitida)
+             * @enum {string}
+             */
+            pide: "argos" | "iris";
+            /** @description Texto de referencia en español con {{variable}} */
+            texto: string;
+            variables: components["schemas"]["Variable"][] | null;
         };
         PosicionCampo: {
             /** Format: double */
@@ -9841,6 +10239,14 @@ export interface components {
             /** @description Argos dice que verificó el correo; sin eso, vincula un administrador */
             correoVerificado: boolean;
             idExterno: string;
+            nombre: string;
+        };
+        Variable: {
+            /**
+             * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres
+             * @enum {string}
+             */
+            formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
             nombre: string;
         };
         VersionPlantilla: {
@@ -15199,6 +15605,782 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    enviarAviso: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAviso"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisoCreado"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAviso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description aviso_id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisoDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarCanalesMensajeria: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaCanales"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearCanal"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActualizarCanal"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarCanalMensajeria: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Canal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verificarWebhookMeta: {
+        parameters: {
+            query?: {
+                "hub.mode"?: string;
+                "hub.verify_token"?: string;
+                "hub.challenge"?: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    webhookMeta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description sha256=<hex(HMAC-SHA256(app_secret, cuerpo))> */
+                "X-Hub-Signature-256"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetaRecibido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarConsentimiento: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConsentimiento"];
+            };
+        };
+        responses: {
+            /** @description Repetición: el mismo registro y el estado vigente */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Consentimiento"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPlantillasMensajeria: {
+        parameters: {
+            query?: {
+                /** @description Solo los canales de esta empresa (por defecto, todas las de la integración) */
+                empresa_id?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaPlantillas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
