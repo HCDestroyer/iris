@@ -427,10 +427,18 @@ function ConMotor({
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
                 <ProveedorInventario inventario={abierto.inventario}>
                     <ProveedorAgenda leer={abierto.agenda}>
-                        <ProveedorChat chat={abierto.chat}>
-                            <TurnoAutomatico rastreador={rastreador} />
-                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                        </ProveedorChat>
+                        {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                        {sesion.permisos?.includes("chat.ver") ? (
+                            <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                <TurnoAutomatico rastreador={rastreador} />
+                                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                            </ProveedorChat>
+                        ) : (
+                            <>
+                                <TurnoAutomatico rastreador={rastreador} />
+                                <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                            </>
+                        )}
                     </ProveedorAgenda>
                 </ProveedorInventario>
             </ProveedorCampo>

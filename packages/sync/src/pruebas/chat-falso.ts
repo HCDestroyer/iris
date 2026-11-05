@@ -36,6 +36,9 @@ interface FlujoAbierto {
 
 export class ServidorChatFalso implements TransporteChat {
     readonly yo: number;
+    /** Nombre del dueño (autor de lo que envía) y de otras personas (directas nuevas). */
+    nombreYo = "Yo";
+    readonly nombres = new Map<number, string>();
     ahora = () => Date.parse("2026-11-05T17:00:00Z");
     readonly conversaciones = new Map<number, ConversacionChat>();
     readonly mensajes = new Map<number, MensajeChat[]>();
@@ -169,7 +172,8 @@ export class ServidorChatFalso implements TransporteChat {
     abrirDirecta(usuarioId: number) {
         this.registrar("abrirDirecta", [usuarioId]);
         const existe = [...this.conversaciones.values()].find((c) => c.tipo === "directa" && c.otro_usuario?.id === usuarioId);
-        const c = existe ?? this.crearConversacion({ tipo: "directa", titulo: `Usuario ${usuarioId}`, otro_usuario: { id: usuarioId, nombre: `Usuario ${usuarioId}` } });
+        const nombre = this.nombres.get(usuarioId) ?? `Usuario ${usuarioId}`;
+        const c = existe ?? this.crearConversacion({ tipo: "directa", titulo: nombre, otro_usuario: { id: usuarioId, nombre } });
         return Promise.resolve(this.detalle(c.id));
     }
 
@@ -226,7 +230,7 @@ export class ServidorChatFalso implements TransporteChat {
             conversacion_id: conversacionId,
             seq: lista.length + 1,
             autor_id: this.yo,
-            autor_nombre: "Yo",
+            autor_nombre: this.nombreYo,
             texto: cuerpo.texto ?? null,
             creado_en: cuerpo.creado_en ?? null,
             enviado_en: new Date(this.ahora()).toISOString(),

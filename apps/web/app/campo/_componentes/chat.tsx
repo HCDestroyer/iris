@@ -77,7 +77,7 @@ export function AbrirChatOrden({ ordenId }: { ordenId: number }) {
     const contexto = useChatOpcional();
     const { navegar, notificar } = useCampo();
     const [abriendo, setAbriendo] = useState(false);
-    if (!contexto) {
+    if (!contexto || (!contexto.puedeEnviar && !contexto.chat.conversacionDeOrden(ordenId))) {
         return null;
     }
     const { chat } = contexto;
@@ -179,7 +179,7 @@ function enlace(navegar: (v: Vista) => void, v: Vista) {
 }
 
 export function ListaChat() {
-    const { chat, estado } = useChat();
+    const { chat, estado, puedeEnviar } = useChat();
     const { navegar, sesion } = useCampo();
     const [actualizando, setActualizando] = useState(false);
     const actualizar = useCallback(() => {
@@ -212,10 +212,12 @@ export function ListaChat() {
                     <RefreshCw aria-hidden className={cn(actualizando && "animate-spin")} />
                 </Boton>
             </div>
-            <Boton tamano="lg" className="h-12 w-full rounded-full md:h-12" onClick={() => navegar({ tipo: "chat_nuevo" })}>
-                <MessageSquarePlus aria-hidden />
-                Nuevo mensaje
-            </Boton>
+            {puedeEnviar ? (
+                <Boton tamano="lg" className="h-12 w-full rounded-full md:h-12" onClick={() => navegar({ tipo: "chat_nuevo" })}>
+                    <MessageSquarePlus aria-hidden />
+                    Nuevo mensaje
+                </Boton>
+            ) : null}
             {!estado.enLinea ? (
                 <p className="flex items-center gap-2 text-sm text-warning" data-slot="chat-sin-senal">
                     <WifiOff aria-hidden className="size-4" />
@@ -671,7 +673,7 @@ function useVolver() {
 }
 
 export function ConversacionPantalla({ id }: { id: number }) {
-    const { chat, estado } = useChat();
+    const { chat, estado, puedeEnviar } = useChat();
     const { navegar, notificar } = useCampo();
     const v = useConversacion(id);
     const volver = useVolver();
@@ -828,7 +830,7 @@ export function ConversacionPantalla({ id }: { id: number }) {
             <div ref={lista} onScroll={alDesplazar} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-slot="hilo-chat">
                 {cuerpo}
             </div>
-            {c ? <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
+            {c && puedeEnviar ? <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
             <MenuMensaje m={menu} alCerrar={() => setMenu(null)} />
         </div>
     );

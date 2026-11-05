@@ -4,7 +4,7 @@ import type { EstadoChat, MotorChat, VistaConversacion } from "@iris/sync/chat";
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useCampo } from "./contexto";
 
-type ContextoChat = { chat: MotorChat; estado: EstadoChat };
+type ContextoChat = { chat: MotorChat; estado: EstadoChat; /** Con `chat.enviar`: escribir, abrir y eliminar. */ puedeEnviar: boolean };
 
 const Contexto = createContext<ContextoChat | null>(null);
 
@@ -58,7 +58,7 @@ export function useFotoLocal(id: string | null): string | null {
  * El motor del chat vive con el del día: arranca el envío y, con la pestaña visible, el tiempo real
  * (SSE o sondeo); en segundo plano lo cierra. Abre los hilos de las órdenes y cuadrillas del día.
  */
-export function ProveedorChat({ chat, children }: { chat: MotorChat; children: ReactNode }) {
+export function ProveedorChat({ chat, puedeEnviar = true, children }: { chat: MotorChat; puedeEnviar?: boolean; children: ReactNode }) {
     const estado = useSyncExternalStore(chat.suscribir, chat.obtenerEstado, chat.obtenerEstado);
     const { estado: campo } = useCampo();
 
@@ -95,6 +95,6 @@ export function ProveedorChat({ chat, children }: { chat: MotorChat; children: R
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chat, claveDelDia]);
 
-    const valor = useMemo(() => ({ chat, estado }), [chat, estado]);
+    const valor = useMemo(() => ({ chat, estado, puedeEnviar }), [chat, estado, puedeEnviar]);
     return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
