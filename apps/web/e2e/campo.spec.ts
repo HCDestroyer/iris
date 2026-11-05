@@ -298,11 +298,12 @@ test("faltan_adjuntos: el cierre espera hasta que termina de subir la foto", asy
     expect(api.ordenes.get(102)?.estado).toBe("cerrada");
 });
 
-test("sin sesión manda a entrar con regreso a /campo", async ({ page, context }) => {
+test("sin sesión muestra la entrada del técnico en la propia app", async ({ page, context }) => {
     await context.clearCookies();
     await simularApiCampo(page);
     await page.goto("/campo");
-    await expect(page).toHaveURL(/\/entrar\?siguiente=%2Fcampo/);
+    await expect(page.getByRole("heading", { name: "Hola, técnico" })).toBeVisible();
+    await expect(page).toHaveURL(/\/campo$/);
 });
 
 test("varias empresas: pide elegir y manda X-Iris-Empresa", async ({ page }) => {
