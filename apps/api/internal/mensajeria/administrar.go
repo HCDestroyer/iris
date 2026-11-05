@@ -30,7 +30,8 @@ type PlantillaVigente struct {
 	Codigo    string     `json:"codigo"`
 	Variables []Variable `json:"variables"`
 	Texto     string     `json:"texto" doc:"Texto de referencia en español con {{variable}}"`
-	Urgente   bool       `json:"admite_urgente" doc:"Admite prioridad urgente"`
+	Urgente   bool       `json:"admite_urgente" doc:"Admite prioridad urgente (solo la pide Iris)"`
+	Pide      string     `json:"pide" enum:"argos,iris" doc:"Quién puede pedirla: argos (Argos e Iris) o iris (solo Iris; una integración recibe 422 plantilla_no_permitida)"`
 	Canales   []string   `json:"canales" doc:"Medios en que está aprobada para las empresas consultadas (vacío = no aprobada: un aviso queda bloqueado con canal_no_disponible)"`
 }
 
@@ -84,7 +85,7 @@ func nuevoListarPlantillas(m *Modulo) *auditoria.Caso[EntradaPlantillas, ListaPl
 					}
 				}
 				sort.Strings(medios)
-				out.Data = append(out.Data, PlantillaVigente{Codigo: p.Codigo, Variables: p.Variables, Texto: p.Texto, Urgente: p.Urgente, Canales: medios})
+				out.Data = append(out.Data, PlantillaVigente{Codigo: p.Codigo, Variables: p.Variables, Texto: p.Texto, Urgente: p.Urgente, Pide: p.Pide, Canales: medios})
 			}
 			return out, nil
 		},

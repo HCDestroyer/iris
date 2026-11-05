@@ -1356,7 +1356,7 @@ export interface paths {
         put?: never;
         /**
          * Pedir un aviso (contrato Iris ↔ ArgosISP §6.2)
-         * @description Permiso: `mensajeria.enviar`. Idempotency-Key obligatoria (`argos:aviso:<plantilla>:<envio_id>`; 400 `idempotency_key_requerida`): repetirla con el mismo cuerpo devuelve el mismo `aviso_id` con su **estado actual** (`Idempotent-Replayed: true`); con otro cuerpo, 422 `idempotencia_reutilizada`. Sin teléfono en el cuerpo: Iris toma el contacto de su instantánea de Argos (refrescada si tiene más de 24 h; sin instantánea y con Argos caído, 503). `variables` solo acepta las de la plantilla (422 `variable_desconocida`; falta o formato: 422 `validacion`). 422 `cliente_fuera_de_empresa` / `servicio_fuera_de_empresa`. Responde 202 `{ aviso_id, estado: en_cola | bloqueado, motivo? }`; un bloqueado (`sin_permiso`, `baja`, `limite_diario`, `sin_contacto`, `canal_no_disponible`) no se reintenta. En horario de silencio (21:00–07:00 Guatemala) queda en cola y sale al terminar; si para entonces venció, `aviso.fallido` con `vencido`. Cada aviso en cola termina en un solo webhook: `aviso.entregado` o `aviso.fallido` (§6.6).
+         * @description Permiso: `mensajeria.enviar`. Idempotency-Key obligatoria (`argos:aviso:<plantilla>:<envio_id>`; 400 `idempotency_key_requerida`): repetirla con el mismo cuerpo devuelve el mismo `aviso_id` con su **estado actual** (`Idempotent-Replayed: true`); con otro cuerpo, 422 `idempotencia_reutilizada`. Sin teléfono en el cuerpo: Iris toma el contacto de su instantánea de Argos (refrescada si tiene más de 24 h; sin instantánea y con Argos caído, 503). `variables` solo acepta las de la plantilla (422 `variable_desconocida`; falta o formato: 422 `validacion`). 422 `cliente_fuera_de_empresa` / `servicio_fuera_de_empresa`.Una integración solo pide las plantillas con `pide: argos` (si no, 422 `plantilla_no_permitida`) y nunca `prioridad: urgente` (422). Responde 202 `{ aviso_id, estado: en_cola | bloqueado, motivo? }`; un bloqueado (`sin_permiso`, `baja`, `limite_diario`, `sin_contacto`, `canal_no_disponible`) no se reintenta. En horario de silencio (21:00–07:00 Guatemala) queda en cola y sale al terminar; si para entonces venció, `aviso.fallido` con `vencido`. Cada aviso en cola termina en un solo webhook: `aviso.entregado` o `aviso.fallido` (§6.6).
          */
         post: operations["enviarAviso"];
         delete?: never;
@@ -8827,11 +8827,16 @@ export interface components {
             nombre: string;
         };
         PlantillaVigente: {
-            /** @description Admite prioridad urgente */
+            /** @description Admite prioridad urgente (solo la pide Iris) */
             admite_urgente: boolean;
             /** @description Medios en que está aprobada para las empresas consultadas (vacío = no aprobada: un aviso queda bloqueado con canal_no_disponible) */
             canales: string[] | null;
             codigo: string;
+            /**
+             * @description Quién puede pedirla: argos (Argos e Iris) o iris (solo Iris; una integración recibe 422 plantilla_no_permitida)
+             * @enum {string}
+             */
+            pide: "argos" | "iris";
             /** @description Texto de referencia en español con {{variable}} */
             texto: string;
             variables: components["schemas"]["Variable"][] | null;

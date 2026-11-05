@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -225,6 +226,28 @@ func EntornoDesdeVariables() (Entorno, error) {
 		return e, fmt.Errorf("configuración de mensajería: %s", strings.Join(errs, "; "))
 	}
 	return e, nil
+}
+
+// ValidarSimulado impide el canal simulado en producción: con IRIS_BASE_URL https en un host que no
+// es local (la señal de producción del instalador), el proceso no arranca con
+// IRIS_MENSAJERIA_SIMULADO=true. Así un aviso de Argos nunca se da por entregado sin salir a WhatsApp.
+func ValidarSimulado(simulado bool, baseURL string) error {
+	if !simulado {
+		return nil
+	}
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Scheme != "https" {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return nil
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("IRIS_MENSAJERIA_SIMULADO=true no se permite en producción (IRIS_BASE_URL=%s): el canal simulado da por "+
+		"entregados avisos que nunca salen a WhatsApp. Ponlo en false y configura el canal de cada empresa (POST /api/v1/mensajeria/canales)", u.Scheme+"://"+u.Host)
 }
 
 // ParsearVentana lee «HH:MM-HH:MM».

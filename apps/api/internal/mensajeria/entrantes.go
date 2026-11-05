@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -189,8 +190,19 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 				return struct{}{}, q.MarcarEntrante(ctx, mensajeriabd.MarcarEntranteParams{ID: e.ID, ProcesadoEn: &ahora, Error: &msg})
 			}
 			canal := e.CanalID
+			fila, err := q.CanalPorID(ctx, canal)
+			if err != nil {
+				return struct{}{}, err
+			}
+			// Una app de Meta puede servir a varias empresas: solo cuenta lo que es del número de este
+			// canal (si no, una baja escrita al número de B quedaría registrada en A).
+			ajenos := 0
 			for _, en := range w.Entry {
 				for _, ch := range en.Changes {
+					if ch.Value.Metadata.PhoneNumberID != fila.PhoneNumberID {
+						ajenos++
+						continue
+					}
 					for _, s := range ch.Value.Statuses {
 						if err := m.aplicarEstado(ctx, t, q, canal, s, ahora); err != nil {
 							return struct{}{}, err
@@ -211,7 +223,13 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 					}
 				}
 			}
-			return struct{}{}, q.MarcarEntrante(ctx, mensajeriabd.MarcarEntranteParams{ID: e.ID, ProcesadoEn: &ahora})
+			var nota *string
+			if ajenos > 0 {
+				t.Anotar(map[string]any{"cambios_de_otro_numero": ajenos})
+				nota = texto(fmt.Sprintf("%d cambios descartados: phone_number_id distinto del canal", ajenos))
+				slog.WarnContext(ctx, "mensajeria: webhook de Meta con cambios de otro número; descartados", "canal_id", canal, "entrante_id", e.ID, "descartados", ajenos)
+			}
+			return struct{}{}, q.MarcarEntrante(ctx, mensajeriabd.MarcarEntranteParams{ID: e.ID, ProcesadoEn: &ahora, Error: nota})
 		},
 	})
 }

@@ -53,18 +53,32 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 
 // Contrato 0.6.0 §6.6: el receptor de webhooks que Argos entrega en el canje (`webhook: { url,
 // secreto }`) queda guardado, con el secreto cifrado (Iris le manda los webhooks de la mensajería).
+// Un receptor en otro host que la API de Argos es 422 webhook_invalido y el conector no se guarda.
 func TestCanjeGuardaElReceptorDeArgos(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, id, _ := e.conectado()
 	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1
-		AND webhook_salida_url = 'https://argos.prueba/api/v1/integraciones/iris/webhook'
+		AND webhook_salida_url = $2
 		AND webhook_salida_secreto_cifrado IS NOT NULL
-		AND position('secreto-de-argos-para-iris' in encode(webhook_salida_secreto_cifrado, 'escape')) = 0`, id); n != 1 {
+		AND position('secreto-de-argos-para-iris' in encode(webhook_salida_secreto_cifrado, 'escape')) = 0`, id,
+		e.argos.srv.URL+"/api/v1/integraciones/iris/webhook"); n != 1 {
 		t.Fatal("el canje debía guardar el receptor de Argos con el secreto cifrado")
 	}
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.conectar' AND entidad_id = $1
 		AND entrada::text LIKE '%secreto-de-argos%'`, fmt.Sprint(id)); n != 0 {
 		t.Fatal("el secreto del receptor no va en la auditoría")
+	}
+}
+
+func TestCanjeRechazaReceptorEnOtroHost(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.webhookURL = "https://atacante.example/api/v1/integraciones/iris/webhook" })
+	antes := e.contar(`SELECT count(*) FROM integracion.conectores`)
+	admin := e.usuario("admin")
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.enlace()})
+	r.problema(t, 422, "webhook_invalido")
+	if n := e.contar(`SELECT count(*) FROM integracion.conectores`); n != antes {
+		t.Fatalf("no debía guardarse el conector: %d → %d", antes, n)
 	}
 }
 

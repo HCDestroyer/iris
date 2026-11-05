@@ -28,6 +28,10 @@ aprobada, permiso de contacto, límites, horario).
 
 ## Reglas (§6.5)
 
+Una integración (Argos) solo pide las plantillas de Argos de §6.3 (`pide: argos`); las de Iris
+(`boleta_*`, `reconexion_temporal`, `promesa_aceptada`, `corte_programado`, con texto libre) y
+`prioridad: urgente` le dan 422 (`plantilla_no_permitida` / `validacion`).
+
 Al pedir el aviso, en este orden: permiso registrado (`sin_permiso`), baja vigente (`baja`), teléfono
 de la instantánea de Argos, refrescada si tiene más de 24 h (`sin_contacto`), canal de la empresa que
 admite avisos con la plantilla aprobada (`canal_no_disponible`) y 3 avisos automáticos por cliente y
@@ -38,7 +42,10 @@ Fallas del canal: `numero_invalido`, `rechazado_por_canal`; temporales se reinte
 `agotado`. Un aviso en cola sin acuse en 72 h también termina `agotado`.
 
 Canales: `Adaptador` (WhatsApp Cloud API y el simulado). El simulado solo con
-`IRIS_MENSAJERIA_SIMULADO=true` (dev y CI); sin él, una empresa sin canal da `canal_no_disponible`.
+`IRIS_MENSAJERIA_SIMULADO=true` (dev y CI; el proceso no arranca con él si `IRIS_BASE_URL` es https en
+un host no local); sin él, una empresa sin canal da `canal_no_disponible`. Del webhook de Meta solo
+cuentan los cambios con el `phone_number_id` del canal (una app puede servir a varias empresas); los
+demás se descartan y quedan anotados en `mensajeria.entrantes.error`.
 WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos() = false`.
 
 ## Eventos

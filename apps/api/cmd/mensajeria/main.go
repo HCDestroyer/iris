@@ -91,6 +91,9 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 	} else {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: no se pueden usar canales de WhatsApp ni firmar webhooks hacia Argos")
 	}
+	if err := mensajeria.ValidarSimulado(ent.Simulado, cfg.BaseURL); err != nil {
+		return err
+	}
 	if ent.Simulado {
 		log.Warn("IRIS_MENSAJERIA_SIMULADO=true: las empresas sin canal usan el canal simulado (nada sale a WhatsApp). Solo desarrollo y CI")
 	}

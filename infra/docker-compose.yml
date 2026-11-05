@@ -221,8 +221,8 @@ services:
 
   # cmd/mensajeria: servicio de mensajería (avisos por WhatsApp para Argos, contrato §6), su propio
   # proceso con el schema `mensajeria` de la misma base. Misma imagen que la API. Sin puerto
-  # publicado: se llega por la API (/api/v1/mensajeria). En dev, IRIS_MENSAJERIA_SIMULADO=true del
-  # .env.example usa el canal simulado (nada sale a WhatsApp).
+  # publicado: se llega por la API (/api/v1/mensajeria). Para probar sin WhatsApp, pon
+  # IRIS_MENSAJERIA_SIMULADO=true en tu .env (solo dev y CI; con IRIS_BASE_URL https pública no arranca).
   mensajeria:
     profiles: [app]
     image: iris/api:${IRIS_IMAGEN_TAG:-dev}

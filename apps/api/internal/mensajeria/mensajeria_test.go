@@ -441,10 +441,12 @@ func TestBloqueos(t *testing.T) {
 		e.exigir(e.avisar(clave(c4, fmt.Sprint(i)), avisoPorVencer(c4, "2026-11-10")), http.StatusAccepted, "estado", "en_cola")
 	}
 	e.exigir(e.avisar(clave(c4, "x"), avisoPorVencer(c4, "2026-11-10")), http.StatusAccepted, "estado", "bloqueado", "motivo", "limite_diario")
-	urgente := map[string]any{"empresa_id": 1, "cliente_id": c4, "plantilla": "corte_programado", "prioridad": "urgente",
-		"variables": map[string]string{"inicio": "2026-11-06T22:00", "fin": "2026-11-07T02:00", "zona": "Centro"}}
-	e.exigir(e.pedir(http.MethodPost, "/api/v1/mensajeria/avisos", e.token, fmt.Sprintf("argos:aviso:corte_programado:%d", c4), urgente),
-		http.StatusAccepted, "estado", "en_cola")
+	// Urgente solo lo pide Iris (actor sistema aquí): salta el límite diario.
+	u, err := e.m.EnviarAviso.Ejecutar(e.ctx, mensajeria.EntradaAviso{EmpresaID: 1, ClienteID: c4, Plantilla: "corte_programado", Prioridad: "urgente",
+		Variables: map[string]string{"inicio": "2026-11-06T22:00", "fin": "2026-11-07T02:00", "zona": "Centro"}, IdempotencyKey: "iris:corte:1"})
+	if err != nil || u.Estado != "en_cola" {
+		t.Fatalf("urgente de Iris: %+v %v", u, err)
+	}
 	// Al otro día el límite vuelve a empezar.
 	*e.reloj = e.reloj.Add(24 * time.Hour)
 	e.exigir(e.avisar(clave(c4, "y"), avisoPorVencer(c4, "2026-11-10")), http.StatusAccepted, "estado", "en_cola")
@@ -499,7 +501,35 @@ func TestValidaciones(t *testing.T) {
 
 	urgente := avisoPorVencer(c, "2026-11-10")
 	urgente["prioridad"] = "urgente"
-	e.exigir(e.avisar("argos:aviso:factura_por_vencer:7", urgente), http.StatusUnprocessableEntity)
+	e.exigir(e.avisar("argos:aviso:factura_por_vencer:7", urgente), http.StatusUnprocessableEntity, "type", "urn:iris:problema:validacion")
+
+	// Las plantillas de Iris (§6.3: texto libre, urgente) no las pide una integración: 422
+	// plantilla_no_permitida, también con corte_programado urgente.
+	deIris := map[string]map[string]string{
+		"boleta_recibida":     {"monto": "10.00", "moneda": "GTQ", "motivo": "Entra a http://phishing.example"},
+		"boleta_confirmada":   {"monto": "10.00", "moneda": "GTQ", "motivo": "x"},
+		"boleta_rechazada":    {"monto": "10.00", "moneda": "GTQ", "motivo": "x"},
+		"boleta_falta_dato":   {"monto": "10.00", "moneda": "GTQ", "motivo": "x"},
+		"reconexion_temporal": {"hasta": "2026-11-10"},
+		"promesa_aceptada":    {"vence_en": "2026-11-10", "monto": "10.00"},
+		"corte_programado":    {"inicio": "2026-11-06T22:00", "fin": "2026-11-07T02:00", "zona": "Llama al 5555-0000"},
+	}
+	for codigo, v := range deIris {
+		for _, prioridad := range []string{"normal", "urgente"} {
+			cuerpo := map[string]any{"empresa_id": 1, "cliente_id": c, "plantilla": codigo, "variables": v, "prioridad": prioridad}
+			e.exigir(e.avisar("argos:aviso:"+codigo+":"+prioridad, cuerpo), http.StatusUnprocessableEntity, "type", "urn:iris:problema:plantilla_no_permitida")
+		}
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.avisos WHERE cliente_id = $1`, c); n != 0 {
+		t.Fatalf("ningún aviso debía crearse: %d", n)
+	}
+	l := e.pedir(http.MethodGet, "/api/v1/mensajeria/plantillas", e.token, "", nil)
+	for _, p := range l.cuerpo["data"].([]any) {
+		pm := p.(map[string]any)
+		if _, iris := deIris[pm["codigo"].(string)]; (pm["pide"] == "iris") != iris {
+			t.Fatalf("pide de %s: %v", pm["codigo"], pm["pide"])
+		}
+	}
 
 	// Sin token: 401; un usuario sin mensajeria.enviar: 403 (lo cubre el ACL común).
 	e.exigir(e.pedir(http.MethodPost, "/api/v1/mensajeria/avisos", "", "k", avisoPorVencer(c, "2026-11-10")), http.StatusUnauthorized)
@@ -619,8 +649,9 @@ func TestLimitePorMinuto(t *testing.T) {
 func TestWhatsAppCloud(t *testing.T) {
 	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.Simulado = false })
 	empresa := int64(2)
+	numero := fmt.Sprint(time.Now().UnixNano() % 1e12)
 	canal, err := e.m.CrearCanal.Ejecutar(e.ctx, mensajeria.EntradaCrearCanal{EmpresaID: &empresa, Nombre: "WhatsApp ISP", Numero: "+50222223333",
-		PhoneNumberID: fmt.Sprint(time.Now().UnixNano() % 1e12), Token: "token-de-meta-0123456789abcdef", AppSecret: "app-secret-0123456789",
+		PhoneNumberID: numero, Token: "token-de-meta-0123456789abcdef", AppSecret: "app-secret-0123456789",
 		VerifyToken: "verify-token-0123456789", Plantillas: map[string]mensajeria.PlantillaMeta{"factura_por_vencer": {Nombre: "factura_por_vencer_v2", Idioma: "es"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +730,7 @@ func TestWhatsAppCloud(t *testing.T) {
 		return w.Code
 	}
 	estado := func(st string, ts int64) string {
-		return fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages","value":{"statuses":[{"id":%q,"status":%q,"timestamp":"%d"}]}}]}]}`, wamid, st, ts)
+		return fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":%q},"statuses":[{"id":%q,"status":%q,"timestamp":"%d"}]}}]}]}`, numero, wamid, st, ts)
 	}
 	entregado := estado("delivered", e.reloj.Unix())
 	if code := meta(entregado, "sha256=00"); code != http.StatusUnauthorized {
@@ -743,8 +774,28 @@ func TestWhatsAppCloud(t *testing.T) {
 		t.Fatalf("un solo webhook final: %d", n)
 	}
 
-	// El cliente escribe BAJA: baja de avisos (origen cliente) y contacto.baja a Argos.
-	baja := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages","value":{"messages":[{"from":"50255127788","id":"wamid.in","timestamp":"%d","type":"text","text":{"body":" baja. "}}]}}]}]}`, e.reloj.Unix())
+	// Una baja escrita a otro número de la misma app de Meta no cuenta para este canal.
+	bajaDe := func(pnid string) string {
+		return fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":%q},"messages":[{"from":"50255127788","id":"wamid.in.%s","timestamp":"%d","type":"text","text":{"body":" baja. "}}]}}]}]}`, pnid, pnid, e.reloj.Unix())
+	}
+	ajena := bajaDe("999" + numero)
+	if code := meta(ajena, mensajeria.FirmarMeta("app-secret-0123456789", []byte(ajena))); code != http.StatusOK {
+		t.Fatalf("webhook ajeno: %d", code)
+	}
+	procesar()
+	e.publicar()
+	if n := len(e.receptor.de("contacto.baja", "cliente_id", c)); n != 0 {
+		t.Fatalf("una baja a otro número no debía registrarse: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.consentimientos WHERE cliente_id = $1 AND estado = 'baja'`, c); n != 0 {
+		t.Fatalf("baja de otro número registrada: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.entrantes WHERE canal_id = $1 AND error LIKE '%phone_number_id%'`, canal.ID); n != 1 {
+		t.Fatalf("el descarte debía quedar anotado: %d", n)
+	}
+
+	// El cliente escribe BAJA a este número: baja de avisos (origen cliente) y contacto.baja a Argos.
+	baja := bajaDe(numero)
 	meta(baja, mensajeria.FirmarMeta("app-secret-0123456789", []byte(baja)))
 	procesar()
 	e.publicar()
@@ -826,4 +877,31 @@ func TestAvisosSinAcuseSeAgotan(t *testing.T) {
 	}
 	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+r.cuerpo["aviso_id"].(string), e.token, "", nil), http.StatusOK,
 		"estado", "fallido", "motivo", "agotado")
+}
+
+// Producción (IRIS_BASE_URL https en un host no local): el canal simulado no arranca.
+func TestSimuladoProhibidoEnProduccion(t *testing.T) {
+	casos := []struct {
+		simulado bool
+		base     string
+		error    bool
+	}{
+		{true, "https://iris.isp.gt", true},
+		{true, "https://iris.isp.gt:8443/", true},
+		{true, "http://localhost:3000", false},
+		{true, "https://localhost", false},
+		{true, "https://127.0.0.1:3000", false},
+		{true, "http://192.168.1.10:3000", false},
+		{true, "", false},
+		{false, "https://iris.isp.gt", false},
+	}
+	for _, c := range casos {
+		err := mensajeria.ValidarSimulado(c.simulado, c.base)
+		if (err != nil) != c.error {
+			t.Errorf("ValidarSimulado(%v, %q) = %v", c.simulado, c.base, err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "IRIS_MENSAJERIA_SIMULADO") {
+			t.Errorf("el error debe nombrar la variable: %v", err)
+		}
+	}
 }

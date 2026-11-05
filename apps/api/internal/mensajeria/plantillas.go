@@ -39,9 +39,20 @@ type Plantilla struct {
 	Texto string
 	// Caducidad: variable de fecha tras cuyo día (Guatemala) el aviso ya no tiene sentido (vencido).
 	Caducidad string
-	// Urgente: admite prioridad urgente (salta el límite diario).
+	// Urgente: admite prioridad urgente (salta el límite diario). Solo la pide Iris.
 	Urgente bool
+	// Pide: quién puede pedirla (§6.3, columna «Lo pide»): PideArgos (la integración de Argos e
+	// Iris) o PideIris (solo Iris u Horus; una integración recibe 422 plantilla_no_permitida). Las de
+	// Iris llevan texto libre (motivo, zona): con un token de integración filtrado servirían para
+	// mandar phishing por el número oficial.
+	Pide string
 }
+
+// Quién pide una plantilla.
+const (
+	PideArgos = "argos"
+	PideIris  = "iris"
+)
 
 func vars(pares ...string) []Variable {
 	v := make([]Variable, 0, len(pares)/2)
@@ -55,31 +66,31 @@ var montoMoneda = []string{"monto", formatoMonto, "moneda", formatoMoneda}
 
 // Catalogo de plantillas (§6.3), en el orden del contrato.
 var Catalogo = []Plantilla{
-	{Codigo: "factura_por_vencer", Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...), Caducidad: "vence_en",
+	{Codigo: "factura_por_vencer", Pide: PideArgos, Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...), Caducidad: "vence_en",
 		Texto: "Hola, te recordamos que tu factura de {{moneda}} {{monto}} vence el {{vence_en}}."},
-	{Codigo: "factura_vencida", Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...),
+	{Codigo: "factura_vencida", Pide: PideArgos, Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...),
 		Texto: "Hola, tu factura de {{moneda}} {{monto}} venció el {{vence_en}}. Evita la suspensión del servicio pagando cuanto antes."},
-	{Codigo: "pago_recibido", Variables: vars(append(montoMoneda, "fecha", formatoFecha)...),
+	{Codigo: "pago_recibido", Pide: PideArgos, Variables: vars(append(montoMoneda, "fecha", formatoFecha)...),
 		Texto: "Recibimos tu pago de {{moneda}} {{monto}} el {{fecha}}. ¡Gracias!"},
-	{Codigo: "corte_por_falta_de_pago", Variables: vars(montoMoneda...),
+	{Codigo: "corte_por_falta_de_pago", Pide: PideArgos, Variables: vars(montoMoneda...),
 		Texto: "Tu servicio fue suspendido por un saldo pendiente de {{moneda}} {{monto}}. Al pagar se reactiva."},
-	{Codigo: "servicio_reactivado", Variables: []Variable{},
+	{Codigo: "servicio_reactivado", Pide: PideArgos, Variables: []Variable{},
 		Texto: "Tu servicio está activo de nuevo. ¡Gracias por tu pago!"},
-	{Codigo: "bienvenida", Variables: vars("plan", formatoTexto),
+	{Codigo: "bienvenida", Pide: PideArgos, Variables: vars("plan", formatoTexto),
 		Texto: "¡Bienvenido! Tu servicio {{plan}} ya está activo."},
-	{Codigo: "corte_programado", Variables: vars("inicio", formatoInstante, "fin", formatoInstante, "zona", formatoTexto), Urgente: true,
+	{Codigo: "corte_programado", Pide: PideIris, Variables: vars("inicio", formatoInstante, "fin", formatoInstante, "zona", formatoTexto), Urgente: true,
 		Texto: "Mantenimiento programado en {{zona}} de {{inicio}} a {{fin}}. El servicio puede interrumpirse."},
-	{Codigo: "boleta_recibida", Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
+	{Codigo: "boleta_recibida", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "Recibimos tu boleta de {{moneda}} {{monto}}. La revisamos y te avisamos. {{motivo}}"},
-	{Codigo: "boleta_confirmada", Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
+	{Codigo: "boleta_confirmada", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "Confirmamos tu pago de {{moneda}} {{monto}}. {{motivo}}"},
-	{Codigo: "boleta_rechazada", Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
+	{Codigo: "boleta_rechazada", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "No pudimos confirmar tu boleta de {{moneda}} {{monto}}: {{motivo}}"},
-	{Codigo: "boleta_falta_dato", Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
+	{Codigo: "boleta_falta_dato", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "A tu boleta de {{moneda}} {{monto}} le falta un dato: {{motivo}}. Envíala de nuevo, por favor."},
-	{Codigo: "reconexion_temporal", Variables: vars("hasta", formatoInstante), Caducidad: "hasta",
+	{Codigo: "reconexion_temporal", Pide: PideIris, Variables: vars("hasta", formatoInstante), Caducidad: "hasta",
 		Texto: "Reconectamos tu servicio de forma temporal hasta {{hasta}} mientras revisamos tu pago."},
-	{Codigo: "promesa_aceptada", Variables: vars("vence_en", formatoFecha, "monto", formatoMonto), Caducidad: "vence_en",
+	{Codigo: "promesa_aceptada", Pide: PideIris, Variables: vars("vence_en", formatoFecha, "monto", formatoMonto), Caducidad: "vence_en",
 		Texto: "Registramos tu promesa de pago de {{monto}} para el {{vence_en}}."},
 }
 

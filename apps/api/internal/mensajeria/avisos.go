@@ -200,7 +200,7 @@ func nuevoEnviarAviso(m *Modulo) *EnviarAviso {
 		Accion: "mensajeria.enviar", Permiso: nucleo.PermMensajeriaEnviar, SinEmpresa: true,
 		AuditarExito: func(*AvisoCreado) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAviso) (*AvisoCreado, error) {
-			if err := validarAviso(in); err != nil {
+			if err := validarAviso(ctx, in); err != nil {
 				return nil, err
 			}
 			if err := exigirEmpresa(ctx, t, in.EmpresaID); err != nil {
@@ -216,12 +216,24 @@ func nuevoEnviarAviso(m *Modulo) *EnviarAviso {
 	return k
 }
 
-func validarAviso(in EntradaAviso) error {
+func validarAviso(ctx context.Context, in EntradaAviso) error {
 	p, ok := PlantillaPorCodigo(in.Plantilla)
 	if !ok {
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "plantilla_desconocida", "Plantilla desconocida",
 			"plantilla debe ser un código de GET /api/v1/mensajeria/plantillas",
 			nucleo.ErrorCampo{Field: "plantilla", Message: "No es una plantilla de Iris", Rule: "plantilla"})
+	}
+	// Una integración (Argos) solo pide las plantillas de Argos (§6.3) y nunca urgente (§6.2: Argos no
+	// la usa en la fase 1): las de Iris llevan texto libre y urgente salta el límite diario.
+	if contexto.ActorDe(ctx).Tipo == contexto.ActorIntegracion {
+		if p.Pide != PideArgos {
+			return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "plantilla_no_permitida", "Plantilla no permitida",
+				"La plantilla "+p.Codigo+" la pide solo Iris (contrato §6.3)",
+				nucleo.ErrorCampo{Field: "plantilla", Message: "No es una plantilla de Argos", Rule: "pide"})
+		}
+		if in.Prioridad == "urgente" {
+			return nucleo.Validacion(nucleo.ErrorCampo{Field: "prioridad", Message: "Una integración no pide avisos urgentes (§6.2)", Rule: "prioridad"})
+		}
 	}
 	if err := p.validarVariables(in.Variables); err != nil {
 		return err
