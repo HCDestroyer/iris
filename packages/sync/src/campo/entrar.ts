@@ -94,12 +94,13 @@ export function avisoEntrar(e: ErrorEntrada): AvisoEntrar {
 }
 
 /**
- * «Usar huella» (solo la app nativa): desbloquea la sesión que ya está guardada en el teléfono,
- * nunca guarda la contraseña. Solo con biometría disponible, una sesión guardada (con su token en
- * el llavero) y el usuario recordado siendo el dueño de esa sesión.
+ * ¿Se pide la huella al abrir? (solo la app nativa): con «Desbloquear con huella» encendido,
+ * biometría disponible y una sesión guardada con su token. No depende del usuario recordado: si
+ * dependiera, «¿No eres tú?» (que lo olvida) saltaría el bloqueo. La huella solo desbloquea esa
+ * sesión; nunca guarda la contraseña.
  */
-export function ofrecerHuella(o: { biometria: boolean; sesionGuardada: { correo: string } | null; tokenGuardado: boolean; recordado: UsuarioRecordado | null }): boolean {
-    return o.biometria && o.tokenGuardado && o.sesionGuardada !== null && o.recordado !== null && o.sesionGuardada.correo.trim().toLowerCase() === o.recordado.correo;
+export function ofrecerHuella(o: { huellaActiva: boolean; biometria: boolean; sesionGuardada: unknown; tokenGuardado: boolean }): boolean {
+    return o.huellaActiva && o.biometria && o.tokenGuardado && o.sesionGuardada !== null && o.sesionGuardada !== undefined;
 }
 
 /**

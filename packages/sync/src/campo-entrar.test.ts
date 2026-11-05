@@ -35,15 +35,13 @@ describe("avisoEntrar", () => {
 });
 
 describe("huella y sin conexión", () => {
-    const recordado = { nombre: "Tomás", correo: "tomas@redcom.gt" };
-    it("solo con biometría, sesión guardada con su token y del mismo usuario recordado", () => {
-        const base = { biometria: true, sesionGuardada: { correo: "Tomas@redcom.gt" }, tokenGuardado: true, recordado };
+    it("con la huella encendida, biometría y la sesión guardada con su token; sin depender del usuario recordado", () => {
+        const base = { huellaActiva: true, biometria: true, sesionGuardada: { correo: "tomas@redcom.gt" }, tokenGuardado: true };
         expect(ofrecerHuella(base)).toBe(true);
+        expect(ofrecerHuella({ ...base, huellaActiva: false })).toBe(false);
         expect(ofrecerHuella({ ...base, biometria: false })).toBe(false);
         expect(ofrecerHuella({ ...base, sesionGuardada: null })).toBe(false);
         expect(ofrecerHuella({ ...base, tokenGuardado: false })).toBe(false);
-        expect(ofrecerHuella({ ...base, recordado: null })).toBe(false);
-        expect(ofrecerHuella({ ...base, recordado: { nombre: "Ana", correo: "ana@redcom.gt" } })).toBe(false);
     });
 
     it("el aviso dice si se entra con la sesión guardada o hay que conectarse", () => {

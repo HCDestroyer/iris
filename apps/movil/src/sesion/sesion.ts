@@ -359,11 +359,11 @@ export async function debeOfrecerHuella(): Promise<boolean> {
 }
 
 /**
- * ¿Se pide la huella antes de abrir la sesión guardada? Solo con «Desbloquear con huella» encendido
- * en «Yo», biometría en el teléfono, la sesión
- * guardada con su token en el llavero y el usuario recordado siendo su dueño (`ofrecerHuella`). La
- * huella solo desbloquea: después se verifica igual que siempre (`GET /yo` o, sin señal,
- * `usableSinSenal`). Nunca se guarda la contraseña.
+ * ¿Se pide la huella antes de abrir la sesión guardada? Con «Desbloquear con huella» encendido en
+ * «Yo», biometría en el teléfono y una sesión guardada con su token en el llavero (`ofrecerHuella`).
+ * No depende del usuario recordado: olvidarlo no salta el bloqueo. La huella solo desbloquea:
+ * después se verifica como siempre (`GET /yo` o, sin señal, `usableSinSenal`). Nunca se guarda la
+ * contraseña.
  */
 export async function pedirHuella(guardada: SesionCampo | null): Promise<boolean> {
     const biometria = entorno().biometria;
@@ -371,7 +371,57 @@ export async function pedirHuella(guardada: SesionCampo | null): Promise<boolean
         return false;
     }
     const disponible = await biometria.disponible().catch(() => false);
-    return ofrecerHuella({ biometria: disponible, sesionGuardada: guardada, tokenGuardado: leerCsrf() !== null, recordado: usuarioRecordado() });
+    return ofrecerHuella({ huellaActiva: huellaActiva(), biometria: disponible, sesionGuardada: guardada, tokenGuardado: leerCsrf() !== null });
+}
+
+/**
+ * «¿No eres tú?» con una sesión guardada en el teléfono (la pantalla de bloqueo o la de entrar):
+ * cierra esa sesión por completo. `DELETE /sesion` (sin señal queda pendiente y nada entra solo
+ * hasta lograrlo), borra el CSRF del llavero y la sesión guardada, apaga «Desbloquear con huella» y
+ * olvida al usuario recordado. Lo pendiente de la cola no se borra: sale cuando su técnico vuelva a
+ * entrar.
+ */
+export async function noSoyYo(): Promise<void> {
+    const guardada = sesionGuardada();
+    olvidarUsuarioRecordado();
+    activarHuella(false);
+    if (guardada || leerCsrf() !== null) {
+        await cerrarSesion(guardada?.usuarioId ?? 0);
+    }
+}
+
+/** Qué hacer al abrir la app (o al volver a verificar la sesión). */
+export type Apertura =
+    | { tipo: "entrar"; motivo?: "expirada" | "salida" }
+    | { tipo: "huella"; guardada: SesionCampo }
+    | { tipo: "yo"; yo: Schema<"Yo"> }
+    | { tipo: "guardada"; sesion: SesionCampo }
+    | { tipo: "sin_conexion" };
+
+/**
+ * La regla de apertura (la usa `App.tsx`): un cierre pendiente bloquea todo; con la huella encendida
+ * y una sesión guardada se pide la huella antes de cualquier `GET /yo`; si no (o ya desbloqueada),
+ * `GET /yo` y, sin señal, la guardada si es reciente.
+ */
+export async function abrirApp(desbloqueada: boolean): Promise<Apertura> {
+    await cargarCsrf();
+    // Se cerró sesión sin señal: antes de cualquier GET /yo se cierra en la API; mientras no se
+    // pueda, nada entra solo (la cookie vieja no abre la app).
+    if (!(await reintentarCierrePendiente())) {
+        return { tipo: "entrar", motivo: "salida" };
+    }
+    const guardada = sesionGuardada();
+    if (!desbloqueada && guardada && (await pedirHuella(guardada))) {
+        return { tipo: "huella", guardada };
+    }
+    try {
+        return { tipo: "yo", yo: await leerYo(guardada ? empresaElegida(guardada.usuarioId) : null) };
+    } catch (e) {
+        if (e instanceof ErrorApi && e.estado === 0) {
+            return guardada && usableSinSenal(guardada) ? { tipo: "guardada", sesion: guardada } : { tipo: "sin_conexion" };
+        }
+        return guardada ? { tipo: "entrar", motivo: "expirada" } : { tipo: "entrar" };
+    }
 }
 
 /** Pide la huella (o el rostro); `true` si la persona la confirmó. Un error del sistema cuenta como no. */

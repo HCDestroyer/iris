@@ -5,18 +5,24 @@
 // teléfono» ni «código de respaldo». Y cuándo se pide la huella (`pedirHuella`).
 import type { Schema } from "@iris/contratos";
 import { avisoSinConexion } from "@iris/sync/campo";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react-native";
+import { AUSENCIA_MAX_MS, ausenciaLarga, useVolverTrasAusencia } from "../src/campo/bloqueo";
+import { AppState, StyleSheet, type AppStateStatus } from "react-native";
 import { configurarEntorno, entorno, type Biometria } from "../src/entorno";
 import { Entrar, type PropsEntrar } from "../src/pantallas/Entrar";
 import {
+    abrirApp,
     activarHuella,
     autenticarConHuella,
     cargarCsrf,
     CLAVE_CSRF,
     debeOfrecerHuella,
     guardarSesion,
+    hayCierrePendiente,
     huellaActiva,
+    leerCsrf,
+    noSoyYo,
+    reintentarCierrePendiente,
     marcarEntradaConContrasena,
     olvidarUsuarioRecordado,
     pedirHuella,
@@ -195,27 +201,58 @@ describe("huella: solo desbloquea la sesión guardada del usuario recordado", ()
         expect(await pedirHuella(sesionGuardada())).toBe(true);
     });
 
-    it("con biometría, la sesión y su token guardados y el mismo usuario recordado", async () => {
+    it("con biometría y la sesión con su token guardados (con o sin usuario recordado)", async () => {
         expect(await pedirHuella(sesionGuardada())).toBe(true);
         expect(await autenticarConHuella()).toBe(true);
         confirma = false;
         expect(await autenticarConHuella()).toBe(false);
     });
 
-    it("no se pide sin biometría, sin sesión, sin token o con otro usuario recordado", async () => {
+    it("no se pide sin biometría, sin sesión o sin token; olvidar al recordado no la apaga", async () => {
         disponible = false;
         expect(await pedirHuella(sesionGuardada())).toBe(false);
         disponible = true;
         expect(await pedirHuella(null)).toBe(false);
+        // El usuario recordado no cuenta: olvidarlo (o que sea otro) no salta el bloqueo.
         recordarUsuario({ nombre: "Ana", correo: "ana@redcom.gt" });
-        expect(await pedirHuella(sesionGuardada())).toBe(false);
+        expect(await pedirHuella(sesionGuardada())).toBe(true);
         olvidarUsuarioRecordado();
         expect(usuarioRecordado()).toBeNull();
-        expect(await pedirHuella(sesionGuardada())).toBe(false);
+        expect(await pedirHuella(sesionGuardada())).toBe(true);
         recordarUsuario(TOMAS);
         await entorno().secreto.borrar(CLAVE_CSRF);
         await act(async () => cargarCsrf());
         expect(await pedirHuella(sesionGuardada())).toBe(false);
+    });
+
+    it("ataque: huella encendida → «¿No eres tú?» → reabrir: no entra a la sesión (con señal)", async () => {
+        const api = new ApiFalsa()
+            .en("DELETE", "/api/v1/sesion", () => ({ status: 204, cuerpo: null }))
+            .en("GET", "/api/v1/yo", () => problema(401, "no_autenticado"))
+            .instalar();
+        expect(await abrirApp(false)).toMatchObject({ tipo: "huella" });
+        await noSoyYo();
+        expect(api.peticiones.some((p) => p.metodo === "DELETE")).toBe(true);
+        expect(leerCsrf()).toBeNull();
+        expect(await entorno().secreto.leer(CLAVE_CSRF)).toBeNull();
+        expect(sesionGuardada()).toBeNull();
+        expect(huellaActiva()).toBe(false);
+        expect(usuarioRecordado()).toBeNull();
+        // Reabrir: nada de entrar solo (la API ya cerró la sesión).
+        const a = await abrirApp(false);
+        expect(a.tipo).toBe("entrar");
+    });
+
+    it("ataque sin señal: «¿No eres tú?» deja el cierre pendiente y al reabrir no llama a GET /yo ni abre la guardada", async () => {
+        const api = new ApiFalsa().en("GET", "/api/v1/yo", () => ({ status: 200, cuerpo: {} })).instalar();
+        api.sinRed = true;
+        await noSoyYo();
+        expect(hayCierrePendiente()).toBe(true);
+        expect(sesionGuardada()).toBeNull();
+        expect(await abrirApp(false)).toEqual({ tipo: "entrar", motivo: "salida" });
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/yo")).toBe(false);
+        api.sinRed = false;
+        await reintentarCierrePendiente();
     });
 
     it("nunca guarda la contraseña: en el teléfono solo nombre y correo", () => {
@@ -289,5 +326,35 @@ describe.each(["light", "dark"] as const)("huella opcional en la app (%s)", (esq
         await abrirCampo(m, { esquema, vista: { tipo: "yo" } });
         expect(await screen.findByRole("button", { name: /Cerrar sesión/ })).toBeTruthy();
         expect(screen.queryByRole("switch", { name: "Desbloquear con huella" })).toBeNull();
+    });
+});
+
+describe("vuelve a pedir la huella tras más de 5 min en segundo plano", () => {
+    it("solo con una ausencia larga, y no sin sesión abierta", async () => {
+        let oyente: ((e: AppStateStatus) => void) | null = null;
+        const espia = jest.spyOn(AppState, "addEventListener").mockImplementation(((_: string, fn: (e: AppStateStatus) => void) => {
+            oyente = fn;
+            return { remove: jest.fn() };
+        }) as unknown as typeof AppState.addEventListener);
+        let ahora = 1_000_000;
+        const alVolver = jest.fn();
+        try {
+            const { rerender } = await renderHook(({ activo }: { activo: boolean }) => useVolverTrasAusencia(activo, alVolver, () => ahora), { initialProps: { activo: true } });
+            const cambiar = (e: AppStateStatus) => act(() => (oyente as ((e: AppStateStatus) => void) | null)?.(e));
+            await cambiar("background");
+            ahora += 2 * 60_000;
+            await cambiar("active");
+            expect(alVolver).not.toHaveBeenCalled();
+            await cambiar("background");
+            ahora += AUSENCIA_MAX_MS + 1;
+            await cambiar("active");
+            expect(alVolver).toHaveBeenCalledTimes(1);
+            expect(ausenciaLarga(null, ahora)).toBe(false);
+            oyente = null;
+            await rerender({ activo: false });
+            expect(oyente).toBeNull();
+        } finally {
+            espia.mockRestore();
+        }
     });
 });
