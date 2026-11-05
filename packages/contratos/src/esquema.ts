@@ -1099,7 +1099,7 @@ export interface paths {
         put?: never;
         /**
          * Activar un conector
-         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema (queda apagado y su token se revoca en la misma transacción, así la integración no se corta al reconectar). Con Argos, encola la primera carga de zonas y routers.
+         * @description Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema, que queda apagado en la misma transacción (la integración no se corta al reconectar). Su token entregado se revoca en ese paso; con Argos (contrato 0.6.3) se revoca cuando Argos usa el token nuevo, o a las 24 h, salvo con revocarAnterior: true. Con Argos, encola la primera carga de zonas y routers.
          */
         post: operations["activarConector"];
         delete?: never;
@@ -5744,6 +5744,16 @@ export interface components {
             /**
              * Format: int32
              * @description Versión de la cotización
+             */
+            version: number;
+        };
+        EntradaActivarConector: {
+            motivo?: string;
+            /** @description Al reemplazar el conector activo, revoca ya el token que Iris le entregó (si crees que se filtró). Por defecto false: con Argos, ese token sigue valiendo hasta que Argos use el token nuevo, o 24 h, para no cortar la integración */
+            revocarAnterior?: boolean;
+            /**
+             * Format: int32
+             * @description Versión que leíste (409 si cambió)
              */
             version: number;
         };
@@ -15141,7 +15151,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EntradaCambioConector"];
+                "application/json": components["schemas"]["EntradaActivarConector"];
             };
         };
         responses: {

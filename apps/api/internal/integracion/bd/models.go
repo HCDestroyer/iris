@@ -873,6 +873,8 @@ type IntegracionConectore struct {
 	VersionConsultadaEn         *time.Time
 	WebhookSalidaUrl            *string
 	WebhookSalidaSecretoCifrado []byte
+	ReemplazaConectorID         *int64
+	ReemplazaTokenID            *int64
 }
 
 type IntegracionEntrante struct {

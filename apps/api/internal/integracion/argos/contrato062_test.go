@@ -36,13 +36,13 @@ func TestCanjeSinReceptorDeArgosEs422(t *testing.T) {
 	}
 }
 
-// El canje con receptor manda receptor_argos: true y contrato 0.6.2.
+// El canje con receptor manda receptor_argos: true y el contrato de Iris (0.6.3).
 func TestCanjeMandaReceptorArgos(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.conectado()
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
-	if argos.ContratoIris != "0.6.2" || canje["receptor_argos"] != true || canje["contrato"] != argos.ContratoIris {
+	if argos.ContratoIris != "0.6.3" || canje["receptor_argos"] != true || canje["contrato"] != argos.ContratoIris {
 		t.Fatalf("canje: receptor_argos=%v contrato=%v", canje["receptor_argos"], canje["contrato"])
 	}
 }

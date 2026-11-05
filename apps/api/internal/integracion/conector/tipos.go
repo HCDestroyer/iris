@@ -123,6 +123,16 @@ type EntradaCambioConector struct {
 	Motivo  string `json:"motivo,omitempty" maxLength:"500"`
 }
 
+// EntradaActivarConector es la entrada de integraciones.activar.
+type EntradaActivarConector struct {
+	ID      int64  `json:"-"`
+	Version int32  `json:"version" minimum:"1" doc:"Versión que leíste (409 si cambió)"`
+	Motivo  string `json:"motivo,omitempty" maxLength:"500"`
+	// RevocarAnterior: al reemplazar el conector activo, su token entregado se revoca en el acto, sin
+	// esperar la confirmación del otro sistema (contrato Iris ↔ ArgosISP 0.6.3; ante una filtración).
+	RevocarAnterior bool `json:"revocarAnterior,omitempty" doc:"Al reemplazar el conector activo, revoca ya el token que Iris le entregó (si crees que se filtró). Por defecto false: con Argos, ese token sigue valiendo hasta que Argos use el token nuevo, o 24 h, para no cortar la integración"`
+}
+
 // EntradaURLPublica es la entrada de integraciones.configurar_url.
 type EntradaURLPublica struct {
 	ID         int64   `json:"-"`

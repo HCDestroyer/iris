@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -51,6 +52,10 @@ type Cliente struct {
 	userAgent string
 	// cabeceras extra de cada petición (p. ej. la empresa activa en Argos).
 	cabeceras map[string]string
+	// al2xx se llama una vez (avisado, compartido con las copias) con la primera respuesta 2xx:
+	// confirma una reconexión pendiente (reconexion.go).
+	al2xx   func(context.Context)
+	avisado *atomic.Bool
 }
 
 // ConCabecera devuelve una copia del cliente que agrega esa cabecera a cada petición (el
@@ -139,6 +144,9 @@ func (e *ErrorRemoto) Error() string {
 }
 
 func (e *ErrorRemoto) Unwrap() error { return e.causa }
+
+// ReintentarEn es el Retry-After (en segundos) de la respuesta; 0 si no vino.
+func (e *ErrorRemoto) ReintentarEn() time.Duration { return e.reintentarEn }
 
 // Caido indica que el otro sistema no respondió o respondió con una falla temporal.
 func (e *ErrorRemoto) Caido() bool {
@@ -337,6 +345,9 @@ func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Val
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return c.errorDeRespuesta(resp, crudo)
+	}
+	if c.al2xx != nil && c.avisado.CompareAndSwap(false, true) {
+		c.al2xx(context.WithoutCancel(ctx))
 	}
 	if c, ok := destino.(*Crudo); ok {
 		// Cuerpo tal cual (sin decodificar: un 2xx con un cuerpo raro no es un error).

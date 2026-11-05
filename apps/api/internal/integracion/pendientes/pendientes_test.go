@@ -176,7 +176,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := am.ActivarConector.Ejecutar(ctx, argos.EntradaCambioConector{ID: c.ID, Version: c.Version}); err != nil {
+	if _, err := am.ActivarConector.Ejecutar(ctx, argos.EntradaActivarConector{ID: c.ID, Version: c.Version}); err != nil {
 		t.Fatal(err)
 	}
 	e.conID = c.ID

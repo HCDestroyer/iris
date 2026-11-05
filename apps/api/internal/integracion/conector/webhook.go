@@ -139,9 +139,22 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 					"X-Webhook-Timestamp está fuera de la ventana aceptada")
 			}
 			t.IdentificarActor(ActorDe(c.s.Nombre, f.ID))
+			// destino: el conector en que se guarda el webhook (y cuyo token usa el job que lo procesa).
+			destino := f.ID
 			if f.Estado != "activo" {
-				// 503: el emisor reintenta y el webhook entra cuando se active el conector.
-				return WebhookRecibido{}, c.Apagado().ConCabecera("Retry-After", "300")
+				// Reconexión sin confirmar (0.6.3): el otro sistema sigue firmando con el secreto del
+				// conector reemplazado; el webhook se acepta y se guarda en el activo que lo reemplaza
+				// (misma base).
+				activo, err := q.ConectorQueReemplaza(ctx, conectorbd.ConectorQueReemplazaParams{Sistema: c.s.Nombre, ID: &f.ID})
+				if err != nil && !esSinFilas(err) {
+					return WebhookRecibido{}, err
+				}
+				if err != nil || activo.BaseUrl != f.BaseUrl {
+					// 503: el emisor reintenta y el webhook entra cuando se active el conector.
+					return WebhookRecibido{}, c.Apagado().ConCabecera("Retry-After", "300")
+				}
+				destino = activo.ID
+				t.Anotar(map[string]any{"conector_reemplazado": f.ID, "guardado_en": activo.ID})
 			}
 			if len(in.WebhookID) > 200 {
 				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "X-Webhook-Id", Message: "Máximo 200 caracteres", Rule: "maxLength"})
@@ -173,12 +186,26 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 				t.FijarEmpresa(*empresa)
 			}
 			t.Anotar(map[string]any{"evento": cuerpo.Evento})
+			// Un webhook del conector reemplazado puede haber llegado ya antes de activar el nuevo (guardado
+			// en el viejo) o por el receptor nuevo: con el mismo id es un duplicado, en cualquiera de los dos.
+			if destino != f.ID {
+				for _, id := range []int64{f.ID, destino} {
+					previo, err := q.EntrantePorWebhook(ctx, conectorbd.EntrantePorWebhookParams{ConectorID: id, WebhookID: webhookID})
+					if err == nil {
+						t.Anotar(map[string]any{"duplicado": true, "entrante_id": previo.ID})
+						return WebhookRecibido{EntranteID: previo.ID, Duplicado: true}, nil
+					}
+					if !esSinFilas(err) {
+						return WebhookRecibido{}, err
+					}
+				}
+			}
 			nuevo, err := q.InsertarEntrante(ctx, conectorbd.InsertarEntranteParams{
-				ConectorID: f.ID, WebhookID: webhookID, Evento: cuerpo.Evento, EmpresaID: empresa,
+				ConectorID: destino, WebhookID: webhookID, Evento: cuerpo.Evento, EmpresaID: empresa,
 				Payload: payload, OcurridoEn: &ocurrido, RequestID: contexto.RequestIDDe(ctx),
 			})
 			if esSinFilas(err) {
-				previo, err := q.EntrantePorWebhook(ctx, conectorbd.EntrantePorWebhookParams{ConectorID: f.ID, WebhookID: webhookID})
+				previo, err := q.EntrantePorWebhook(ctx, conectorbd.EntrantePorWebhookParams{ConectorID: destino, WebhookID: webhookID})
 				if err != nil {
 					return WebhookRecibido{}, err
 				}
@@ -189,7 +216,7 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 				return WebhookRecibido{}, err
 			}
 			t.Anotar(map[string]any{"entrante_id": nuevo.ID})
-			if err := q.TocarWebhookConector(ctx, f.ID); err != nil {
+			if err := q.TocarWebhookConector(ctx, destino); err != nil {
 				return WebhookRecibido{}, err
 			}
 			if c.n.cfg.Encolar != nil {

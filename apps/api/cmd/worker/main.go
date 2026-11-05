@@ -90,6 +90,8 @@ func correr() error {
 		log.Warn("IRIS_CLAVE_CIFRADO vacía: los webhooks de Argos no se podrán procesar")
 	}
 	conectorArgos := argos.Nuevo(acfg)
+	// El worker también revoca iris_pat_ (confirmar o vencer una reconexión, 0.6.3).
+	conectorArgos.Nucleo().FijarTokens(identidad.Nuevo(identidad.Config{}))
 	// Conector Horus: procesa sus webhooks (eventos internos horus.*; resuelve IPs con Argos).
 	conectorHorus := horus.Nuevo(horus.Config{Argos: conectorArgos, RedesPermitidas: cfg.HorusRedesPermitidas, Timeout: cfg.HorusTimeout})
 	ccfg, err := soporte.ConfigCorreoDesdeEntorno()

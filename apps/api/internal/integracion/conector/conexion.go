@@ -264,7 +264,8 @@ type entradaGuardarConector struct {
 // Seguridad: Iris entrega un iris_pat_ al origen del enlace, así que solo acepta orígenes de
 // Sistema.Origenes (o el de un conector que ya existe), exige empresas.todas global y el token nace
 // con vencimiento (VigenciaTokenCanje): solo queda sin vencimiento al activar el conector. Si el
-// canje no se completa (rechazo, respuesta inválida, error o pánico), se revoca.
+// canje no se completa (rechazo, respuesta inválida, error o pánico), se revoca; y si el otro sistema
+// respondió 200, también se revoca allá el token que entregó (Sistema.RutaRevocarCanje, 0.6.3).
 //
 // Riesgo: si el otro sistema canjea el código pero Iris no logra guardar el conector (caída
 // entre las dos fases), el código queda usado y hay que generar otro enlace.
@@ -398,6 +399,8 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	defer func() {
 		if !ok {
 			c.n.revocarEntregado(context.WithoutCancel(ctx), nil, tokenID, "canje_no_completado")
+			// 0.6.3: si el otro sistema respondió 200, su token también se revoca allá (job).
+			c.encolarRevocarCanje(context.WithoutCancel(ctx), g)
 		}
 	}()
 	g.secreto, g.tokenEntregado = secreto, tokenID
@@ -609,10 +612,10 @@ func nuevoCanjearConexion(c *Conexion) *auditoria.Caso[EntradaCanjear, ConexionC
 
 // Activar, desactivar, listar (por id, cualquier sistema) ------------------------------------
 
-func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Conector] {
-	return auditoria.Nuevo(auditoria.Caso[EntradaCambioConector, Conector]{
+func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaActivarConector, Conector] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaActivarConector, Conector]{
 		Accion: "integraciones.activar", Permiso: nucleo.PermIntegracionesActivar, SinEmpresa: true,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambioConector) (Conector, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaActivarConector) (Conector, error) {
 			q := conectorbd.New(t)
 			t.FijarEntidad("conector", in.ID)
 			t.FijarEmpresa(0)
@@ -643,8 +646,22 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			}
 			// Reconectar: el conector activo del sistema (si hay) queda reemplazado en esta misma
 			// transacción, así la integración no se corta entre el canje y la activación. Su token, y
-			// los de otros intentos sin activar, se revocan ahora (no al canjear).
+			// los de otros intentos sin activar, se revocan ahora (no al canjear). Con
+			// Sistema.ConfirmarReconexion (Argos 0.6.3) el del activo reemplazado no: sigue vivo hasta que
+			// el token nuevo responda 2xx, o 24 h (reconexion.go).
+			sis := n.sistema(antes.Sistema)
+			var reemplazado, diferido *int64
+			if err := q.QuitarReemplazo(ctx, in.ID); err != nil {
+				return Conector{}, err
+			}
 			if otro, err := q.ConectorActivo(ctx, antes.Sistema); err == nil {
+				// revocarAnterior (ante una filtración): el token del reemplazado se revoca ya.
+				if sis != nil && sis.s.ConfirmarReconexion && !in.RevocarAnterior {
+					reemplazado, diferido = &otro.ID, otro.TokenEntregadoID
+				}
+				if in.RevocarAnterior {
+					t.Anotar(map[string]any{"revocar_anterior": true})
+				}
 				apagado, err := q.CambiarEstadoConector(ctx, conectorbd.CambiarEstadoConectorParams{Estado: "apagado", ID: otro.ID, Version: otro.Version})
 				if err := nucleo.VerificarVersion(err, "conector", otro.ID); err != nil {
 					return Conector{}, err
@@ -663,11 +680,16 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			if err != nil {
 				return Conector{}, err
 			}
+			revocados := make([]int64, 0, len(otros))
 			for _, id := range otros {
+				if diferido != nil && id == *diferido {
+					continue
+				}
 				n.revocarEntregado(ctx, t.Tx, id, "conector_reemplazado")
+				revocados = append(revocados, id)
 			}
-			if len(otros) > 0 {
-				t.Anotar(map[string]any{"tokens_revocados": otros})
+			if len(revocados) > 0 {
+				t.Anotar(map[string]any{"tokens_revocados": revocados})
 			}
 			var actor *int64
 			if a := t.Actor(); a.EsUsuario() {
@@ -681,10 +703,23 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 			if err := t.Emitir("conector.activado", map[string]any{"conector_id": in.ID, "sistema": despues.Sistema}); err != nil {
 				return Conector{}, err
 			}
+			if reemplazado != nil {
+				if err := q.FijarReemplazo(ctx, conectorbd.FijarReemplazoParams{ID: in.ID, ReemplazaConectorID: reemplazado, ReemplazaTokenID: diferido}); err != nil {
+					return Conector{}, err
+				}
+				if n.cfg.Encolar != nil {
+					if err := n.cfg.Encolar(ctx, t.Tx, ArgsVencerReemplazo{ConectorViejoID: *reemplazado, ConectorNuevoID: in.ID}); err != nil {
+						return Conector{}, err
+					}
+				}
+				if diferido != nil {
+					t.Anotar(map[string]any{"token_entregado_diferido": *diferido})
+				}
+			}
 			// Trabajo del sistema al activar (Argos: primera carga de zonas y routers), en la
 			// misma transacción.
-			if c := n.sistema(despues.Sistema); c != nil && c.s.AlActivar != nil {
-				if err := c.s.AlActivar(ctx, t.Tx, despues.ID); err != nil {
+			if sis != nil && sis.s.AlActivar != nil {
+				if err := sis.s.AlActivar(ctx, t.Tx, despues.ID); err != nil {
 					return Conector{}, err
 				}
 			}
@@ -720,6 +755,16 @@ func nuevoDesactivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, C
 			if antes.TokenEntregadoID != nil {
 				n.revocarEntregado(ctx, t.Tx, *antes.TokenEntregadoID, "conector_desactivado")
 				t.Anotar(map[string]any{"token_entregado_revocado": *antes.TokenEntregadoID})
+			}
+			// Una reconexión sin confirmar (0.6.3): el token del conector reemplazado tampoco sigue vivo.
+			if antes.ReemplazaConectorID != nil {
+				if antes.ReemplazaTokenID != nil {
+					n.revocarEntregado(ctx, t.Tx, *antes.ReemplazaTokenID, "conector_desactivado")
+					t.Anotar(map[string]any{"token_reemplazado_revocado": *antes.ReemplazaTokenID})
+				}
+				if err := q.QuitarReemplazo(ctx, in.ID); err != nil {
+					return Conector{}, err
+				}
 			}
 			return n.AConector(despues), t.Emitir("conector.desactivado", map[string]any{
 				"conector_id": in.ID, "sistema": despues.Sistema, "motivo": in.Motivo,

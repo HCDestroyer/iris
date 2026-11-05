@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, panelDesconocido, panelesDeArgos, textoAlcance, type Conector } from "./presentacion";
+import { cuerpoCambioConector, esquemaPanelArgos, leerVuelta, mensajeVuelta, origenPanel, panelDe, panelDesconocido, panelesDeArgos, textoAlcance, type Conector } from "./presentacion";
 
 describe("origenPanel", () => {
     it("normaliza al origen https://host[:puerto]", () => {
@@ -96,5 +96,13 @@ describe("panelDesconocido / panelesDeArgos", () => {
 describe("mensajeVuelta en proceso", () => {
     it("un 409 idempotencia_en_proceso invita a reintentar", () => {
         expect(mensajeVuelta("idempotencia_en_proceso", 409).titulo).toBe("Iris sigue completando la conexión");
+    });
+});
+
+describe("cuerpoCambioConector", () => {
+    it("manda revocarAnterior solo al activar y si se marcó", () => {
+        expect(cuerpoCambioConector("activar", 3, { motivo: "", revocarAnterior: false })).toEqual({ version: 3 });
+        expect(cuerpoCambioConector("activar", 3, { motivo: "fuga", revocarAnterior: true })).toEqual({ version: 3, motivo: "fuga", revocarAnterior: true });
+        expect(cuerpoCambioConector("desactivar", 3, { motivo: "", revocarAnterior: true })).toEqual({ version: 3 });
     });
 });
