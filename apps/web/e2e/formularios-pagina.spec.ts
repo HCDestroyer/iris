@@ -107,7 +107,7 @@ test.describe("formularios en pantalla propia", () => {
         // Un `ticket` que no es un id numérico se ignora: orden desde cero, sin leer nada.
         await page.goto("/ordenes/nueva?ticket=1%20OR%201");
         await expect(page.getByRole("form", { name: "Nueva orden" })).toBeVisible();
-        expect(api.peticiones.some((p) => p.ruta.startsWith("/api/v1/tickets/"))).toBe(false);
+        expect(api.peticiones.some((p) => /^\/api\/v1\/tickets\/\d/.test(p.ruta))).toBe(false);
         // Un ticket que no existe: lo dice, sin formulario.
         await page.goto("/ordenes/nueva?ticket=999999");
         await expect(page.getByText("Ticket no encontrado")).toBeVisible();

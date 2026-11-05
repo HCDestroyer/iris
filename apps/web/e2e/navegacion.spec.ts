@@ -222,8 +222,10 @@ test("teléfono: barra inferior con lo principal y «Más» con el resto, la emp
 
     await abrirMenu(page);
     const mas = hojaMas(page);
-    await expect(mas.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Despacho" })).toBeVisible();
-    await expect(mas.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Tickets" })).toHaveCount(0);
+    // «Más» es la barra lateral entera (con lo de la barra inferior también): Mapa, Técnicos, Negocio…
+    await expect(mas.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Mapa" })).toBeVisible();
+    await expect(mas.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: /^Tickets/ })).toBeVisible();
+    await expect(mas.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Despacho" })).toHaveCount(0);
     await expect(mas.getByRole("menu", { name: "Tu cuenta" })).toContainText(ADMIN.correo);
     await mas.getByRole("menuitem", { name: "Mi perfil" }).click();
     await expect(mas).toHaveCount(0);

@@ -86,7 +86,8 @@ test.describe("Inicio", () => {
         await expect(indicadores.locator("[data-indicador]")).toHaveCount(4);
         await expect(indicadores.locator('[data-indicador="abiertos"]')).toHaveAttribute("href", "/tickets");
         await expect(indicadores.locator('[data-indicador="abiertos"]')).toContainText(/Tickets activos\s*\+\d+ hoy\s*\d+/);
-        await expect(indicadores.locator('[data-indicador="abiertos"] svg[role="img"]')).toHaveAccessibleName(/Tickets nuevos por día en 7 días/);
+        // La tendencia se dibuja desde 640 px (en el teléfono, dos indicadores por fila sin la línea).
+        if (!esTelefono(page)) await expect(indicadores.locator('[data-indicador="abiertos"] svg[role="img"]')).toHaveAccessibleName(/Tickets nuevos por día en 7 días/);
         await expect(indicadores.locator('[data-indicador="ordenes"]')).toHaveAttribute("href", "/agenda?vista=dia");
         await expect(indicadores.locator('[data-indicador="ordenes"]')).toContainText(/sin técnico asignado/);
 

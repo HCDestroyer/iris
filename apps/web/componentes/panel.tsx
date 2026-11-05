@@ -184,10 +184,10 @@ const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
 
 /**
  * Región de avisos en el teléfono: dentro de la barra superior (56 px), desde el borde izquierdo
- * hasta antes del buscador; el texto en letra pequeña y hasta dos líneas para que quepa.
+ * hasta antes del buscador (y de «Avisos» y «Crear», a su derecha); el texto en letra pequeña y hasta dos líneas para que quepa.
  */
 const CLASES_AVISOS_TELEFONO = [
-    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-14 w-auto translate-x-0 sm:w-auto",
+    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-[9.5rem] w-auto translate-x-0 sm:w-auto",
     "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-12 [&_[data-slot=toast]]:py-1.5",
     "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
 ].join(" ");
