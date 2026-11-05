@@ -26,9 +26,11 @@ WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL;
 SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema AND base_url = @base_url AND estado = 'activo')::boolean AS existe;
 
 -- name: TokensEntregadosDeInactivos :many
--- Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores).
-SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
-WHERE sistema = @sistema AND id <> @excepto AND estado <> 'activo' AND token_entregado_id IS NOT NULL;
+-- Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores). No
+-- el de un conector reemplazado cuya reconexión no se confirmó (0.6.3): el otro sistema lo sigue usando.
+SELECT c.token_entregado_id::bigint AS token_id FROM integracion.conectores c
+WHERE c.sistema = @sistema AND c.id <> @excepto AND c.estado <> 'activo' AND c.token_entregado_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores a WHERE a.estado = 'activo' AND a.reemplaza_token_id = c.token_entregado_id);
 
 -- name: ConectorPorID :one
 SELECT * FROM integracion.conectores WHERE id = @id;
@@ -205,3 +207,48 @@ UPDATE nucleo.empresas SET sincronizado_en = now(), updated_at = now() WHERE id 
 UPDATE integracion.conectores
 SET webhook_salida_url = @webhook_salida_url, webhook_salida_secreto_cifrado = @webhook_salida_secreto_cifrado, updated_at = now()
 WHERE id = @id;
+
+-- name: FijarReemplazo :exec
+-- Reconexión sin corte (0.6.3): el conector recién activado reemplaza a otro, cuyo iris_pat_ sigue
+-- vivo hasta que el otro sistema confirme el token nuevo (o 24 h). No sube la versión.
+UPDATE integracion.conectores
+SET reemplaza_conector_id = @reemplaza_conector_id, reemplaza_token_id = sqlc.narg(reemplaza_token_id), updated_at = now()
+WHERE id = @id;
+
+-- name: QuitarReemplazo :exec
+UPDATE integracion.conectores SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+WHERE id = @id AND reemplaza_conector_id IS NOT NULL;
+
+-- name: ConfirmarReemplazo :one
+-- La primera llamada con el token del conector activo respondió 2xx: el reemplazo queda confirmado.
+-- Sin fila si no estaba pendiente (o el conector ya no está activo).
+WITH antes AS (
+    SELECT x.id, x.reemplaza_conector_id, x.reemplaza_token_id FROM integracion.conectores x
+    WHERE x.id = @conector_id AND x.estado = 'activo' AND x.reemplaza_conector_id IS NOT NULL
+    FOR UPDATE
+)
+UPDATE integracion.conectores c
+SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+FROM antes
+WHERE c.id = antes.id
+RETURNING antes.reemplaza_conector_id::bigint AS conector_viejo_id, antes.reemplaza_token_id AS token_id;
+
+-- name: VencerReemplazo :one
+-- 24 h sin confirmar: el reemplazo se da por cerrado. Devuelve el token a revocar y si el conector
+-- anterior volvió a estar activo (entonces no se revoca). Sin fila si ya se confirmó o se quitó.
+WITH antes AS (
+    SELECT x.id, x.reemplaza_token_id FROM integracion.conectores x
+    WHERE x.id = @conector_id AND x.reemplaza_conector_id = @conector_viejo_id
+    FOR UPDATE
+)
+UPDATE integracion.conectores c
+SET reemplaza_conector_id = NULL, reemplaza_token_id = NULL, updated_at = now()
+FROM antes
+WHERE c.id = antes.id
+RETURNING antes.reemplaza_token_id AS token_id,
+    (SELECT v.estado = 'activo' FROM integracion.conectores v WHERE v.id = @conector_viejo_id)::boolean AS viejo_activo;
+
+-- name: ConectorQueReemplaza :one
+-- El conector activo del sistema que reemplaza a ese y todavía no está confirmado (sus webhooks
+-- firmados con el secreto anterior se aceptan en el activo).
+SELECT * FROM integracion.conectores WHERE sistema = @sistema AND estado = 'activo' AND reemplaza_conector_id = @id;

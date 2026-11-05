@@ -59,8 +59,9 @@ func nuevoArgosCampo(t *testing.T) *argosCampo {
 		_, _ = w.Write([]byte(v))
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
-		json200(w, `{"token":"atk_prueba_campo","empresas":[1]}`)
+	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
+		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
+		json200(w, `{"token":"atk_prueba_campo","webhook":{"url":"http://`+r.Host+`/api/v1/integraciones/iris/webhook","secreto":"secreto-de-argos-para-iris"},"empresas":[1]}`)
 	})
 	mux.HandleFunc("GET /api/v1/servicios/{id}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("id") {
@@ -180,7 +181,7 @@ func (e *entornoI1) conectar() {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	a, err := e.am.ActivarConector.Ejecutar(sistema(e.t), argos.EntradaCambioConector{ID: c.ID, Version: c.Version})
+	a, err := e.am.ActivarConector.Ejecutar(sistema(e.t), argos.EntradaActivarConector{ID: c.ID, Version: c.Version})
 	if err != nil {
 		e.t.Fatal(err)
 	}

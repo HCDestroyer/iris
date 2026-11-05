@@ -60,9 +60,10 @@ type argosFalso struct {
 func nuevoArgosFalso(t *testing.T) *argosFalso {
 	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
+		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"token":"` + tokenArgos + `","empresas":[1]}`))
+		_, _ = w.Write([]byte(`{"token":"` + tokenArgos + `","webhook":{"url":"http://` + r.Host + `/api/v1/integraciones/iris/webhook","secreto":"secreto-de-argos-para-iris"},"empresas":[1]}`))
 	})
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -175,7 +176,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := am.ActivarConector.Ejecutar(ctx, argos.EntradaCambioConector{ID: c.ID, Version: c.Version}); err != nil {
+	if _, err := am.ActivarConector.Ejecutar(ctx, argos.EntradaActivarConector{ID: c.ID, Version: c.Version}); err != nil {
 		t.Fatal(err)
 	}
 	e.conID = c.ID

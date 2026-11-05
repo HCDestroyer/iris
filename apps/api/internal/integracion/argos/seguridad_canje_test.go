@@ -169,8 +169,9 @@ func TestTokenDelCanjeVenceSinActivar(t *testing.T) {
 	}
 }
 
-// Reconectar revoca el token del conector anterior; desactivar revoca el suyo (y volver a
-// activarlo exige conectar de nuevo).
+// Reconectar revoca el token del conector anterior cuando Argos confirma el atk_ nuevo (0.6.3, o a
+// las 24 h: TestReconexionSinCorte, TestReconexionSinConfirmarVenceA24h); desactivar revoca el suyo y
+// el del anterior sin confirmar (y volver a activarlo exige conectar de nuevo).
 func TestReconectarYDesactivarRevocan(t *testing.T) {
 	e := nuevoEntorno(t)
 	admin := e.usuario("admin")
@@ -197,8 +198,9 @@ func TestReconectarYDesactivarRevocan(t *testing.T) {
 	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", id), map[string]any{"version": 1}); a.status != 200 {
 		t.Fatalf("activar: %d %s", a.status, a.crudo)
 	}
-	// Activar el nuevo reemplaza al anterior en la misma transacción: apagado y su token revocado.
-	if !e.estadoToken(primero).revocado || e.estadoToken(segundo).revocado || e.estadoToken(segundo).expira != nil ||
+	// Activar el nuevo reemplaza al anterior en la misma transacción: apagado, pero su token sigue
+	// vivo hasta que Argos confirme el atk_ nuevo (0.6.3: Argos lo usa mientras tanto).
+	if e.estadoToken(primero).revocado || e.estadoToken(segundo).revocado || e.estadoToken(segundo).expira != nil ||
 		e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND estado = 'apagado'`, activo) != 1 ||
 		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.desactivado' AND (payload->>'conector_id')::bigint = $1`, activo) != 1 {
 		t.Fatalf("activar reemplaza: anterior %+v, nuevo %+v", e.estadoToken(primero), e.estadoToken(segundo))
@@ -206,8 +208,8 @@ func TestReconectarYDesactivarRevocan(t *testing.T) {
 	if d := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/desactivar", id), map[string]any{"version": 2, "motivo": "prueba"}); d.status != 200 {
 		t.Fatalf("desactivar: %d %s", d.status, d.crudo)
 	}
-	if !e.estadoToken(segundo).revocado {
-		t.Fatal("desactivar revoca el token entregado")
+	if !e.estadoToken(segundo).revocado || !e.estadoToken(primero).revocado {
+		t.Fatal("desactivar revoca el token entregado y el del conector reemplazado sin confirmar")
 	}
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", id), map[string]any{"version": 3}).
 		problema(t, 422, "token_entregado_vencido")

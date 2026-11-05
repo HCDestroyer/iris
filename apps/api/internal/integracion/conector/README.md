@@ -9,7 +9,10 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
 
 - **Enlace de conexión en los dos sentidos** (`conexion.go`) bajo `/api/v1/integraciones/<sistema>/`:
   `conectar` (enlace del otro sistema: Iris canjea en `Sistema.RutaCanje` con el cuerpo de Horus §1.4,
-  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`; el `iris_pat_` lo emite
+  `{ codigo, sistema, base_url, token, webhook: { url, secreto } }`, más `contrato` y, con
+  `Sistema.ExigirReceptor` (Argos, contrato 0.6.2), `receptor_argos: true`; con `ExigirReceptor`, un
+  canje cuya respuesta no trae `webhook` es 422 `webhook_invalido` (Horus no entrega receptor y sigue
+  igual); el `iris_pat_` lo emite
   `Tokens` (identidad, fijado con `Nucleo.FijarTokens`; sin él, 422 `emisor_token_no_configurado`)),
   `conexion/previsualizar` (origen del enlace y si está permitido, sin llamar afuera), `conexion/enlaces`
   (enlace de Iris, 15 min, un solo uso) y `conexion/canjear` (lo llama el otro sistema; 401
@@ -46,11 +49,39 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   (solo los de conectores no activos), al activar otro del mismo sistema (el activo y los intentos
   sobrantes) y al desactivar. Si la revocación falla, el job `integracion.revocar_token_entregado`
   (único por token) la reintenta. `conector_id` de la respuesta: entero positivo o `[A-Za-z0-9_-]{1,64}`.
+- **Token del otro sistema en un canje no completado** (`revocar_canje.go`, contrato Iris ↔ ArgosISP
+  0.6.3 §1.3; solo sistemas con `Sistema.RutaRevocarCanje`, hoy Argos): si el otro sistema respondió 200
+  al canje (Iris tiene su `atk_`) pero Iris no lo completa (422 `webhook_invalido`, `conector_id`
+  inválido, error al guardar, pánico), el mismo `defer` que revoca el `iris_pat_` encola
+  `integracion.revocar_canje_remoto` en una transacción propia (la del canje se deshizo). El job lleva
+  sistema, id de conector reservado, base del canje y el token **cifrado** con la clave de los conectores,
+  atado al conector y a la base (`DatosTokenCanje`): nunca en claro en `river.river_job` ni en el log, y
+  si alguien cambia `base_url` en el job, no descifra y el job se cancela sin llamar a nadie. Único
+  por sistema y conector. Llama a `POST <base>/api/v1<RutaRevocarCanje>` con el token como Bearer y sin
+  cuerpo, por el cliente con protección contra SSRF: 204 o 401 terminan; 403 u otro 4xx (también
+  destino bloqueado o token ilegible) quedan cancelados en el log sin reintento; 5xx, 429 y sin respuesta
+  se reintentan, máximo `IntentosRevocarCanje` (10): el 429 espera su `Retry-After` si viene (hasta 6 h,
+  `NextRetry` del worker) y si no, como los demás, la espera de River. Un canje que no respondió 200 no
+  tiene token y no encola nada; Iris no repite un canje perdido por timeout (el `atk_` sin uso vence solo
+  a las 24 h). Lo registra `Nucleo.RegistrarRevocarCanje` (desde `argos.RegistrarWorkers`).
 - **Rutas comunes por id** (`rutas.go`, las publica `argos.Registrar`): `GET /integraciones/conectores`,
   `POST /integraciones/conectores/{id}/activar|desactivar` (uno activo por sistema: activar uno
   reemplaza al activo, que queda apagado con `conector.desactivado` motivo «reemplazado…» y su token
   revocado, en la misma transacción; así reconectar no corta la integración; `Sistema.AlActivar` corre
-  en la misma transacción),
+  en la misma transacción). Con `Sistema.ConfirmarReconexion` (Argos 0.6.3, `reconexion.go`) el token
+  del activo reemplazado **no** se revoca al activar: el conector nuevo guarda `reemplaza_conector_id` y
+  `reemplaza_token_id`, y los webhooks firmados con el secreto del anterior (misma base) se aceptan y se
+  guardan en el nuevo (si ese `X-Webhook-Id` ya está en el viejo o en el nuevo, es un duplicado). Con
+  `revocarAnterior: true` en `activar` (ante una filtración) el token del reemplazado se revoca en el
+  acto y no queda nada diferido. La primera respuesta 2xx de una llamada con el token nuevo (cualquiera del
+  conector activo; el cliente avisa una vez) lo confirma: `integraciones.confirmar_reconexion` revoca
+  ese token y limpia las columnas. Si nunca llega, el job `integracion.vencer_reemplazo_conector`
+  (programado a 24 h, único por conector reemplazado y nuevo) lo revoca (`integraciones.vencer_reconexion`;
+  no si el anterior volvió a activarse). Desactivar el nuevo antes de confirmar revoca también el del
+  anterior. Horus sigue revocando al activar. Ni el canje ni la activación llaman al otro sistema con el token nuevo:
+  todas las llamadas salen del conector **activo** (`Activo`, `PorID` exige `activo`), así que el
+  token nuevo se usa por primera vez cuando el conector nuevo ya es el activo (con Argos 0.6.3, eso
+  confirma la reconexión allá),
   `POST /integraciones/conectores/{id}/url-publica` (`integraciones.conectar`) y
   `GET /integraciones/enlaces` (`clientes.ver`, sin empresa activa: URL pública de cada sistema activo, para
   «Ver en Argos/Horus»).

@@ -21,6 +21,8 @@ type horusFalso struct {
 	canjes     []map[string]any
 	tokenMalo  bool
 	sinPermiso bool
+	// idMalo: el canje responde 200 con un hf_pat_ válido y un conexionId que Iris rechaza.
+	idMalo bool
 }
 
 const tokenHorus = "hf_pat_prueba_0123456789abcdef"
@@ -81,7 +83,11 @@ func (h *horusFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	if h.tokenMalo {
 		token = "atk_no_es_de_horus_0123456789"
 	}
-	escribir(w, map[string]any{"data": map[string]any{"token": token, "conexionId": "hf-77"}})
+	id := "hf-77"
+	if h.idMalo {
+		id = "id con espacios y <html>"
+	}
+	escribir(w, map[string]any{"data": map[string]any{"token": token, "conexionId": id}})
 }
 
 func (h *horusFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -67,6 +68,34 @@ type argosFalso struct {
 	contratos int // PUT /integraciones/iris/contrato recibidos
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
+	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
+	sinWebhook bool
+	// receptores: receptor_argos de cada PUT …/contrato (0.6.2; nil = no vino).
+	receptores []any
+	// Contrato 0.6.3 §1.3. tokenCanje: el atk_ que entrega el próximo canje (vacío = token). Con un
+	// token en uso, el canje nuevo queda pendiente hasta la primera llamada autenticada con su atk_:
+	// entonces reemplaza a token (y el anterior deja de autenticar).
+	tokenCanje string
+	pendiente  string
+	// usos: cada llamada autenticada, en orden («METODO /ruta» y el token con que llegó).
+	usos []usoToken
+	// revocaciones: cada POST …/conexion/revocar recibido. respuestasRevocar: status que responde,
+	// por token y en orden (204, 401, 403, 503…); sin respuesta configurada, como Argos: 204 si el
+	// token autentica (y lo revoca) y 401 si no.
+	revocaciones      []revocacion
+	respuestasRevocar map[string][]int
+	// retryAfter: Retry-After que acompaña a un 429 de revocar, por token (vacío = sin cabecera).
+	retryAfter map[string]string
+}
+
+type usoToken struct {
+	ruta, token string
+}
+
+type revocacion struct {
+	token  string
+	cuerpo int
+	status int
 }
 
 const tokenArgos = "atk_prueba_0123456789abcdef"
@@ -77,9 +106,11 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		clientes: map[int64]map[string]any{}, servicios: map[int64][]map[string]any{},
 		estados: map[int64]map[string]any{}, ips: map[string]map[string]any{}, llamadas: map[string]int{},
 		proxy404: map[string]bool{}, fueraDeAlcance: map[string]bool{}, sinGet: map[int64]bool{},
+		respuestasRevocar: map[string][]int{}, retryAfter: map[string]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", a.canjear)
+	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/revocar", a.revocar)
 	mux.HandleFunc("GET /api/v1/clientes", a.conToken(a.buscar))
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
@@ -110,8 +141,16 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/integraciones/iris/contrato", solo16(func(w http.ResponseWriter, r *http.Request) {
 		var p map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&p)
+		// 0.6.2: receptor_argos?: boolean; otro tipo es 400 como en Argos.
+		if v, ok := p["receptor_argos"]; ok {
+			if _, esBool := v.(bool); !esBool {
+				problema(w, 400, "urn:argosisp:problema:validacion", "receptor_argos debe ser boolean")
+				return
+			}
+		}
 		a.contrato, _ = p["contrato"].(string)
 		a.contratos++
+		a.receptores = append(a.receptores, p["receptor_argos"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
 	}))
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {
@@ -197,6 +236,16 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.codigo = "usado-" + a.codigo
+	token := a.token
+	if a.tokenCanje != "" {
+		// 0.6.3: sobre un conector en uso, el canje queda pendiente; si no, lo reemplaza al momento.
+		token, a.tokenCanje = a.tokenCanje, ""
+		if a.token != "" {
+			a.pendiente = token
+		} else {
+			a.token = token
+		}
+	}
 	// Como Argos 1.3.0: su token, su receptor (reservado) y el id del conector allá. Las empresas no
 	// las manda Argos; el falso las agrega para registrar la empresa 1 (campo opcional).
 	// El receptor en el mismo host que la API de Argos (contrato 0.6.0 §6.6); webhookURL lo cambia.
@@ -204,8 +253,11 @@ func (a *argosFalso) canjear(w http.ResponseWriter, r *http.Request) {
 	if a.webhookURL != "" {
 		receptor = a.webhookURL
 	}
-	resp := map[string]any{"token": a.token, "webhook": map[string]any{"url": receptor, "secreto": "secreto-de-argos-para-iris"},
+	resp := map[string]any{"token": token, "webhook": map[string]any{"url": receptor, "secreto": "secreto-de-argos-para-iris"},
 		"conector_id": a.idDelCanje(), "empresas": []any{map[string]any{"id": 1}}}
+	if a.sinWebhook {
+		delete(resp, "webhook")
+	}
 	if a.empresasCanje != nil {
 		resp["empresas"] = a.empresasCanje
 	}
@@ -252,7 +304,7 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 			_, _ = w.Write([]byte("<html><body>404 Not Found</body></html>"))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+a.token {
+		if !a.autenticar(r) {
 			problema(w, 401, "urn:argos:no_autenticado", "Token inválido")
 			return
 		}
@@ -268,6 +320,74 @@ func (a *argosFalso) conToken(fn http.HandlerFunc) http.HandlerFunc {
 		defer a.mu.Unlock()
 		fn(w, r)
 	}
+}
+
+// autenticar acepta el token en uso o el pendiente de una reconexión (0.6.3): la primera llamada
+// con el pendiente lo aplica y el anterior deja de autenticar. Registra el uso.
+func (a *argosFalso) autenticar(r *http.Request) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	switch {
+	case token != "" && token == a.token:
+	case token != "" && token == a.pendiente:
+		a.token, a.pendiente = a.pendiente, ""
+	default:
+		return false
+	}
+	a.usos = append(a.usos, usoToken{ruta: r.Method + " " + r.URL.Path, token: token})
+	return true
+}
+
+// revocar: POST /integraciones/iris/conexion/revocar (0.6.3 §1.3), con el atk_ como Bearer y sin
+// cuerpo.
+func (a *argosFalso) revocar(w http.ResponseWriter, r *http.Request) {
+	cuerpo, _ := io.ReadAll(r.Body)
+	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	status := http.StatusUnauthorized
+	if cola := a.respuestasRevocar[token]; len(cola) > 0 {
+		status, a.respuestasRevocar[token] = cola[0], cola[1:]
+	} else if token != "" && (token == a.token || token == a.pendiente) {
+		status = http.StatusNoContent
+	}
+	a.revocaciones = append(a.revocaciones, revocacion{token: token, cuerpo: len(cuerpo), status: status})
+	switch status {
+	case http.StatusNoContent:
+		// Pendiente: se descarta y el conector sigue igual. En uso: queda desconectado.
+		switch token {
+		case a.pendiente:
+			a.pendiente = ""
+		case a.token:
+			a.token = ""
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.StatusUnauthorized:
+		problema(w, status, "urn:argosisp:problema:no_autenticado", "Token inválido")
+	case http.StatusForbidden:
+		problema(w, status, "urn:argosisp:problema:prohibido", "Otra credencial")
+	case http.StatusTooManyRequests:
+		if v := a.retryAfter[token]; v != "" {
+			w.Header().Set("Retry-After", v)
+		}
+		problema(w, status, "urn:argosisp:problema:demasiadas_peticiones", "Demasiadas peticiones")
+	default:
+		problema(w, status, "urn:argosisp:problema:no_disponible", "Mantenimiento")
+	}
+}
+
+// revocacionesDe devuelve las revocaciones recibidas con ese token.
+func (a *argosFalso) revocacionesDe(token string) []revocacion {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var r []revocacion
+	for _, x := range a.revocaciones {
+		if x.token == token {
+			r = append(r, x)
+		}
+	}
+	return r
 }
 
 func (a *argosFalso) buscar(w http.ResponseWriter, r *http.Request) {
@@ -437,5 +557,11 @@ func canjeCanonico(p map[string]any) bool {
 	wh, _ := p["webhook"].(map[string]any)
 	url, _ := wh["url"].(string)
 	secreto, _ := wh["secreto"].(string)
+	// 0.6.2: receptor_argos?: boolean (si viene, debe ser boolean).
+	if v, ok := p["receptor_argos"]; ok {
+		if _, esBool := v.(bool); !esBool {
+			return false
+		}
+	}
 	return p["sistema"] == "iris" && base != "" && strings.HasPrefix(token, "iris_pat_") && url != "" && len(secreto) >= 16
 }

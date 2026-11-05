@@ -353,6 +353,14 @@ func TestConectarHorusConEnlace(t *testing.T) {
 		t.Fatalf("canje en Horus: %v", canje)
 	}
 	e.sinSecretos(tokenHorus, secretoCanje, tokenIris)
+	// Contrato Iris ↔ ArgosISP 0.6.2 es solo de Argos: el canje de Horus no lleva receptor_argos y,
+	// sin receptor en la respuesta, el conector se guarda igual (sin webhook de salida).
+	if _, ok := canje["receptor_argos"]; ok {
+		t.Fatalf("el canje de Horus no lleva receptor_argos: %v", canje)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND webhook_salida_url IS NULL`, id) != 1 {
+		t.Fatal("el conector Horus sin receptor debía guardarse")
+	}
 	if e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conector.creado' AND payload->>'sistema' = 'horus' AND (payload->>'conector_id')::bigint = $1`, id) != 1 {
 		t.Fatal("falta conector.creado")
 	}
@@ -366,6 +374,15 @@ func TestConectarHorusConEnlace(t *testing.T) {
 	e.horus.con(func() { e.horus.codigo, e.horus.tokenMalo = "codigo-de-horus-otra-vez-0123456789", true })
 	admin.pedir(http.MethodPost, "/api/v1/integraciones/horus/conectar", map[string]any{"enlace": e.horus.enlace()}).problema(t, 502, "horus_rechazo")
 	e.horus.con(func() { e.horus.tokenMalo = false })
+	// Contrato Iris ↔ ArgosISP 0.6.3 (revocar el token de un canje no completado) es solo de Argos:
+	// un canje de Horus que respondió 200 con un hf_pat_ válido y que Iris rechaza no encola
+	// revocación allá.
+	e.horus.con(func() { e.horus.codigo, e.horus.idMalo = "codigo-de-horus-id-malo-0123456789", true })
+	admin.pedir(http.MethodPost, "/api/v1/integraciones/horus/conectar", map[string]any{"enlace": e.horus.enlace()}).problema(t, 502, "horus_rechazo")
+	e.horus.con(func() { e.horus.codigo, e.horus.idMalo = "codigo-de-horus-otra-vez-mas-0123456789", false })
+	if n := e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.revocar_canje_remoto' AND args->>'sistema' = 'horus'`); n != 0 {
+		t.Fatalf("Horus no revoca canjes: %d jobs", n)
+	}
 
 	// Apagado hasta activar; uno activo por sistema (activar otro reemplaza al activo); Argos y
 	// Horus activos a la vez.

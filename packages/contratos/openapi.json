@@ -3487,6 +3487,29 @@
         ],
         "type": "object"
       },
+      "EntradaActivarConector": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "revocarAnterior": {
+            "description": "Al reemplazar el conector activo, revoca ya el token que Iris le entregó (si crees que se filtró). Por defecto false: con Argos, ese token sigue valiendo hasta que Argos use el token nuevo, o 24 h, para no cortar la integración",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Versión que leíste (409 si cambió)",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaActivarMFA": {
         "additionalProperties": false,
         "properties": {
@@ -23660,7 +23683,7 @@
     },
     "/api/v1/integraciones/conectores/{id}/activar": {
       "post": {
-        "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema (queda apagado y su token se revoca en la misma transacción, así la integración no se corta al reconectar). Con Argos, encola la primera carga de zonas y routers.",
+        "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema, que queda apagado en la misma transacción (la integración no se corta al reconectar). Su token entregado se revoca en ese paso; con Argos (contrato 0.6.3) se revoca cuando Argos usa el token nuevo, o a las 24 h, salvo con revocarAnterior: true. Con Argos, encola la primera carga de zonas y routers.",
         "operationId": "activarConector",
         "parameters": [
           {
@@ -23688,7 +23711,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EntradaCambioConector"
+                "$ref": "#/components/schemas/EntradaActivarConector"
               }
             }
           },

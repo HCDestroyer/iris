@@ -95,7 +95,7 @@ type Modulo struct {
 	// «Conectar con un botón» (contrato 0.4.0 §1.4).
 	Autorizar             *auditoria.Caso[conector.EntradaAutorizar, conector.AutorizacionIniciada]
 	CompletarAutorizacion *conector.CompletarAutorizacion
-	ActivarConector       *auditoria.Caso[EntradaCambioConector, Conector]
+	ActivarConector       *auditoria.Caso[EntradaActivarConector, Conector]
 	DesactivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
 	ListarConectores      *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	RecibirWebhook        *auditoria.Caso[EntradaWebhook, WebhookRecibido]
@@ -112,15 +112,16 @@ type Modulo struct {
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
 type (
-	Conector              = conector.Conector
-	EnlaceGenerado        = conector.EnlaceGenerado
-	EntradaConectar       = conector.EntradaConectar
-	EntradaCanjear        = conector.EntradaCanjear
-	ConexionCanjeada      = conector.ConexionCanjeada
-	EntradaCambioConector = conector.EntradaCambioConector
-	EntradaWebhook        = conector.EntradaWebhook
-	WebhookRecibido       = conector.WebhookRecibido
-	CuerpoWebhook         = conector.CuerpoWebhook
+	Conector               = conector.Conector
+	EnlaceGenerado         = conector.EnlaceGenerado
+	EntradaConectar        = conector.EntradaConectar
+	EntradaCanjear         = conector.EntradaCanjear
+	ConexionCanjeada       = conector.ConexionCanjeada
+	EntradaCambioConector  = conector.EntradaCambioConector
+	EntradaActivarConector = conector.EntradaActivarConector
+	EntradaWebhook         = conector.EntradaWebhook
+	WebhookRecibido        = conector.WebhookRecibido
+	CuerpoWebhook          = conector.CuerpoWebhook
 )
 
 // Nuevo arma el módulo: crea el núcleo de conectores y le agrega Argos.
@@ -151,7 +152,13 @@ func Nuevo(cfg Config) *Modulo {
 			return m.encolarInformarContrato(ctx, tx, conectorID)
 		},
 		Contrato: ContratoIris, Capacidades: capacidades,
-		TrabajoEntrante: func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
+		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
+		ExigirReceptor: true,
+		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
+		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
+		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
+		ConfirmarReconexion: true,
+		TrabajoEntrante:     func(id int64) river.JobArgs { return ArgsProcesarEntrante{EntranteID: id} },
 	})
 	m.Conectar = m.conexion.Conectar
 	m.Previsualizar = m.conexion.Previsualizar

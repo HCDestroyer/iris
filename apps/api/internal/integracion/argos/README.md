@@ -12,9 +12,14 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Enlace de conexión (§1.3), en los dos sentidos.** `POST /integraciones/argosisp/conectar
   { enlace }` canjea un enlace de Argos (Iris llama a `POST /api/v1/integraciones/iris/conexion/canjear`
   de Argos con el cuerpo de Horus §1.4: `{ codigo, sistema: "iris", base_url, token, webhook: { url,
-  secreto } }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
+  secreto }, contrato, receptor_argos: true }`, donde `token` es un `iris_pat_` nuevo del usuario de integración de Argos (§1.2,
   `identidad.EmitirTokenCanje`, 15 min hasta activar, solo a orígenes de `IRIS_ARGOS_ORIGENES`; ver `conector/README.md`); Argos responde `{ token: "atk_…",
-  webhook, conector_id }`). `POST
+  webhook, conector_id }`). El receptor `webhook: { url, secreto }` de Argos es obligatorio desde
+  el contrato 0.6.2: se guarda (`webhook_salida_url` y el secreto cifrado) para los webhooks de la
+  mensajería (§6.6); si falta, su host no es el de la base del canje (el `<base>` del enlace o
+  `api=` del botón, nunca el panel) o es inválido, el canje es `422 webhook_invalido` y el conector
+  no se guarda. `receptor_argos` va siempre `true` en el canje: la petición sale antes de conocer
+  el receptor (llega en la respuesta), pero esta versión de Iris lo exige. `POST
   /integraciones/argosisp/conexion/enlaces` genera un enlace de Iris (15 min, un solo uso) que Argos
   canjea en `POST /integraciones/argosisp/conexion/canjear` (sin credenciales, autoriza el código).
   El token `atk_…` y el secreto del webhook se guardan cifrados (AES-256-GCM con
@@ -253,6 +258,25 @@ partes (ficha, ticket, orden, comercial y app de campo).
   activo: es el job «de una vez» de los conectores ya activos y detecta una actualización o una
   vuelta atrás de Argos. `Conector.capacidades` trae
   `inventario_por_tecnico` con Argos ≥ 1.6.0; `InventarioPorTecnico` lo consulta la cola.
+- **Contrato 0.6.2.** `ContratoIris = "0.6.2"`. El PUT manda `{ contrato, receptor_argos }`, con
+  `receptor_argos: true` si el conector tiene guardados la URL y el secreto del receptor de Argos y
+  `false` si no (conectores canjeados antes de B1: Argos marca `requiere_reconectar` y la mensajería
+  deja sus webhooks `omitido`).
+- **Contrato 0.6.3.** `ContratoIris = "0.6.3"`.
+  - **Canje no completado:** si Argos respondió 200 al canje y Iris no lo completa, el job
+    `integracion.revocar_canje_remoto` llama a `POST /integraciones/iris/conexion/revocar` con ese
+    `atk_` (detalle en `conector/README.md`; Horus no tiene esa ruta y sigue igual).
+  - **Reconexión sin corte:** Argos deja vivo el `atk_` anterior hasta la primera llamada autenticada
+    con el nuevo. En Iris el canje nuevo crea otro conector apagado y el anterior sigue activo con su
+    `atk_`. La activación los cambia en una sola transacción y encola el PUT del contrato, sin llamar a
+    Argos. Toda llamada sale del conector activo, así que la primera con el `atk_` nuevo ocurre con el
+    conector nuevo ya activo (`TestReconexionSinCorte`). Esa primera llamada es el PUT del contrato o la
+    carga de catálogos, porque la activación encola los dos, o una llamada que ya estaba en curso
+    (pendientes, panel). El contrato acepta cualquiera.
+  - **El `iris_pat_` anterior no se corta:** al activar no se revoca. Argos sigue leyendo de Iris con
+    él y sus webhooks firmados con el secreto anterior se aceptan (se guardan en el conector nuevo).
+    Se revoca con la primera respuesta 2xx de una llamada con el `atk_` nuevo, o a las 24 h (job), o
+    al desactivar el nuevo (`conector/README.md`, `reconexion.go`).
 - **Técnicos de Argos** (`tecnicos.go`). `GET /api/v1/integraciones/argosisp/tecnicos`
   (`agenda.vincular_argos`) es el proxy paginado de `GET /inventario/tecnicos` para el selector
   del vínculo; marca `enEmpresa` y `vinculadoA`. `BuscarTecnico` (lo usa agenda al vincular)

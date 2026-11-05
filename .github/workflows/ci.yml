@@ -110,7 +110,9 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.web == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # La suite de Playwright (4 proyectos, más de 1150 pruebas) ya tarda de 26 a 40 min: con 40 el
+    # job se cortaba por tiempo con todas las pruebas en verde. 60 deja margen mientras no se reparte.
+    timeout-minutes: 60
     env:
       TZ: UTC
       NEXT_TELEMETRY_DISABLED: '1'
