@@ -1,11 +1,13 @@
 // Reporte del PM sobre la app «combinada» (0.12.0), en claro y oscuro: el encabezado sólido (la
 // franja bajo la barra de estado y la barra compacta, que se va deslizándose sin transparentarse),
-// la orden en pausa de solo lectura con «Reanudar», un solo «Guardar» en la isla de los pasos (sin
-// botón por campo), los avisos con el `Toast` de HeroUI Native, las hojas con «X» y «Atrás» de
+// la orden en pausa de solo lectura con «Reanudar», la isla de los pasos (sin «Guardar» si no hay
+// cambios; «Guardar y seguir» con el contador si los hay, y «Guardado» al guardar), los avisos con el
+// `Toast` de HeroUI Native bajo el margen seguro, las hojas con «X» y «Atrás» de
 // Android (y la pregunta si hay cambios) y la búsqueda en vivo sobre el teclado.
 import { itemDePrueba, montar } from "@iris/sync/pruebas";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 import { Keyboard, StyleSheet } from "react-native";
+import { AIRE_AVISO, insetsAvisos } from "../src/tema/tema";
 import { crearTema } from "../src/tema/tokens";
 import { abrirCampo, avisoArriba, paqueteCon, sesion, tipos } from "./arnes";
 
@@ -13,6 +15,17 @@ jest.mock("expo-camera", () => ({ CameraView: () => null, useCameraPermissions: 
 
 const estilo = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style) as Record<string, unknown>;
 const HEX = /^#[0-9a-f]{6}$/i;
+
+/** El `paddingTop` del contenedor con que HeroUI Native separa el `Toast` del borde de arriba. */
+function arribaDelAviso(aviso: ReturnType<typeof screen.getByTestId>): number | undefined {
+    for (let n = aviso.parent; n; n = n.parent) {
+        const top = (StyleSheet.flatten(n.props.style) as Record<string, unknown> | undefined)?.paddingTop;
+        if (typeof top === "number") {
+            return top;
+        }
+    }
+    return undefined;
+}
 
 /** OT-000001 en sitio con un sí/no y un número (Potencia, dBm). */
 async function enSitio(extra: Parameters<typeof paqueteCon>[0] = {}) {
@@ -70,7 +83,12 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         expect(aviso).toHaveTextContent(/no se registra trabajo/);
         expect(screen.getByRole("radio", { name: "Sí" })).toBeDisabled();
         expect(screen.getByLabelText("Potencia")).toHaveProp("editable", false);
-        expect(screen.getByTestId("guardar-paso")).toBeDisabled();
+        // Solo lectura: la isla no ofrece guardar nada; «Siguiente» solo navega (no guarda).
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        await fireEvent.press(screen.getByRole("button", { name: "Siguiente: materiales y equipos" }));
+        expect(await screen.findByText("Paso 3 de 5", { exact: false })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        expect(tipos(m)).toEqual(["orden.pausar"]);
         // Ni el motor lo deja (y la API tampoco: 422 `orden_pausada`).
         await expect(m.motor.registrar("checklist.marcar", 1, { itemId: 1, valor: true })).rejects.toMatchObject({ codigo: "orden_pausada" });
         // Fotos: se ven, no se agregan.
@@ -95,47 +113,79 @@ describe.each(["light", "dark"] as const)("reporte del PM (%s)", (esquema) => {
         expect(aviso).toHaveTextContent(/pídeselo a despacho/);
     });
 
-    it("pasos: un solo «Guardar» en la isla (como la del menú), sin botón por campo; guarda al salir del campo y avisa", async () => {
+    it("pasos: sin cambios no hay «Guardar» y el primario avanza; con cambios, «Guardar y seguir» con el contador; al guardar, «Guardado»", async () => {
         const m = await enSitio();
         await abrirCampo(m, { esquema, enLinea: () => false, vista: { tipo: "orden", id: 1, paso: "checklist" } });
         expect(await screen.findByText("Paso 2 de 5", { exact: false })).toBeTruthy();
         // La isla de pasos: misma píldora que la de menú (sólida, redonda, con borde).
         expect(estilo("barra-pasos")).toMatchObject({ backgroundColor: campo.isla, borderRadius: 999, borderWidth: 1 });
         expect(screen.queryByTestId("navegacion-inferior")).toBeNull();
-        expect(screen.getAllByRole("button", { name: /^Guardar/ })).toHaveLength(1);
-        expect(screen.queryByRole("button", { name: "Guardar Potencia" })).toBeNull();
+        // Sin cambios: ningún «Guardar» (ni en la isla ni por campo); el primario es «Siguiente».
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
         expect(screen.getByRole("button", { name: "Anterior" })).toBeTruthy();
-        expect(screen.getByRole("button", { name: "Siguiente: materiales y equipos" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Siguiente: materiales y equipos" })).toHaveTextContent("Siguiente");
 
-        // Lo que no valida queda escrito y «Guardar» dice qué campo falló.
+        // Lo que no valida: «Guardar y seguir» con el contador se queda en el paso y dice qué campo falló.
         await fireEvent.changeText(screen.getByLabelText("Potencia"), "abc");
-        expect(screen.getByRole("button", { name: "Guardar (1 sin guardar)" })).toBeTruthy();
-        await fireEvent.press(screen.getByTestId("guardar-paso"));
+        const guardarYSeguir = () => screen.getByRole("button", { name: "Guardar y seguir (1 sin guardar)" });
+        expect(guardarYSeguir()).toHaveTextContent("Guardar y seguir · 1");
+        expect(screen.queryByRole("button", { name: /^Siguiente/ })).toBeNull();
+        await fireEvent.press(guardarYSeguir());
         await waitFor(() => expect(avisoArriba()).toHaveTextContent(/No se guardó «Potencia»/));
-        expect(tipos(m)).toEqual([]);
-        // Pasar de paso con un error: se queda (y lo dijo).
-        await fireEvent.press(screen.getByRole("button", { name: "Siguiente: materiales y equipos" }));
         expect(screen.getByText("Paso 2 de 5", { exact: false })).toBeTruthy();
+        expect(tipos(m)).toEqual([]);
+        expect(guardarYSeguir()).toBeTruthy();
+        await fireEvent.press(within(avisoArriba()).getByRole("button", { name: "Cerrar aviso" }));
+        await waitFor(() => expect(screen.queryAllByTestId("notificacion")).toHaveLength(0));
 
+        // Válido: guarda, avanza y confirma «Guardado» en la isla (sin aviso que tape nada).
         await fireEvent.changeText(screen.getByLabelText("Potencia"), "-19.5");
-        await fireEvent.press(screen.getByTestId("guardar-paso"));
+        await fireEvent.press(guardarYSeguir());
         await waitFor(() => expect(tipos(m)).toEqual(["checklist.marcar"]));
         expect(m.motor.obtenerEstado().cola.at(-1)).toMatchObject({ datos: { itemId: 2, valor: -19.5 } });
-        await waitFor(() => expect(avisoArriba()).toHaveTextContent("Cambio guardado en el teléfono. Se enviarán al volver la señal."));
-        expect(screen.getByRole("button", { name: "Guardar" })).toBeTruthy();
-        // Sin nada escrito, «Guardar» dice que todo está guardado y cuánto falta por enviar.
-        await fireEvent.press(screen.getByTestId("guardar-paso"));
-        await waitFor(() => expect(avisoArriba()).toHaveTextContent(/Todo está guardado en el teléfono · 1 por enviar/));
+        expect(await screen.findByText("Paso 3 de 5", { exact: false })).toBeTruthy();
+        const guardado = screen.getByTestId("guardado-paso");
+        expect(guardado).toHaveTextContent("Guardado");
+        expect(guardado).toHaveProp("accessibilityLabel", "Guardado: 1 cambio en el teléfono. Se enviarán al volver la señal.");
+        expect(screen.queryAllByTestId("notificacion")).toHaveLength(0);
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        expect(screen.getByRole("button", { name: "Siguiente: fotos" })).toBeTruthy();
+        // Es breve: se va solo.
+        await waitFor(() => expect(screen.queryByTestId("guardado-paso")).toBeNull(), { timeout: 3000 });
 
-        // Al salir del campo también se guarda solo (sin tocar nada más).
+        // De vuelta, sin cambios: «Anterior» no guarda nada.
+        await fireEvent.press(screen.getByRole("button", { name: "Anterior" }));
+        expect(await screen.findByText("Paso 2 de 5", { exact: false })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        // Al salir del campo también se guarda solo, y «Guardar y seguir» vuelve a ser «Siguiente».
         await fireEvent.changeText(screen.getByLabelText("Potencia"), "-20");
+        expect(guardarYSeguir()).toBeTruthy();
         await fireEvent(screen.getByLabelText("Potencia"), "endEditing");
         await waitFor(() => expect(tipos(m)).toEqual(["checklist.marcar", "checklist.marcar"]));
-        // Un sí/no entra al tocarlo.
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
+        // Un sí/no entra al tocarlo (no deja nada por guardar).
         await fireEvent.press(screen.getByRole("radio", { name: "Sí" }));
         await waitFor(() => expect(tipos(m)).toHaveLength(3));
+        expect(screen.queryByRole("button", { name: /Guardar/ })).toBeNull();
         await fireEvent.press(screen.getByRole("button", { name: "Siguiente: materiales y equipos" }));
         expect(await screen.findByText("Paso 3 de 5", { exact: false })).toBeTruthy();
+        // Antes de la firma, el primario dice «Ir a firma».
+        await fireEvent.press(screen.getByRole("button", { name: "Siguiente: fotos" }));
+        expect(await screen.findByText("Paso 4 de 5", { exact: false })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Ir a firma y cierre" })).toHaveTextContent("Ir a firma");
+    });
+
+    it("avisos: el `Toast` de HeroUI Native queda bajo el margen seguro (la barra de estado y la franja sólida)", async () => {
+        const m = await enSitio();
+        await abrirCampo(m, { esquema, enLinea: () => false, vista: { tipo: "orden", id: 1, paso: "checklist" }, margen: { top: 48, bottom: 24, left: 0, right: 0 } });
+        // La franja sólida mide lo mismo que el margen de arriba…
+        expect(estilo("franja-superior")).toMatchObject({ height: 48 });
+        await fireEvent.press(await screen.findByRole("radio", { name: "Sí" }));
+        await waitFor(() => expect(avisoArriba()).toHaveTextContent(/«Señal verificada» guardado/));
+        // …y el aviso empieza debajo: margen de arriba + aire (antes, `top: 8` a secas, bajo la hora).
+        expect(arribaDelAviso(avisoArriba())).toBe(48 + AIRE_AVISO.arriba);
+        expect(insetsAvisos({ top: 48, left: 0, right: 0 })).toEqual({ top: 56, left: 14, right: 14 });
+        expect(insetsAvisos({ top: 0, left: 0, right: 0 }).top).toBe(AIRE_AVISO.arriba);
     });
 
     it("avisos: el `Toast` de HeroUI Native entra desde arriba con «Cerrar aviso» y el nuevo reemplaza al anterior", async () => {

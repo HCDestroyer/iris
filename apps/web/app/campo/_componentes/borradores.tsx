@@ -1,12 +1,12 @@
 "use client";
 
-import { avisoGuardado, RegistroBorradores, totalPorEnviar, type Borrador } from "@iris/sync/campo";
+import { avisoGuardado, MS_GUARDADO, RegistroBorradores, type Borrador } from "@iris/sync/campo";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useCampo } from "./contexto";
 
 /*
- * Un solo «Guardar» en los pasos de la orden (como la app nativa): los campos de texto, número y
- * medición registran su borrador aquí; el «Guardar» de la isla los guarda todos
+ * Los borradores de los pasos de la orden (como la app nativa): los campos de texto, número y
+ * medición registran su borrador aquí; «Guardar y seguir» de la isla los guarda todos
  * (`RegistroBorradores` de `@iris/sync/campo`) y cada uno también se guarda solo al salir del campo.
  */
 
@@ -39,7 +39,7 @@ export function useBorrador(clave: string, borrador: Borrador, pendiente: boolea
                     return actual.current.etiqueta;
                 },
                 pendiente: () => actual.current.pendiente(),
-                guardar: () => actual.current.guardar(),
+                guardar: (opciones) => actual.current.guardar(opciones),
             }),
         [registro, clave],
     );
@@ -55,32 +55,47 @@ export function useSinGuardar(): number {
 }
 
 /**
- * «Guardar» de la isla: guarda los borradores, avisa qué pasó (`avisoGuardado`) y, con señal, manda
- * lo pendiente ya. Al pasar de paso (`silencioso`) solo avisa si guardó algo o falló. Devuelve si no
- * hubo errores.
+ * Guardar los borradores del paso (lo hace «Guardar y seguir» y también «Anterior»): un error sale
+ * arriba con el campo (y devuelve `false`: el técnico se queda); lo guardado se confirma en la isla
+ * con «Guardado» por `MS_GUARDADO` (`guardado` lleva lo que oye el lector de pantalla) y, con señal,
+ * se manda ya. Sin borradores no hace nada y devuelve `true`.
  */
-export function useGuardarPaso(): { guardar: (opciones?: { silencioso?: boolean }) => Promise<boolean>; guardando: boolean } {
+export function useGuardarPaso(): { guardar: () => Promise<boolean>; guardando: boolean; guardado: string | null } {
     const registro = useRegistro();
     const { motor, notificar } = useCampo();
     const [guardando, setGuardando] = useState(false);
-    const guardar = useCallback(
-        async ({ silencioso = false }: { silencioso?: boolean } = {}) => {
-            setGuardando(true);
-            try {
-                const r = await registro.guardarTodo();
-                const enLinea = navigator.onLine;
-                if (!silencioso || r.guardados > 0 || r.errores.length > 0) {
-                    notificar(avisoGuardado(r, { porEnviar: totalPorEnviar(motor.obtenerEstado()), enLinea }));
-                }
-                if (r.errores.length === 0 && enLinea && (!silencioso || r.guardados > 0)) {
-                    motor.sincronizar().catch(() => undefined);
-                }
-                return r.errores.length === 0;
-            } finally {
-                setGuardando(false);
+    const [guardado, setGuardado] = useState<string | null>(null);
+    const reloj = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+        () => () => {
+            if (reloj.current) {
+                clearTimeout(reloj.current);
             }
         },
-        [registro, motor, notificar],
+        [],
     );
-    return { guardar, guardando };
+    const guardar = useCallback(async () => {
+        setGuardando(true);
+        try {
+            const r = await registro.guardarTodo();
+            const enLinea = navigator.onLine;
+            const aviso = avisoGuardado(r, { enLinea });
+            if (aviso?.en === "aviso") {
+                notificar({ tono: aviso.tono, texto: aviso.texto });
+            } else if (aviso?.en === "isla") {
+                setGuardado(aviso.detalle);
+                if (reloj.current) {
+                    clearTimeout(reloj.current);
+                }
+                reloj.current = setTimeout(() => setGuardado(null), MS_GUARDADO);
+            }
+            if (r.errores.length === 0 && r.guardados > 0 && enLinea) {
+                motor.sincronizar().catch(() => undefined);
+            }
+            return r.errores.length === 0;
+        } finally {
+            setGuardando(false);
+        }
+    }, [registro, motor, notificar]);
+    return { guardar, guardando, guardado };
 }

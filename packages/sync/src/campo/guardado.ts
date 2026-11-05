@@ -1,7 +1,11 @@
-// Un solo «Guardar» en los pasos de la orden (PWA y app nativa). Cada cambio del técnico sigue
-// entrando a la cola sin conexión al hacerlo (marcar, elegir, tomar una foto) o al salir del campo
-// (texto, número, medición). Lo que todavía se está escribiendo es un borrador: el «Guardar» de la
-// isla los guarda todos de una vez y dice qué pasó. Sin DOM ni React.
+// La isla de los pasos de la orden (PWA y app nativa). Cada cambio del técnico sigue entrando a la
+// cola sin conexión al hacerlo (marcar, elegir, tomar una foto) o al salir del campo (texto, número,
+// medición). Lo que todavía se está escribiendo es un borrador: sin borradores la isla no ofrece
+// «Guardar» (no hay nada que guardar) y su botón primario solo avanza; con borradores, el primario es
+// «Guardar y seguir» con el contador, que los guarda todos y avanza (si algo no valida, se queda y lo
+// dice). Al guardar, la isla confirma «Guardado» un momento. Sin DOM ni React.
+import { TITULOS_PASO, type PasoOrden } from "./pasos";
+import { vecinosPaso } from "./vista";
 
 /** Espera de la búsqueda en vivo: filtra al dejar de escribir este tiempo (ms). */
 export const ESPERA_BUSQUEDA_MS = 200;
@@ -14,8 +18,11 @@ export interface Borrador {
     etiqueta: string;
     /** ¿Hay algo escrito que todavía no está en la cola? */
     pendiente: () => boolean;
-    /** Lo valida y lo pone en la cola. */
-    guardar: () => Promise<ResultadoBorrador>;
+    /**
+     * Lo valida y lo pone en la cola. `silencioso`: sin el aviso de éxito del campo (lo guarda la
+     * isla, que confirma «Guardado»); los errores se dicen igual.
+     */
+    guardar: (opciones?: { silencioso?: boolean }) => Promise<ResultadoBorrador>;
 }
 
 export interface ResumenGuardado {
@@ -27,7 +34,7 @@ export interface ResumenGuardado {
 
 /**
  * Borradores del paso abierto. Cada campo se registra al montarse (y se quita al desmontarse);
- * `avisar` lo llama el campo cuando cambia si está pendiente, para el contador del «Guardar».
+ * `avisar` lo llama el campo cuando cambia si está pendiente, para el contador de «Guardar y seguir».
  */
 export class RegistroBorradores {
     private readonly borradores = new Map<string, Borrador>();
@@ -74,7 +81,7 @@ export class RegistroBorradores {
             }
             let r: ResultadoBorrador;
             try {
-                r = await b.guardar();
+                r = await b.guardar({ silencioso: true });
             } catch (e) {
                 r = e instanceof Error && e.message ? e.message : "No se pudo guardar en el teléfono.";
             }
@@ -89,24 +96,76 @@ export class RegistroBorradores {
     }
 }
 
+/** Lo que dura la confirmación «Guardado» en la isla (ms): breve, sin tapar nada. */
+export const MS_GUARDADO = 1500;
+
 /**
- * Aviso tras tocar «Guardar»: lo que se guardó ahora, lo que falló (el campo y su error) o, si no
- * había nada escrito, que todo ya estaba guardado y cuánto falta por enviar.
+ * Qué se dice tras guardar los borradores del paso: un error va arriba, como aviso emergente (el
+ * campo y su error, y el técnico se queda en el paso); lo guardado se confirma en la isla con
+ * «Guardado» (`detalle` es lo que oye el lector de pantalla: cuántos y cuándo se envían). Sin nada
+ * guardado ni errores no se dice nada.
  */
-export function avisoGuardado(r: ResumenGuardado, envio: { porEnviar: number; enLinea: boolean }): { tono: "success" | "error" | "info"; texto: string } {
+export type AvisoGuardado = { en: "aviso"; tono: "error"; texto: string } | { en: "isla"; tono: "success"; texto: "Guardado"; detalle: string } | null;
+
+export function avisoGuardado(r: ResumenGuardado, envio: { enLinea: boolean }): AvisoGuardado {
     const primero = r.errores[0];
     if (primero) {
         const otros = r.errores.length - 1;
-        return { tono: "error", texto: `No se guardó «${primero.etiqueta}»: ${primero.mensaje}${otros > 0 ? ` (y ${otros} más)` : ""}` };
+        return { en: "aviso", tono: "error", texto: `No se guardó «${primero.etiqueta}»: ${primero.mensaje}${otros > 0 ? ` (y ${otros} más)` : ""}` };
+    }
+    if (r.guardados === 0) {
+        return null;
     }
     const destino = envio.enLinea ? "Enviando…" : "Se enviarán al volver la señal.";
-    if (r.guardados > 0) {
-        return { tono: "success", texto: `${r.guardados === 1 ? "Cambio guardado" : `${r.guardados} cambios guardados`} en el teléfono. ${destino}` };
+    return { en: "isla", tono: "success", texto: "Guardado", detalle: `Guardado: ${r.guardados === 1 ? "1 cambio" : `${r.guardados} cambios`} en el teléfono. ${destino}` };
+}
+
+/** Botón primario de la isla de pasos. */
+export interface PrimarioIsla {
+    /** `navegar`: solo pasa de paso. `guardar_y_seguir`: guarda los borradores y, si validan, pasa. */
+    accion: "navegar" | "guardar_y_seguir";
+    /** Lo que se lee en el botón: «Siguiente», «Ir a firma», «Terminar» o «Guardar y seguir». */
+    texto: string;
+    /** Nombre accesible (empieza con el texto visible): «Siguiente: fotos», «Guardar y seguir (2 sin guardar)». */
+    etiqueta: string;
+    icono: "siguiente" | "firma" | "terminar" | "guardar";
+    /** Campos sin guardar (el contador del botón), solo con `guardar_y_seguir`. */
+    cuenta: number | null;
+    /** A qué paso lleva; `null`: al resumen de la orden. */
+    destino: PasoOrden | null;
+}
+
+export interface EstadoIslaPasos {
+    anterior: { texto: "Anterior" | "Resumen"; destino: PasoOrden | null };
+    primario: PrimarioIsla;
+    /** ¿Se ve la confirmación «Guardado»? (solo sin borradores nuevos). */
+    guardado: boolean;
+}
+
+/**
+ * Estado de la isla de los pasos: «Anterior» y un primario que avanza. Sin cambios por guardar, el
+ * primario es «Siguiente» (en el último paso antes de la firma, «Ir a firma»; si no hay más pasos,
+ * «Terminar», que vuelve al resumen) y no hay «Guardar». Con cambios, «Guardar y seguir» con el
+ * contador. Con la orden en pausa todo es de solo lectura: nunca guarda, solo navega.
+ */
+export function estadoIslaPasos(e: { paso: PasoOrden; pendientes: number; enPausa: boolean; recienGuardado: boolean }): EstadoIslaPasos {
+    const { anterior, siguiente } = vecinosPaso(e.paso);
+    const guardar = !e.enPausa && e.pendientes > 0;
+    let primario: PrimarioIsla;
+    if (guardar) {
+        primario = { accion: "guardar_y_seguir", texto: "Guardar y seguir", etiqueta: `Guardar y seguir (${e.pendientes} sin guardar)`, icono: "guardar", cuenta: e.pendientes, destino: siguiente };
+    } else if (siguiente === "cierre") {
+        primario = { accion: "navegar", texto: "Ir a firma", etiqueta: "Ir a firma y cierre", icono: "firma", cuenta: null, destino: siguiente };
+    } else if (siguiente) {
+        primario = { accion: "navegar", texto: "Siguiente", etiqueta: `Siguiente: ${TITULOS_PASO[siguiente].toLowerCase()}`, icono: "siguiente", cuenta: null, destino: siguiente };
+    } else {
+        primario = { accion: "navegar", texto: "Terminar", etiqueta: "Terminar: volver al resumen", icono: "terminar", cuenta: null, destino: null };
     }
-    if (envio.porEnviar > 0) {
-        return { tono: "info", texto: `Todo está guardado en el teléfono · ${envio.porEnviar} por enviar. ${destino}` };
-    }
-    return { tono: "success", texto: "Todo está guardado y enviado." };
+    return {
+        anterior: anterior ? { texto: "Anterior", destino: anterior } : { texto: "Resumen", destino: null },
+        primario,
+        guardado: e.recienGuardado && !guardar,
+    };
 }
 
 /** Texto del aviso de pausa en los pasos (los dos lados dicen lo mismo). */

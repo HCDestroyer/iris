@@ -48,7 +48,7 @@ export function Marco({ empresa, cambiarEmpresa, alSesionVencida }: { empresa: s
         },
         [url],
     );
-    // Los pasos de la orden llevan su propia isla («Anterior» · «Guardar» · «Siguiente»); la firma y
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma y
     // el cierre, su botón al pie.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
     const conIsla = paso === undefined;

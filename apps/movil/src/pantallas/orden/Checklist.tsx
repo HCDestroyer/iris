@@ -145,7 +145,8 @@ function Encabezado({ item, falta }: { item: ItemChecklist; falta?: string | und
 function ItemFila({ orden, item, editable, falta }: { orden: OrdenVista; item: ItemChecklist; editable: boolean; falta?: string | undefined }) {
     const { motor, ejecutar, estado } = useCampo();
     const v = valorDe(item);
-    const marcar = (valor: boolean | number | string) => ejecutar(() => motor.registrar("checklist.marcar", orden.id, { itemId: item.itemId, valor }), `«${item.etiqueta}» guardado`);
+    const marcar = (valor: boolean | number | string, silencioso = false) =>
+        ejecutar(() => motor.registrar("checklist.marcar", orden.id, { itemId: item.itemId, valor }), `«${item.etiqueta}» guardado`, { silencioso });
     switch (item.tipo) {
         case "si_no":
             return (
@@ -232,10 +233,10 @@ function ItemFoto({
 }
 
 /**
- * Texto, número o medición: se guarda solo al salir del campo y con el «Guardar» de la isla (sin
+ * Texto, número o medición: se guarda solo al salir del campo y con «Guardar y seguir» de la isla (sin
  * botón por campo). Lo escrito y todavía sin guardar es un borrador (`useBorrador`).
  */
-function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; editable: boolean; falta?: string | undefined; alGuardar: (v: string | number) => Promise<boolean> }) {
+function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; editable: boolean; falta?: string | undefined; alGuardar: (v: string | number, silencioso?: boolean) => Promise<boolean> }) {
     const v = valorDe(item);
     const guardado = v === null ? "" : String(v);
     const [texto, setTexto] = useState(guardado);
@@ -245,7 +246,7 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
     const leido = numerico ? esquemaNumeroItem.safeParse(texto) : null;
     const enviado = useRef<string | number | null>(null);
     const pendiente = editable && texto.trim() !== "" && (leido?.success ? leido.data !== v : texto.trim() !== guardado);
-    const guardar = async (): Promise<true | string> => {
+    const guardar = async ({ silencioso = false }: { silencioso?: boolean } = {}): Promise<true | string> => {
         let valor: string | number;
         if (numerico) {
             const r = esquemaNumeroItem.safeParse(texto);
@@ -265,12 +266,12 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
             valor = t;
         }
         setError(undefined);
-        // Salir del campo y tocar «Guardar» casi a la vez: el mismo valor se manda una sola vez.
+        // Salir del campo y tocar «Guardar y seguir» casi a la vez: el mismo valor se manda una sola vez.
         if (enviado.current === valor) {
             return true;
         }
         enviado.current = valor;
-        const ok = await alGuardar(valor);
+        const ok = await alGuardar(valor, silencioso);
         if (!ok) {
             enviado.current = null;
         }
@@ -293,14 +294,14 @@ function ItemValor({ item, editable, falta, alGuardar }: { item: ItemChecklist; 
                 }}
                 onEndEditing={() => {
                     if (pendiente) {
-                        void guardar();
+                        void guardar({});
                     }
                 }}
                 editable={editable}
                 keyboardType={numerico ? "numbers-and-punctuation" : "default"}
                 sufijo={item.unidad}
                 error={error}
-                {...(pendiente ? { ayuda: "Sin guardar: se guarda al salir del campo o con «Guardar»." } : {})}
+                {...(pendiente ? { ayuda: "Sin guardar: se guarda al salir del campo o con «Guardar y seguir»." } : {})}
             />
         </>
     );

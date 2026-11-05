@@ -1,7 +1,7 @@
-// Un solo «Guardar» en los pasos (registro de borradores y su aviso) y la orden en pausa de solo
-// lectura (reglas que comparten la PWA y la app nativa).
+// La isla de los pasos (registro de borradores, «Guardar y seguir» solo con cambios y su
+// confirmación) y la orden en pausa de solo lectura (reglas que comparten la PWA y la app nativa).
 import { describe, expect, it, vi } from "vitest";
-import { accionesDe, accionesRapidas, avisoGuardado, RegistroBorradores, type Borrador } from "./campo";
+import { accionesDe, accionesRapidas, avisoGuardado, estadoIslaPasos, MS_GUARDADO, RegistroBorradores, type Borrador } from "./campo";
 import { ordenDePrueba } from "./pruebas/fabricas";
 
 function borrador(etiqueta: string, inicial: string, validar: (v: string) => true | string = () => true) {
@@ -71,21 +71,61 @@ describe("RegistroBorradores", () => {
 });
 
 describe("avisoGuardado", () => {
-    it("dice lo guardado, el error del campo o que todo estaba guardado", () => {
-        expect(avisoGuardado({ guardados: 2, errores: [] }, { porEnviar: 3, enLinea: false })).toEqual({
+    it("el error va arriba con el campo; lo guardado se confirma en la isla; sin nada, silencio", () => {
+        expect(avisoGuardado({ guardados: 2, errores: [] }, { enLinea: false })).toEqual({
+            en: "isla",
             tono: "success",
-            texto: "2 cambios guardados en el teléfono. Se enviarán al volver la señal.",
+            texto: "Guardado",
+            detalle: "Guardado: 2 cambios en el teléfono. Se enviarán al volver la señal.",
         });
-        expect(avisoGuardado({ guardados: 1, errores: [] }, { porEnviar: 1, enLinea: true }).texto).toBe("Cambio guardado en el teléfono. Enviando…");
-        expect(avisoGuardado({ guardados: 0, errores: [{ etiqueta: "Potencia", mensaje: "Escribe un número" }, { etiqueta: "X", mensaje: "y" }] }, { porEnviar: 0, enLinea: true })).toEqual({
+        expect(avisoGuardado({ guardados: 1, errores: [] }, { enLinea: true })).toMatchObject({ en: "isla", detalle: "Guardado: 1 cambio en el teléfono. Enviando…" });
+        expect(avisoGuardado({ guardados: 1, errores: [{ etiqueta: "Potencia", mensaje: "Escribe un número" }, { etiqueta: "X", mensaje: "y" }] }, { enLinea: true })).toEqual({
+            en: "aviso",
             tono: "error",
             texto: "No se guardó «Potencia»: Escribe un número (y 1 más)",
         });
-        expect(avisoGuardado({ guardados: 0, errores: [] }, { porEnviar: 2, enLinea: false })).toEqual({
-            tono: "info",
-            texto: "Todo está guardado en el teléfono · 2 por enviar. Se enviarán al volver la señal.",
+        // Sin cambios no hay nada que decir (ni «Todo está guardado»: no se tocó «Guardar»).
+        expect(avisoGuardado({ guardados: 0, errores: [] }, { enLinea: true })).toBeNull();
+        expect(MS_GUARDADO).toBe(1500);
+    });
+});
+
+describe("estadoIslaPasos", () => {
+    const base = { paso: "checklist" as const, pendientes: 0, enPausa: false, recienGuardado: false };
+
+    it("sin cambios: sin «Guardar», el primario solo avanza («Siguiente», «Ir a firma»)", () => {
+        const e = estadoIslaPasos(base);
+        expect(e.anterior).toEqual({ texto: "Anterior", destino: "llegada" });
+        expect(e.primario).toEqual({ accion: "navegar", texto: "Siguiente", etiqueta: "Siguiente: materiales y equipos", icono: "siguiente", cuenta: null, destino: "materiales" });
+        expect(e.guardado).toBe(false);
+        expect(estadoIslaPasos({ ...base, paso: "fotos" }).primario).toMatchObject({ accion: "navegar", texto: "Ir a firma", etiqueta: "Ir a firma y cierre", destino: "cierre" });
+        expect(estadoIslaPasos({ ...base, paso: "llegada" }).anterior).toEqual({ texto: "Resumen", destino: null });
+        // Sin más pasos: «Terminar» vuelve al resumen.
+        expect(estadoIslaPasos({ ...base, paso: "cierre" }).primario).toMatchObject({ accion: "navegar", texto: "Terminar", destino: null });
+    });
+
+    it("con cambios: «Guardar y seguir» con el contador (también en el último paso)", () => {
+        expect(estadoIslaPasos({ ...base, pendientes: 2 }).primario).toEqual({
+            accion: "guardar_y_seguir",
+            texto: "Guardar y seguir",
+            etiqueta: "Guardar y seguir (2 sin guardar)",
+            icono: "guardar",
+            cuenta: 2,
+            destino: "materiales",
         });
-        expect(avisoGuardado({ guardados: 0, errores: [] }, { porEnviar: 0, enLinea: true })).toEqual({ tono: "success", texto: "Todo está guardado y enviado." });
+        expect(estadoIslaPasos({ ...base, paso: "fotos", pendientes: 1 }).primario).toMatchObject({ accion: "guardar_y_seguir", cuenta: 1, destino: "cierre" });
+    });
+
+    it("tras guardar: «Guardado» y de nuevo sin «Guardar»; un cambio nuevo lo quita", () => {
+        const e = estadoIslaPasos({ ...base, paso: "materiales", recienGuardado: true });
+        expect(e.guardado).toBe(true);
+        expect(e.primario.accion).toBe("navegar");
+        expect(estadoIslaPasos({ ...base, recienGuardado: true, pendientes: 1 }).guardado).toBe(false);
+    });
+
+    it("en pausa: solo lectura, nunca guarda; «Siguiente» solo navega", () => {
+        const e = estadoIslaPasos({ ...base, pendientes: 3, enPausa: true });
+        expect(e.primario).toMatchObject({ accion: "navegar", texto: "Siguiente", cuenta: null });
     });
 });
 
