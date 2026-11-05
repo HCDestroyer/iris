@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/HCDestroyer/iris/compare/v0.13.0...v0.14.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **campo, movil:** login nuevo del técnico (propuesta C, un solo paso) ([#112](https://github.com/HCDestroyer/iris/issues/112)) ([14e4d46](https://github.com/HCDestroyer/iris/commit/14e4d46e2136420095857faed1354d8b583ee318))
+* **integracion:** contrato Iris ↔ ArgosISP 0.6.2 (receptor_argos y canje sin receptor rechazado) ([#106](https://github.com/HCDestroyer/iris/issues/106)) ([9d5aa63](https://github.com/HCDestroyer/iris/commit/9d5aa63fb08066e399679b9d978053fd91b99041))
+* **integracion:** contrato Iris ↔ ArgosISP 0.6.3 (revocar canje fallido y reconectar sin corte) ([#109](https://github.com/HCDestroyer/iris/issues/109)) ([77f1059](https://github.com/HCDestroyer/iris/commit/77f105963481401085fa46f5c22ed0f630d99702))
+
+
+### Correcciones
+
+* **campo, movil:** errores reportados por el PM en la app del técnico ([#111](https://github.com/HCDestroyer/iris/issues/111)) ([5cd2540](https://github.com/HCDestroyer/iris/commit/5cd25405d145d5056ddd315b211cb46361b10622))
+
 ## [0.13.0](https://github.com/HCDestroyer/iris/compare/v0.12.0...v0.13.0) (2026-11-05)
 
 
