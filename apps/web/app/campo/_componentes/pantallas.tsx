@@ -13,7 +13,7 @@ import { DetalleOrden } from "./detalle-orden";
 import { BarraCompacta, EncabezadoCampo, FranjaSuperior } from "./encabezado";
 import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
 import { ProveedorBorradores } from "./borradores";
-import { AvisoIsla, IslaMenu, IslaPasos } from "./isla";
+import { IslaMenu, IslaPasos } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
 import { Pendientes } from "./pendientes";
 import { RUTA_ENTRAR } from "./app-campo";
@@ -233,8 +233,8 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
         <ProveedorBorradores>
         <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
             <FranjaSuperior />
-            <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} />
-            <BarraCompacta visible={desplazamiento.compacto} />
+            <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} />
+            <BarraCompacta visible={desplazamiento.compacto} pedirEmpresa={pedirEmpresa} />
             {estado.conexion === "sin_sesion" ? (
                 <div className="px-4 pt-3">
                     <Aviso
@@ -293,7 +293,6 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                 )}
             </main>
             <AvisoDelMarco />
-            <AvisoIsla alto={conIsla || conIslaPasos} pedirEmpresa={pedirEmpresa} />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} /> : null}
             {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} /> : null}
         </div>

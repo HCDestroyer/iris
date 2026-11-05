@@ -83,7 +83,8 @@ test("encabezado: franja sólida bajo la barra de estado; la barra compacta es s
     expect(s.opacidad).toBe("1");
     // Fondo sólido del tema (sin alfa): el contenido no se ve a través.
     expect(s.fondo).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
-    await expect(compacta.getByRole("button", { name: "Tu cuenta" })).toBeVisible();
+    await expect(compacta.getByRole("button", { name: "Buscar orden" })).toBeVisible();
+    await expect(compacta.locator('[data-slot="indicadores-compactos"] [data-indicador]')).toHaveCount(2);
     await captura(page, "02-encabezado-compacto", info.project.name);
     // Al bajar otra vez se va entera, sin quedar encima del contenido.
     await page.mouse.wheel(0, 400);
@@ -153,8 +154,11 @@ test("pasos: un solo «Guardar» en la isla (como la del menú), sin botón por 
     await expect(avisoCampo(page)).toContainText("«La ONU enciende» guardado");
     // El aviso de HeroUI se cierra con su «X».
     // (HeroUI muestra la «X» al pasar por encima o enfocar el aviso.)
-    await avisoCampo(page).hover();
-    await avisoCampo(page).locator('[data-slot="toast-close"]').click();
+    // Si en ese momento entra otro aviso (el guardado al salir del campo), se repite sobre el nuevo.
+    await expect(async () => {
+        await avisoCampo(page).hover({ timeout: 2_000 });
+        await avisoCampo(page).locator('[data-slot="toast-close"]').click({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await expect(avisoCampo(page)).toHaveCount(0);
     // «Siguiente» guarda antes de pasar.
     await isla.getByRole("button", { name: "Siguiente: materiales y equipos" }).click();

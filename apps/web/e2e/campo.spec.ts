@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { aceptarUbicacion, conSesionTecnico, declinarUbicacion, simularApiCampo, type ApiCampo } from "./api-campo";
-import { alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarPaso, irAPaso } from "./ayudas-campo";
+import { abrirPorEnviar, alResumen, avisoCampo, empezarTrabajo, firmarEn, guardarPaso, irAPaso, pestanaCampo } from "./ayudas-campo";
 import { CABLE, TECNICO } from "./datos-campo";
 
 /*
@@ -57,10 +57,10 @@ async function firmar(page: Page) {
 test("lista del día con estado y, con todo enviado, solo el punto de conexión", async ({ page }) => {
     const api = await simularApiCampo(page);
     await abrirCampo(page);
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado");
     await expect(conexion(page)).toHaveText("En línea");
     // La barra de estado no se abre: nada por enviar.
-    await expect(page.locator('[data-slot="barra-conexion"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="barra-conexion"]')).not.toHaveAttribute("data-actuar", "true");
     const tarjetas = page.getByRole("region", { name: "Órdenes del día" }).getByRole("link", { name: /^OT-/ });
     await expect(tarjetas).toHaveCount(3);
     // Sin ruta: por hora de cita.
@@ -164,8 +164,8 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     await expect(porEnviar(page)).toContainText("2 archivos por subir");
     expect(api.lotes).toHaveLength(0);
     // Sin señal y con cosas por enviar, la barra de estado se abre.
-    await expect(page.locator('[data-slot="barra-conexion"]')).toBeVisible();
-    await page.getByRole("button", { name: /pendientes por enviar/ }).click();
+    await expect(page.locator('[data-slot="barra-conexion"]')).toHaveAttribute("data-actuar", "true");
+    await abrirPorEnviar(page);
     const cola = page.getByRole("list", { name: "Cola de envío" });
     await expect(cola.getByRole("listitem")).toHaveCount(11);
     await expect(cola).toContainText("Cierre de la orden · OT-000101");
@@ -173,8 +173,8 @@ test("sin conexión: abre desde el service worker, todo queda pendiente y se env
     // Vuelve la señal: se suben los archivos, se envía la cola y se reconcilia.
     await conSenal(page, api);
     await expect(page.getByText("No queda nada por enviar desde este teléfono.")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("status", { name: "En línea, todo enviado" })).toBeVisible();
-    await expect(page.locator('[data-slot="barra-conexion"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]')).toHaveAccessibleName("Todo enviado, toca para ver el estado");
+    await expect(page.locator('[data-slot="barra-conexion"]')).not.toHaveAttribute("data-actuar", "true");
     const servidor = api.ordenes.get(101);
     expect(servidor?.estado).toBe("cerrada");
     expect(servidor?.firma?.nombre).toBe("María Castillo");
@@ -245,7 +245,7 @@ test("un rechazo del servidor queda visible con su motivo y se puede descartar o
     await expect(rechazos.nth(0)).toContainText("Despacho canceló la orden.");
     await expect(rechazos.nth(1)).toContainText("Algún dato no es válido.");
     await expect(rechazos.nth(1)).toContainText("El texto tiene caracteres no permitidos");
-    await expect(page.getByRole("button", { name: /2 rechazados/ })).toBeVisible();
+    await expect(porEnviar(page)).toContainText("2 rechazados");
 
     // Rehacer la nota (con id nuevo) y descartar lo de la orden cancelada.
     await rechazos.nth(1).getByRole("button", { name: "Rehacer" }).click();
@@ -278,7 +278,7 @@ test("faltan_adjuntos: el cierre espera hasta que termina de subir la foto", asy
     await page.getByRole("button", { name: "Cerrar orden" }).click();
 
     // La API responde faltan_adjuntos: queda esperando la foto, sin pedir nada al técnico.
-    await page.getByRole("button", { name: /por enviar|por subir|rechazado/ }).click();
+    await abrirPorEnviar(page);
     const espera = page.getByTestId("esperando-adjuntos");
     await expect(espera).toContainText("Cierre de la orden · OT-000102", { timeout: 20_000 });
     await expect(espera).toContainText("Falta subir la foto «Foto del equipo».");
@@ -317,7 +317,9 @@ test("varias empresas: pide elegir y manda X-Iris-Empresa", async ({ page }) => 
     await expect(page.getByText("Elige la empresa")).toBeVisible();
     await page.getByRole("button", { name: "Fibra Sur" }).click();
     await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
-    await expect(page.getByText(`${TECNICO.nombre} · Fibra Sur`)).toBeVisible();
+    // La empresa se ve en «Yo» (el encabezado ya no repite «nombre · empresa»).
+    await pestanaCampo(page, "Yo");
+    await expect(page.getByText(`${TECNICO.correo} · Fibra Sur`)).toBeVisible();
     expect(api.peticiones.find((p) => p.ruta === "/api/v1/campo/paquete")?.empresa).toBe("20");
 });
 

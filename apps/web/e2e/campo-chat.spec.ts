@@ -152,7 +152,7 @@ test("eliminar el propio desde el menú del mensaje deja «Mensaje eliminado»",
     await page.getByRole("dialog", { name: "Mensaje" }).getByRole("button", { name: "Eliminar para todos" }).click();
     await expect(burbujas(page).last()).toContainText("Mensaje eliminado");
     await expect(burbujas(page).last()).not.toContainText("Me equivoqué");
-    expect(chat.servidor.llamadasA("eliminarMensaje")).toHaveLength(1);
+    await expect.poll(() => chat.servidor.llamadasA("eliminarMensaje").length).toBe(1);
     // Los de otros no se pueden eliminar.
     await burbujas(page).first().locator('[aria-haspopup="dialog"]').click({ button: "right" });
     await expect(page.getByRole("dialog", { name: "Mensaje" }).getByRole("button", { name: "Eliminar para todos" })).toHaveCount(0);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesionTecnico, problema, simularApiCampo, type ApiCampo } from "./api-campo";
-import { abrirPorEnviar, firmarEn, pestanaCampo } from "./ayudas-campo";
+import { abrirPorEnviar, abrirPorRecibir as mosaicoPorRecibir, firmarEn, pestanaCampo } from "./ayudas-campo";
 
 /*
  * «Por recibir» y «Mi bodega» en la app de campo (contrato Iris ↔ ArgosISP 0.5.0, teléfono):
@@ -16,7 +16,7 @@ test.beforeEach(async ({ context, baseURL }, info) => {
 async function abrirPorRecibir(page: Page) {
     await page.goto("/campo");
     await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
-    await pestanaCampo(page, "Por recibir");
+    await mosaicoPorRecibir(page);
     await expect(page.getByRole("heading", { name: "Por recibir" })).toBeVisible();
 }
 
@@ -31,7 +31,8 @@ test("recibe un traslado con lo que faltó y la firma del técnico", async ({ pa
     const lista = page.getByRole("list", { name: "Traslados" });
     await expect(lista.getByRole("link")).toHaveCount(2);
     await expect(lista.getByRole("link", { name: "Traslado 31, Por recibir" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Por recibir (2)" })).toBeVisible();
+    // El contador va en el mosaico de Hoy (ya no en la isla).
+    await expect(page.getByRole("link", { name: /Por recibir \(/ })).toHaveCount(0);
 
     await lista.getByRole("link", { name: /Traslado 31/ }).click();
     await expect(page).toHaveURL(/\/campo\?traslado=31$/);
@@ -52,8 +53,9 @@ test("recibe un traslado con lo que faltó y la firma del técnico", async ({ pa
     expect(api.recepciones[0]?.firmaAdjuntoId).toBe(subida?.entrada.id);
     // La lista se relee: ahora va hacia Argos.
     await expect(page.getByRole("article").getByText("Enviando a Argos")).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "Por recibir" }).click();
-    await expect(page.getByRole("link", { name: "Por recibir (1)" })).toBeVisible();
+    // Queda uno por recibir: lo cuenta el mosaico de Hoy (ya no la isla).
+    await pestanaCampo(page, "Hoy");
+    await expect(page.locator('[data-slot="mosaico-recibir"]')).toContainText("1 traslado");
 });
 
 test("sin señal: la recepción queda en el teléfono y sale al volver; la firma se reintenta si el traslado aún no llega", async ({ page }) => {
@@ -98,7 +100,7 @@ test("rechazos: traslado_no_encontrado solo se descarta; sin respuesta de Argos 
 
     // Argos no responde (espera propia) y a las 24 h queda rechazada con «Rehacer».
     api.trasladoSinConfirmar = true;
-    await pestanaCampo(page, "Por recibir");
+    await abrirPorRecibir(page);
     await page.getByRole("link", { name: /Traslado 31/ }).click();
     await firmarEn(page, /Firma del técnico/);
     await page.getByRole("button", { name: "Confirmar recepción" }).click();

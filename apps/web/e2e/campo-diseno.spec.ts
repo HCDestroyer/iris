@@ -104,12 +104,13 @@ test("Hoy: la siguiente orden en grande, mosaicos con datos reales y «Después�
     // Mosaicos: con el paquete y los traslados leídos (2 enviados).
     await expect(page.locator('[data-slot="mosaico-ruta"]')).toContainText("3 órdenes");
     await expect(page.locator('[data-slot="mosaico-recibir"]')).toContainText("2 traslados");
-    await expect(isla(page).getByRole("link", { name: "Por recibir (2)" })).toBeVisible();
+    // «Por recibir» ya no está en la isla: el mosaico lleva su contador.
+    await expect(isla(page).getByRole("link", { name: /Por recibir/ })).toHaveCount(0);
     const despues = page.getByRole("list", { name: "Después" }).getByRole("link");
     await expect(despues).toHaveCount(2);
     await expect(despues.nth(0)).toContainText("OT-000101");
-    // Chips: «Hoy · 3» marcado.
-    await expect(page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: "Hoy · 3" })).toHaveAttribute("aria-current", "page");
+    // Barra segmentada: «Hoy · 3» marcado.
+    await expect(page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: "Hoy · 3" })).toBeChecked();
     // Sin desbordar a lo ancho.
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await captura(page, "01-hoy", info.project.name);
@@ -135,7 +136,9 @@ test("el encabezado se va al bajar y vuelve compacto al subir; la isla se encoge
     await expect.poll(async () => (await page.locator('[data-slot="encabezado-campo"]').boundingBox())?.y ?? 0).toBeLessThan(-100);
     await page.mouse.wheel(0, -300);
     await expect(compacta).not.toHaveAttribute("aria-hidden", "true");
-    await expect(compacta.getByRole("button", { name: "Tu cuenta" })).toBeVisible();
+    // La compacta lleva los indicadores y buscar (sin avatar).
+    await expect(compacta.getByRole("button", { name: "Todo enviado, toca para ver el estado" })).toBeVisible();
+    await expect(compacta.getByRole("button", { name: "Buscar orden" })).toBeVisible();
     await expect(isla(page)).not.toHaveAttribute("data-encogida", "true");
     // Encogida o no, las zonas táctiles siguen siendo de 44 px o más.
     for (const enlace of await isla(page).getByRole("link").all()) {
@@ -143,7 +146,7 @@ test("el encabezado se va al bajar y vuelve compacto al subir; la isla se encoge
     }
 });
 
-test("la píldora sobre la isla: sin señal con algo por enviar, y lleva a «Por enviar»", async ({ page, context }, info) => {
+test("la nube del encabezado: sin señal con algo por enviar crece; su hoja lleva a «Por enviar»; nada sobre la isla", async ({ page, context }, info) => {
     const api = await simularApiCampo(page, { ordenes: conUnaEnSitio() });
     await page.goto("/campo?orden=101");
     await page.getByLabel("Nueva nota").fill("Perro bravo en el portón");
@@ -151,19 +154,21 @@ test("la píldora sobre la isla: sin señal con algo por enviar, y lleva a «Por
     await context.setOffline(true);
     await page.getByRole("button", { name: "Agregar nota" }).click();
     await page.getByRole("button", { name: "Mis órdenes" }).click();
-    const pildora = page.locator('[data-slot="barra-conexion"]');
-    await expect(pildora).toContainText("Sin conexión");
-    await expect(pildora).toContainText("1 pendiente por enviar");
-    // Entra arriba de la isla, sin taparla.
-    const cajaPildora = await pildora.boundingBox();
+    const nube = page.locator('[data-slot="barra-conexion"] [data-indicador="sincronizacion"]');
+    await expect(nube).toHaveAccessibleName("Sin señal, 1 por enviar, toca para ver el estado");
+    await expect(page.getByTestId("estado-conexion")).toHaveText("Sin conexión");
+    await expect(page.getByTestId("pendientes-por-enviar")).toHaveText("1 pendiente por enviar");
+    // Va arriba, junto a buscar: sobre la isla no flota nada.
+    const cajaNube = await nube.boundingBox();
     const cajaIsla = await isla(page).boundingBox();
-    expect((cajaPildora?.y ?? 0) + (cajaPildora?.height ?? 0)).toBeLessThanOrEqual(cajaIsla?.y ?? 0);
+    expect((cajaNube?.y ?? 0) + (cajaNube?.height ?? 0)).toBeLessThan((cajaIsla?.y ?? 0) - 200);
     await captura(page, "02-isla-aviso", info.project.name);
-    await page.getByRole("button", { name: "Sin conexión: 1 pendiente por enviar. Ver detalle" }).click();
+    await nube.click();
+    await page.getByRole("dialog", { name: "Conexión y envíos" }).getByRole("button", { name: "Ver «Por enviar»" }).click();
     await expect(page.getByRole("heading", { name: "Por enviar", exact: true })).toBeVisible();
     api.sinRed = false;
     await context.setOffline(false);
-    await expect(pildora).toHaveCount(0, { timeout: 15_000 });
+    await expect(nube).toHaveAttribute("data-forma", "al_dia", { timeout: 15_000 });
 });
 
 test("«+»: agregar formulario a la orden en curso, con «Deshacer»; la tarea propia aún no", async ({ page }, info) => {
@@ -204,7 +209,7 @@ test("Mañana y Semana: tira de 7 días y citas en bloques, leídas con señal",
     // Guatemala caerían en «mañana»); solo las de la semana, por día de Guatemala.
     const api = await simularApiCampo(page, { ordenes: [], ordenesFuturas: ordenesFuturas() });
     await page.goto("/campo");
-    await page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: /^Mañana/ }).click();
+    await page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: /^Mañana/ }).click();
     await expect(page).toHaveURL(/vista=agenda$/);
     await expect(page.getByRole("heading", { name: /^Mañana, / })).toBeVisible();
     const semana = page.getByRole("navigation", { name: "Semana" }).getByRole("link");
@@ -217,8 +222,8 @@ test("Mañana y Semana: tira de 7 días y citas en bloques, leídas con señal",
     await expect(citas.nth(0)).toContainText("Instalación · Luis Ortiz");
     await expect(citas.nth(1)).toContainText("Cambio de equipo · Rosa Lima");
     await expect(citas.nth(1)).toContainText("Sin formulario");
-    // El chip ya tiene contador (dato leído) y la isla marca «Agenda».
-    await expect(page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: "Mañana · 2" })).toHaveAttribute("aria-current", "page");
+    // «Mañana» ya tiene contador (dato leído) y la isla marca «Agenda».
+    await expect(page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: "Mañana · 2" })).toBeChecked();
     await expect(isla(page).getByRole("link", { name: "Agenda" })).toHaveAttribute("aria-current", "page");
     // La agenda del técnico es GET /campo/paquete del último día de la semana (no GET /agenda).
     expect(api.peticiones.some((p) => p.ruta === "/api/v1/agenda")).toBe(false);
@@ -228,7 +233,7 @@ test("Mañana y Semana: tira de 7 días y citas en bloques, leídas con señal",
     await expect(page).toHaveURL(/vista=agenda&dia=\d{4}-\d{2}-\d{2}$/);
     await expect(citas).toHaveCount(1);
     await expect(citas.nth(0)).toContainText("Retiro · Ana Pérez");
-    await page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: "Semana" }).click();
+    await page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: "Semana" }).click();
     await expect(page.getByRole("heading", { name: "Esta semana" })).toBeVisible();
     await expect(page.locator('[data-slot="agenda-semana"]')).toContainText("Luis Ortiz");
 });
@@ -242,7 +247,7 @@ test("Mañana sin señal: dice que no se pudo leer, con «Reintentar» y sin con
     await pestanaCampo(page, "Agenda");
     await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
     await expect(page.getByTestId("resumen-dia")).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: "Día" }).getByRole("link", { name: "Mañana" })).toBeVisible();
+    await expect(page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: "Mañana" })).toBeVisible();
     // Al volver la señal se lee sola.
     api.sinRed = false;
     await context.setOffline(false);
