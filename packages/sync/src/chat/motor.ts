@@ -731,6 +731,7 @@ export class MotorChat {
                     }
                     if (esSesion(e)) {
                         this.sesionCerrada = true;
+                        this.pararTiempoReal();
                         this.emitir();
                         throw e;
                     }
@@ -973,7 +974,7 @@ export class MotorChat {
         let fallos = 0;
         let fallosFlujo = 0;
         let flujoBloqueadoHasta = 0;
-        while (!senal.aborted) {
+        while (!senal.aborted && !this.sesionCerrada) {
             if (!this.enLinea) {
                 this.fijarTiempoReal("sin_conexion");
                 await this.dormir(10 * MINUTO_MS, senal);

@@ -7,3 +7,5 @@ export { SubidorFalso } from "./subidor-falso";
 export { TransportePosicionesFalso } from "./posiciones-falso";
 export { ordenDePrueba, itemDePrueba } from "./fabricas";
 export { CABLE, FECHA, montar, paqueteDePrueba, type Montaje } from "./montaje";
+export { ServidorChatFalso, errorHttp, errorRed, type MetodoChat } from "./chat-falso";
+export { AlmacenChatMemoria } from "../chat/almacen-memoria";

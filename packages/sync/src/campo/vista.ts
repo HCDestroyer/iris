@@ -28,7 +28,13 @@ export type Vista =
     /** Agenda de un día con la tira de la semana; sin `dia`, mañana. */
     | { tipo: "agenda"; dia?: string }
     /** Los 7 días desde hoy, agrupados. */
-    | { tipo: "semana" };
+    | { tipo: "semana" }
+    /** Chat interno: la lista de conversaciones. */
+    | { tipo: "chat" }
+    /** «Nuevo mensaje»: elegir con quién abrir una directa. */
+    | { tipo: "chat_nuevo" }
+    /** Una conversación del chat. */
+    | { tipo: "conversacion"; id: number };
 
 /** Botones de la isla en orden (el «+» va al centro, entre «Por recibir» y «Agenda»). */
 export const PESTANAS: readonly { id: Pestana; texto: string; vista: Vista }[] = [
@@ -63,6 +69,10 @@ export function vistaDeUrl(busqueda: string): Vista {
         const paso = p.get("paso");
         return esPaso(paso) ? { tipo: "orden", id: orden, paso } : { tipo: "orden", id: orden };
     }
+    const conversacion = idDe(p.get("conversacion"));
+    if (conversacion !== null) {
+        return { tipo: "conversacion", id: conversacion };
+    }
     const traslado = idDe(p.get("traslado"));
     if (traslado !== null) {
         return { tipo: "traslado", id: traslado };
@@ -82,6 +92,10 @@ export function vistaDeUrl(busqueda: string): Vista {
         }
         case "semana":
             return { tipo: "semana" };
+        case "chat":
+            return { tipo: "chat" };
+        case "chat-nuevo":
+            return { tipo: "chat_nuevo" };
         default:
             return { tipo: "lista" };
     }
@@ -93,6 +107,10 @@ export function urlDeVista(v: Vista): string {
             return v.paso ? `/campo?orden=${v.id}&paso=${v.paso}` : `/campo?orden=${v.id}`;
         case "traslado":
             return `/campo?traslado=${v.id}`;
+        case "conversacion":
+            return `/campo?conversacion=${v.id}`;
+        case "chat_nuevo":
+            return "/campo?vista=chat-nuevo";
         case "lista":
             return "/campo";
         case "agenda":
@@ -118,6 +136,10 @@ export function pestanaDe(v: Vista): Pestana | null {
             return "agenda";
         case "yo":
         case "bodega":
+        // El chat se abre desde «Yo» (y desde la orden) mientras el PM decide su lugar en la isla.
+        case "chat":
+        case "chat_nuevo":
+        case "conversacion":
             return "yo";
     }
 }
