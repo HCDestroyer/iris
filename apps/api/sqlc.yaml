@@ -180,7 +180,9 @@ sql:
         package: reportesbd
         out: internal/reportes/bd
   - <<: *base
-    queries: internal/mensajeria/consultas.sql
+    queries:
+      - internal/mensajeria/consultas.sql
+      - internal/mensajeria/chat.sql
     gen:
       go:
         <<: *gen
@@ -188,3 +190,4 @@ sql:
         out: internal/mensajeria/bd
         rename:
           mensajeria_canale: MensajeriaCanal
+          mensajeria_chat_conversacione: MensajeriaChatConversacion

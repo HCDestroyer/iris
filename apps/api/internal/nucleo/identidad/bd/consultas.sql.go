@@ -2572,6 +2572,22 @@ func (q *Queries) SesionVigentePorHash(ctx context.Context, arg SesionVigentePor
 	return i, err
 }
 
+const sesionVigentePorID = `-- name: SesionVigentePorID :one
+SELECT s.usuario_id
+FROM nucleo.sesiones s
+JOIN nucleo.usuarios u ON u.id = s.usuario_id
+WHERE s.id = $1 AND s.revocada_en IS NULL AND s.expira_en > now() AND NOT s.mfa_pendiente AND u.activo
+  AND NOT u.debe_cambiar_contrasena
+`
+
+// Revalidar un flujo largo (SSE del chat) autenticado con esta sesión del panel.
+func (q *Queries) SesionVigentePorID(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, sesionVigentePorID, id)
+	var usuario_id int64
+	err := row.Scan(&usuario_id)
+	return usuario_id, err
+}
+
 const sesionesActivasDeUsuario = `-- name: SesionesActivasDeUsuario :many
 
 SELECT id, usuario_id, token_hash, csrf_hash, mfa_pendiente, ip, user_agent, expira_en, ultimo_uso, revocada_en, created_at, updated_at, mfa_fallos, origen, reautenticada_en, canal, app FROM nucleo.sesiones
@@ -2896,6 +2912,26 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 		&i.NucleoUsuario.UpdatedAt,
 		&i.NucleoUsuario.DebeCambiarContrasena,
 	)
+	return i, err
+}
+
+const tokenVigentePorID = `-- name: TokenVigentePorID :one
+SELECT t.permisos, u.id AS usuario_id
+FROM nucleo.tokens_api t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.id = $1 AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
+`
+
+type TokenVigentePorIDRow struct {
+	Permisos  []string
+	UsuarioID int64
+}
+
+// Revalidar un flujo largo (SSE del chat) autenticado con este token.
+func (q *Queries) TokenVigentePorID(ctx context.Context, id int64) (TokenVigentePorIDRow, error) {
+	row := q.db.QueryRow(ctx, tokenVigentePorID, id)
+	var i TokenVigentePorIDRow
+	err := row.Scan(&i.Permisos, &i.UsuarioID)
 	return i, err
 }
 

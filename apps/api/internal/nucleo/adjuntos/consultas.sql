@@ -80,3 +80,11 @@ UPDATE nucleo.adjuntos
 SET estado = 'rechazado', motivo_rechazo = 'abandonado', version = version + 1, updated_at = now()
 WHERE id = @id AND estado IN ('pendiente', 'subiendo') AND updated_at < @antes
 RETURNING *;
+
+-- name: RetirarAdjunto :one
+-- Su módulo dueño ya no lo muestra (p. ej. se eliminó el mensaje del chat): rechazado en
+-- cualquier estado, también completo.
+UPDATE nucleo.adjuntos
+SET estado = 'rechazado', motivo_rechazo = @motivo, version = version + 1, updated_at = now()
+WHERE id = @id AND estado <> 'rechazado'
+RETURNING *;

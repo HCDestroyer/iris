@@ -1001,6 +1001,74 @@ type MensajeriaCanale struct {
 	UpdatedAt            time.Time
 }
 
+type MensajeriaChatConversacione struct {
+	ID              int64
+	EmpresaID       *int64
+	Tipo            string
+	CuadrillaID     *int64
+	OrdenID         *int64
+	ClaveDirecta    *string
+	CreadaPor       *int64
+	UltimoSeq       int64
+	UltimoMensajeID pgtype.UUID
+	UltimaActividad time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type MensajeriaChatEstado struct {
+	ID                   int16
+	EventosPurgadosHasta int64
+}
+
+type MensajeriaChatEvento struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Tipo           string
+	MensajeID      pgtype.UUID
+	UsuarioID      *int64
+	OcurridoEn     time.Time
+	CreatedAt      time.Time
+}
+
+type MensajeriaChatLectura struct {
+	ConversacionID int64
+	UsuarioID      int64
+	HastaSeq       int64
+	HastaMensajeID uuid.UUID
+	LeidoEn        time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type MensajeriaChatMensaje struct {
+	ID             uuid.UUID
+	ConversacionID int64
+	EmpresaID      *int64
+	Seq            int64
+	AutorID        int64
+	Texto          *string
+	AdjuntoID      pgtype.UUID
+	Lat            *float64
+	Lon            *float64
+	CreadoEn       *time.Time
+	EnviadoEn      time.Time
+	HashContenido  []byte
+	EliminadoEn    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	IdempotencyKey *string
+}
+
+type MensajeriaChatMiembro struct {
+	ConversacionID int64
+	UsuarioID      int64
+	Origen         string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type MensajeriaConsentimiento struct {
 	ID             int64
 	EmpresaID      int64

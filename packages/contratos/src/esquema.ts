@@ -1493,6 +1493,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/chat/cambios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cambios del chat desde un cursor (sondeo)
+         * @description Permiso: `chat.ver`. La alternativa a SSE para la app (mismo cursor que el `id` de SSE). Sin cursor responde la cabeza actual sin eventos. 410 `cursor_vencido` si el cursor es anterior a la retención (7 días): recargar las conversaciones y seguir sin cursor.
+         */
+        get: operations["cambiosChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/conversaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mis conversaciones del chat
+         * @description Permiso: `chat.ver`. Las que eres miembro (directas, tu cuadrilla, tus órdenes, hilos a los que te uniste) y, con `chat.supervisar`, las de cuadrilla y orden de tu alcance. De la más reciente a la más vieja, con vista previa y tus no leídos.
+         */
+        get: operations["listarConversacionesChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/conversaciones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Una conversación con las lecturas de sus miembros
+         * @description Permiso: `chat.ver`.
+         */
+        get: operations["verConversacionChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/conversaciones/{id}/leer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar leído hasta un mensaje
+         * @description Permiso: `chat.ver`. La lectura solo avanza (marcar uno anterior no la retrocede). Responde tus no leídos.
+         */
+        post: operations["leerConversacionChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/conversaciones/{id}/mensajes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mensajes de una conversación
+         * @description Permiso: `chat.ver`. Siempre en orden de `seq` ascendente. `direccion=anteriores` (por defecto) pagina hacia atrás desde el más reciente; `siguientes`, hacia adelante. `nextCursor` sigue en la misma dirección. `desde_seq` sirve de ancla sin cursor.
+         */
+        get: operations["listarMensajesChat"];
+        put?: never;
+        /**
+         * Enviar un mensaje
+         * @description Permiso: `chat.enviar`. Idempotente por `id` (uuid v7 del cliente): reenviarlo con el mismo contenido responde 200 con el mensaje actual (`Idempotent-Replayed: true`); con otro contenido, 409 `mensaje_id_reutilizado`. Acepta además `Idempotency-Key` (la aplica el caso: la misma clave con otro `id`, 422 `idempotencia_reutilizada`; no se guarda la respuesta). Texto hasta 4000 caracteres, una foto y/o una ubicación (al menos uno: 422 `mensaje_vacio`). 30 por minuto por usuario (429 `demasiados_mensajes` con `Retry-After`).
+         */
+        post: operations["enviarMensajeChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/cuadrillas/{cuadrilla_id}/abrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abrir (o traer) el chat de una cuadrilla
+         * @description Permiso: `chat.enviar`. Uno por cuadrilla y empresa. Lo abre un técnico de la cuadrilla o quien la supervisa (`chat.supervisar`); si no, 404.
+         */
+        post: operations["abrirCuadrillaChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/directas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abrir (o traer) la conversación directa con un usuario
+         * @description Permiso: `chat.enviar`. 201 si se creó, 200 si ya existía. 422 `usuario_no_disponible` si el otro no existe, no está activo, no opera en la empresa activa o no tiene `chat.ver`.
+         */
+        post: operations["abrirDirectaChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tiempo real del chat (Server-Sent Events)
+         * @description Permiso: `chat.ver`. `text/event-stream`: `id` (cursor), `event` (`mensaje_nuevo`, `mensaje_eliminado`, `leido`, `conversacion_actualizada`) y `data` (el mismo JSON que un elemento de GET /chat/cambios). Reanuda con `Last-Event-ID` (o `?desde=`); comentario `: latido` cada 25 s; el servidor cierra a los 30 min y el cliente se reconecta. Sesión del panel (cookie) o Bearer: en cada latido y antes de entregar se revalida (sesión cerrada, token revocado, usuario inactivo o sin chat.ver: se cierra). Hasta 5 flujos por usuario (el sexto, 429 `demasiados_flujos`) y un tope por proceso (503 `flujos_agotados`, IRIS_CHAT_SSE_MAX).
+         */
+        get: operations["eventosChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/mensajes/{id}/eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar un mensaje propio
+         * @description Permiso: `chat.enviar`. Solo su autor y hasta 15 minutos después de enviarlo (403 `no_es_autor`, 422 `plazo_vencido`). Borra el texto, la foto y la ubicación y deja la lápida («Mensaje eliminado»). Repetirlo devuelve la misma lápida.
+         */
+        post: operations["eliminarMensajeChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/chat/ordenes/{orden_id}/abrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abrir (o traer) el hilo de una orden
+         * @description Permiso: `chat.enviar`. Uno por orden. Lo abre su técnico, quien la supervisa (`chat.supervisar`) o despacho (`ordenes.ver` con alcance sobre la orden), que queda como miembro. 201 si se creó o te uniste; 200 si ya estabas.
+         */
+        post: operations["abrirOrdenChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/consentimientos": {
         parameters: {
             query?: never;
@@ -4433,6 +4637,15 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        AdjuntoChat: {
+            /**
+             * @description La foto puede seguir subiéndose: se muestra al estar completo
+             * @enum {string}
+             */
+            estado: "pendiente" | "subiendo" | "completo" | "rechazado";
+            id: string;
+            url_descarga: string;
+        };
         AdjuntoOrden: {
             descripcion: string;
             id: string;
@@ -4701,6 +4914,13 @@ export interface components {
             recepciones?: components["schemas"]["EstadoRecepcion"][] | null;
             /** @description Ruta publicada de hoy (America/Guatemala) tal como está ahora; ausente si no hay. Reemplaza la del paquete si es del mismo día */
             ruta?: components["schemas"]["RutaCampo"];
+        };
+        CambiosChat: {
+            data: components["schemas"]["EventoChat"][] | null;
+            /** @description true: hay más eventos ya disponibles; consulta de nuevo sin esperar */
+            hayMas: boolean;
+            /** @description Siempre presente: el cursor para la siguiente consulta (o el id para Last-Event-ID) */
+            nextCursor: string;
         };
         Canal: {
             activo: boolean;
@@ -5105,6 +5325,74 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        ConversacionChat: {
+            /** Format: date-time */
+            creada_en: string;
+            /** Format: int64 */
+            cuadrilla_id: number | null;
+            /**
+             * Format: int64
+             * @description Empresa de Argos (null sin conector)
+             */
+            empresa_id: number | null;
+            /** Format: int64 */
+            id: number;
+            leido_hasta_mensaje_id: string | null;
+            /**
+             * Format: int64
+             * @description Mensajes de otros, sin eliminar, después de tu lectura
+             */
+            no_leidos: number;
+            /** @description Estado actual de la orden (hilo de orden) */
+            orden_estado: string | null;
+            /** Format: int64 */
+            orden_id: number | null;
+            /** @description Directa: con quién */
+            otro_usuario?: components["schemas"]["UsuarioChat"];
+            /** @enum {string} */
+            tipo: "directa" | "cuadrilla" | "orden";
+            /** @description Directa: el otro usuario; cuadrilla: su nombre; orden: su número */
+            titulo: string;
+            /** Format: date-time */
+            ultima_actividad: string;
+            /** @description Ausente si aún no hay mensajes */
+            ultimo_mensaje?: components["schemas"]["VistaPreviaChat"];
+        };
+        ConversacionChatDetalle: {
+            /** Format: date-time */
+            creada_en: string;
+            /** Format: int64 */
+            cuadrilla_id: number | null;
+            /**
+             * Format: int64
+             * @description Empresa de Argos (null sin conector)
+             */
+            empresa_id: number | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Hasta dónde leyó cada usuario que ya leyó algo (para «visto») */
+            lecturas: components["schemas"]["LecturaMiembroChat"][] | null;
+            leido_hasta_mensaje_id: string | null;
+            /**
+             * Format: int64
+             * @description Mensajes de otros, sin eliminar, después de tu lectura
+             */
+            no_leidos: number;
+            /** @description Estado actual de la orden (hilo de orden) */
+            orden_estado: string | null;
+            /** Format: int64 */
+            orden_id: number | null;
+            /** @description Directa: con quién */
+            otro_usuario?: components["schemas"]["UsuarioChat"];
+            /** @enum {string} */
+            tipo: "directa" | "cuadrilla" | "orden";
+            /** @description Directa: el otro usuario; cuadrilla: su nombre; orden: su número */
+            titulo: string;
+            /** Format: date-time */
+            ultima_actividad: string;
+            /** @description Ausente si aún no hay mensajes */
+            ultimo_mensaje?: components["schemas"]["VistaPreviaChat"];
+        };
         CopiaArgos: {
             /** @description true: Argos eliminó al cliente y la copia quedó solo con los ids */
             anonimizada: boolean;
@@ -5219,6 +5507,25 @@ export interface components {
             version: number;
             /** @description Zonas que atiende; vacío = todas */
             zonaIds: number[] | null;
+        };
+        CuerpoEnviarMensaje: {
+            /** @description Una foto registrada antes en POST /api/v1/adjuntos con entidad chat_conversacion y entidadId = la conversación (puede seguir subiéndose) */
+            adjunto_id?: string;
+            /**
+             * Format: date-time
+             * @description Hora del teléfono al escribirlo (RFC 3339; no futura)
+             */
+            creado_en?: string;
+            /** @description uuid v7 generado en el cliente al escribirlo (la cola sin conexión lo reenvía igual): el servidor es idempotente por él */
+            id: string;
+            /** @description Texto plano (sin HTML ni Markdown: se guarda y se muestra tal cual). Se recortan los espacios de los extremos */
+            texto?: string;
+            /** @description Ubicación compartida */
+            ubicacion?: components["schemas"]["UbicacionChat"];
+        };
+        CuerpoLeerChat: {
+            /** @description El último mensaje que viste; la lectura solo avanza */
+            hasta_mensaje_id: string;
         };
         CuerpoWebhook: {
             /** @description Argos: cliente.actualizado, servicio.estado_cambiado…; Horus: horus.router_estado_cambiado, horus.hallazgo_abierto… */
@@ -5425,6 +5732,13 @@ export interface components {
             argosisp?: components["schemas"]["EnlaceExterno"];
             /** @description Horus Flow; ausente sin conector activo */
             horus?: components["schemas"]["EnlaceExterno"];
+        };
+        EntradaAbrirDirecta: {
+            /**
+             * Format: int64
+             * @description Con quién (un usuario persona, activo, de la empresa activa y con chat.ver)
+             */
+            usuario_id: number;
         };
         EntradaAceptarCotizacion: {
             /**
@@ -7076,6 +7390,27 @@ export interface components {
             estado: "ok";
             version: string;
         };
+        EventoChat: {
+            /** @description conversacion_actualizada */
+            conversacion?: components["schemas"]["ConversacionChat"];
+            /** Format: int64 */
+            conversacion_id: number;
+            /** @description Cursor del feed (el id de SSE / Last-Event-ID) */
+            id: string;
+            /** @description leido */
+            lectura?: components["schemas"]["LecturaChat"];
+            /** @description mensaje_nuevo y mensaje_eliminado (estado actual: si ya se eliminó, la lápida) */
+            mensaje?: components["schemas"]["MensajeChat"];
+            /**
+             * Format: int64
+             * @description Tus no leídos de la conversación al leer el evento
+             */
+            no_leidos: number;
+            /** Format: date-time */
+            ocurrido_en: string;
+            /** @enum {string} */
+            tipo: "mensaje_nuevo" | "mensaje_eliminado" | "leido" | "conversacion_actualizada";
+        };
         EventoOrden: {
             a: string | null;
             /** Format: int64 */
@@ -7593,6 +7928,30 @@ export interface components {
             tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             unidad: string;
         };
+        LecturaChat: {
+            hasta_mensaje_id: string;
+            /** Format: date-time */
+            leido_en: string;
+            /** Format: int64 */
+            usuario_id: number;
+        };
+        LecturaMiembroChat: {
+            hasta_mensaje_id: string;
+            /** Format: int64 */
+            hasta_seq: number;
+            /** Format: date-time */
+            leido_en: string;
+            nombre: string;
+            /** Format: int64 */
+            usuario_id: number;
+        };
+        LecturaPropia: {
+            /** Format: int64 */
+            conversacion_id: number;
+            leido_hasta_mensaje_id: string | null;
+            /** Format: int64 */
+            no_leidos: number;
+        };
         LineaCotizacion: {
             /** @description Decimal (2 cifras) */
             cantidad: string;
@@ -7716,6 +8075,40 @@ export interface components {
             publico: boolean;
             /** Format: int64 */
             ticketId: number;
+        };
+        MensajeChat: {
+            /** @description La foto (ausente si no tiene) */
+            adjunto?: components["schemas"]["AdjuntoChat"];
+            /** Format: int64 */
+            autor_id: number;
+            autor_nombre: string;
+            /** Format: int64 */
+            conversacion_id: number;
+            /**
+             * Format: date-time
+             * @description Hora del teléfono al escribirlo (cola sin conexión)
+             */
+            creado_en: string | null;
+            /** @description true: mostrar «Mensaje eliminado» */
+            eliminado: boolean;
+            /** Format: date-time */
+            eliminado_en: string | null;
+            /**
+             * Format: date-time
+             * @description Hora del servidor al recibirlo
+             */
+            enviado_en: string;
+            /** @description uuid v7 generado por el cliente */
+            id: string;
+            /**
+             * Format: int64
+             * @description Orden en la conversación (lo asigna el servidor al recibirlo)
+             */
+            seq: number;
+            /** @description Texto plano: nunca se interpreta como HTML */
+            texto: string | null;
+            /** @description Ausente si no comparte ubicación */
+            ubicacion?: components["schemas"]["UbicacionChat"];
         };
         MensajePortal: {
             adjuntos: string[] | null;
@@ -8272,6 +8665,11 @@ export interface components {
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
+        PaginaConversacionChat: {
+            data: components["schemas"]["ConversacionChat"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
         PaginaCotizacion: {
             data: components["schemas"]["Cotizacion"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -8304,6 +8702,11 @@ export interface components {
         };
         PaginaMensaje: {
             data: components["schemas"]["Mensaje"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaMensajeChat: {
+            data: components["schemas"]["MensajeChat"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -8694,7 +9097,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.crear_cuadrilla" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "cotizaciones.aceptar" | "cotizaciones.crear" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.ver" | "integraciones.ver_pendientes" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -10162,6 +10565,12 @@ export interface components {
             /** @description Tramos del turno sin las ausencias, en orden */
             tramos: components["schemas"]["TramoCampo"][] | null;
         };
+        UbicacionChat: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+        };
         UltimasPosiciones: {
             data: components["schemas"]["PosicionTecnico"][] | null;
             /** Format: date-time */
@@ -10234,6 +10643,11 @@ export interface components {
             tipo: "persona" | "integracion";
             /** Format: int32 */
             version: number;
+        };
+        UsuarioChat: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
         };
         UsuarioExternoSSO: {
             /** @description Para mostrarlo al vincular y como condición extra de la autovinculación */
@@ -10309,6 +10723,21 @@ export interface components {
         VinculoSSOCreado: {
             destino: components["schemas"]["DestinoSSOResuelto"];
             vinculo: components["schemas"]["VinculoSSO"];
+        };
+        VistaPreviaChat: {
+            /** Format: int64 */
+            autor_id: number;
+            autor_nombre: string;
+            /**
+             * @description Qué es: con texto, texto (aunque traiga foto)
+             * @enum {string}
+             */
+            contenido: "texto" | "foto" | "ubicacion" | "eliminado";
+            /** Format: date-time */
+            enviado_en: string;
+            id: string;
+            /** @description Primeros 140 caracteres (texto plano); null si no tiene texto o se eliminó */
+            texto: string | null;
         };
         WebhookRecibido: {
             /** @description true: ese id de webhook ya se había recibido; no se vuelve a procesar */
@@ -16235,6 +16664,844 @@ export interface operations {
             };
             /** @description Request Entity Too Large */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiosChat: {
+        parameters: {
+            query?: {
+                /** @description El nextCursor anterior o el id del último evento SSE (Last-Event-ID). Vacío: la cabeza actual (sin eventos) */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CambiosChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarConversacionesChat: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description Solo de ese tipo */
+                tipo?: "directa" | "cuadrilla" | "orden";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaConversacionChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verConversacionChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    leerConversacionChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoLeerChat"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LecturaPropia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarMensajesChat: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                cursor?: string;
+                /** @description Tamaño de página */
+                limit?: number;
+                /** @description anteriores: hacia atrás (sin cursor, los más recientes); siguientes: hacia adelante (sin cursor, desde el primero) */
+                direccion?: "anteriores" | "siguientes";
+                /** @description Ancla explícita en vez de cursor: los de seq mayor (siguientes) o menor (anteriores) que este */
+                desde_seq?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaMensajeChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    enviarMensajeChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CuerpoEnviarMensaje"];
+            };
+        };
+        responses: {
+            /** @description Reenvío del mismo id: el mensaje tal como está ahora */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    "Idempotent-Replayed"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    abrirCuadrillaChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                cuadrilla_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    abrirDirectaChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAbrirDirecta"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eventosChat: {
+        parameters: {
+            query?: {
+                /** @description Igual que Last-Event-ID, para clientes que no pueden fijar cabeceras. Sin los dos: desde ahora */
+                desde?: string;
+            };
+            header?: {
+                /** @description El id del último evento recibido (lo manda EventSource al reconectar) */
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Flujo de eventos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eliminarMensajeChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MensajeChat"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    abrirOrdenChat: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                orden_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionChatDetalle"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

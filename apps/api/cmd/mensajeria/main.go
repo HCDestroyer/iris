@@ -1,7 +1,8 @@
 // Comando mensajeria: el servicio de mensajería de Iris (contrato Iris ↔ ArgosISP 0.6.0 §6), en su
 // propio proceso. Atiende /api/v1/mensajeria (la API se lo reenvía con IRIS_MENSAJERIA_URL) y corre
 // sus jobs de River en la cola `mensajeria`: envío de avisos (con horario de silencio y límite por
-// minuto), webhooks de Meta, webhooks de entrega hacia Argos y mantenimiento.
+// minuto), webhooks de Meta, webhooks de entrega hacia Argos y mantenimiento. También el chat
+// interno del equipo (/api/v1/mensajeria/chat, con su flujo SSE).
 //
 //	mensajeria              servidor HTTP en IRIS_MENSAJERIA_PUERTO (3510) y sus workers
 //	mensajeria salud        GET a /api/v1/salud local; sale 0 o 1 (healthcheck de la imagen)
@@ -35,6 +36,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/config"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -103,8 +105,16 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		PermitirHTTP: cfg.ConectoresPermitirHTTP, Version: version, RedesPermitidas: cfg.ArgosRedesPermitidas, Origenes: cfg.ArgosOrigenes,
 	})
 
+	// El almacenamiento de adjuntos de la API: borrar la foto de un mensaje del chat eliminado.
+	// Sin él (mal configurado), la foto solo queda rechazada: no se ve ni se descarga.
+	almacen, err := almacenAdjuntos(cfg)
+	if err != nil {
+		log.Warn("mensajeria: sin almacenamiento de adjuntos; las fotos de mensajes eliminados no se borran del almacén", "err", err)
+		almacen = nil
+	}
 	var cliente *river.Client[pgx.Tx]
 	m := mensajeria.Nuevo(mensajeria.Config{
+		Almacen: almacen, ChatSSEMax: ent.ChatSSEMax,
 		Cifrador: cif, Contactos: conectorArgos, Simulado: ent.Simulado, LimiteDiario: ent.LimiteDiario, PorMinuto: ent.PorMinuto,
 		Silencio: ent.Silencio, MetaURL: ent.MetaURL, HTTPArgos: conector.NuevoHTTP(cfg.ArgosRedesPermitidas), Version: version,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
@@ -125,6 +135,8 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 		return err
 	}
 	go mensajeria.Reloj(ctx, cliente, log)
+	// Chat: LISTEN iris_chat despierta los flujos SSE (GET /chat/eventos) de este proceso.
+	go m.EscucharChat(ctx, pool, log)
 
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 	if err != nil {
@@ -182,4 +194,15 @@ func salud(ctx context.Context, puerto int, args []string, salida io.Writer) err
 	}
 	_, _ = fmt.Fprintln(salida, "ok")
 	return nil
+}
+
+// almacenAdjuntos: el mismo almacenamiento que la API (disco o S3 compatible).
+func almacenAdjuntos(cfg config.Config) (adjuntos.Almacen, error) {
+	if cfg.AdjuntosAlmacen == "s3" {
+		return adjuntos.NuevoS3(adjuntos.ConfigS3{
+			Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, Bucket: cfg.S3Bucket, AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey, EstiloRuta: cfg.S3EstiloRuta,
+		})
+	}
+	return adjuntos.NuevoDisco(cfg.AdjuntosDir)
 }

@@ -218,6 +218,19 @@ const (
 	PermMensajeriaConfigurar Permiso = "mensajeria.configurar"
 )
 
+// Chat interno del equipo (servicio cmd/mensajeria; contratos/chat.md).
+const (
+	// PermChatVer: ver las conversaciones de las que eres miembro (y las de tu alcance con
+	// chat.supervisar), sus mensajes y el flujo de eventos.
+	PermChatVer Permiso = "chat.ver"
+	// PermChatEnviar: abrir conversaciones, enviar, eliminar los propios (15 min) y unirse al hilo
+	// de una orden que puedes ver.
+	PermChatEnviar Permiso = "chat.enviar"
+	// PermChatSupervisar: ser miembro de los chats de cuadrilla y de orden de tu alcance (zona o
+	// cuadrilla; sin alcance, todos los de la empresa). Nunca da acceso a las directas.
+	PermChatSupervisar Permiso = "chat.supervisar"
+)
+
 // Portal de soporte (/soporte).
 const (
 	PermPortalEmitir Permiso = "portal.emitir"
@@ -289,6 +302,9 @@ var Catalogo = []DefPermiso{
 	{PermCampoVerActividad, "Ver la actividad de la app de campo de cada técnico: última conexión y sincronización, versión, pendientes y última ubicación (según el alcance)"},
 	{PermCampoVerBodega, "Ver tu bodega en Argos (existencias, unidades, kardex) y tus órdenes de traslado por recibir (por tu vínculo con Argos)"},
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
+	{PermChatEnviar, "Abrir conversaciones del chat interno, enviar mensajes, eliminar los propios en 15 minutos y unirse al hilo de una orden que puedes ver"},
+	{PermChatSupervisar, "Ser miembro de los chats de cuadrilla y de orden de tu alcance (zona o cuadrilla; sin alcance, todos los de la empresa). No da acceso a los mensajes directos"},
+	{PermChatVer, "Ver tus conversaciones del chat interno del equipo y sus mensajes"},
 	{PermClientesEstadoCuenta, "Ver el estado de cuenta resumido de un cliente de Argos (saldo y facturas vencidas)"},
 	{PermClientesVer, "Buscar clientes de Argos y ver su ficha y servicios (lectura auditada)"},
 	{PermContratosCrear, "Generar el contrato de un prospecto con la cotización aceptada"},
@@ -446,7 +462,8 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
-			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar},
+			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
+			PermChatVer, PermChatEnviar, PermChatSupervisar},
 			slices.Concat(permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -454,23 +471,24 @@ var RolesBase = []DefRol{
 			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
-			PermCampoVerPosiciones, PermCampoVerActividad},
+			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar},
 			slices.Concat(permisosOrdenes, permisosRutas)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
-			PermCampoVerBodega, PermCampoRecibirTraslado}},
+			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir}, permisosTickets...)},
+			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
+			PermChatVer, PermChatEnviar}, permisosTickets...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAgendaVer}, permisosComercial...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,
 			PermClientesVer, PermTicketsVer, PermOrdenesVer, PermAgendaVer, PermRutasVer, PermProspectosVer,
-			PermReportesVer}},
+			PermReportesVer, PermChatVer}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).
@@ -544,6 +562,7 @@ var modulosPermiso = map[string][2]string{
 	"ordenes":   {"ordenes", "Órdenes de trabajo"}, "plantillas": {"ordenes", "Órdenes de trabajo"},
 	"adjuntos": {"ordenes", "Órdenes de trabajo"},
 	"campo":    {"campo", "App de campo"},
+	"chat":     {"chat", "Chat del equipo"},
 	"agenda":   {"agenda", "Agenda y rutas"}, "rutas": {"agenda", "Agenda y rutas"},
 	"prospectos": {"comercial", "Comercial"}, "factibilidad": {"comercial", "Comercial"},
 	"cotizaciones": {"comercial", "Comercial"}, "contratos": {"comercial", "Comercial"},

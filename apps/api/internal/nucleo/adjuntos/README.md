@@ -39,6 +39,11 @@ adjuntos.RegistrarEntidadAdjuntable("orden", func(ctx context.Context, q adjunto
 faltan, err := adjuntos.Faltantes(ctx, t, "orden", ordenID, []adjuntos.Requisito{{Tipo: "firma"}, {Tipo: "foto", ClaveChecklist: "antena"}})
 // Validar la operación adjunto.registrar del lote: el adjunto existe y es de esa orden.
 a, err := adjuntos.DeEntidad(ctx, t, id, "orden", ordenID)
+// Opcional: no todo adjunto de una entidad visible se ve (el chat: solo con un mensaje vivo).
+adjuntos.RegistrarFiltro("chat_conversacion", func(ctx context.Context, q adjuntos.DBTX, a adjuntos.Adjunto, uso adjuntos.Uso) (bool, error) { … })
+// Cuando el dueño deja de mostrarlo: rechazado (motivo «retirado») y, tras el COMMIT, fuera del almacén.
+clave, err := adjuntos.Retirar(ctx, t, id)
+t.AlConfirmar(func(ctx context.Context) { adjuntos.BorrarContenido(ctx, almacen, clave) })
 ```
 
 ## Eventos

@@ -196,6 +196,28 @@ payload lleva solo los campos del contrato: `aviso.entregado` (aviso_id, idempot
 canal, entregado_en, leido_en o null), `aviso.fallido` (aviso_id, idempotency_key, empresa_id, canal
 o null, motivo, detalle o null) y `contacto.baja` (cliente_id, empresa_id, canal, ocurrido_en, origen).
 
+## Chat interno del equipo (I1, servicio de mensajería)
+
+Contrato de la API en `contratos/chat.md`. Ninguno lleva el texto de un mensaje: quien lo necesite
+(el emisor de push, fase siguiente) lo lee por `mensaje_id`. No salen hacia Argos ni Horus.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `chat.conversacion_creada` | `conversacion_id`, `empresa_id` (o null), `tipo` (`directa` \| `cuadrilla` \| `orden`), `cuadrilla_id` (o null), `orden_id` (o null), `creada_por`, `miembros[]` (los explícitos: los dos de la directa, o despacho que abrió el hilo; los derivados no van) | Primera vez que se abre (`POST /chat/directas`, `/chat/cuadrillas/{id}/abrir`, `/chat/ordenes/{id}/abrir`). Abrirla de nuevo no emite. |
+| `chat.mensaje_enviado` | `conversacion_id`, `mensaje_id` (uuid v7 del cliente), `empresa_id`, `tipo`, `cuadrilla_id`, `orden_id`, `autor_id`, `seq`, `contenido` `{ texto, foto, ubicacion }` (booleanos), `enviado_en`, `destinatarios[]` (usuarios activos de la empresa que la ven, sin el autor: miembros, técnicos y supervisión por alcance; en una directa, el otro) | `POST /chat/conversaciones/{id}/mensajes`. Un reenvío del mismo id no emite. Para el emisor de push. |
+| `chat.mensaje_eliminado` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `eliminado_en` | El autor lo eliminó (15 min). Para retirar un push ya enviado. |
+
+**Sin `chat.leido`.** Las lecturas son muy frecuentes, no cambian nada de negocio y nadie fuera del
+chat las consume: el «visto» y los contadores viajan por el feed propio del chat
+(`mensajeria.chat_eventos`, SSE y `GET /chat/cambios`) y el emisor de push calcula el contador del
+badge al enviar. Llenar el outbox (y el relay) con ellas no aporta. Si un consumidor lo necesita, se
+agrega.
+
+**Por qué el tiempo real no usa el outbox.** El relay corre en `cmd/worker` con River (latencia de
+un job, y el SSE vive en `cmd/mensajeria`), sus ids no dan un cursor por usuario y no se guardan
+para reanudar. El feed del chat es una tabla propia con id creciente en orden de COMMIT por empresa
+y `NOTIFY iris_chat` en la misma transacción.
+
 ## Soporte (I2)
 
 Emite el módulo `soporte`, con `empresa_id` = la empresa del ticket (null sin conector). Las fechas van en UTC (RFC 3339).

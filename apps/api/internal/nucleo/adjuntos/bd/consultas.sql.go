@@ -509,3 +509,47 @@ func (q *Queries) RechazarAdjunto(ctx context.Context, arg RechazarAdjuntoParams
 	)
 	return i, err
 }
+
+const retirarAdjunto = `-- name: RetirarAdjunto :one
+UPDATE nucleo.adjuntos
+SET estado = 'rechazado', motivo_rechazo = $1, version = version + 1, updated_at = now()
+WHERE id = $2 AND estado <> 'rechazado'
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+`
+
+type RetirarAdjuntoParams struct {
+	Motivo *string
+	ID     uuid.UUID
+}
+
+// Su módulo dueño ya no lo muestra (p. ej. se eliminó el mensaje del chat): rechazado en
+// cualquier estado, también completo.
+func (q *Queries) RetirarAdjunto(ctx context.Context, arg RetirarAdjuntoParams) (NucleoAdjunto, error) {
+	row := q.db.QueryRow(ctx, retirarAdjunto, arg.Motivo, arg.ID)
+	var i NucleoAdjunto
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Tipo,
+		&i.ClaveChecklist,
+		&i.Mime,
+		&i.Tamano,
+		&i.Sha256,
+		&i.Recibido,
+		&i.Estado,
+		&i.MotivoRechazo,
+		&i.Lat,
+		&i.Lon,
+		&i.TomadoEn,
+		&i.SubidoPor,
+		&i.Almacenamiento,
+		&i.Clave,
+		&i.CompletadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
