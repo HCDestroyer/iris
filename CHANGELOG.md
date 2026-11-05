@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/HCDestroyer/iris/compare/v0.11.0...v0.12.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **campo, movil:** diseño «combinada» de la app del técnico (PWA y nativa) ([#100](https://github.com/HCDestroyer/iris/issues/100)) ([8b6fcef](https://github.com/HCDestroyer/iris/commit/8b6fcef7046b74d503323f0666d1b06f90b8315d))
+* **panel:** nuevo diseño del panel: estructura, Inicio, tickets, agenda del mes y mapa ([#101](https://github.com/HCDestroyer/iris/issues/101)) ([ce14aac](https://github.com/HCDestroyer/iris/commit/ce14aac8ebd431606083ea8d7799896ae419dee4))
+
 ## [0.11.0](https://github.com/HCDestroyer/iris/compare/v0.10.0...v0.11.0) (2026-11-05)
 
 
