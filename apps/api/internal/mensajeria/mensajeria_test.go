@@ -387,6 +387,19 @@ func TestAvisoEntregadoConUnSoloWebhook(t *testing.T) {
 	// Otra integración no lo ve.
 	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+id, e.otro, "", nil), http.StatusNotFound)
 	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/no-es-uuid", e.token, "", nil), http.StatusNotFound)
+	// Si la integración pierde la empresa del aviso, tampoco lo ve.
+	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+id, e.token, "", nil), http.StatusOK)
+	var usuario int64
+	if err := e.bd.QueryRow(e.ctx, `SELECT usuario_id FROM mensajeria.avisos WHERE id = $1`, id).Scan(&usuario); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.bd.Exec(e.ctx, `UPDATE nucleo.usuarios_empresas SET empresa_id = 2 WHERE usuario_id = $1 AND empresa_id = 1`, usuario); err != nil {
+		t.Fatal(err)
+	}
+	e.exigir(e.pedir(http.MethodGet, "/api/v1/mensajeria/avisos/"+id, e.token, "", nil), http.StatusNotFound)
+	if _, err := e.bd.Exec(e.ctx, `UPDATE nucleo.usuarios_empresas SET empresa_id = 1 WHERE usuario_id = $1 AND empresa_id = 2`, usuario); err != nil {
+		t.Fatal(err)
+	}
 
 	// Auditoría y outbox.
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.enviar' AND entidad = 'aviso' AND entidad_id = $1`, id); n != 1 {

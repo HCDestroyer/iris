@@ -472,6 +472,14 @@ func nuevoVerAviso(_ *Modulo) *auditoria.Caso[EntradaVerAviso, AvisoDetalle] {
 			if u := usuarioDe(ctx); u != nil && (a.UsuarioID == nil || *a.UsuarioID != *u) {
 				return AvisoDetalle{}, noExiste
 			}
+			// Ni de una empresa que ya no es de la integración (0.6.1 §6.6).
+			if err := exigirEmpresa(ctx, t, a.EmpresaID); err != nil {
+				var p *nucleo.Problema
+				if errors.As(err, &p) && p.Status < 500 {
+					return AvisoDetalle{}, noExiste
+				}
+				return AvisoDetalle{}, err
+			}
 			return aDetalle(a), nil
 		},
 	})
