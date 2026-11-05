@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
-import { elegirSugerencia } from "./controles";
+import { abrirSugerencias, buscarSugerencias, elegirSugerencia } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
 /*
@@ -29,8 +29,9 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
 
     const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
     await buscar.click();
+    await abrirSugerencias(buscar);
     await expect(page.getByText(/Escribe al menos 3 caracteres/)).toBeVisible();
-    await buscar.fill("Ana");
+    await buscarSugerencias(buscar, "Ana");
     const opcion = page.getByRole("option", { name: /Ana Morales/ });
     await expect(opcion).toContainText("CL-0503");
     await expect(opcion).toContainText("6a avenida 12-40, zona 10");
@@ -74,10 +75,12 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
 
     // Recientes: al volver a abrir aparece el último elegido; al elegirlo se vuelve a leer la ficha.
     await page.goto("/tickets/nuevo");
-    await page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" }).click();
-    const recientes = page.getByRole("listbox", { name: "Clientes recientes" });
+    const campoRecientes = page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" });
+    await campoRecientes.click();
+    await abrirSugerencias(campoRecientes);
+    await expect(page.getByRole("listbox", { name: "Clientes recientes" })).toBeVisible();
     const fichas = api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length;
-    await elegirSugerencia(recientes.getByRole("option", { name: /Ana Morales/ }));
+    await elegirSugerencia(campoRecientes, /Ana Morales/);
     await expect(page.getByRole("listbox", { name: "Servicios del cliente" })).toBeVisible();
     expect(api.peticiones.filter((p) => p.ruta === "/api/v1/clientes/503").length).toBeGreaterThan(fichas);
 });
@@ -115,10 +118,10 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     const dialogo = await abrirNuevoTicket(page);
     const buscar = dialogo.getByRole("combobox", { name: "Cliente en Argos" });
 
-    await buscar.fill("zzz");
+    await buscarSugerencias(buscar, "zzz");
     await expect(page.getByText("Ningún cliente coincide con «zzz»")).toBeVisible();
 
-    await buscar.fill("falla");
+    await buscarSugerencias(buscar, "falla");
     await expect(page.getByText(/No se pudo buscar/)).toBeVisible();
     // Con la lista abierta, el resto de la página queda oculto al lector (React Aria): Escape la cierra y deja lo escrito.
     await buscar.press("Escape");
@@ -128,12 +131,11 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await aviso.getByRole("button", { name: "Reintentar" }).click();
     await expect(aviso).toHaveCount(0);
     await buscar.click();
+    await abrirSugerencias(buscar);
     await expect(page.getByText("Ningún cliente coincide con «falla»")).toBeVisible();
 
-    await buscar.fill("10.20.31.9");
-    await expect(page.getByRole("option", { name: /Ana Morales/ })).toBeVisible();
-    await buscar.press("ArrowDown");
-    await buscar.press("Enter");
+    await buscarSugerencias(buscar, "10.20.31.9");
+    await elegirSugerencia(buscar, /Ana Morales/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
 });
 
@@ -169,8 +171,8 @@ test("nueva orden con cliente de un solo servicio: lo toma sin preguntar", async
     await page.getByRole("link", { name: "Nueva orden" }).click();
     const dialogo = page.getByRole("form", { name: "Nueva orden" });
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeDisabled();
-    await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("CL-0501");
-    await elegirSugerencia(page.getByRole("option", { name: /María Castillo/ }));
+    await buscarSugerencias(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), "CL-0501");
+    await elegirSugerencia(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), /María Castillo/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
     await expect(dialogo.getByRole("button", { name: "Crear orden" })).toBeEnabled();
     await dialogo.getByRole("button", { name: "Crear orden" }).click();
@@ -184,8 +186,8 @@ test("los errores de la verificación del cliente en el servidor se explican en 
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     const dialogo = await abrirNuevoTicket(page);
     await dialogo.getByLabel("Asunto").fill("Sin servicio");
-    await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
-    await elegirSugerencia(page.getByRole("option", { name: /María Castillo/ }));
+    await buscarSugerencias(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), "Castillo");
+    await elegirSugerencia(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), /María Castillo/);
     await expect(dialogo.getByTestId("servicio-elegido")).toBeVisible();
 
     // 422 empresa_no_coincide: aviso claro y mensaje junto al selector.

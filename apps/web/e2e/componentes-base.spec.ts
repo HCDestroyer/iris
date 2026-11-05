@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { conSesion } from "./api-falsa";
-import { boton, elegirOpcion, elegirSugerencia, escribirFecha, escribirHora, esperarOpcion, esperarValorCampo } from "./controles";
+import { boton, buscarSugerencias, elegirOpcion, elegirSugerencia, escribirFecha, escribirHora, esperarOpcion, esperarValorCampo } from "./controles";
 
 // Prueba de humo de la fase 0 de HeroUI: el tema Horus llega a los componentes y los componentes
 // base nuevos (pestañas, avisos emergentes, migas, fecha, autocompletar, globo, panel emergente y
@@ -76,8 +76,8 @@ test("migas, pestañas, globo, panel emergente, fecha y autocompletar", async ({
     await expect(page.getByRole("button", { name: "Abrir calendario" }).first()).toBeFocused();
 
     const tecnico = page.getByRole("combobox", { name: "Técnico" });
-    await tecnico.fill("an");
-    await elegirSugerencia(page.getByRole("option", { name: /Ana Cux/ }));
+    await buscarSugerencias(tecnico, "an");
+    await elegirSugerencia(tecnico, /Ana Cux/);
     await expect(tecnico).toHaveValue("Ana Cux");
     await sinDesborde(page);
 });

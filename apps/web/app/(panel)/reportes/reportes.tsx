@@ -3,7 +3,7 @@
 import { Aviso, Boton, CampoFecha, CampoSelector, Casilla, GrupoSegmentado, Tarjeta } from "@iris/ui";
 import { CalendarRange, FilterX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZonas } from "@/componentes/comercial/comun";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { useCategorias } from "@/componentes/tickets/catalogos";
@@ -260,10 +260,11 @@ function opciones<T>(lista: readonly T[] | null, elegido: number | null, id: (x:
 /** Período: atajos y las dos fechas. Una fecha a medio escribir no se aplica hasta ser válida. */
 function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; alCambiar: (desde: string, hasta: string) => void }) {
     const [borrador, setBorrador] = useState({ desde, hasta });
-    // La fecha se escribe por partes (día, mes, año) y cada parte válida ya va a la URL: el campo no
-    // se vuelve a montar (perdería el foco a medio escribir). Si la URL cambia por otra cosa (atajo,
-    // «Quitar filtros», Atrás), el borrador toma el período nuevo; el eco de lo que se mandó desde aquí
-    // (aunque llegue tarde) no pisa lo que se sigue escribiendo.
+    // La fecha se escribe por partes (día, mes, año) y cada parte puede dejar una fecha válida a
+    // medias (15/01 mientras se escribe 15/11): el período se aplica 500 ms después del último
+    // cambio, y el campo no se vuelve a montar (perdería el foco a medio escribir). Si la URL cambia
+    // por otra cosa (atajo, «Quitar filtros», Atrás), el borrador toma el período nuevo; el eco de lo
+    // que se mandó desde aquí (aunque llegue tarde) no pisa lo que se sigue escribiendo.
     const actual = `${desde}|${hasta}`;
     const [previo, setPrevio] = useState(actual);
     const [enviados, setEnviados] = useState<readonly string[]>([]);
@@ -277,13 +278,17 @@ function Periodo({ desde, hasta, alCambiar }: { desde: string; hasta: string; al
     // Solo lo que la persona escribió; un período inválido en la URL lo explica el aviso de abajo.
     const editado = borrador.desde !== desde || borrador.hasta !== hasta;
     const error = editado ? errorDeRango(borrador.desde, borrador.hasta) : undefined;
+    const espera = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(espera.current), []);
     const editar = (parcial: Partial<typeof borrador>) => {
         const nuevo = { ...borrador, ...parcial };
         setBorrador(nuevo);
-        if (!errorDeRango(nuevo.desde, nuevo.hasta)) {
+        clearTimeout(espera.current);
+        if (errorDeRango(nuevo.desde, nuevo.hasta)) return;
+        espera.current = setTimeout(() => {
             setEnviados((e) => [...e.slice(-9), `${nuevo.desde}|${nuevo.hasta}`]);
             alCambiar(nuevo.desde, nuevo.hasta);
-        }
+        }, 500);
     };
     return (
         <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-end">

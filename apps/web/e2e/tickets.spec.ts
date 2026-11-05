@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi, SUPERVISOR_ZONA } from "./api-falsa";
 import { pestana } from "./ayudas";
-import { elegirOpcion, elegirSugerencia, esperarOpcion } from "./controles";
+import { buscarSugerencias, elegirOpcion, elegirSugerencia, esperarOpcion } from "./controles";
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 
@@ -194,8 +194,8 @@ test.describe("alta rápida", () => {
         await dialogo.getByLabel("Asunto").fill("Sin señal en todo el sector");
         await elegirOpcion(dialogo.getByLabel("Categoría"), { label: "Sin servicio" });
         await elegirOpcion(dialogo.getByLabel("Prioridad"), "alta");
-        await dialogo.getByRole("combobox", { name: "Cliente en Argos" }).fill("Castillo");
-        await elegirSugerencia(page.getByRole("option", { name: /María Castillo/ }));
+        await buscarSugerencias(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), "Castillo");
+        await elegirSugerencia(dialogo.getByRole("combobox", { name: "Cliente en Argos" }), /María Castillo/);
         await expect(dialogo.getByTestId("cliente-elegido")).toContainText("María Castillo");
         await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-501");
         await dialogo.getByRole("button", { name: "Crear ticket" }).click();

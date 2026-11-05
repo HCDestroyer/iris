@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { buscarSugerencias } from "./controles";
 
 // Capturas para el PM (temporal, no se commitea).
 const carpeta = "/tmp/claude-0/-home-user-iris/d513675a-d7ae-5211-aa74-656ca7e704cf/scratchpad/heroui-completo";
@@ -18,7 +19,7 @@ test("capturas: Select, selector de cliente y fecha", async ({ page, context, ba
     await page.waitForTimeout(400);
     await page.screenshot({ path: n("01-select") });
     await page.keyboard.press("Escape");
-    await form.getByRole("combobox", { name: "Cliente en Argos" }).fill("Ana");
+    await buscarSugerencias(form.getByRole("combobox", { name: "Cliente en Argos" }), "Ana");
     await expect(page.getByRole("option", { name: /Ana Morales/ })).toBeVisible();
     await page.waitForTimeout(400);
     await page.screenshot({ path: n("02-selector-cliente") });

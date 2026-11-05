@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import { abrirMenu, barraInferior, cerrarMenu, esTelefono, hojaMas, menu, selectorEmpresa } from "./ayudas";
-import { elegirOpcion, elegirSugerencia } from "./controles";
+import { elegirOpcion } from "./controles";
 
 // Fase 1 de la interfaz: barra lateral agrupada y contraíble, migas, buscador global (Ctrl/⌘ + K),
 // avisos emergentes tras una acción y, en el teléfono, barra inferior con «Más».
@@ -130,7 +130,7 @@ test("Ctrl + K: un cliente lleva a sus tickets; el nombre sale de la API, nunca 
     await page.keyboard.press("Control+k");
     const buscador = page.getByRole("dialog", { name: "Buscar en Iris" });
     await buscador.getByRole("searchbox").fill("Castillo");
-    await elegirSugerencia(buscador.getByRole("option", { name: /María Castillo/ }));
+    await buscador.getByRole("option", { name: /María Castillo/ }).click();
     await expect(page).toHaveURL(/\/tickets\?clienteId=501$/);
     await expect(page.getByTestId("filtro-cliente")).toContainText("Tickets de María Castillo");
 

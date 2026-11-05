@@ -117,13 +117,47 @@ export async function cerrarOpciones(page: Page): Promise<void> {
     await expect(page.locator('[role="listbox"]').filter({ visible: true })).toHaveCount(0);
 }
 
-/**
- * Toca una opción de un `Autocompletar` (`ComboBox` de HeroUI). Su lista no es modal y React Aria
- * la cierra si la página se desplaza: mientras llegan los resultados el panel crece y la opción
- * puede quedar un instante recortada, y el clic de Playwright desplazaría la página para verla (y
- * cerraría la lista). Se espera a que la opción se vea entera.
+/*
+ * `Autocompletar` (`ComboBox` de HeroUI). Su lista no es modal y React Aria la cierra si la página
+ * se desplaza. Enfocar el campo desplaza la página para mostrarlo (en el teléfono, casi siempre), y
+ * el clic de Playwright también desplaza para «ver» una opción mientras el panel crece con los
+ * resultados: la lista se cerraba sola en las pruebas. Estas ayudas la vuelven a abrir con flecha
+ * abajo (como haría la persona) y eligen con el teclado, que no desplaza nada.
  */
-export async function elegirSugerencia(opcion: Locator): Promise<void> {
-    await expect(opcion).toBeInViewport({ ratio: 1 });
-    await opcion.click();
+
+/** Abre la lista de un `Autocompletar` si está cerrada (flecha abajo) y la devuelve. */
+export async function abrirSugerencias(campo: Locator): Promise<Locator> {
+    await expect(async () => {
+        if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
+        expect(await campo.getAttribute("aria-expanded")).toBe("true");
+    }).toPass({ intervals: [100, 200, 400] });
+    const idLista = await campo.getAttribute("aria-controls");
+    return campo.page().locator(`[id="${idLista ?? ""}"]`);
+}
+
+/** Escribe en un `Autocompletar` y deja su lista abierta (con los resultados que lleguen). */
+export async function buscarSugerencias(campo: Locator, texto: string): Promise<Locator> {
+    await campo.fill(texto);
+    return abrirSugerencias(campo);
+}
+
+/**
+ * Elige con el teclado la opción cuyo texto coincide: flecha abajo hasta que es la activa y Enter.
+ * Se da por elegida cuando el campo se va (el selector de cliente pasa a confirmar) o cierra su
+ * lista; si el Enter llegó mientras la lista se rehacía con resultados nuevos, se repite.
+ */
+export async function elegirSugerencia(campo: Locator, nombre: RegExp): Promise<void> {
+    await expect(campo).toBeFocused();
+    const activa = async () => {
+        const id = await campo.getAttribute("aria-activedescendant");
+        return id ? ((await campo.page().locator(`[id="${id}"]`).textContent()) ?? "") : "";
+    };
+    await expect(async () => {
+        if ((await campo.count()) === 0) return;
+        if ((await campo.getAttribute("aria-expanded")) !== "true") await campo.press("ArrowDown");
+        if (!nombre.test(await activa())) await campo.press("ArrowDown");
+        expect(await activa()).toMatch(nombre);
+        await campo.press("Enter");
+        await expect.poll(async () => (await campo.count()) === 0 || (await campo.getAttribute("aria-expanded")) !== "true", { timeout: 1000 }).toBe(true);
+    }).toPass({ intervals: [50, 100, 200] });
 }

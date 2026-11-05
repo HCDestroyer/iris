@@ -2,6 +2,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ADMIN, BLOQUEADO, CON_MFA, CONSULTA, CONTRASENA, EMPRESAS, LECTOR, conSesion, simularApi } from "./api-falsa";
 import { abrirMenu, entrar } from "./ayudas";
+import { buscarSugerencias } from "./controles";
 
 // Capturas para revisión visual: IRIS_CAPTURAS=<carpeta> (por defecto test-results/capturas).
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
@@ -66,7 +67,7 @@ test("capturas de tickets y empresa activa", async ({ page, context, baseURL }, 
     await expect(async () => {
         const cliente = page.getByRole("form", { name: "Nuevo ticket" }).getByRole("combobox", { name: "Cliente en Argos" });
         await cliente.fill("");
-        await cliente.fill("Castillo");
+        await buscarSugerencias(cliente, "Castillo");
         await expect(page.getByRole("option", { name: /María Castillo/ })).toBeVisible({ timeout: 2000 });
     }).toPass();
     await page.screenshot({ path: nombre("13-alta-rapida") });
