@@ -27,7 +27,7 @@ async function pantalla(alEntrar = jest.fn()) {
 async function escribirCredenciales() {
     await fireEvent.changeText(screen.getByLabelText("Correo"), "ana@isp.gt");
     await fireEvent.changeText(screen.getByLabelText("Contraseña"), "secreta");
-    await fireEvent.press(screen.getByRole("button", { name: /Entrar/ }));
+    await fireEvent.press(screen.getByRole("button", { name: /^Entrar/ }));
 }
 
 describe("Entrar", () => {
@@ -38,10 +38,10 @@ describe("Entrar", () => {
             .instalar();
         const alEntrar = await pantalla();
         await escribirCredenciales();
-        expect(await screen.findByText("Verificación en dos pasos")).toBeTruthy();
+        expect(await screen.findByRole("header", { name: "Código de verificación" })).toBeTruthy();
         expect(api.peticiones[0]?.cuerpo).toEqual({ correo: "ana@isp.gt", contrasena: "secreta" });
 
-        await fireEvent.changeText(screen.getByLabelText("Código de verificación"), "123 456");
+        await fireEvent.changeText(screen.getByLabelText("Escribe los 6 dígitos de tu app de autenticación"), "123 456");
         await fireEvent.press(screen.getByRole("button", { name: /Verificar/ }));
         await waitFor(() => expect(alEntrar).toHaveBeenCalledWith(expect.objectContaining({ id: 5 })));
         const mfa = api.peticiones[1];
@@ -61,7 +61,7 @@ describe("Entrar", () => {
             .instalar();
         const alEntrar = await pantalla();
         await escribirCredenciales();
-        await fireEvent.changeText(await screen.findByLabelText("Código de verificación"), "000000");
+        await fireEvent.changeText(await screen.findByLabelText("Escribe los 6 dígitos de tu app de autenticación"), "000000");
         await fireEvent.press(screen.getByRole("button", { name: /Verificar/ }));
         expect(await screen.findByText(/Código incorrecto o ya usado/)).toBeTruthy();
         expect(alEntrar).not.toHaveBeenCalled();
@@ -70,11 +70,11 @@ describe("Entrar", () => {
     it("credenciales inválidas y validación local (zod) antes de llamar a la API", async () => {
         const api = new ApiFalsa().en("POST", "/api/v1/sesion", () => problema(401, "credenciales_invalidas")).instalar();
         await pantalla();
-        await fireEvent.press(screen.getByRole("button", { name: /Entrar/ }));
+        await fireEvent.press(screen.getByRole("button", { name: /^Entrar/ }));
         expect(await screen.findByText("Escribe tu correo")).toBeTruthy();
         expect(api.peticiones).toHaveLength(0);
         await escribirCredenciales();
-        expect(await screen.findByText("Correo o contraseña incorrectos")).toBeTruthy();
+        expect(await screen.findByText("Correo o contraseña incorrectos.")).toBeTruthy();
     });
 
     it("429: bloquea el botón con la espera de Retry-After", async () => {
@@ -82,7 +82,7 @@ describe("Entrar", () => {
         await pantalla();
         await escribirCredenciales();
         expect(await screen.findByText("Demasiados intentos, espera 2 min")).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Entrar/ })).toBeDisabled();
+        expect(screen.getByRole("button", { name: /^Entrar/ })).toBeDisabled();
     });
 
     it("sin señal: lo explica", async () => {

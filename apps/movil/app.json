@@ -32,6 +32,12 @@
             "expo-sqlite",
             "expo-secure-store",
             [
+                "expo-local-authentication",
+                {
+                    "faceIDPermission": "Iris usa Face ID solo para abrir la sesión que ya está guardada en este teléfono. Nunca guarda tu contraseña."
+                }
+            ],
+            [
                 "expo-location",
                 {
                     "locationAlwaysAndWhenInUsePermission": "Iris usa tu ubicación solo mientras tienes una orden en curso (en camino o en sitio), también con la app en segundo plano, para que despacho vea dónde vas. Con la orden pausada o cerrada se apaga.",
