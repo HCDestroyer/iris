@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/HCDestroyer/iris/compare/v0.14.0...v0.15.0) (2026-11-05)
+
+
+### Funcionalidades
+
+* **mensajeria:** chat interno del equipo, servidor (fase 1) ([#110](https://github.com/HCDestroyer/iris/issues/110)) ([697f8e9](https://github.com/HCDestroyer/iris/commit/697f8e91714bb18837b318858a6cf981121e8676))
+
+
+### Correcciones
+
+* **campo, movil:** avisos bajo la barra del teléfono, «Guardar y seguir» y encabezado nativo visible ([#114](https://github.com/HCDestroyer/iris/issues/114)) ([7cb1284](https://github.com/HCDestroyer/iris/commit/7cb12848785b8b5fe6e73079ca01023161f0528a))
+
 ## [0.14.0](https://github.com/HCDestroyer/iris/compare/v0.13.0...v0.14.0) (2026-11-05)
 
 
