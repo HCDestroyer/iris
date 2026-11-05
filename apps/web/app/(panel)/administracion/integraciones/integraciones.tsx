@@ -7,6 +7,7 @@ import {
     Boton,
     Campo,
     CampoSelector,
+    Casilla,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
@@ -24,7 +25,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
-import { activoQueReemplaza, enlaceValido, panelDe, panelesDeArgos, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
+import { activoQueReemplaza, cuerpoCambioConector, enlaceValido, panelDe, panelesDeArgos, SISTEMAS, textoMotivoOrigen, type Conector, type Previsualizacion, type Sistema } from "@/lib/integraciones/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
@@ -165,7 +166,7 @@ function textoOrigen(origen: Conector["origen"]): string {
     }
 }
 
-const esquemaCambio = z.object({ motivo: z.string().trim().max(500, "Como mucho 500 caracteres") });
+const esquemaCambio = z.object({ motivo: z.string().trim().max(500, "Como mucho 500 caracteres"), revocarAnterior: z.boolean() });
 
 function DialogoCambio({
     conector: c,
@@ -182,7 +183,7 @@ function DialogoCambio({
 }) {
     const [clave, setClave] = useState(nuevaClaveIdempotencia);
     const [error, setError] = useState<unknown>(null);
-    const form = useForm<z.infer<typeof esquemaCambio>>({ resolver: zodResolver(esquemaCambio), defaultValues: { motivo: "" } });
+    const form = useForm<z.infer<typeof esquemaCambio>>({ resolver: zodResolver(esquemaCambio), defaultValues: { motivo: "", revocarAnterior: false } });
     const { isSubmitting, errors } = form.formState;
     const sistema = SISTEMAS[c.sistema];
 
@@ -190,7 +191,7 @@ function DialogoCambio({
         setError(null);
         const opciones = {
             params: { path: { id: c.id }, header: { "Idempotency-Key": clave } },
-            body: d.motivo ? { version: c.version, motivo: d.motivo } : { version: c.version },
+            body: cuerpoCambioConector(accion, c.version, d),
         };
         try {
             if (accion === "activar") await resolver(api().POST("/api/v1/integraciones/conectores/{id}/activar", opciones));
@@ -210,8 +211,12 @@ function DialogoCambio({
                 <form className="grid gap-4" noValidate onSubmit={(e) => void form.handleSubmit(enviar)(e)}>
                     {accion === "activar" && reemplaza ? (
                         <Aviso tono="warning" titulo={`Reemplazará al conector activo de ${sistema}`} data-testid="aviso-reemplazo">
-                            El conector activo ({panelDe(reemplaza) ?? reemplaza.apiUrl}) quedará apagado y su token se revocará en el mismo paso.
+                            El conector activo ({panelDe(reemplaza) ?? reemplaza.apiUrl}) quedará apagado.{" "}
+                            {c.sistema === "argosisp" ? "Su acceso a Iris sigue hasta que Argos use el nuevo (24 h como máximo)." : "Su token se revocará en el mismo paso."}
                         </Aviso>
+                    ) : null}
+                    {accion === "activar" && reemplaza ? (
+                        <Casilla etiqueta="Cortar ya el acceso anterior (si crees que se filtró)" data-testid="revocar-anterior" {...form.register("revocarAnterior")} />
                     ) : null}
                     {accion === "desactivar" ? (
                         <Aviso tono="warning" titulo={`Iris deja de hablar con ${sistema}`}>

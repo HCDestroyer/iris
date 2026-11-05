@@ -95,7 +95,7 @@ type Modulo struct {
 	// «Conectar con un botón» (contrato 0.4.0 §1.4).
 	Autorizar             *auditoria.Caso[conector.EntradaAutorizar, conector.AutorizacionIniciada]
 	CompletarAutorizacion *conector.CompletarAutorizacion
-	ActivarConector       *auditoria.Caso[EntradaCambioConector, Conector]
+	ActivarConector       *auditoria.Caso[EntradaActivarConector, Conector]
 	DesactivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
 	ListarConectores      *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	RecibirWebhook        *auditoria.Caso[EntradaWebhook, WebhookRecibido]
@@ -112,15 +112,16 @@ type Modulo struct {
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
 type (
-	Conector              = conector.Conector
-	EnlaceGenerado        = conector.EnlaceGenerado
-	EntradaConectar       = conector.EntradaConectar
-	EntradaCanjear        = conector.EntradaCanjear
-	ConexionCanjeada      = conector.ConexionCanjeada
-	EntradaCambioConector = conector.EntradaCambioConector
-	EntradaWebhook        = conector.EntradaWebhook
-	WebhookRecibido       = conector.WebhookRecibido
-	CuerpoWebhook         = conector.CuerpoWebhook
+	Conector               = conector.Conector
+	EnlaceGenerado         = conector.EnlaceGenerado
+	EntradaConectar        = conector.EntradaConectar
+	EntradaCanjear         = conector.EntradaCanjear
+	ConexionCanjeada       = conector.ConexionCanjeada
+	EntradaCambioConector  = conector.EntradaCambioConector
+	EntradaActivarConector = conector.EntradaActivarConector
+	EntradaWebhook         = conector.EntradaWebhook
+	WebhookRecibido        = conector.WebhookRecibido
+	CuerpoWebhook          = conector.CuerpoWebhook
 )
 
 // Nuevo arma el módulo: crea el núcleo de conectores y le agrega Argos.

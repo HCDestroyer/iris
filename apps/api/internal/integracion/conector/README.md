@@ -54,8 +54,9 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   al canje (Iris tiene su `atk_`) pero Iris no lo completa (422 `webhook_invalido`, `conector_id`
   inválido, error al guardar, pánico), el mismo `defer` que revoca el `iris_pat_` encola
   `integracion.revocar_canje_remoto` en una transacción propia (la del canje se deshizo). El job lleva
-  sistema, id de conector reservado, base del canje y el token **cifrado** con la clave de los conectores
-  (`DatosAsociados(id, "token_canje_revocar")`): nunca en claro en `river.river_job` ni en el log. Único
+  sistema, id de conector reservado, base del canje y el token **cifrado** con la clave de los conectores,
+  atado al conector y a la base (`DatosTokenCanje`): nunca en claro en `river.river_job` ni en el log, y
+  si alguien cambia `base_url` en el job, no descifra y el job se cancela sin llamar a nadie. Único
   por sistema y conector. Llama a `POST <base>/api/v1<RutaRevocarCanje>` con el token como Bearer y sin
   cuerpo, por el cliente con protección contra SSRF: 204 o 401 terminan; 403 u otro 4xx (también
   destino bloqueado o token ilegible) quedan cancelados en el log sin reintento; 5xx, 429 y sin respuesta
@@ -70,7 +71,9 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   en la misma transacción). Con `Sistema.ConfirmarReconexion` (Argos 0.6.3, `reconexion.go`) el token
   del activo reemplazado **no** se revoca al activar: el conector nuevo guarda `reemplaza_conector_id` y
   `reemplaza_token_id`, y los webhooks firmados con el secreto del anterior (misma base) se aceptan y se
-  guardan en el nuevo. La primera respuesta 2xx de una llamada con el token nuevo (cualquiera del
+  guardan en el nuevo (si ese `X-Webhook-Id` ya está en el viejo o en el nuevo, es un duplicado). Con
+  `revocarAnterior: true` en `activar` (ante una filtración) el token del reemplazado se revoca en el
+  acto y no queda nada diferido. La primera respuesta 2xx de una llamada con el token nuevo (cualquiera del
   conector activo; el cliente avisa una vez) lo confirma: `integraciones.confirmar_reconexion` revoca
   ese token y limpia las columnas. Si nunca llega, el job `integracion.vencer_reemplazo_conector`
   (programado a 24 h, único por conector reemplazado y nuevo) lo revoca (`integraciones.vencer_reconexion`;

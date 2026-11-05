@@ -170,7 +170,7 @@ func nuevoEntorno(t *testing.T) *entorno {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := am.ActivarConector.Ejecutar(sis, argos.EntradaCambioConector{ID: c.ID, Version: c.Version}); err != nil {
+	if _, err := am.ActivarConector.Ejecutar(sis, argos.EntradaActivarConector{ID: c.ID, Version: c.Version}); err != nil {
 		t.Fatal(err)
 	}
 	disco, err := adjuntos.NuevoDisco(t.TempDir())

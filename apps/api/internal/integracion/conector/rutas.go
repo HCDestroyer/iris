@@ -83,8 +83,8 @@ func (n *Nucleo) Registrar(api huma.API) {
 
 	activar := Operacion(EtiquetaIntegraciones, "activarConector", http.MethodPost, "/api/v1/integraciones/conectores/{id}/activar",
 		"Activar un conector", nucleo.PermIntegracionesActivar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	activar.Description += " A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema (queda apagado y su token se revoca en la misma transacción, así la integración no se corta al reconectar). Con Argos, encola la primera carga de zonas y routers."
-	huma.Register(api, activar, func(ctx context.Context, in *conID[EntradaCambioConector]) (*Cuerpo[Conector], error) {
+	activar.Description += " A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema, que queda apagado en la misma transacción (la integración no se corta al reconectar). Su token entregado se revoca en ese paso; con Argos (contrato 0.6.3) se revoca cuando Argos usa el token nuevo, o a las 24 h, salvo con revocarAnterior: true. Con Argos, encola la primera carga de zonas y routers."
+	huma.Register(api, activar, func(ctx context.Context, in *conID[EntradaActivarConector]) (*Cuerpo[Conector], error) {
 		e := in.Body
 		e.ID = in.ID
 		return Responder(n.ActivarConector.Ejecutar(ctx, e))

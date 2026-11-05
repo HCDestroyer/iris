@@ -74,7 +74,9 @@ respaldo de la base sin la clave, no hace falta: sin la clave los secretos no se
    abriendo lo que quede cifrado con ella.
 9. Si la clave se filtró, los secretos que protegía pudieron leerse:
     - Revoca del lado de Argos y Horus los tokens que Iris tenía y reconecta cada conector (enlace
-      nuevo, `POST /api/v1/integraciones/<sistema>/conexion/enlaces`).
+      nuevo, `POST /api/v1/integraciones/<sistema>/conexion/enlaces`). Al activar el conector nuevo,
+      marca «Cortar ya el acceso anterior» (`revocarAnterior: true`): así el `iris_pat_` del anterior
+      no sigue vivo hasta que Argos confirme (runbook `lab.md`, «Conectar con Argos o Horus»).
     - Cambia las contraseñas de los buzones en el servidor de correo y reescríbelas en Iris
       (Administración → Buzones → Editar, y «Probar»).
     - Si se sospecha que alguien leyó los TOTP, reinicia el MFA de los usuarios (abajo).

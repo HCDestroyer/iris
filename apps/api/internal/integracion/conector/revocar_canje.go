@@ -25,8 +25,9 @@ import (
 //   - el job se encola fuera de la transacción del canje (que se deshizo), en una propia, desde el
 //     mismo defer que revoca el iris_pat_ entregado;
 //   - el token va cifrado en los argumentos del job con la clave de los conectores, atado al id de
-//     conector reservado para ese canje (DatosAsociados(id, CampoTokenCanje)): nunca en claro en
-//     river.river_job ni en el log;
+//     conector reservado para ese canje y a la base a la que se manda (DatosTokenCanje): nunca en
+//     claro en river.river_job ni en el log, y si alguien cambia la base en el job no descifra (el
+//     job se cancela);
 //   - único por sistema y conector (cada canje reserva su id);
 //   - 204 o 401 (el token ya no autentica) terminan; 403 u otro 4xx quedan cancelados en el log,
 //     sin reintento; 5xx, 429 y timeouts (sin respuesta) se reintentan, con un máximo de
@@ -35,6 +36,11 @@ import (
 //
 // Iris no repite el canje para recuperar un token perdido en un timeout: el atk_ de un canje que
 // nadie usa vence solo a las 24 h (0.6.3, «Canje sin uso»).
+
+// DatosTokenCanje son los datos asociados del token del job: el conector y la base del canje.
+func DatosTokenCanje(id int64, base string) []byte {
+	return append(DatosAsociados(id, CampoTokenCanje+":"), base...)
+}
 
 // CampoTokenCanje es el dato asociado del token de un canje no completado (job de revocación).
 const CampoTokenCanje = "token_canje_revocar" //nolint:gosec // nombre del dato asociado, no una credencial
@@ -52,7 +58,7 @@ type ArgsRevocarCanje struct {
 	ConectorID int64  `json:"conector_id" river:"unique"`
 	// BaseURL: la base del canje (el <base> del enlace o api= del botón), ya validada.
 	BaseURL string `json:"base_url"`
-	// TokenCifrado: el token del canje cifrado con DatosAsociados(ConectorID, CampoTokenCanje).
+	// TokenCifrado: el token del canje cifrado, atado a ConectorID y BaseURL (DatosTokenCanje).
 	TokenCifrado []byte `json:"token_cifrado"`
 }
 
@@ -76,7 +82,11 @@ func (c *Conexion) encolarRevocarCanje(ctx context.Context, g entradaGuardarCone
 		return
 	}
 	attrs := []any{"sistema", c.s.Nombre, "conector_id", g.ConectorID}
-	cifrado, err := c.n.cifrar(g.ConectorID, CampoTokenCanje, token)
+	if c.n.cfg.Cifrador == nil {
+		slog.ErrorContext(ctx, "conector: sin IRIS_CLAVE_CIFRADO para revocar el token del canje no completado; vencerá solo", attrs...)
+		return
+	}
+	cifrado, err := c.n.cfg.Cifrador.Cifrar([]byte(token), DatosTokenCanje(g.ConectorID, g.Base))
 	if err != nil {
 		slog.ErrorContext(ctx, "conector: no se pudo cifrar el token del canje no completado; vencerá solo", append(attrs, "err", err)...)
 		return
@@ -108,7 +118,7 @@ func (n *Nucleo) RevocarCanje(ctx context.Context, a ArgsRevocarCanje) error {
 		slog.ErrorContext(ctx, "conector: revocar canje sin IRIS_CLAVE_CIFRADO", attrs...)
 		return river.JobCancel(SinCifrado())
 	}
-	token, err := n.cfg.Cifrador.Descifrar(a.TokenCifrado, DatosAsociados(a.ConectorID, CampoTokenCanje))
+	token, err := n.cfg.Cifrador.Descifrar(a.TokenCifrado, DatosTokenCanje(a.ConectorID, a.BaseURL))
 	if err != nil {
 		slog.ErrorContext(ctx, "conector: no se pudo descifrar el token del canje a revocar", append(attrs, "err", err)...)
 		return river.JobCancel(err)
@@ -141,13 +151,15 @@ func (n *Nucleo) RevocarCanje(ctx context.Context, a ArgsRevocarCanje) error {
 type trabajadorRevocarCanje struct {
 	river.WorkerDefaults[ArgsRevocarCanje]
 	n *Nucleo
-	// esperas: Retry-After del último 429 de cada job (id → duración), lo lee NextRetry.
+	// esperas: Retry-After del 429 de este intento (id → duración). Solo se guarda si River va a
+	// reintentar (entonces llama a NextRetry, que la saca); cada intento borra la del anterior.
 	esperas sync.Map
 }
 
 func (w *trabajadorRevocarCanje) Work(ctx context.Context, j *river.Job[ArgsRevocarCanje]) error {
+	w.esperas.Delete(j.ID)
 	err := w.n.RevocarCanje(ctx, j.Args)
-	if d := EsperaDe429(err); d > 0 {
+	if d := EsperaDe429(err); d > 0 && j.Attempt < j.MaxAttempts {
 		w.esperas.Store(j.ID, d)
 	}
 	return err

@@ -5,7 +5,7 @@
 -- que Iris le entregó a ese anterior: se revoca cuando una llamada con el atk_ nuevo responde 2xx (o
 -- a las 24 h, job) y entonces las dos columnas vuelven a null.
 ALTER TABLE integracion.conectores ADD COLUMN reemplaza_conector_id bigint REFERENCES integracion.conectores (id);
-ALTER TABLE integracion.conectores ADD COLUMN reemplaza_token_id bigint;
+ALTER TABLE integracion.conectores ADD COLUMN reemplaza_token_id bigint REFERENCES nucleo.tokens_api (id);
 
 -- +goose Down
 ALTER TABLE integracion.conectores DROP COLUMN reemplaza_token_id;

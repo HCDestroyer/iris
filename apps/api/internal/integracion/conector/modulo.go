@@ -126,7 +126,7 @@ type Nucleo struct {
 	tokens   Tokens
 
 	ListarConectores   *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
-	ActivarConector    *auditoria.Caso[EntradaCambioConector, Conector]
+	ActivarConector    *auditoria.Caso[EntradaActivarConector, Conector]
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
 	CambiarURLPublica  *auditoria.Caso[EntradaURLPublica, Conector]
 	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]

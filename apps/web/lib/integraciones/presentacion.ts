@@ -143,3 +143,12 @@ export function panelesDeArgos(conectores: readonly Conector[]): string[] {
     const paneles = conectores.filter((c) => c.sistema === "argosisp").map((c) => panelDe(c));
     return [...new Set(paneles.filter((p): p is string => p !== null))];
 }
+
+/** Cuerpo de activar o desactivar un conector. `revocarAnterior` solo va al activar con reemplazo marcado. */
+export function cuerpoCambioConector(
+    accion: "activar" | "desactivar",
+    version: number,
+    d: { motivo: string; revocarAnterior: boolean },
+): Schema<"EntradaActivarConector"> {
+    return { version, ...(d.motivo ? { motivo: d.motivo } : {}), ...(accion === "activar" && d.revocarAnterior ? { revocarAnterior: true } : {}) };
+}

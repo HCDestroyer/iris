@@ -612,10 +612,10 @@ func nuevoCanjearConexion(c *Conexion) *auditoria.Caso[EntradaCanjear, ConexionC
 
 // Activar, desactivar, listar (por id, cualquier sistema) ------------------------------------
 
-func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Conector] {
-	return auditoria.Nuevo(auditoria.Caso[EntradaCambioConector, Conector]{
+func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaActivarConector, Conector] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaActivarConector, Conector]{
 		Accion: "integraciones.activar", Permiso: nucleo.PermIntegracionesActivar, SinEmpresa: true,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambioConector) (Conector, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaActivarConector) (Conector, error) {
 			q := conectorbd.New(t)
 			t.FijarEntidad("conector", in.ID)
 			t.FijarEmpresa(0)
@@ -655,8 +655,12 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, Cone
 				return Conector{}, err
 			}
 			if otro, err := q.ConectorActivo(ctx, antes.Sistema); err == nil {
-				if sis != nil && sis.s.ConfirmarReconexion {
+				// revocarAnterior (ante una filtración): el token del reemplazado se revoca ya.
+				if sis != nil && sis.s.ConfirmarReconexion && !in.RevocarAnterior {
 					reemplazado, diferido = &otro.ID, otro.TokenEntregadoID
+				}
+				if in.RevocarAnterior {
+					t.Anotar(map[string]any{"revocar_anterior": true})
 				}
 				apagado, err := q.CambiarEstadoConector(ctx, conectorbd.CambiarEstadoConectorParams{Estado: "apagado", ID: otro.ID, Version: otro.Version})
 				if err := nucleo.VerificarVersion(err, "conector", otro.ID); err != nil {

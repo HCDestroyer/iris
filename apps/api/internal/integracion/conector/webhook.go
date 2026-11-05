@@ -186,6 +186,20 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 				t.FijarEmpresa(*empresa)
 			}
 			t.Anotar(map[string]any{"evento": cuerpo.Evento})
+			// Un webhook del conector reemplazado puede haber llegado ya antes de activar el nuevo (guardado
+			// en el viejo) o por el receptor nuevo: con el mismo id es un duplicado, en cualquiera de los dos.
+			if destino != f.ID {
+				for _, id := range []int64{f.ID, destino} {
+					previo, err := q.EntrantePorWebhook(ctx, conectorbd.EntrantePorWebhookParams{ConectorID: id, WebhookID: webhookID})
+					if err == nil {
+						t.Anotar(map[string]any{"duplicado": true, "entrante_id": previo.ID})
+						return WebhookRecibido{EntranteID: previo.ID, Duplicado: true}, nil
+					}
+					if !esSinFilas(err) {
+						return WebhookRecibido{}, err
+					}
+				}
+			}
 			nuevo, err := q.InsertarEntrante(ctx, conectorbd.InsertarEntranteParams{
 				ConectorID: destino, WebhookID: webhookID, Evento: cuerpo.Evento, EmpresaID: empresa,
 				Payload: payload, OcurridoEn: &ocurrido, RequestID: contexto.RequestIDDe(ctx),

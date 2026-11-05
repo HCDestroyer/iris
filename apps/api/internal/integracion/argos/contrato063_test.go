@@ -269,11 +269,27 @@ func TestRevocarCanjeRespuestas(t *testing.T) {
 	if err := n.RevocarCanje(ctx, a); err != nil {
 		t.Fatalf("204: debía terminar: %v", err)
 	}
-	// Sin respuesta (Argos caído): se reintenta.
+	// Sin respuesta (Argos caído): se reintenta. El token va cifrado para esa base.
 	caido := a
 	caido.BaseURL = "http://127.0.0.1:1"
+	cifrado, err := e.cfg.Cifrador.Cifrar([]byte(tok), conector.DatosTokenCanje(caido.ConectorID, caido.BaseURL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caido.TokenCifrado = cifrado
 	if err := n.RevocarCanje(ctx, caido); err == nil || esCancelado(err) {
 		t.Fatalf("sin respuesta: debía reintentarse: %v", err)
+	}
+	// Token cifrado atado a su base: si alguien cambia base_url en river_job, no descifra, el job se
+	// cancela y no sale ninguna petición (ni a la base nueva ni a la de antes).
+	movido := a
+	movido.BaseURL = strings.Replace(a.BaseURL, "127.0.0.1", "localhost", 1)
+	antesMovido := len(e.argos.revocacionesDe(tok))
+	if err := n.RevocarCanje(ctx, movido); !esCancelado(err) {
+		t.Fatalf("base cambiada: debía cancelarse: %v", err)
+	}
+	if len(e.argos.revocacionesDe(tok)) != antesMovido {
+		t.Fatal("con la base cambiada no debía llamarse a revocar")
 	}
 	// Token cifrado atado a su conector: con otro id no se descifra (y no se reintenta).
 	otro := a
@@ -449,6 +465,13 @@ func (e *entorno) reconectado() (admin *clienteHTTP, viejo, nuevo int64, patViej
 	e.argos.con(func() { e.argos.version = "1.6.0" })
 	admin, viejo, _ = e.conectado()
 	patViejo = e.patDelUltimoCanje()
+	return admin, viejo, e.reconectar(admin, false), patViejo
+}
+
+// reconectar: otro canje (atk_ nuevo) sobre el conector activo y su activación (con
+// revocarAnterior si se pide). Devuelve el conector nuevo.
+func (e *entorno) reconectar(admin *clienteHTTP, revocarAnterior bool) int64 {
+	e.t.Helper()
 	e.argos.con(func() {
 		e.argos.codigo = "codigo-reconexion-" + pruebas.Unico() + "-0123456789"
 		e.argos.tokenCanje = "atk_063_reconexion_" + pruebas.Unico()
@@ -457,11 +480,66 @@ func (e *entorno) reconectado() (admin *clienteHTTP, viejo, nuevo int64, patViej
 	if r.status != 201 {
 		e.t.Fatalf("reconectar: %d %s", r.status, r.crudo)
 	}
-	nuevo = int64(r.cuerpo["id"].(float64))
-	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", nuevo), map[string]any{"version": 1}); a.status != 200 {
+	nuevo := int64(r.cuerpo["id"].(float64))
+	cuerpo := map[string]any{"version": 1}
+	if revocarAnterior {
+		cuerpo["revocarAnterior"] = true
+	}
+	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", nuevo), cuerpo); a.status != 200 {
 		e.t.Fatalf("activar: %d %s", a.status, a.crudo)
 	}
-	return admin, viejo, nuevo, patViejo
+	return nuevo
+}
+
+// Un webhook que Argos ya entregó al conector anterior antes de activar el nuevo, reenviado con el
+// secreto anterior durante la reconexión, es un duplicado: no crea un segundo entrante (ni en el viejo
+// ni en el nuevo).
+func TestReconexionWebhookDuplicadoEntreConectores(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.version = "1.6.0" })
+	admin, viejo, secretoViejo := e.conectado()
+	id := "wh-063-dup-" + pruebas.Unico()
+	payload := map[string]any{"empresa_id": 1, "cliente_id": 71}
+	primero := e.entranteDe(e.enviar(viejo, secretoViejo, id, "cliente.actualizado", payload, time.Now()))
+	nuevo := e.reconectar(admin, false)
+	r := e.enviar(viejo, secretoViejo, id, "cliente.actualizado", payload, time.Now())
+	if r.status >= 300 || r.cuerpo["duplicado"] != true || e.entranteDe(r) != primero {
+		t.Fatalf("el reenvío debía ser un duplicado del primero (%d): %d %s", primero, r.status, r.crudo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.entrantes WHERE webhook_id = $1`, id); n != 1 {
+		t.Fatalf("entrantes con ese id: %d", n)
+	}
+	// Uno nuevo por el conector viejo sí entra, en el nuevo; su reenvío también es duplicado.
+	otro := "wh-063-dup2-" + pruebas.Unico()
+	ent := e.entranteDe(e.enviar(viejo, secretoViejo, otro, "cliente.actualizado", payload, time.Now()))
+	if e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND conector_id = $2`, ent, nuevo) != 1 {
+		t.Fatal("el webhook nuevo del conector reemplazado se guarda en el activo")
+	}
+	if r := e.enviar(viejo, secretoViejo, otro, "cliente.actualizado", payload, time.Now()); r.cuerpo["duplicado"] != true || e.contar(`SELECT count(*) FROM integracion.entrantes WHERE webhook_id = $1`, otro) != 1 {
+		t.Fatalf("reenvío: %s", r.crudo)
+	}
+}
+
+// revocarAnterior (ante una filtración): reconectar corta en el acto el iris_pat_ anterior, sin
+// reemplazo pendiente ni vencimiento, y los webhooks del conector anterior ya no entran.
+func TestReconexionRevocarAnteriorCortaYa(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.version = "1.6.0" })
+	admin, viejo, secretoViejo := e.conectado()
+	patViejo := e.patDelUltimoCanje()
+	nuevo := e.reconectar(admin, true)
+	if r := e.leerConPat(patViejo); r.status != 401 {
+		t.Fatalf("con revocarAnterior el iris_pat_ anterior debía dar 401 enseguida: %d", r.status)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND reemplaza_conector_id IS NULL AND reemplaza_token_id IS NULL`, nuevo) != 1 ||
+		e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.vencer_reemplazo_conector' AND (args->>'conector_nuevo_id')::bigint = $1`, nuevo) != 0 {
+		t.Fatal("con revocarAnterior no queda nada diferido")
+	}
+	if e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.activar' AND entidad_id = $1 AND entrada::text LIKE '%revocarAnterior%'`, fmt.Sprint(nuevo)) != 1 {
+		t.Fatal("la auditoría de activar registra revocarAnterior")
+	}
+	e.enviar(viejo, secretoViejo, "wh-063-"+pruebas.Unico(), "cliente.actualizado", map[string]any{"empresa_id": 1, "cliente_id": 71}, time.Now()).
+		problema(t, 503, "conector_apagado")
 }
 
 // Sin confirmación (Argos nunca recibe una llamada del atk_ nuevo), el job de las 24 h revoca el
