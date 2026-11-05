@@ -996,20 +996,23 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 
 const insertarWebhookSalida = `-- name: InsertarWebhookSalida :exec
 
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (id) DO NOTHING
 `
 
 type InsertarWebhookSalidaParams struct {
-	ID         uuid.UUID
-	Evento     string
-	EmpresaID  *int64
-	Payload    []byte
-	OcurridoEn time.Time
+	ID             uuid.UUID
+	Evento         string
+	EmpresaID      *int64
+	Payload        []byte
+	OcurridoEn     time.Time
+	ProximoIntento time.Time
 }
 
 // Webhooks hacia Argos -------------------------------------------------------------------------
+// proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
+// mismo reloj, y en las pruebas es fijo.
 func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhookSalidaParams) error {
 	_, err := q.db.Exec(ctx, insertarWebhookSalida,
 		arg.ID,
@@ -1017,6 +1020,7 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 		arg.EmpresaID,
 		arg.Payload,
 		arg.OcurridoEn,
+		arg.ProximoIntento,
 	)
 	return err
 }
@@ -1322,12 +1326,17 @@ func (q *Queries) ReservarEnvio(ctx context.Context, arg ReservarEnvioParams) er
 }
 
 const reservarWebhook = `-- name: ReservarWebhook :exec
-UPDATE mensajeria.webhooks_salida SET proximo_intento = now() + interval '5 minutes', updated_at = now() WHERE id = $1
+UPDATE mensajeria.webhooks_salida SET proximo_intento = $1, updated_at = now() WHERE id = $2
 `
 
+type ReservarWebhookParams struct {
+	Hasta time.Time
+	ID    uuid.UUID
+}
+
 // Un despacho lo toma: nadie más lo intenta en los próximos 5 min (si el proceso cae, se retoma).
-func (q *Queries) ReservarWebhook(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, reservarWebhook, id)
+func (q *Queries) ReservarWebhook(ctx context.Context, arg ReservarWebhookParams) error {
+	_, err := q.db.Exec(ctx, reservarWebhook, arg.Hasta, arg.ID)
 	return err
 }
 

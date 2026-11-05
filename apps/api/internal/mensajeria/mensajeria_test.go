@@ -611,7 +611,7 @@ func TestSimuladoNumeroInvalidoYReintentoDeWebhook(t *testing.T) {
 		t.Fatalf("reintento: %s %d %v", estado, intentos, proximo)
 	}
 	*e.reloj = e.reloj.Add(2 * time.Minute)
-	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.webhooks_salida SET proximo_intento = now() - interval '1 second' WHERE payload->>'aviso_id' = $1`, id); err != nil {
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.webhooks_salida SET proximo_intento = $2 WHERE payload->>'aviso_id' = $1`, id, e.reloj.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	e.publicar()
