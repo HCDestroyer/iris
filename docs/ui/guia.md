@@ -190,7 +190,13 @@ se pasó a HeroUI:
 
 En las pruebas, `e2e/controles.ts` trae las ayudas para estas piezas: `elegirOpcion` (en lugar
 de `selectOption`), `esperarOpcion`, `textosOpciones` y `abrirOpciones` para el `Select`, y
-`escribirFecha`, `escribirHora` y `esperarValorCampo` para los segmentos de fecha y hora.
+`escribirFecha`, `escribirHora` y `esperarValorCampo` para los segmentos de fecha y hora, y
+`elegirSugerencia` para tocar una opción del `Autocompletar` (su lista no es modal y React Aria la
+cierra si la página se desplaza: espera a que la opción se vea entera).
+
+Un `CampoFecha` avisa cada vez que una parte (día, mes o año) deja una fecha válida, no solo al
+terminar como el `<input type="date">`: un filtro que lleva la fecha a la URL no debe volver a
+montar el campo con cada cambio (perdería el foco a medio escribir; ver `Periodo` en Reportes).
 
 ## Nuevo diseño del panel (nov. 2026, hecho)
 
