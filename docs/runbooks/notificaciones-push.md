@@ -114,10 +114,52 @@ los mensajes.
 
 ## 5. Privacidad
 
-- La app recibe un mensaje **solo de datos** y arma la notificación con una **versión pública**
-  para la pantalla bloqueada («Nuevo mensaje», «Te mencionaron», «Orden actualizada», «Cliente
-  esperando»), sin nombres ni texto.
+- La app recibe un mensaje **solo de datos** y arma la notificación. En la pantalla bloqueada los
+  cuatro canales van con visibilidad **privada**: Android muestra «Iris Campo» sin título ni texto
+  (la app aún no usa el `publicoTitulo` del mensaje: `expo-notifications` no permite fijar una
+  versión pública propia, ver la sección 6). Cada técnico puede endurecerlo en los ajustes del canal.
 - Cada usuario elige en «Yo» → «Notificaciones» si el aviso muestra el texto o solo quién escribe.
   Con «solo quién escribe», el texto no sale del servidor.
 - Antes de cada envío se vuelven a comprobar la sesión del teléfono, la empresa y los permisos: a
   quien se le quita un rol, sale de una cuadrilla o de la empresa le dejan de llegar los push.
+
+## 6. La app (APK con push)
+
+La app necesita el `google-services.json` del **mismo** proyecto de Firebase (paso 1.2) al compilar.
+Es configuración, no una llave (queda dentro del APK), pero es de cada ISP: **nunca se commitea**
+(`apps/movil/.gitignore`).
+
+1. Codifícalo en una línea: `base64 -w0 google-services.json` (en macOS, `base64 -i google-services.json`).
+2. En GitHub → Settings → Secrets and variables → Actions, crea el secreto de repositorio
+   **`GOOGLE_SERVICES_JSON`** con ese texto.
+3. Corre «APK de Android» (`movil-apk.yml`). El job `compilar` lo valida (base64, JSON y que traiga
+   la app `gt.horus.iris.campo`), lo escribe en `apps/movil/google-services.json` y `app.config.js`
+   lo pasa a `android.googleServicesFile`. El resumen del job dice «Push: configurado».
+4. **Sin el secreto** el APK se compila igual, **sin push**: el job lo avisa con un *warning* y
+   «Push: sin configurar». En el teléfono, «Yo» → «Notificaciones» guarda las preferencias pero el
+   teléfono no se registra (no hay token de FCM).
+
+Para compilar en local, copia el archivo a `apps/movil/google-services.json` antes de
+`expo prebuild`.
+
+### Qué hace la app
+
+- Al entrar (y al cambiar de empresa, cuando FCM rota el token y una vez al día) registra el
+  teléfono con `POST /api/v1/dispositivos` y el token **nativo** de FCM (`getDevicePushTokenAsync`).
+  Al cerrar sesión quita sus dispositivos (el servidor también lo hace).
+- La primera vez muestra «Que Iris te avise» antes del diálogo de Android; «Ahora no» no vuelve a
+  preguntar solo. Si el permiso está bloqueado, «Yo» → «Notificaciones» lo dice con «Activar» (abre
+  los ajustes de Android).
+- Canales de Android: «Mensajes del equipo» (`chat`), «Menciones» (`mencion`), «Órdenes» (`orden`)
+  y «Bandeja de clientes» (`bandeja`).
+- Una notificación por conversación u orden: los mensajes de una conversación se apilan
+  («Cuadrilla Norte · 2 mensajes»), con «Responder» (respuesta en línea) y «Marcar como leído»; las
+  órdenes, con «Ver orden» y «Cómo llegar». Tocar abre la pantalla (`iris://chat/…`,
+  `iris://orden/…`; `iris://conversaciones/…` abre la bandeja en el panel web), también con la app
+  cerrada: si no hay sesión, después de entrar, y solo si el aviso era para esa persona.
+- Con la app al frente no avisa el chat que se está viendo.
+
+**Límites de `expo-notifications`** (sin código nativo propio): no hay `MessagingStyle` (avatar e
+iniciales por remitente), ni versión pública con título propio, ni `setWhen`. Hacerlo pide un *config
+plugin* con un `FirebaseMessagingService` propio en Kotlin; queda para una siguiente versión, a
+validar en un teléfono.

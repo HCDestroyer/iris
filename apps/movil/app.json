@@ -29,6 +29,12 @@
             ]
         },
         "plugins": [
+            [
+                "expo-notifications",
+                {
+                    "color": "#0f766e"
+                }
+            ],
             "expo-sqlite",
             "expo-secure-store",
             [

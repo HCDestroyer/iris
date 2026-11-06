@@ -110,9 +110,11 @@ export function FilaAjuste({
     etiqueta,
     alPresionar,
     tinta,
+    deshabilitado,
     testID,
 }: {
-    icono: LucideIcon;
+    /** Sin icono, queda el hueco (la fila se alinea con las de arriba). */
+    icono?: LucideIcon;
     titulo: string;
     detalle?: string | null;
     derecha?: ReactNode;
@@ -121,12 +123,14 @@ export function FilaAjuste({
     alPresionar?: () => void;
     /** Color del icono y del título (rojo para salir). */
     tinta?: string;
+    /** Atenuada y sin tocar (p. ej. con las notificaciones bloqueadas en el teléfono). */
+    deshabilitado?: boolean;
     testID?: string;
 }) {
     const { colores } = useTema();
     const contenido = (
         <>
-            <Icono size={22} color={tinta ?? colores.texto} strokeWidth={1.8} />
+            {Icono ? <Icono size={22} color={tinta ?? colores.texto} strokeWidth={1.8} /> : <View style={estilos.hueco} />}
             <View style={estilos.flex}>
                 <Text style={[estilos.tituloFila, { color: tinta ?? colores.texto }]}>{titulo}</Text>
                 {detalle ? <Text style={[estilos.detalleFila, { color: colores.textoSuave }]}>{detalle}</Text> : null}
@@ -137,13 +141,22 @@ export function FilaAjuste({
     );
     if (!alPresionar) {
         return (
-            <View testID={testID} style={estilos.fila}>
+            <View testID={testID} style={[estilos.fila, deshabilitado ? estilos.atenuada : null]}>
                 {contenido}
             </View>
         );
     }
     return (
-        <PressableFeedback accessibilityRole="button" accessibilityLabel={etiqueta ?? titulo} onPress={alPresionar} testID={testID} animation={{ scale: { value: 0.99 } }} style={estilos.fila}>
+        <PressableFeedback
+            accessibilityRole="button"
+            accessibilityLabel={etiqueta ?? titulo}
+            accessibilityState={deshabilitado ? { disabled: true } : undefined}
+            isDisabled={deshabilitado}
+            onPress={alPresionar}
+            testID={testID}
+            animation={{ scale: { value: 0.99 } }}
+            style={[estilos.fila, deshabilitado ? estilos.atenuada : null]}
+        >
             <PressableFeedback.Highlight />
             {contenido}
         </PressableFeedback>
@@ -151,14 +164,89 @@ export function FilaAjuste({
 }
 
 /** Fila con interruptor (HeroUI `Switch`): `switch` accesible con su estado; toda la fila lo cambia. */
-export function FilaInterruptor({ icono, titulo, detalle, valor, alCambiar, testID }: { icono: LucideIcon; titulo: string; detalle?: string; valor: boolean; alCambiar: (v: boolean) => void; testID?: string }) {
+export function FilaInterruptor({
+    icono,
+    titulo,
+    detalle,
+    valor,
+    alCambiar,
+    deshabilitado,
+    testID,
+}: {
+    icono: LucideIcon;
+    titulo: string;
+    detalle?: string;
+    valor: boolean;
+    alCambiar: (v: boolean) => void;
+    deshabilitado?: boolean;
+    testID?: string;
+}) {
     return (
         <FilaAjuste
             icono={icono}
             titulo={titulo}
             detalle={detalle ?? null}
-            derecha={<Switch isSelected={valor} onSelectedChange={alCambiar} accessibilityLabel={titulo} accessibilityState={{ checked: valor }} testID={testID} style={estilos.zonaInterruptor} />}
+            deshabilitado={deshabilitado}
+            derecha={
+                <Switch
+                    isSelected={valor}
+                    isDisabled={deshabilitado}
+                    onSelectedChange={alCambiar}
+                    accessibilityLabel={titulo}
+                    accessibilityState={{ checked: valor, disabled: deshabilitado === true }}
+                    testID={testID}
+                    style={estilos.zonaInterruptor}
+                />
+            }
         />
+    );
+}
+
+/**
+ * Fila de una elección (radio): el círculo marcado, título, detalle y, si se da, algo debajo (la
+ * muestra del aviso). `radio` accesible con `checked`: nunca solo color.
+ */
+export function FilaRadio({
+    titulo,
+    detalle,
+    elegida,
+    alElegir,
+    deshabilitado,
+    children,
+    testID,
+}: {
+    titulo: string;
+    detalle?: string;
+    elegida: boolean;
+    alElegir: () => void;
+    deshabilitado?: boolean;
+    children?: ReactNode;
+    testID?: string;
+}) {
+    const { colores } = useTema();
+    return (
+        <PressableFeedback
+            accessibilityRole="radio"
+            accessibilityLabel={titulo}
+            accessibilityState={{ checked: elegida, selected: elegida, disabled: deshabilitado === true }}
+            isDisabled={deshabilitado}
+            onPress={alElegir}
+            testID={testID}
+            animation={{ scale: { value: 0.99 } }}
+            style={[estilos.fila, deshabilitado ? estilos.atenuada : null]}
+        >
+            <PressableFeedback.Highlight />
+            <View style={[estilos.radio, { borderColor: elegida ? colores.primario : colores.borde }]}>
+                {elegida ? <View style={[estilos.radioPunto, { backgroundColor: colores.primario }]} /> : null}
+            </View>
+            <View style={[estilos.flex, estilos.columnaRadio]}>
+                <View>
+                    <Text style={[estilos.tituloFila, { color: colores.texto }]}>{titulo}</Text>
+                    {detalle ? <Text style={[estilos.detalleFila, { color: colores.textoSuave }]}>{detalle}</Text> : null}
+                </View>
+                {children}
+            </View>
+        </PressableFeedback>
     );
 }
 
@@ -238,6 +326,11 @@ const estilos = StyleSheet.create({
     circulo: { width: 8, height: 8, borderRadius: 4 },
     textoPunto: { fontSize: 15, fontWeight: "500" },
     zonaInterruptor: { minHeight: ZONA_TACTIL, minWidth: ZONA_TACTIL, justifyContent: "center" },
+    atenuada: { opacity: 0.55 },
+    hueco: { width: 22, height: 22 },
+    radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+    radioPunto: { width: 12, height: 12, borderRadius: 6 },
+    columnaRadio: { gap: 10 },
     encabezado: { flexDirection: "row", alignItems: "center", gap: 14 },
     tituloPantalla: { flex: 1, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 },
     ayuda: { flexDirection: "row", alignItems: "center", gap: 6 },

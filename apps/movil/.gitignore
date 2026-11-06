@@ -11,3 +11,6 @@ expo-env.d.ts
 *.keystore
 *.apk
 *.aab
+
+# Configuración de Firebase del ISP (push): la escribe el CI desde un secreto
+google-services.json

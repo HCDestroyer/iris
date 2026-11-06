@@ -133,7 +133,7 @@ agrupación y acciones), también con la app cerrada (tarea en segundo plano de
 | `publicoTitulo` | `Nuevo mensaje` | **Versión pública** (pantalla bloqueada): `setPublicVersion` con este título, sin cuerpo y sin acciones |
 | `grupo` | `chat-12` | Agrupa (`setGroup`): una conversación, una orden |
 | `etiqueta` | `chat-0193…` | `tag` de la notificación: la misma etiqueta reemplaza a la anterior |
-| `enlace` | `iris://chat/12` | Al tocar |
+| `enlace` | `iris://chat/12` | Al tocar. **Formato interno del mensaje**: la app no registra el esquema `iris` en Android (solo `iris-campo`), así que no se abre desde afuera; la app lo valida (`iris://chat|orden|conversaciones/<id entero>`) y nunca navega a otra cosa |
 | `acciones` | `responder,leido` | Botones, en orden (§5) |
 | `ocurridoEn` | `2026-11-06T20:32:10Z` | Hora del hecho (`setWhen`) |
 | `datos` | `{"conversacionId":12,…}` | JSON con lo propio del tipo (abajo) |
