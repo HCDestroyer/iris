@@ -113,6 +113,34 @@ describe("feed de la bandeja", () => {
         expect(cursores).toEqual(["10", "50"]);
     });
 
+    it("un 410 repetido no entra en bucle: el segundo y los siguientes esperan con backoff", async () => {
+        const esperas: number[] = [];
+        let aperturas = 0;
+        let vencidos = 0;
+        const { opciones } = base({
+            abrirFlujo: async () => {
+                aperturas++;
+                return new Response(null, { status: 410 });
+            },
+            alCursorVencido: () => vencidos++,
+            plazos: { ...plazos, esperaMin: 5, esperaMax: 40 },
+            reloj: {
+                ahora: () => 0,
+                esperar: async (ms) => {
+                    esperas.push(ms);
+                    await new Promise((r) => setTimeout(r, 1));
+                },
+            },
+        });
+        const cerrar = iniciarFeed(opciones);
+        await hasta(() => aperturas >= 6);
+        cerrar();
+        // El primer 410 recarga sin esperar; desde el segundo, espera creciente.
+        expect(vencidos).toBeGreaterThanOrEqual(5);
+        expect(esperas.slice(0, 4)).toEqual([5, 10, 20, 40]);
+        expect(esperas.length).toBeGreaterThanOrEqual(aperturas - 2);
+    });
+
     it("429 o 503: pasa al sondeo con el mismo cursor y vuelve a probar el flujo después", async () => {
         const pedidos: (string | undefined)[] = [];
         let flujos = 0;
