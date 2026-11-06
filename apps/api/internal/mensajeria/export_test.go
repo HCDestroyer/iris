@@ -53,12 +53,27 @@ func (m *Modulo) DespacharBoletas(ctx context.Context, bd nucleo.BD) error {
 }
 
 func (m *Modulo) VencerDisponibilidad(ctx context.Context, bd nucleo.BD) int {
-	return m.vencerDisponibilidades(ctx, bd)
+	n, _ := m.vencerDisponibilidades(ctx, bd)
+	return n
 }
 
 func (m *Modulo) DispararBots(ctx context.Context, bd nucleo.BD) int {
+	n, _ := m.dispararBots(ctx, bd)
+	return n
+}
+
+// VencerDisponibilidadConError y DispararBotsConError devuelven además el primer error de una fila
+// (el barrido sigue con las demás).
+func (m *Modulo) VencerDisponibilidadConError(ctx context.Context, bd nucleo.BD) (int, error) {
+	return m.vencerDisponibilidades(ctx, bd)
+}
+
+func (m *Modulo) DispararBotsConError(ctx context.Context, bd nucleo.BD) (int, error) {
 	return m.dispararBots(ctx, bd)
 }
+
+// FijarFallarFila hace fallar las filas del barrido para las que f devuelve un error.
+func (m *Modulo) FijarFallarFila(f func(id int64) error) { m.fallarFila = f }
 
 func (m *Modulo) PurgarFotosSinEnviar(ctx context.Context, bd nucleo.BD) error {
 	return m.purgarFotosSinEnviar(ctx, bd)

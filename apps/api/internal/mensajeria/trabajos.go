@@ -66,8 +66,8 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 	}
 	// Bandeja 1.1: disponibilidad (sesión, horario, inactividad) y temporizadores del bot. Un caso
 	// por fila: un error en una queda en el log y no corta el mantenimiento.
-	w.m.vencerDisponibilidades(ctx, w.bd)
-	w.m.dispararBots(ctx, w.bd)
+	_, _ = w.m.vencerDisponibilidades(ctx, w.bd) // los errores ya quedaron en el log
+	_, _ = w.m.dispararBots(ctx, w.bd)
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))
 	if err != nil {
 		return err
